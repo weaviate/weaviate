@@ -139,7 +139,7 @@ func TestRemoteIndexUpdateShardStatus(t *testing.T) {
 	defer ts.Close()
 	client := newRemoteIndex(ts.Client())
 	t.Run("ConnectionError", func(t *testing.T) {
-		err := client.UpdateShardStatus(ctx, "", "C1", "S1", "NewStatus")
+		err := client.UpdateShardStatus(ctx, "", "C1", "S1", "NewStatus", 0)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "connect")
 	})
@@ -153,7 +153,7 @@ func TestRemoteIndexUpdateShardStatus(t *testing.T) {
 		n++
 	}
 	t.Run("Success", func(t *testing.T) {
-		err := client.UpdateShardStatus(ctx, fs.host, "C1", "S1", "NewStatus")
+		err := client.UpdateShardStatus(ctx, fs.host, "C1", "S1", "NewStatus", 0)
 		assert.Nil(t, err)
 	})
 }

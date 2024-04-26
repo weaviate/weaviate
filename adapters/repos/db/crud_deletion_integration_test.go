@@ -64,7 +64,7 @@ func TestDeleteJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -133,7 +133,7 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[0].ID
 
-			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "", 0)
 			require.Nil(t, err)
 		})
 
@@ -175,7 +175,7 @@ func TestDeleteJourney(t *testing.T) {
 		func(t *testing.T) {
 			id := updateTestData()[1].ID
 
-			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
+			err := repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "", 0)
 			require.Nil(t, err)
 		})
 
@@ -229,7 +229,7 @@ func TestDeleteJourney(t *testing.T) {
 
 		id := updateTestData()[2].ID
 
-		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "")
+		err = repo.DeleteObject(context.Background(), "UpdateTestClass", id, nil, "", 0)
 		require.Nil(t, err)
 
 		index := repo.GetIndex("UpdateTestClass")

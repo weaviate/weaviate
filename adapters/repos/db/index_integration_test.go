@@ -139,7 +139,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -201,7 +201,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
+			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -241,7 +241,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String(), 0)
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -309,7 +309,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		}
 
 		err := index.putObject(ctx, storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
 		require.Nil(t, err)
 	}
 

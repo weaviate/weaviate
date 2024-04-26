@@ -35,11 +35,12 @@ const serviceConfig = `
 					"service": "weaviate.internal.cluster.ClusterService", "method": "Query"
 				}
 			],
+			"waitForReady": true,			
 			"retryPolicy": {
 				"MaxAttempts": 5,
 				"BackoffMultiplier": 2,
 				"InitialBackoff": "0.5s",
-				"MaxBackoff": "3s",
+				"MaxBackoff": "5s",
 				"RetryableStatusCodes": [
 					"ABORTED",
 					"RESOURCE_EXHAUSTED",
@@ -130,7 +131,9 @@ func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.Quer
 }
 
 func (cl *Client) Close() {
-	cl.leaderConn.Close()
+	if cl.leaderConn != nil {
+		cl.leaderConn.Close()
+	}
 }
 
 func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {

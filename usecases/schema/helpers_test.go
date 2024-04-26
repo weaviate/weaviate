@@ -121,8 +121,8 @@ func (f *fakeDB) UpdateShardStatus(cmd *command.UpdateShardStatusRequest) error 
 	return nil
 }
 
-func (f *fakeDB) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := f.Called(class)
+func (f *fakeDB) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), nil
 }
 
@@ -330,19 +330,19 @@ func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, pro
 	return nil
 }
 
-func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) (commit func(success bool), err error) {
+func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error {
 	args := f.Called(ctx, class, creates)
-	return args.Get(0).(func(success bool)), args.Error(1)
+	return args.Error(0)
 }
 
-func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) (commit func(success bool), err error) {
+func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error {
 	args := f.Called(ctx, class, updates)
-	return args.Get(0).(func(success bool)), args.Error(1)
+	return args.Error(0)
 }
 
-func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) (commit func(success bool), err error) {
+func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []string) error {
 	args := f.Called(ctx, class, tenants)
-	return args.Get(0).(func(success bool)), args.Error(1)
+	return args.Error(0)
 }
 
 func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
@@ -350,8 +350,8 @@ func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant st
 	return args.Get(0).(map[string]string), args.Error(1)
 }
 
-func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string) error {
-	args := f.Called(ctx, className, shardName, targetStatus)
+func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
+	args := f.Called(ctx, className, shardName, targetStatus, schemaVersion)
 	return args.Error(0)
 }
 

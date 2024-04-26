@@ -31,6 +31,7 @@ import (
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	vector []float32, vectors models.Vectors, repl *additional.ReplicationProperties,
+	schemaVersion uint64,
 ) error {
 	object := storobj.FromObject(obj, vector, vectors)
 	idx := db.GetIndex(object.Class())
@@ -38,7 +39,7 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 		return fmt.Errorf("import into non-existing index for %s", object.Class())
 	}
 
-	if err := idx.putObject(ctx, object, repl); err != nil {
+	if err := idx.putObject(ctx, object, repl, schemaVersion); err != nil {
 		return fmt.Errorf("import into index %s: %w", idx.ID(), err)
 	}
 
@@ -47,14 +48,14 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 
 // DeleteObject from of a specific class giving its ID
 func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenant string,
+	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
 	}
 
-	err := idx.deleteObject(ctx, id, repl, tenant)
+	err := idx.deleteObject(ctx, id, repl, tenant, schemaVersion)
 	if err != nil {
 		return fmt.Errorf("delete from index %q: %w", idx.ID(), err)
 	}
@@ -239,7 +240,7 @@ func (db *DB) anyExists(ctx context.Context, id strfmt.UUID,
 }
 
 func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, target *crossref.Ref,
-	repl *additional.ReplicationProperties, tenant string,
+	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	return db.Merge(ctx, objects.MergeDocument{
 		Class:      source.Class.String(),
@@ -251,18 +252,18 @@ func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, targ
 				To:   target,
 			},
 		},
-	}, repl, tenant)
+	}, repl, tenant, schemaVersion)
 }
 
 func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
-	repl *additional.ReplicationProperties, tenant string,
+	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	idx := db.GetIndex(schema.ClassName(merge.Class))
 	if idx == nil {
 		return fmt.Errorf("merge from non-existing index for %s", merge.Class)
 	}
 
-	err := idx.mergeObject(ctx, merge, repl, tenant)
+	err := idx.mergeObject(ctx, merge, repl, tenant, schemaVersion)
 	if err != nil {
 		return errors.Wrapf(err, "merge into index %s", idx.ID())
 	}

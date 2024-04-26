@@ -45,8 +45,10 @@ type metaWriter interface {
 	// from an up to date schema.
 	QueryReadOnlyClass(name string) (*models.Class, uint64, error)
 	QuerySchema() (models.Schema, error)
-	QueryTenants(class string) ([]*models.Tenant, uint64, error)
+	// QueryTenants returns the tenants for a class. If tenants is empty, all tenants are returned.
+	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
+	QueryTenantShard(class, tenant string) (string, string, uint64, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
@@ -69,17 +71,17 @@ type metaReader interface {
 	ShardOwner(class, shard string) (string, error)
 	TenantShard(class, tenant string) (string, string)
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
-	GetShardsStatus(class string) (models.ShardStatusList, error)
+	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 
 	// WithVersion endpoints return the data with the schema version
-	ClassInfoWithVersion(class string, version uint64) (ci store.ClassInfo, resultVersion uint64)
-	MultiTenancyWithVersion(class string, version uint64) (models.MultiTenancyConfig, uint64)
-	ReadOnlyClassWithVersion(class string, version uint64) (cls *models.Class, resultVersion uint64)
-	ShardOwnerWithVersion(class, shard string, version uint64) (owner string, resultVersion uint64, err error)
-	ShardFromUUIDWithVersion(class string, uuid []byte, version uint64) (shard string, resultVersion uint64)
-	ShardReplicasWithVersion(class, shard string, version uint64) (nodes []string, resultVersion uint64, err error)
-	TenantShardWithVersion(class, tenant string, version uint64) (name string, st string, resultVersion uint64)
-	CopyShardingStateWithVersion(class string, version uint64) (ss *sharding.State, resultVersion uint64)
+	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (store.ClassInfo, error)
+	MultiTenancyWithVersion(ctx context.Context, class string, version uint64) (models.MultiTenancyConfig, error)
+	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
+	ShardOwnerWithVersion(ctx context.Context, lass, shard string, version uint64) (string, error)
+	ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (string, error)
+	ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) ([]string, error)
+	TenantShardWithVersion(ctx context.Context, class, tenant string, version uint64) (name string, st string, err error)
+	CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (*sharding.State, error)
 }
 
 type validator interface {
@@ -204,14 +206,14 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,
-	principal *models.Principal, class string,
+	principal *models.Principal, class, tenant string,
 ) (models.ShardStatusList, error) {
 	err := h.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", class))
 	if err != nil {
 		return nil, err
 	}
 
-	return h.metaReader.GetShardsStatus(class)
+	return h.metaReader.GetShardsStatus(class, tenant)
 }
 
 // JoinNode adds the given node to the cluster.

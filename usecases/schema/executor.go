@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 type executor struct {
@@ -91,7 +90,7 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		}
 	} else {
 		if err := e.migrator.UpdateVectorIndexConfig(ctx,
-			className, req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
+			className, asVectorIndexConfig(req.Class)); err != nil {
 			return fmt.Errorf("vector index config update: %w", err)
 		}
 	}
@@ -116,11 +115,16 @@ func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
 func (e *executor) DeleteClass(cls string) error {
 	ctx := context.Background()
 	if err := e.migrator.DropClass(ctx, cls); err != nil {
-		e.logger.WithField("action", "delete_class").
-			WithField("class", cls).Errorf("migrator: %v", err)
+		e.logger.WithFields(logrus.Fields{
+			"action": "delete_class",
+			"class":  cls,
+		}).WithError(err).Errorf("migrator")
 	}
 
-	e.logger.WithField("action", "delete_class").WithField("class", cls).Debug("")
+	e.logger.WithFields(logrus.Fields{
+		"action": "delete_class",
+		"class":  cls,
+	}).Debug("deleting class")
 	e.triggerSchemaUpdateCallbacks()
 
 	return nil
@@ -132,7 +136,10 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 		return err
 	}
 
-	e.logger.WithField("action", "add_property").WithField("class", className)
+	e.logger.WithFields(logrus.Fields{
+		"action": "add_property",
+		"class":  className,
+	}).Debug("adding property")
 	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
@@ -153,11 +160,9 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
 	ctx := context.Background()
-	commit, err := e.migrator.NewTenants(ctx, cls, updates)
-	if err != nil {
+	if err := e.migrator.NewTenants(ctx, cls, updates); err != nil {
 		return fmt.Errorf("migrator.new_tenants: %w", err)
 	}
-	commit(true) // commit new adding new tenant
 	return nil
 }
 
@@ -176,42 +181,35 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 		})
 	}
 
-	commit, err := e.migrator.UpdateTenants(ctx, cls, updates)
-	if err != nil {
-		e.logger.WithField("action", "update_tenants").
-			WithField("class", class).Error(err)
+	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "update_tenants",
+			"class":  class,
+		}).WithError(err).Error("error updating tenants")
 		return err
 	}
-
-	commit(true) // commit update of tenants
 	return nil
 }
 
 func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) error {
 	ctx := context.Background()
-	commit, err := e.migrator.DeleteTenants(ctx, class, req.Tenants)
-	if err != nil {
-		e.logger.WithField("action", "delete_tenants").
-			WithField("class", class).Error(err)
+	if err := e.migrator.DeleteTenants(ctx, class, req.Tenants); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "delete_tenants",
+			"class":  class,
+		}).WithError(err).Error("error deleting tenants")
 	}
-
-	commit(true) // commit deletion of tenants
-
 	return nil
 }
 
 func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	ctx := context.Background()
-	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status)
+	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
-// TODO-RAFT START
-// change GetShardsStatus() to accept a tenant parameter
-// TODO-RAFT END
-
-func (e *executor) GetShardsStatus(class string) (models.ShardStatusList, error) {
+func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	ctx := context.Background()
-	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, "") // tenant needed here
+	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}

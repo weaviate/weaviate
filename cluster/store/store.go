@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
@@ -26,6 +25,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/protobuf/proto"
@@ -57,6 +57,8 @@ var (
 	ErrLeaderNotFound = errors.New("leader not found")
 	ErrNotOpen        = errors.New("store not open")
 	ErrUnknownCommand = errors.New("unknown command")
+	// ErrDeadlineExceeded represents an error returned when the deadline for waiting for a specific update is exceeded.
+	ErrDeadlineExceeded = errors.New("deadline exceeded for waiting for update")
 )
 
 // Indexer interface updates both the collection and its indices in the filesystem.
@@ -70,7 +72,7 @@ type Indexer interface {
 	UpdateTenants(class string, req *api.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *api.DeleteTenantsRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
-	GetShardsStatus(class string) (models.ShardStatusList, error)
+	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 
 	// ReloadLocalDB reloads the local database using the latest schema.
@@ -102,19 +104,25 @@ type Config struct {
 	ServerName2PortMap map[string]int
 	BootstrapExpect    int
 
-	HeartbeatTimeout  time.Duration
-	ElectionTimeout   time.Duration
-	RecoveryTimeout   time.Duration
-	SnapshotInterval  time.Duration
-	BootstrapTimeout  time.Duration
+	HeartbeatTimeout time.Duration
+	ElectionTimeout  time.Duration
+	RecoveryTimeout  time.Duration
+	SnapshotInterval time.Duration
+	BootstrapTimeout time.Duration
+	// UpdateWaitTimeout Timeout duration for waiting for the update to be propagated to this follower node.
+	UpdateWaitTimeout time.Duration
 	SnapshotThreshold uint64
 
-	DB           Indexer
-	Parser       Parser
-	AddrResolver addressResolver
-	Logger       *slog.Logger
-	LogLevel     string
-	Voter        bool
+	DB            Indexer
+	Parser        Parser
+	AddrResolver  addressResolver
+	Logger        *logrus.Logger
+	LogLevel      string
+	LogJSONFormat bool
+	Voter         bool
+
+	// MetadataOnlyVoters  configures the voters to store metadata exclusively, without storing any other data
+	MetadataOnlyVoters bool
 
 	// LoadLegacySchema is responsible for loading old schema from boltDB
 	LoadLegacySchema LoadLegacySchema
@@ -125,36 +133,39 @@ type Config struct {
 }
 
 type Store struct {
-	raft             *raft.Raft
-	open             atomic.Bool
-	raftDir          string
-	raftPort         int
-	voter            bool
-	bootstrapExpect  int
-	recoveryTimeout  time.Duration
-	heartbeatTimeout time.Duration
-	electionTimeout  time.Duration
-	snapshotInterval time.Duration
+	raft               *raft.Raft
+	open               atomic.Bool
+	raftDir            string
+	raftPort           int
+	voter              bool
+	bootstrapExpect    int
+	recoveryTimeout    time.Duration
+	heartbeatTimeout   time.Duration
+	electionTimeout    time.Duration
+	metadataOnlyVoters bool
 
 	// applyTimeout timeout limit the amount of time raft waits for a command to be started
 	applyTimeout time.Duration
 
-	// migrationTimeout is the timeout for restoring the legacy schema
-	migrationTimeout time.Duration
+	// UpdateWaitTimeout Timeout duration for waiting for the update to be propagated to this follower node.
+	updateWaitTimeout time.Duration
 
+	nodeID        string
+	host          string
+	db            *localDB
+	log           *logrus.Logger
+	logLevel      string
+	logJsonFormat bool
+
+	// snapshot
+	snapshotStore     *raft.FileSnapshotStore
+	snapshotInterval  time.Duration
 	snapshotThreshold uint64
 
-	nodeID   string
-	host     string
-	db       *localDB
-	log      *slog.Logger
-	logLevel string
-
-	bootstrapped  atomic.Bool
-	logStore      *raftbolt.BoltStore
-	addResolver   *addrResolver
-	transport     *raft.NetworkTransport
-	snapshotStore *raft.FileSnapshotStore
+	bootstrapped atomic.Bool
+	logStore     *raftbolt.BoltStore
+	addResolver  *addrResolver
+	transport    *raft.NetworkTransport
 
 	mutex      sync.Mutex
 	candidates map[string]string
@@ -187,7 +198,7 @@ func New(cfg Config) Store {
 		electionTimeout:   cfg.ElectionTimeout,
 		snapshotInterval:  cfg.SnapshotInterval,
 		snapshotThreshold: cfg.SnapshotThreshold,
-		migrationTimeout:  cfg.BootstrapTimeout,
+		updateWaitTimeout: cfg.UpdateWaitTimeout,
 		applyTimeout:      time.Second * 20,
 		nodeID:            cfg.NodeID,
 		host:              cfg.Host,
@@ -195,6 +206,10 @@ func New(cfg Config) Store {
 		db:                &localDB{NewSchema(cfg.NodeID, cfg.DB), cfg.DB, cfg.Parser, cfg.Logger},
 		log:               cfg.Logger,
 		logLevel:          cfg.LogLevel,
+		logJsonFormat:     cfg.LogJSONFormat,
+
+		// if true voters will only serve schema
+		metadataOnlyVoters: cfg.MetadataOnlyVoters,
 
 		// loadLegacySchema is responsible for loading old schema from boltDB
 		loadLegacySchema: cfg.LoadLegacySchema,
@@ -206,6 +221,8 @@ func (st *Store) IsVoter() bool { return st.voter }
 func (st *Store) ID() string    { return st.nodeID }
 
 // Open opens this store and marked as such.
+// It constructs a new Raft node using the provided configuration.
+// If there is any old state, such as snapshots, logs, peers, etc., all of those will be restored.
 func (st *Store) Open(ctx context.Context) (err error) {
 	if st.open.Load() { // store already opened
 		return nil
@@ -228,19 +245,25 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		st.loadDatabase(ctx)
 	}
 
-	st.log.Info("construct a new raft node")
+	st.log.WithFields(logrus.Fields{
+		"name":                 st.nodeID,
+		"metadata_only_voters": st.metadataOnlyVoters,
+	}).Info("construct a new raft node")
 	st.raft, err = raft.NewRaft(st.raftConfig(), st, logCache, st.logStore, st.snapshotStore, st.transport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
-	st.log.Info("raft node",
-		"raft_applied_index", st.raft.AppliedIndex(),
-		"raft_last_index", st.raft.LastIndex(),
-		"last_log_applied_index", st.initialLastAppliedIndex,
-		"last_snapshot_index", lastSnapshotIndex)
+	st.log.WithFields(logrus.Fields{
+		"raft_applied_index":     st.raft.AppliedIndex(),
+		"raft_last_index":        st.raft.LastIndex(),
+		"last_log_applied_index": st.initialLastAppliedIndex,
+		"last_snapshot_index":    lastSnapshotIndex,
+	}).Info("raft node")
 
-	go st.onLeaderFound(st.migrationTimeout)
+	// There's no hard limit on the migration, so it should take as long as necessary.
+	// However, we believe that 1 day should be more than sufficient.
+	go st.onLeaderFound(time.Hour * 24)
 
 	return nil
 }
@@ -275,12 +298,18 @@ func (st *Store) init() (logCache *raft.LogCache, err error) {
 		return nil, fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
 	}
 
-	st.transport, err = st.addResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout)
+	st.transport, err = st.addResolver.NewTCPTransport(
+		address, tcpAddr,
+		tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
 		return nil, fmt.Errorf("transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w",
 			address, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
-	st.log.Info("tcp transport", "address", address, "tcpMaxPool", tcpMaxPool, "tcpTimeout", tcpTimeout)
+	st.log.WithFields(logrus.Fields{
+		"address":    address,
+		"tcpMaxPool": tcpMaxPool,
+		"tcpTimeout": tcpTimeout,
+	}).Info("tcp transport")
 
 	return
 }
@@ -292,7 +321,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	for range t.C {
 
 		if leader := st.Leader(); leader != "" {
-			st.log.Info("current Leader", "address", leader)
+			st.log.WithField("address", leader).Info("current Leader")
 		} else {
 			continue
 		}
@@ -327,7 +356,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 		if st.IsLeader() && st.db.Schema.len() == 0 && st.loadLegacySchema != nil {
 			st.log.Info("starting migration from old schema")
 			if err := migrate(); err != nil {
-				st.log.Error("migrate from old schema: %v" + err.Error())
+				st.log.WithError(err).Error("migrate from old schema")
 			} else {
 				st.log.Info("migration from the old schema has been successfully completed")
 			}
@@ -351,7 +380,7 @@ func (st *Store) Close(ctx context.Context) (err error) {
 	if st.IsLeader() {
 		st.log.Info("transferring leadership to another server")
 		if err := st.raft.LeadershipTransfer().Error(); err != nil {
-			st.log.Error("transferring leadership: " + err.Error())
+			st.log.WithError(err).Error("transferring leadership")
 		} else {
 			st.log.Info("successfully transferred leadership to another server")
 		}
@@ -402,13 +431,47 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) erro
 	}
 }
 
+// WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
+func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
+	if idx := st.lastAppliedIndex.Load(); idx >= version {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, st.updateWaitTimeout)
+	defer cancel()
+	ticker := time.NewTicker(period)
+	defer ticker.Stop()
+	var idx uint64
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%w: version got=%d  want=%d", ErrDeadlineExceeded, idx, version)
+		case <-ticker.C:
+			if idx = st.lastAppliedIndex.Load(); idx >= version {
+				return nil
+			} else {
+				st.log.WithFields(logrus.Fields{
+					"got":  idx,
+					"want": version,
+				}).Debug("wait for update version")
+			}
+		}
+	}
+}
+
 // IsLeader returns whether this node is the leader of the cluster
 func (st *Store) IsLeader() bool {
 	return st.raft != nil && st.raft.State() == raft.Leader
 }
 
 func (st *Store) SchemaReader() retrySchema {
-	return retrySchema{st.db.Schema}
+	return retrySchema{st.db.Schema, st.VersionedSchemaReader()}
+}
+
+func (st *Store) VersionedSchemaReader() versionedSchema {
+	f := func(ctx context.Context, version uint64) error {
+		return st.WaitForAppliedIndex(ctx, time.Millisecond*50, version)
+	}
+	return versionedSchema{st.db.Schema, f}
 }
 
 // FindSimilarClass returns the name of an existing class with a similar name, and "" otherwise
@@ -454,6 +517,7 @@ func (st *Store) Stats() map[string]any {
 
 	// Add custom stats for this store
 	currentLeaderAddress, currentLeaderID := st.LeaderWithID()
+	stats["id"] = st.nodeID
 	stats["leader_address"] = currentLeaderAddress
 	stats["leader_id"] = currentLeaderID
 	stats["ready"] = st.Ready()
@@ -490,15 +554,18 @@ func (st *Store) LeaderWithID() (raft.ServerAddress, raft.ServerID) {
 }
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
-	st.log.Debug("server.execute", "type", req.Type, "class", req.Class)
+	st.log.WithFields(logrus.Fields{
+		"type":  req.Type,
+		"class": req.Class,
+	}).Debug("server.execute")
 
 	cmdBytes, err := proto.Marshal(req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal command: %w", err)
 	}
-	classInfo, _ := st.db.Schema.ClassInfo(req.Class, 0)
+	classInfo := st.db.Schema.ClassInfo(req.Class)
 	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
-		st.log.Info("class already restored", "class", req.Class)
+		st.log.WithField("class", req.Class).Info("class already restored")
 		return 0, nil
 	}
 	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
@@ -526,14 +593,20 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // method was called on the same Raft node as the FSM.
 func (st *Store) Apply(l *raft.Log) interface{} {
 	ret := Response{Version: l.Index}
-	st.log.Debug("apply command", "type", l.Type, "index", l.Index)
+	st.log.WithFields(logrus.Fields{
+		"type":  l.Type,
+		"index": l.Index,
+	}).Debug("apply command")
 	if l.Type != raft.LogCommand {
-		st.log.Info("not a valid command", "type", l.Type, "index", l.Index)
+		st.log.WithFields(logrus.Fields{
+			"type":  l.Type,
+			"index": l.Index,
+		}).Info("not a valid command")
 		return ret
 	}
 	cmd := api.ApplyRequest{}
 	if err := gproto.Unmarshal(l.Data, &cmd); err != nil {
-		st.log.Error("decode command: " + err.Error())
+		st.log.WithError(err).Error("decode command")
 		panic("error proto un-marshalling log data")
 	}
 
@@ -547,7 +620,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			st.loadDatabase(context.Background())
 		}
 		if ret.Error != nil {
-			st.log.Error("apply command: "+ret.Error.Error(), "type", l.Type, "index", l.Index)
+			st.log.WithFields(logrus.Fields{
+				"type":  l.Type,
+				"index": l.Index,
+			}).WithError(ret.Error).Error("apply command")
 		}
 	}()
 
@@ -588,7 +664,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
 		const msg = "consider upgrading to newer version"
-		st.log.Error("unknown command", "type", cmd.Type, "class", cmd.Class, "more", msg)
+		st.log.WithFields(logrus.Fields{
+			"type":  cmd.Type,
+			"class": cmd.Class,
+			"more":  msg,
+		}).Error("unknown command")
 		panic(fmt.Sprintf("unknown command type=%d class=%s more=%s", cmd.Type, cmd.Class, msg))
 	}
 
@@ -607,18 +687,19 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	st.log.Info("restoring schema from snapshot")
 	defer func() {
 		if err := rc.Close(); err != nil {
-			st.log.Error("restore snapshot: close reader: " + err.Error())
+			st.log.WithError(err).Error("restore snapshot: close reader")
 		}
 	}()
 
 	if err := st.db.Schema.Restore(rc, st.db.parser); err != nil {
-		st.log.Error("restoring schema from snapshot: " + err.Error())
+		st.log.WithError(err).Error("restoring schema from snapshot")
 		return fmt.Errorf("restore schema from snapshot: %w", err)
 	}
 	st.log.Info("successfully restored schema from snapshot")
 
 	if st.reloadDB() {
-		st.log.Info("successfully reloaded indexes from snapshot", "n", st.db.Schema.len())
+		st.log.WithField("n", st.db.Schema.len()).
+			Info("successfully reloaded indexes from snapshot")
 	}
 
 	if st.raft != nil {
@@ -676,7 +757,10 @@ func (st *Store) Notify(id, addr string) (err error) {
 
 	st.candidates[id] = addr
 	if len(st.candidates) < st.bootstrapExpect {
-		st.log.Debug("number of candidates", "expect", st.bootstrapExpect, "got", st.candidates)
+		st.log.WithFields(logrus.Fields{
+			"expect": st.bootstrapExpect,
+			"got":    st.candidates,
+		}).Debug("number of candidates")
 		return nil
 	}
 	candidates := make([]raft.Server, 0, len(st.candidates))
@@ -691,11 +775,11 @@ func (st *Store) Notify(id, addr string) (err error) {
 		i++
 	}
 
-	st.log.Info("starting cluster bootstrapping", "candidates", candidates)
+	st.log.WithField("candidates", candidates).Info("starting cluster bootstrapping")
 
 	fut := st.raft.BootstrapCluster(raft.Configuration{Servers: candidates})
 	if err := fut.Error(); err != nil {
-		st.log.Error("bootstrapping cluster: " + err.Error())
+		st.log.WithError(err).Error("bootstrapping cluster")
 		if !errors.Is(err, raft.ErrCantBootstrap) {
 			return err
 		}
@@ -729,6 +813,10 @@ func (st *Store) raftConfig() *raft.Config {
 
 	cfg.LocalID = raft.ServerID(st.nodeID)
 	cfg.LogLevel = st.logLevel
+
+	logger := NewHCLogrusLogger("raft", st.log)
+	cfg.Logger = logger
+
 	return cfg
 }
 
@@ -739,12 +827,12 @@ func (st *Store) loadDatabase(ctx context.Context) {
 
 	st.log.Info("loading local db")
 	if err := st.db.Load(ctx, st.nodeID); err != nil {
-		st.log.Error("cannot restore database: " + err.Error())
+		st.log.WithError(err).Error("cannot restore database")
 		panic("error restoring database")
 	}
 
 	st.dbLoaded.Store(true)
-	st.log.Info("database has been successfully loaded", "n", st.db.Schema.len())
+	st.log.WithField("n", st.db.Schema.len()).Info("database has been successfully loaded")
 }
 
 // reloadDB reloads the node's local db. If the db is already loaded, it will be reloaded.
@@ -760,8 +848,11 @@ func (st *Store) reloadDB() bool {
 	if !st.dbLoaded.CompareAndSwap(true, false) {
 		// the snapshot already includes the state from the raft log
 		snapIndex := snapshotIndex(st.snapshotStore)
-		st.log.Info("load local db from snapshot", "last_log_applied_index",
-			st.initialLastAppliedIndex, "last_snapshot_index", snapIndex)
+		st.log.WithFields(logrus.Fields{
+			"last_applied_index":         st.lastAppliedIndex.Load(),
+			"initial_last_applied_index": st.initialLastAppliedIndex,
+			"last_snapshot_index":        snapIndex,
+		}).Info("load local db from snapshot")
 		if st.initialLastAppliedIndex <= snapIndex {
 			st.loadDatabase(ctx)
 			return true
@@ -771,7 +862,7 @@ func (st *Store) reloadDB() bool {
 
 	st.log.Info("reload local db: loading indexes ...")
 	if err := st.db.Reload(); err != nil {
-		st.log.Error("cannot reload database: " + err.Error())
+		st.log.WithError(err).Error("cannot reload database")
 		panic(fmt.Sprintf("cannot reload database: %v", err))
 	}
 

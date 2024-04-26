@@ -14,10 +14,10 @@ package store
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"math/rand"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -53,7 +53,7 @@ func NewBootstrapper(joiner joiner, raftID, raftAddr string, r addressResolver) 
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *slog.Logger, voter bool) error {
+func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, voter bool) error {
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
 	servers := make([]string, 0, len(serverPortMap))
 	defer ticker.Stop()
@@ -65,14 +65,14 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 		case <-ticker.C:
 			// try to join an existing cluster
 			if leader, err := b.join(ctx, servers, voter); err == nil {
-				lg.Info("successfully joined cluster", "leader", leader)
+				lg.WithField("leader", leader).Info("successfully joined cluster")
 				return nil
 			}
 
 			if voter {
 				// notify other servers about readiness of this node to be joined
 				if err := b.notify(ctx, servers); err != nil {
-					lg.Error("notify all peers", "servers", servers, "err", err)
+					lg.WithField("servers", servers).WithError(err).Error("notify all peers")
 				}
 			}
 

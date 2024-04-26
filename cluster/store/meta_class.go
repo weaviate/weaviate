@@ -50,7 +50,14 @@ func (m *metaClass) ClassInfo() (ci ClassInfo) {
 	return ci
 }
 
-func (m *metaClass) MultiTenancyConfig() (cfg models.MultiTenancyConfig, version uint64) {
+func (m *metaClass) version() uint64 {
+	if m == nil {
+		return 0
+	}
+	return max(m.ClassVersion, m.ShardVersion)
+}
+
+func (m *metaClass) MultiTenancyConfig() (mc models.MultiTenancyConfig, v uint64) {
 	if m == nil {
 		return
 	}
@@ -60,7 +67,7 @@ func (m *metaClass) MultiTenancyConfig() (cfg models.MultiTenancyConfig, version
 		return
 	}
 
-	return *m.Class.MultiTenancyConfig, m.ClassVersion
+	return *m.Class.MultiTenancyConfig, m.version()
 }
 
 // CloneClass returns a shallow copy of m
@@ -72,58 +79,59 @@ func (m *metaClass) CloneClass() *models.Class {
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (m *metaClass) ShardOwner(shard string) (string, error) {
+func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	m.RLock()
 	defer m.RUnlock()
 	x, ok := m.Sharding.Physical[shard]
 
 	if !ok {
-		return "", errShardNotFound
+		return "", 0, errShardNotFound
 	}
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
-		return "", fmt.Errorf("owner node not found")
+		return "", 0, fmt.Errorf("owner node not found")
 	}
-	return x.BelongsToNodes[0], nil
+	return x.BelongsToNodes[0], m.version(), nil
 }
 
 // ShardFromUUID returns shard name of the provided uuid
-func (m *metaClass) ShardFromUUID(uuid []byte) string {
+func (m *metaClass) ShardFromUUID(uuid []byte) (string, uint64) {
 	m.RLock()
 	defer m.RUnlock()
-	return m.Sharding.PhysicalShard(uuid)
+	return m.Sharding.PhysicalShard(uuid), m.version()
 }
 
 // ShardReplicas returns the replica nodes of a shard
-func (m *metaClass) ShardReplicas(shard string) ([]string, error) {
+func (m *metaClass) ShardReplicas(shard string) ([]string, uint64, error) {
 	m.RLock()
 	defer m.RUnlock()
 	x, ok := m.Sharding.Physical[shard]
 	if !ok {
-		return nil, errShardNotFound
+		return nil, 0, errShardNotFound
 	}
-	return slices.Clone(x.BelongsToNodes), nil
+	return slices.Clone(x.BelongsToNodes), m.version(), nil
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
-func (m *metaClass) TenantShard(tenant string) (string, string) {
+func (m *metaClass) TenantShard(tenant string) (name string, status string, v uint64) {
 	m.RLock()
 	defer m.RUnlock()
 
+	v = m.version()
 	if !m.Sharding.PartitioningEnabled {
-		return "", ""
+		return
 	}
 	if physical, ok := m.Sharding.Physical[tenant]; ok {
-		return tenant, physical.ActivityStatus()
+		return tenant, physical.ActivityStatus(), v
 	}
-	return "", ""
+	return
 }
 
 // CopyShardingState returns a deep copy of the sharding state
-func (m *metaClass) CopyShardingState() *sharding.State {
+func (m *metaClass) CopyShardingState() (*sharding.State, uint64) {
 	m.RLock()
 	defer m.RUnlock()
 	st := m.Sharding.DeepCopy()
-	return &st
+	return &st, m.version()
 }
 
 func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {

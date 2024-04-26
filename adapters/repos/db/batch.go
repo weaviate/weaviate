@@ -103,7 +103,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 }
 
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchReferences, error) {
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
 	indexByClass := make(map[schema.ClassName]*Index)
@@ -145,7 +145,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 
 	for class, index := range indexByClass {
 		queue := refByClass[class]
-		errs := index.AddReferencesBatch(ctx, queue, repl)
+		errs := index.AddReferencesBatch(ctx, queue, repl, schemaVersion)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()

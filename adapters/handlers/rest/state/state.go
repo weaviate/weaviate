@@ -70,9 +70,8 @@ type State struct {
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelFunc
 	MemWatch           *memwatch.Monitor
-	/// TODO-RAFT START
-	CloudService *rCluster.Service
-	/// TODO-RAFT END
+
+	ClusterService *rCluster.Service
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
