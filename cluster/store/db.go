@@ -103,6 +103,7 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		}
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
+		meta.Class.VectorConfig = u.VectorConfig
 		meta.ClassVersion = cmd.Version
 		return nil
 	}
