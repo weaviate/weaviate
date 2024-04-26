@@ -754,7 +754,6 @@ func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGrou
 					return nil
 				})
 			}
-
 			return nil
 		})
 
