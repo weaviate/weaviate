@@ -190,7 +190,7 @@ func TestExecutor(t *testing.T) {
 		status := map[string]string{"A": "B"}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, nil)
 		x := newMockExecutor(migrator, store)
-		_, err := x.GetShardsStatus("A")
+		_, err := x.GetShardsStatus("A", "")
 		assert.Nil(t, err)
 	})
 	t.Run("GetShardsStatusError", func(t *testing.T) {
@@ -198,7 +198,7 @@ func TestExecutor(t *testing.T) {
 		status := map[string]string{"A": "B"}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, ErrAny)
 		x := newMockExecutor(migrator, store)
-		_, err := x.GetShardsStatus("A")
+		_, err := x.GetShardsStatus("A", "")
 		assert.ErrorIs(t, err, ErrAny)
 	})
 	t.Run("UpdateShardStatus", func(t *testing.T) {

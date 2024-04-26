@@ -208,13 +208,9 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
-// TODO-RAFT START
-// change GetShardsStatus() to accept a tenant parameter
-// TODO-RAFT END
-
-func (e *executor) GetShardsStatus(class string) (models.ShardStatusList, error) {
+func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	ctx := context.Background()
-	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, "") // tenant needed here
+	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}
