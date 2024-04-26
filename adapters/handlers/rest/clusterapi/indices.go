@@ -335,7 +335,11 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+	schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	if err := i.shards.PutObject(r.Context(), index, shard, obj, schemaVersion); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -360,7 +364,11 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+	schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
 	if len(errs) > 0 && errors.Is(errs[0], db.ErrShardNotFound) {
@@ -490,8 +498,13 @@ func (i *indices) deleteObject() http.Handler {
 
 		defer r.Body.Close()
 
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
-		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -530,8 +543,13 @@ func (i *indices) mergeObject() http.Handler {
 			return
 		}
 
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
-		if err := i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err = i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -670,7 +688,12 @@ func (i *indices) postReferences() http.Handler {
 				http.StatusInternalServerError)
 			return
 		}
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs, schemaVersion)
 		errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
@@ -903,7 +926,11 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, dryRun, schemaVersion)
 
@@ -1003,7 +1030,12 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 				http.StatusBadRequest)
 			return
 		}
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
 		if err != nil {
