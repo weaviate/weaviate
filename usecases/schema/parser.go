@@ -264,6 +264,15 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 	return cfgs
 }
 
+func asVectorIndexConfig(c *models.Class) schemaConfig.VectorIndexConfig {
+	validCfg, ok := c.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+	if !ok {
+		return nil
+	}
+
+	return validCfg
+}
+
 func validateShardingConfig(current, update *models.Class, mtEnabled bool) error {
 	if mtEnabled {
 		return nil
