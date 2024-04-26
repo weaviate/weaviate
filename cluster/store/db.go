@@ -123,13 +123,13 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		return nil
 	}
 
-	// Apply the DB change last otherwise we will error on the parsing of the class while updating the store.
-	// We need the schema to first parse the update and apply it so that we can use it in the DB update.
 	return db.apply(
 		cmd.GetType().String(),
 		func() error { return db.Schema.updateClass(req.Class.Class, update) },
 		func() error { return db.store.UpdateClass(req) },
 		schemaOnly,
+		// Apply the DB change last otherwise we will error on the parsing of the class while updating the store.
+		// We need the schema to first parse the update and apply it so that we can use it in the DB update.
 		applyDbLast,
 		triggerSchemaCallback,
 	)
@@ -141,7 +141,7 @@ func (db *localDB) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) error
 		func() error { db.Schema.deleteClass(cmd.Class); return nil },
 		func() error { return db.store.DeleteClass(cmd.Class) },
 		schemaOnly,
-		applyDbLast,
+		applyDbFirst,
 		triggerSchemaCallback,
 	)
 }
@@ -179,7 +179,7 @@ func (db *localDB) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly bool)
 		func() error { return nil },
 		func() error { return db.store.UpdateShardStatus(&req) },
 		schemaOnly,
-		applyDbLast,
+		applyDbFirst,
 		skipSchemaCallback,
 	)
 }

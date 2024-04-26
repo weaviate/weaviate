@@ -123,7 +123,6 @@ func (e *executor) DeleteClass(cls string) error {
 		"action": "delete_class",
 		"class":  cls,
 	}).Debug("deleting class")
-	e.TriggerSchemaUpdateCallbacks()
 
 	return nil
 }
