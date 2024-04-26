@@ -231,7 +231,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Empty(t, shard)
 	assert.Empty(t, sc.ShardFromUUID("Cx", nil))
 
-	_, err = sc.GetShardsStatus("C")
+	_, err = sc.GetShardsStatus("C", "")
 	assert.Nil(t, err)
 
 	// Add MT Class
@@ -307,7 +307,7 @@ type MockShardReader struct {
 	err error
 }
 
-func (m *MockShardReader) GetShardsStatus(class string) (models.ShardStatusList, error) {
+func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	return m.lst, m.err
 }
 
