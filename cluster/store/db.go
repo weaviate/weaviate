@@ -22,20 +22,10 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 )
 
-type (
-	applyDbOrder          bool
-	schemaCallbackTrigger bool
-)
-
 var (
 	errBadRequest = errors.New("bad request")
 	errDB         = errors.New("updating db")
 	errSchema     = errors.New("updating schema")
-
-	applyDbFirst          applyDbOrder          = true
-	applyDbLast           applyDbOrder          = false
-	triggerSchemaCallback schemaCallbackTrigger = true
-	skipSchemaCallback    schemaCallbackTrigger = false
 )
 
 type localDB struct {
@@ -63,12 +53,13 @@ func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly
 	}
 	req.State.SetLocalName(nodeID)
 	return db.apply(
-		cmd.GetType().String(),
-		func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
-		func() error { return db.store.AddClass(req) },
-		schemaOnly,
-		applyDbFirst,
-		triggerSchemaCallback,
+		applyOp{
+			op:                    cmd.GetType().String(),
+			updateSchema:          func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
+			updateStore:           func() error { return db.store.AddClass(req) },
+			schemaOnly:            schemaOnly,
+			triggerSchemaCallback: true,
+		},
 	)
 }
 
@@ -92,12 +83,13 @@ func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schema
 	}
 
 	return db.apply(
-		cmd.GetType().String(),
-		func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
-		func() error { return db.store.AddClass(req) },
-		schemaOnly,
-		applyDbFirst,
-		triggerSchemaCallback,
+		applyOp{
+			op:                    cmd.GetType().String(),
+			updateSchema:          func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
+			updateStore:           func() error { return db.store.AddClass(req) },
+			schemaOnly:            schemaOnly,
+			triggerSchemaCallback: true,
+		},
 	)
 }
 
@@ -124,25 +116,29 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 	}
 
 	return db.apply(
-		cmd.GetType().String(),
-		func() error { return db.Schema.updateClass(req.Class.Class, update) },
-		func() error { return db.store.UpdateClass(req) },
-		schemaOnly,
-		// Apply the DB change last otherwise we will error on the parsing of the class while updating the store.
-		// We need the schema to first parse the update and apply it so that we can use it in the DB update.
-		applyDbLast,
-		triggerSchemaCallback,
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return db.Schema.updateClass(req.Class.Class, update) },
+			updateStore:  func() error { return db.store.UpdateClass(req) },
+			schemaOnly:   schemaOnly,
+			// Apply the DB change last otherwise we will error on the parsing of the class while updating the store.
+			// We need the schema to first parse the update and apply it so that we can use it in the DB update.
+			applyDbUpdateFirst:    false,
+			triggerSchemaCallback: true,
+		},
 	)
 }
 
 func (db *localDB) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) error {
 	return db.apply(
-		cmd.GetType().String(),
-		func() error { db.Schema.deleteClass(cmd.Class); return nil },
-		func() error { return db.store.DeleteClass(cmd.Class) },
-		schemaOnly,
-		applyDbFirst,
-		triggerSchemaCallback,
+		applyOp{
+			op:                    cmd.GetType().String(),
+			updateSchema:          func() error { db.Schema.deleteClass(cmd.Class); return nil },
+			updateStore:           func() error { return db.store.DeleteClass(cmd.Class) },
+			schemaOnly:            schemaOnly,
+			applyDbUpdateFirst:    true,
+			triggerSchemaCallback: true,
+		},
 	)
 }
 
@@ -156,15 +152,17 @@ func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error
 	}
 
 	return db.apply(
-		cmd.GetType().String(),
-		func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
-		func() error { return db.store.AddProperty(cmd.Class, req) },
-		schemaOnly,
-		// Apply the DB first to ensure the underlying buckets related to properties are created/deleted *before* the
-		// schema is updated. This allows us to have object write waiting on the right schema version to proceed only
-		// once the buck buckets are present.
-		applyDbFirst,
-		triggerSchemaCallback,
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
+			updateStore:  func() error { return db.store.AddProperty(cmd.Class, req) },
+			schemaOnly:   schemaOnly,
+			// Apply the DB first to ensure the underlying buckets related to properties are created/deleted *before* the
+			// schema is updated. This allows us to have object write waiting on the right schema version to proceed only
+			// once the buck buckets are present.
+			applyDbUpdateFirst:    true,
+			triggerSchemaCallback: true,
+		},
 	)
 }
 
@@ -175,12 +173,13 @@ func (db *localDB) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly bool)
 	}
 
 	return db.apply(
-		cmd.GetType().String(),
-		func() error { return nil },
-		func() error { return db.store.UpdateShardStatus(&req) },
-		schemaOnly,
-		applyDbFirst,
-		skipSchemaCallback,
+		applyOp{
+			op:                 cmd.GetType().String(),
+			updateSchema:       func() error { return nil },
+			updateStore:        func() error { return db.store.UpdateShardStatus(&req) },
+			schemaOnly:         schemaOnly,
+			applyDbUpdateFirst: true,
+		},
 	)
 }
 
@@ -191,12 +190,12 @@ func (db *localDB) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error 
 	}
 
 	return db.apply(
-		cmd.GetType().String(),
-		func() error { return db.Schema.addTenants(cmd.Class, cmd.Version, req) },
-		func() error { return db.store.AddTenants(cmd.Class, req) },
-		schemaOnly,
-		applyDbLast,
-		skipSchemaCallback,
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return db.Schema.addTenants(cmd.Class, cmd.Version, req) },
+			updateStore:  func() error { return db.store.AddTenants(cmd.Class, req) },
+			schemaOnly:   schemaOnly,
+		},
 	)
 }
 
@@ -207,12 +206,12 @@ func (db *localDB) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool) (n 
 	}
 
 	return n, db.apply(
-		cmd.GetType().String(),
-		func() error { n, err = db.Schema.updateTenants(cmd.Class, cmd.Version, req); return err },
-		func() error { return db.store.UpdateTenants(cmd.Class, req) },
-		schemaOnly,
-		applyDbLast,
-		skipSchemaCallback,
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { n, err = db.Schema.updateTenants(cmd.Class, cmd.Version, req); return err },
+			updateStore:  func() error { return db.store.UpdateTenants(cmd.Class, req) },
+			schemaOnly:   schemaOnly,
+		},
 	)
 }
 
@@ -223,12 +222,12 @@ func (db *localDB) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool) err
 	}
 
 	return db.apply(
-		cmd.GetType().String(),
-		func() error { return db.Schema.deleteTenants(cmd.Class, cmd.Version, req) },
-		func() error { return db.store.DeleteTenants(cmd.Class, req) },
-		schemaOnly,
-		applyDbLast,
-		skipSchemaCallback,
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return db.Schema.deleteTenants(cmd.Class, cmd.Version, req) },
+			updateStore:  func() error { return db.store.DeleteTenants(cmd.Class, req) },
+			schemaOnly:   schemaOnly,
+		},
 	)
 }
 
@@ -256,29 +255,55 @@ func (db *localDB) Close(ctx context.Context) (err error) {
 	return db.store.Close(ctx)
 }
 
-func (db *localDB) apply(op string, updateSchema, updateStore func() error, schemaOnly bool, applyDbChangeFirst applyDbOrder, triggerSchemaCallback schemaCallbackTrigger) error {
-	if applyDbChangeFirst {
-		if !schemaOnly && updateStore != nil {
-			if err := updateStore(); err != nil {
-				return fmt.Errorf("%w: %s: %w", errDB, op, err)
-			}
-		}
-		if err := updateSchema(); err != nil {
-			return fmt.Errorf("%w: %s: %w", errSchema, op, err)
-		}
-	} else {
-		if err := updateSchema(); err != nil {
-			return fmt.Errorf("%w: %s: %w", errSchema, op, err)
-		}
-		if !schemaOnly && updateStore != nil {
-			if err := updateStore(); err != nil {
-				return fmt.Errorf("%w: %s: %w", errDB, op, err)
-			}
+type applyOp struct {
+	op                    string
+	updateSchema          func() error
+	updateStore           func() error
+	schemaOnly            bool
+	applyDbUpdateFirst    bool
+	triggerSchemaCallback bool
+}
+
+func (op applyOp) validate() error {
+	if op.op == "" {
+		return fmt.Errorf("op is not specified")
+	}
+	if op.updateSchema == nil {
+		return fmt.Errorf("updateSchema func is nil")
+	}
+	if op.updateStore == nil {
+		return fmt.Errorf("updateStore func is nil")
+	}
+	return nil
+}
+
+func (db *localDB) apply(op applyOp) error {
+	if err := op.validate(); err != nil {
+		return fmt.Errorf("could not validate raft apply op: %s", err)
+	}
+
+	// To avoid a if/else with repeated logic, setup op1 and op2 to either updateSchema or updateStore depending on
+	// op.applyDbUpdateFirst and op.schemaOnly
+	op1, op2 := op.updateSchema, op.updateStore
+	msg1, msg2 := errSchema, errDB
+	if op.applyDbUpdateFirst && !op.schemaOnly {
+		op1, op2 = op.updateStore, op.updateSchema
+		msg1, msg2 = errDB, errSchema
+	}
+
+	if err := op1(); err != nil {
+		return fmt.Errorf("%w: %s: %w", msg1, op.op, err)
+	}
+
+	// If the operation is schema only, op1 is always the schemaUpdate so we can skip op2
+	if !op.schemaOnly {
+		if err := op2(); err != nil {
+			return fmt.Errorf("%w: %s: %w", msg2, op.op, err)
 		}
 	}
 
 	// Always trigger the schema callback last
-	if triggerSchemaCallback {
+	if op.triggerSchemaCallback {
 		db.store.TriggerSchemaUpdateCallbacks()
 	}
 	return nil
