@@ -178,12 +178,12 @@ func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	return meta.CopyShardingState()
 }
 
-func (s *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	return s.shardReader.GetShardsStatus(class)
+func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	return s.shardReader.GetShardsStatus(class, tenant)
 }
 
 type shardReader interface {
-	GetShardsStatus(class string) (models.ShardStatusList, error)
+	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
 func NewSchema(nodeID string, shardReader shardReader) *schema {

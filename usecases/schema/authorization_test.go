@@ -107,7 +107,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "ShardsStatus",
-			additionalArgs:   []interface{}{"className"},
+			additionalArgs:   []interface{}{"className", "tenant"},
 			expectedVerb:     "list",
 			expectedResource: "schema/className/shards",
 		},

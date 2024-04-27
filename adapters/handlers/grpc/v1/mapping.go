@@ -143,7 +143,7 @@ func (m *Mapper) NewNestedValue(v interface{}, dt schema.DataType, parent schema
 	}
 }
 
-// NewStruct constructs a Struct from a general-purpose Go map.
+// NewObject constructs a Object from a general-purpose Go map.
 // The map keys must be valid UTF-8.
 // The map values are converted using NewValue.
 func (m *Mapper) newObject(v map[string]interface{}, parent schema.PropertyInterface, selectProp search.SelectProperty) (*pb.Properties, error) {

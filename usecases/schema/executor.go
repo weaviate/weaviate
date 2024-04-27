@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 type executor struct {
@@ -91,7 +90,7 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		}
 	} else {
 		if err := e.migrator.UpdateVectorIndexConfig(ctx,
-			className, req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
+			className, asVectorIndexConfig(req.Class)); err != nil {
 			return fmt.Errorf("vector index config update: %w", err)
 		}
 	}
@@ -208,13 +207,9 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
-// TODO-RAFT START
-// change GetShardsStatus() to accept a tenant parameter
-// TODO-RAFT END
-
-func (e *executor) GetShardsStatus(class string) (models.ShardStatusList, error) {
+func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	ctx := context.Background()
-	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, "") // tenant needed here
+	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}
