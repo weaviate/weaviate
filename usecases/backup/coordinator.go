@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/store"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
@@ -129,18 +130,18 @@ func newCoordinator(
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request) error {
+func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
-		return fmt.Errorf("leader not found")
+		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, store.ErrLeaderNotFound)
 	}
 	groups, err := c.groupByShard(ctx, req.Classes, leader)
 	if err != nil {
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, store.HomeDir()); prevID != "" {
+	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir()); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -164,7 +165,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		return err
 	}
 
-	if err := store.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
 		c.lastOp.reset()
 		return fmt.Errorf("cannot init meta file: %w", err)
 	}
@@ -180,7 +181,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := store.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
 		if c.descriptor.Status == backup.Success {
