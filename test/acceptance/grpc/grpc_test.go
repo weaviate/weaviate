@@ -200,7 +200,7 @@ func TestGRPC(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Results)
-		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetStringValue(), "Dune")
+		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue(), "Dune")
 	})
 
 	t.Run("Search with hybrid and group by", func(t *testing.T) {
@@ -233,7 +233,7 @@ func TestGRPC(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, resp)
 		require.NotNil(t, resp.Results)
-		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetStringValue(), "Dune")
+		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue(), "Dune")
 	})
 
 	t.Run("Search with near text and group by", func(t *testing.T) {
