@@ -53,6 +53,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -197,6 +198,7 @@ type Index struct {
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *shardCreateLocks
+	modules          *modules.Provider
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -420,11 +422,12 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 
 	i.ForEachShard(func(key string, shard ShardLike) error {
 		shard.createPropertyIndex(ctx, eg, props...)
-		if err := eg.Wait(); err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
-		}
 		return nil
 	})
+
+	if err := eg.Wait(); err != nil {
+		return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
+	}
 	return nil
 }
 
@@ -1668,7 +1671,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) aggregate(ctx context.Context,
-	params aggregation.Params,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	if err := i.validateMultiTenancy(params.Tenant); err != nil {
 		return nil, err
@@ -1684,7 +1687,7 @@ func (i *Index) aggregate(ctx context.Context,
 		var err error
 		var res *aggregation.Result
 		if shard := i.localShard(shardName); shard != nil {
-			res, err = shard.Aggregate(ctx, params)
+			res, err = shard.Aggregate(ctx, params, modules)
 		} else {
 			res, err = i.remote.Aggregate(ctx, shardName, params)
 		}
@@ -1706,7 +1709,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 		return nil, ErrShardNotFound
 	}
 
-	return shard.Aggregate(ctx, params)
+	return shard.Aggregate(ctx, params, i.modules)
 }
 
 func (i *Index) drop() error {

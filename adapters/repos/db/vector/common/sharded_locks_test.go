@@ -381,7 +381,7 @@ func TestShardedRWLocks(t *testing.T) {
 
 		select {
 		case <-ch:
-		default:
+		case <-time.After(1 * time.Second):
 			require.Fail(t, "should be unlocked")
 		}
 

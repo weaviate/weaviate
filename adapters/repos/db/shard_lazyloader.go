@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -386,11 +387,11 @@ func (l *LazyLoadShard) publishDimensionMetrics() {
 	l.shard.publishDimensionMetrics()
 }
 
-func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
+func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.Aggregate(ctx, params)
+	return l.shard.Aggregate(ctx, params, modules)
 }
 
 func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDocument) error {

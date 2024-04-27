@@ -350,7 +350,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		}
 
 		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params)
+		res, err := node.repo.Aggregate(context.Background(), params, nil)
 		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{

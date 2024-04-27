@@ -367,6 +367,7 @@ func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 			}
 		}
 	}
+
 	return arguments
 }
 
@@ -555,23 +556,18 @@ func (p *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.R
 }
 
 // ListExploreAdditionalExtend extends graphql api list queries with additional properties
-func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{},
-	argumentModuleParams map[string]interface{},
-) ([]search.Result, error) {
+func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
-func (p *Provider) additionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32,
-	capability string, argumentModuleParams map[string]interface{},
-) ([]search.Result, error) {
+func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, searchVector []float32, capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	toBeExtended := in
 	if len(toBeExtended) > 0 {
 		class, err := p.getClassFromSearchResult(toBeExtended)
 		if err != nil {
 			return nil, err
 		}
+
 		allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 		for _, module := range p.GetAll() {
 			if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
