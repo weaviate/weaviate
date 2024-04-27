@@ -28,7 +28,7 @@ import (
 const (
 	DefaultRaftPort                                = 8300
 	DefaultRaftInternalPort                        = 8301
-	DefaultRaftInternalRPCClientMaxCallRecvMsgSize = 1024 * 1024 * 4 // 4MB TODO or should we default higher to handle 1M+ tenants by default?
+	DefaultRaftInternalRPCClientMaxCallRecvMsgSize = 1024 * 1024 * 1024 // 4MB TODO or should we default higher to handle 1M+ tenants by default?
 	DefaultRaftBootstrapTimeout                    = 90
 	DefaultRaftBootstrapExpect                     = 1
 )
