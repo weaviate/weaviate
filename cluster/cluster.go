@@ -44,7 +44,7 @@ func New(cfg store.Config) *Service {
 
 		config:     &cfg,
 		client:     cl,
-		rpcService: transport.New(&fsm, server, addr, cfg.Logger),
+		rpcService: transport.New(&fsm, server, addr, cfg.Logger, cfg.RPCClientMaxCallRecvMsgSize),
 		logger:     cfg.Logger,
 	}
 }
