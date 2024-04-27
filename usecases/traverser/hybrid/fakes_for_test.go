@@ -76,6 +76,10 @@ func (f *fakeSchemaManager) ClusterHealthScore() int {
 	return 0
 }
 
+func (f *fakeSchemaManager) Statistics() map[string]any {
+	return nil
+}
+
 func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 ) (map[string]string, error) {
 	return nil, nil

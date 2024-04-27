@@ -534,7 +534,21 @@ func (st *Store) Stats() map[string]any {
 	// If the raft stats exist, add them as a nested map
 	if st.raft != nil {
 		stats["raft"] = st.raft.Stats()
+		// add the servers information
+		var servers []map[string]any
+		if cf := st.raft.GetConfiguration(); cf.Error() == nil {
+			servers = make([]map[string]any, len(cf.Configuration().Servers))
+			for i, server := range cf.Configuration().Servers {
+				servers[i] = map[string]any{
+					"id":       server.ID,
+					"address":  server.Address,
+					"suffrage": server.Suffrage,
+				}
+			}
+			stats["raft_latest_configuration_servers"] = servers
+		}
 	}
+
 	return stats
 }
 

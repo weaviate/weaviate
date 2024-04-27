@@ -101,6 +101,10 @@ func (m *fakeSchemaGetter) ClusterHealthScore() int {
 	return 0
 }
 
+func (m *fakeSchemaGetter) Statistics() map[string]any {
+	return nil
+}
+
 func (m *fakeSchemaGetter) ResolveParentNodes(_ string, shard string,
 ) (map[string]string, error) {
 	return nil, nil
@@ -502,6 +506,10 @@ type fakeRemoteNodeClient struct{}
 
 func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
+}
+
+func (f *fakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+	return &models.Statistics{}, nil
 }
 
 type fakeReplicationClient struct{}
