@@ -94,11 +94,12 @@ type Parser interface {
 }
 
 type Config struct {
-	WorkDir  string // raft working directory
-	NodeID   string
-	Host     string
-	RaftPort int
-	RPCPort  int
+	WorkDir                     string // raft working directory
+	NodeID                      string
+	Host                        string
+	RaftPort                    int
+	RPCPort                     int
+	RPCClientMaxCallRecvMsgSize int
 
 	// ServerName2PortMap maps server names to port numbers
 	ServerName2PortMap map[string]int
