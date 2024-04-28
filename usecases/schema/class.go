@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -66,6 +67,10 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, err
 	}
+
+	// remove dedup
+	slices.Sort(names)
+	names = slices.Compact(names)
 
 	return classcache.ClassFromContext(ctxWithClassCache, func(names ...string) (map[string]classcache.VersionedClass, error) {
 		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)

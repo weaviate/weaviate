@@ -68,9 +68,9 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		if object == nil {
 			continue
 		}
-		classes = append(classes, object.Class)
+		classes = append(classes, schema.UppercaseClassName(object.Class))
 	}
-
+	// TODO: remove dedup
 	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
 	if err != nil {
 		return 0, err
@@ -88,9 +88,9 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		vclass, exists := vclasses[object.Class]
+		vclass, exists := vclasses[schema.UppercaseClassName(object.Class)]
 		if !exists {
-			return 0, fmt.Errorf("class not found")
+			vclass = classcache.VersionedClass{}
 		}
 
 		schemaClass := vclass.Class
@@ -105,9 +105,16 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		}
 
 		if schemaClass == nil {
-			if schemaVersion, err = m.createClass(ctx, principal, object.Class, properties); err != nil {
+			_, err = m.createClass(ctx, principal, object.Class, properties)
+			if err != nil {
 				return 0, err
 			}
+			// TODO: we may need to return class on creation to avoid extra calls
+			schemaClass, schemaVersion, err = m.schemaManager.GetConsistentClass(ctx, principal, object.Class, true)
+			if err != nil {
+				return 0, err
+			}
+			vclasses[schema.UppercaseClassName(object.Class)] = classcache.VersionedClass{Class: schemaClass, Version: schemaVersion}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
@@ -490,7 +497,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	// collect classes
 	classes := []string{}
 	for className := range classTenants {
-		classes = append(classes, className)
+		classes = append(classes, schema.UppercaseClassName(className))
 	}
 
 	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
