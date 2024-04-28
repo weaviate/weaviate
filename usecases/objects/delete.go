@@ -59,7 +59,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
-	_, schemaVersion, err := m.schemaManager.GetCachedClass(ctx, principal, class)
+	vclass, err := m.schemaManager.GetCachedClass(ctx, principal, class)
 	if err != nil {
 		return fmt.Errorf("could not get class %s: %w", class, err)
 	}
@@ -77,11 +77,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	}
 
 	// Ensure that the local schema has caught up to the version we used to validate
-	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
-		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	if err := m.schemaManager.WaitForUpdate(ctx, vclass[class].Version); err != nil {
+		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", vclass[class].Version, err)
 	}
-	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, schemaVersion)
-	if err != nil {
+	if err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, vclass[class].Version); err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
 	return nil

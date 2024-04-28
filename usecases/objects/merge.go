@@ -158,10 +158,15 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	principal *models.Principal, prevVec, nextVec []float32,
 	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
 ) (*models.Object, error) {
-	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}
+	vclass, exists := vclasses[className]
+	if !exists {
+		return nil, fmt.Errorf("class not found")
+	}
+	class := vclass.Class
 
 	var mergedProps map[string]interface{}
 

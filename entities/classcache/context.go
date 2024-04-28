@@ -39,26 +39,42 @@ func RemoveClassFromContext(ctxWithClassCache context.Context, name string) erro
 	return nil
 }
 
-func ClassFromContext(ctxWithClassCache context.Context, name string, getter func(name string) (*models.Class, uint64, error)) (*models.Class, uint64, error) {
+type VersionedClass struct {
+	*models.Class
+	Version uint64
+	// TODO: we can pass error to check against
+}
+
+func ClassFromContext(ctxWithClassCache context.Context, getter func(names ...string) (map[string]VersionedClass, error), names ...string) (map[string]VersionedClass, error) {
 	cache, err := extractCache(ctxWithClassCache)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	if entry, ok := cache.Load(name); ok {
-		return entry.class, entry.version, nil
+	versionedClasses := map[string]VersionedClass{}
+	notFoundInCTX := []string{}
+	for _, name := range names {
+		if entry, ok := cache.Load(name); ok {
+			versionedClasses[entry.class.Class] = VersionedClass{Class: entry.class, Version: entry.version}
+			continue
+		}
+		notFoundInCTX = append(notFoundInCTX, name)
 	}
 
 	// TODO prevent concurrent getter calls for the same class if it was not loaded,
 	// get once and share results
-	class, version, err := getter(name)
-	if err != nil {
-		return nil, 0, err
+	vclasses, err := getter(notFoundInCTX...)
+	if err != nil || len(vclasses) == 0 {
+		return versionedClasses, nil
 	}
 
-	// do not replace entry if it was loaded in the meantime by concurrent access
-	entry, _ := cache.LoadOrStore(name, &classCacheEntry{class: class, version: version})
-	return entry.class, entry.version, nil
+	for _, vclass := range vclasses {
+		// do not replace entry if it was loaded in the meantime by concurrent access
+		entry, _ := cache.LoadOrStore(vclass.Class.Class, &classCacheEntry{class: vclass.Class, version: vclass.Version})
+		versionedClasses[entry.class.Class] = VersionedClass{Class: entry.class, Version: entry.version}
+	}
+
+	return versionedClasses, nil
 }
 
 func extractCache(ctx context.Context) (*classCache, error) {

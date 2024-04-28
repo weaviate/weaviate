@@ -49,34 +49,40 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		return nil, 0, err
 	}
 	if consistency {
-		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
-		return class, version, err
+		vclasses, err := h.metaWriter.QueryReadOnlyClasses(name)
+		vclass, exists := vclasses[name]
+		if !exists {
+			return nil, 0, fmt.Errorf("class not found")
+		}
+		return vclass.Class, vclass.Version, err
 	}
 	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)
 	return class, 0, nil
 }
 
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
-	principal *models.Principal, name string,
-) (*models.Class, uint64, error) {
+	principal *models.Principal, names ...string,
+) (map[string]classcache.VersionedClass, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	return classcache.ClassFromContext(ctxWithClassCache, name, func(name string) (*models.Class, uint64, error) {
-		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
+	return classcache.ClassFromContext(ctxWithClassCache, func(names ...string) (map[string]classcache.VersionedClass, error) {
+		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
-		if class == nil {
-			return nil, 0, nil
+
+		for _, vclass := range vclasses {
+			if err := h.parser.ParseClass(vclass.Class); err != nil {
+				// TODO: check if needed
+				delete(vclasses, vclass.Class.Class)
+				continue
+			}
 		}
-		err = h.parser.ParseClass(class)
-		if err != nil {
-			return nil, 0, err
-		}
-		return class, version, nil
-	})
+
+		return vclasses, nil
+	}, names...)
 }
 
 // AddClass to the schema
