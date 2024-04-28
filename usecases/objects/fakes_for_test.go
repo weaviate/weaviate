@@ -25,6 +25,7 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -98,10 +99,17 @@ func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *m
 }
 
 func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
-	principal *models.Principal, name string,
-) (*models.Class, uint64, error) {
-	cls, err := f.GetClass(ctx, principal, name)
-	return cls, 0, err
+	principal *models.Principal, names ...string,
+) (map[string]classcache.VersionedClass, error) {
+	res := map[string]classcache.VersionedClass{}
+	for _, name := range names {
+		cls, err := f.GetClass(ctx, principal, name)
+		if err != nil {
+			return res, err
+		}
+		res[name] = classcache.VersionedClass{Class: cls}
+	}
+	return res, nil
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
