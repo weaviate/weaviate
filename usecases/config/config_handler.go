@@ -69,15 +69,16 @@ const (
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 
-	RaftPort              int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
-	RaftInternalRPCPort   int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
-	RaftJoin              []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
-	RaftBootstrapTimeout  int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
-	RaftBootstrapExpect   int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
-	RaftHeartbeatTimeout  int      `long:"raft-heartbeat-timeout" description:"raft heartbeat timeout"`
-	RaftElectionTimeout   int      `long:"raft-election-timeout" description:"raft election timeout"`
-	RaftSnapshotThreshold int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
-	RaftSnapshotInterval  int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
+	RaftPort               int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
+	RaftInternalRPCPort    int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
+	RaftJoin               []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
+	RaftBootstrapTimeout   int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
+	RaftBootstrapExpect    int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
+	RaftHeartbeatTimeout   int      `long:"raft-heartbeat-timeout" description:"raft heartbeat timeout"`
+	RaftElectionTimeout    int      `long:"raft-election-timeout" description:"raft election timeout"`
+	RaftSnapshotThreshold  int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
+	RaftSnapshotInterval   int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
+	RaftMetadataOnlyVoters bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
 }
 
 // Config outline of the config file
@@ -298,8 +299,9 @@ type Raft struct {
 	ElectionTimeout   time.Duration
 	SnapshotInterval  time.Duration
 
-	BootstrapTimeout time.Duration
-	BootstrapExpect  int
+	BootstrapTimeout   time.Duration
+	BootstrapExpect    int
+	MetadataOnlyVoters bool
 }
 
 func (r *Raft) Validate() error {
@@ -343,10 +345,9 @@ func (r *Raft) Validate() error {
 	if r.BootstrapExpect == 0 {
 		return fmt.Errorf("raft.bootstrap_expect must be greater than 0")
 	}
-	// TODO-RAFT: Currently to simplify bootstrapping we expect to bootstrap all the nodes in the join list together. We keep the expect
-	// paramater so that in the future we can change the behaviour if we want (bootstrap once X nodes among Y are online).
-	if r.BootstrapExpect != len(r.Join) {
-		return fmt.Errorf("raft.bootstrap.expect must be equal to the length of raft.join")
+
+	if r.BootstrapExpect > len(r.Join) {
+		return fmt.Errorf("raft.bootstrap.expect must be less than or equal to the length of raft.join")
 	}
 	return nil
 }
@@ -487,6 +488,9 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	}
 	if flags.RaftSnapshotThreshold > 0 {
 		f.Config.Raft.SnapshotThreshold = uint64(flags.RaftSnapshotThreshold)
+	}
+	if flags.RaftMetadataOnlyVoters {
+		f.Config.Raft.MetadataOnlyVoters = true
 	}
 }
 

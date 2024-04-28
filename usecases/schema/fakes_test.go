@@ -133,7 +133,7 @@ func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, uint6
 	return model.(*models.Class), 0, nil
 }
 
-func (f *fakeMetaHandler) QueryTenants(class string) ([]*models.Tenant, uint64, error) {
+func (f *fakeMetaHandler) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	args := f.Called(class)
 	return nil, 0, args.Error(0)
 }
@@ -225,8 +225,8 @@ func (f *fakeMetaHandler) Read(class string, reader func(*models.Class, *shardin
 	return args.Error(0)
 }
 
-func (f *fakeMetaHandler) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := f.Called(class)
+func (f *fakeMetaHandler) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
 }
 

@@ -308,7 +308,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 	return ec.ToError()
 }
 
-// UpdateTenans activates or deactivates tenant partitions and returns a commit func
+// UpdateTenants activates or deactivates tenant partitions and returns a commit func
 // that can be used to either commit or rollback the changes
 func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) error {
 	idx := m.db.GetIndex(schema.ClassName(class.Class))

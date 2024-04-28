@@ -15,9 +15,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -29,7 +29,7 @@ import (
 type Service struct {
 	store *Store
 	cl    client
-	log   *slog.Logger
+	log   *logrus.Logger
 }
 
 // client to communicate with remote services
@@ -44,7 +44,9 @@ func NewService(store *Store, client client) *Service {
 	return &Service{store: store, cl: client, log: store.log}
 }
 
-// / RAFT-TODO Documentation
+// Open opens this store service and marked as such.
+// It constructs a new Raft node using the provided configuration.
+// If there is any old state, such as snapshots, logs, peers, etc., all of those will be restored
 func (s *Service) Open(ctx context.Context, db Indexer) error {
 	s.log.Info("starting raft sub-system ...")
 	s.store.SetDB(db)
@@ -58,7 +60,7 @@ func (s *Service) Close(ctx context.Context) (err error) {
 	if !s.store.IsVoter() {
 		s.log.Info("removing this node from cluster prior to shutdown ...")
 		if err := s.Remove(ctx, s.store.ID()); err != nil {
-			s.log.Error("remove this node from cluster: " + err.Error())
+			s.log.WithError(err).Error("remove this node from cluster")
 		} else {
 			s.log.Info("successfully removed this node from the cluster.")
 		}
@@ -247,7 +249,11 @@ func (s *Service) Execute(req *cmd.ApplyRequest) (uint64, error) {
 }
 
 func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
-	// log.Printf("membership.join %v %v %v", id, addr, voter)
+	s.log.WithFields(logrus.Fields{
+		"id":      id,
+		"address": addr,
+		"voter":   voter,
+	}).Debug("membership.join")
 	if s.store.IsLeader() {
 		return s.store.Join(id, addr, voter)
 	}
@@ -261,7 +267,7 @@ func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
 }
 
 func (s *Service) Remove(ctx context.Context, id string) error {
-	// log.Printf("membership.remove %v ", id)
+	s.log.WithField("id", id).Debug("membership.remove")
 	if s.store.IsLeader() {
 		return s.store.Remove(id)
 	}
@@ -275,7 +281,7 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 }
 
 func (s *Service) Stats() map[string]any {
-	// log.Printf("membership.Stats")
+	s.log.Debug("membership.stats")
 	return s.store.Stats()
 }
 
@@ -350,9 +356,9 @@ func (s *Service) QuerySchema() (models.Schema, error) {
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Service) QueryTenants(class string) ([]*models.Tenant, uint64, error) {
+func (s *Service) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	// Build the query and execute it
-	req := cmd.QueryTenantsRequest{Class: class}
+	req := cmd.QueryTenantsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return []*models.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
