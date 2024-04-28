@@ -466,6 +466,10 @@ func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {
 	return tenants[:n]
 }
 
+// leaderErr decorates ErrLeaderNotFound by distinguishing between
+// normal election happening and there is no leader been chosen yet
+// and if it can't reach the other nodes either for intercluster
+// communication issues or other nodes were down.
 func (s *Service) leaderErr() error {
 	if s.store.addResolver != nil && len(s.store.addResolver.notResolvedNodes) > 0 {
 		var nodes []string
