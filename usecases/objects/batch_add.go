@@ -52,7 +52,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		return nil, errEmptyObjects
 	}
 
-	batchObjects := b.validateAndGetVector(ctx, principal, objects, repl)
+	batchObjects, schemaVersion := b.validateAndGetVector(ctx, principal, objects, repl)
 
 	if err := b.autoSchemaManager.autoTenants(ctx, principal, objects); err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
@@ -64,7 +64,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, 0); err != nil {
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, schemaVersion); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
@@ -73,7 +73,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties,
-) BatchObjects {
+) (BatchObjects, uint64) {
 	var (
 		now          = time.Now().UnixNano() / int64(time.Millisecond)
 		batchObjects = make(BatchObjects, len(objects))
@@ -85,11 +85,16 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 	)
 
 	// validate each object and sort by class (==vectorizer)
+	var maxSchemaVersion uint64
 	for i, obj := range objects {
 		batchObjects[i].OriginalIndex = i
 
-		if err := b.autoSchemaManager.autoSchema(ctx, principal, true, obj); err != nil {
+		schemaVersion, err := b.autoSchemaManager.autoSchema(ctx, principal, true, obj)
+		if err != nil {
 			batchObjects[i].Err = err
+		}
+		if schemaVersion > maxSchemaVersion {
+			maxSchemaVersion = schemaVersion
 		}
 
 		if obj.ID == "" {
@@ -113,19 +118,18 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
-		class, ok := classPerClassName[obj.Class]
-		if !ok {
-			var err2 error
-			if class, _, err2 = b.schemaManager.GetCachedClass(ctx, principal, obj.Class); err2 != nil {
-				batchObjects[i].Err = err2
-				continue
-			}
-			classPerClassName[obj.Class] = class
+		class, _, err := b.schemaManager.GetCachedClass(ctx, principal, obj.Class)
+		if err != nil {
+			batchObjects[i].Err = err
+			continue
 		}
 		if class == nil {
 			batchObjects[i].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
 			continue
 		}
+		// Set most up-to-date class's schema (in case new properties were added by autoschema)
+		// If it was not changed, same class will be fetched from cache
+		classPerClassName[obj.Class] = class
 
 		if err := validator.Object(ctx, class, obj, nil); err != nil {
 			batchObjects[i].Err = err
@@ -156,5 +160,5 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 
 	}
 
-	return batchObjects
+	return batchObjects, maxSchemaVersion
 }

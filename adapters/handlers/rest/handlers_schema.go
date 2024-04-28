@@ -168,19 +168,14 @@ func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParam
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO-RAFT START
-	// Fix changed interface GetShardsStatus -> ShardsStatus
-	// Previous definition:
-	// status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
-	// var tenant string
-	// if params.Tenant == nil {
-	// 	tenant = ""
-	// } else {
-	// 	tenant = *params.Tenant
-	// }
+	var tenant string
+	if params.Tenant == nil {
+		tenant = ""
+	} else {
+		tenant = *params.Tenant
+	}
 
-	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
-	// TODO-RAFT END
+	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -290,7 +285,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
+	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, nil)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -308,7 +303,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 }
 
 func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
-	if err := s.manager.TenantExists(params.HTTPRequest.Context(), principal, params.ClassName, params.TenantName); err != nil {
+	if err := s.manager.ConsistentTenantExists(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, params.TenantName); err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if err == schemaUC.ErrNotFound {
 			return schema.NewTenantExistsNotFound()

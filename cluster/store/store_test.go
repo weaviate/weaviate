@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"strconv"
 	"strings"
@@ -25,6 +24,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/raft"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -128,14 +128,29 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.NotNil(t, getSchema)
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyClass}}, getSchema)
 
-	// QueryTenants
-	getTenants, _, err := srv.QueryTenants(cls.Class)
+	// QueryTenants all
+	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
 	assert.NoError(t, err)
-	assert.NotNil(t, getTenants)
+	assert.NotNil(t, getTenantsAll)
 	assert.Equal(t, []*models.Tenant{{
 		Name:           "T0",
 		ActivityStatus: models.TenantActivityStatusHOT,
-	}}, getTenants)
+	}}, getTenantsAll)
+
+	// QueryTenants one
+	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenantsOne)
+	assert.Equal(t, []*models.Tenant{{
+		Name:           "T0",
+		ActivityStatus: models.TenantActivityStatusHOT,
+	}}, getTenantsOne)
+
+	// QueryTenants one
+	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
+	assert.NoError(t, err)
+	assert.NotNil(t, getTenantsNone)
+	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
 
 	// Query ShardTenant
 	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")
@@ -786,7 +801,7 @@ func cmdAsBytes(class string,
 type MockStore struct {
 	indexer *MockIndexer
 	parser  *MockParser
-	logger  MockSLog
+	logger  MockLogger
 	cfg     Config
 	store   *Store
 }
@@ -794,7 +809,7 @@ type MockStore struct {
 func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 	indexer := &MockIndexer{}
 	parser := &MockParser{}
-	logger := NewMockSLog(t)
+	logger := NewMockLogger(t)
 	ms := MockStore{
 		indexer: indexer,
 		parser:  parser,
@@ -831,17 +846,18 @@ func (m *MockStore) Store(doBefore func(*MockStore)) *Store {
 	return m.store
 }
 
-type MockSLog struct {
+type MockLogger struct {
 	buf    *bytes.Buffer
-	Logger *slog.Logger
+	Logger *logrus.Logger
 }
 
-func NewMockSLog(t *testing.T) MockSLog {
+func NewMockLogger(t *testing.T) MockLogger {
 	buf := new(bytes.Buffer)
-	m := MockSLog{
+	m := MockLogger{
 		buf: buf,
 	}
-	m.Logger = slog.New(slog.NewJSONHandler(buf, nil))
+	m.Logger = logrus.New()
+	m.Logger.SetFormatter(&logrus.JSONFormatter{})
 	return m
 }
 
@@ -914,8 +930,8 @@ func (m *MockIndexer) UpdateShardStatus(req *cmd.UpdateShardStatusRequest) error
 	return args.Error(0)
 }
 
-func (m *MockIndexer) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := m.Called(class)
+func (m *MockIndexer) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	args := m.Called(class, tenant)
 	return models.ShardStatusList{}, args.Error(1)
 }
 

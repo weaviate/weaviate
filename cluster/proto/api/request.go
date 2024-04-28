@@ -49,7 +49,8 @@ type QueryReadOnlyClassResponse struct {
 }
 
 type QueryTenantsRequest struct {
-	Class string
+	Class   string
+	Tenants []string // If empty, all tenants are returned
 }
 
 type TenantWithVersion struct {

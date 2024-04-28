@@ -273,7 +273,11 @@ func (i *replicatedIndices) postObject() http.Handler {
 			return
 		}
 
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		index, shard := args[1], args[2]
 
@@ -486,7 +490,11 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 			return
 		}
 
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, dryRun, schemaVersion)
 		if localIndexNotReady(resp) {

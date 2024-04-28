@@ -14,16 +14,15 @@ package cluster
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/cluster/transport"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
-
 type Service struct {
 	*store.Service
 	raftAddr string
@@ -31,7 +30,7 @@ type Service struct {
 
 	client     *transport.Client
 	rpcService *transport.Service
-	logger     *slog.Logger
+	logger     *logrus.Logger
 }
 
 func New(cfg store.Config) *Service {
@@ -53,7 +52,7 @@ func New(cfg store.Config) *Service {
 // Open internal RPC service to handle node communication,
 // bootstrap the Raft node, and restore the database state
 func (c *Service) Open(ctx context.Context, db store.Indexer) error {
-	c.logger.Info("open cluster service", "servers", c.config.ServerName2PortMap)
+	c.logger.WithField("servers", c.config.ServerName2PortMap).Info("open cluster service")
 	if err := c.rpcService.Open(); err != nil {
 		return fmt.Errorf("start rpc service: %w", err)
 	}

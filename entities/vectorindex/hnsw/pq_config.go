@@ -26,6 +26,7 @@ const (
 
 const (
 	DefaultPQEnabled             = false
+	DefaultPQBitCompression      = false
 	DefaultPQSegments            = 0
 	DefaultPQEncoderType         = PQEncoderTypeKMeans
 	DefaultPQEncoderDistribution = PQEncoderDistributionLogNormal
@@ -41,11 +42,12 @@ type PQEncoder struct {
 
 // Product Quantization configuration
 type PQConfig struct {
-	Enabled       bool      `json:"enabled"`
-	Segments      int       `json:"segments"`
-	Centroids     int       `json:"centroids"`
-	TrainingLimit int       `json:"trainingLimit"`
-	Encoder       PQEncoder `json:"encoder"`
+	Enabled        bool      `json:"enabled"`
+	BitCompression bool      `json:"bitCompression"`
+	Segments       int       `json:"segments"`
+	Centroids      int       `json:"centroids"`
+	TrainingLimit  int       `json:"trainingLimit"`
+	Encoder        PQEncoder `json:"encoder"`
 }
 
 func validEncoder(v string) error {
@@ -140,6 +142,12 @@ func parsePQMap(in map[string]interface{}, pq *PQConfig) error {
 
 	if err := common.OptionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
 		pq.Enabled = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalBoolFromMap(pqConfigMap, "bitCompression", func(v bool) {
+		pq.BitCompression = v
 	}); err != nil {
 		return err
 	}

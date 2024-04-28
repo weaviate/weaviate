@@ -162,8 +162,9 @@ func TestHnswPqNilVectors(t *testing.T) {
 			Type:         ent.PQEncoderTypeTile,
 			Distribution: ent.PQEncoderDistributionLogNormal,
 		},
-		Segments:  dimensions,
-		Centroids: 256,
+		BitCompression: false,
+		Segments:       dimensions,
+		Centroids:      256,
 	}
 
 	ch := make(chan error)

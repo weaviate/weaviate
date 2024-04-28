@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -38,6 +39,8 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return err
 	}
 
+	ctx = classcache.ContextWithClassCache(ctx)
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return NewErrInternal("could not acquire lock: %v", err)
@@ -56,6 +59,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
+	_, schemaVersion, err := m.schemaManager.GetCachedClass(ctx, principal, class)
+	if err != nil {
+		return fmt.Errorf("could not get class %s: %w", class, err)
+	}
 	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
 	if err != nil {
 		switch err.(type) {
@@ -69,7 +76,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return NewErrNotFound("object %v could not be found", path)
 	}
 
-	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, 0)
+	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, schemaVersion)
 	if err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}

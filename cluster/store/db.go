@@ -16,8 +16,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 
+	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -32,7 +32,7 @@ type localDB struct {
 	Schema *schema
 	store  Indexer
 	parser Parser
-	log    *slog.Logger
+	log    *logrus.Logger
 }
 
 func (db *localDB) SetIndexer(idx Indexer) {
@@ -73,7 +73,8 @@ func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schema
 	req.State.SetLocalName(nodeID)
 
 	if err := db.store.RestoreClassDir(cmd.Class); err != nil {
-		db.log.Error("restore class directory from backup %s: "+err.Error(), "class", cmd.Class)
+		db.log.WithField("class", cmd.Class).WithError(err).
+			Error("restore class directory from backup")
 		// continue since we need to add class to the schema anyway
 	}
 
@@ -102,6 +103,7 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		}
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
+		meta.Class.VectorConfig = u.VectorConfig
 		meta.ClassVersion = cmd.Version
 		return nil
 	}

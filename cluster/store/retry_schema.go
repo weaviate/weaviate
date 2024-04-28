@@ -110,8 +110,8 @@ func (rs retrySchema) CopyShardingState(class string) (ss *sharding.State) {
 	return res
 }
 
-func (rs retrySchema) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	return rs.schema.GetShardsStatus(class)
+func (rs retrySchema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	return rs.schema.GetShardsStatus(class, tenant)
 }
 
 func (rs retrySchema) Len() int { return rs.schema.len() }
