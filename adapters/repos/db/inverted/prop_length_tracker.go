@@ -61,6 +61,7 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 
 	stat, err := f.Stat()
 	if err != nil {
+		f.Close()
 		return nil, err
 	}
 
