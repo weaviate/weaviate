@@ -110,7 +110,8 @@ func TestServiceEndpoints(t *testing.T) {
 
 	// Add same class again
 	_, err = srv.AddClass(cls, ss)
-	assert.ErrorIs(t, err, errClassExists)
+	assert.Error(t, err)
+	assert.Equal(t, "class name C already exists", err.Error())
 
 	// Add similar class
 	_, err = srv.AddClass(&models.Class{Class: "c"}, ss)
