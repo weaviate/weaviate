@@ -22,6 +22,7 @@ type JsonPropertyIdTracker struct {
 	Path        string
 	LastId      uint64
 	PropertyIds map[string]uint64
+	Initialised bool
 	sync.Mutex
 }
 
@@ -30,6 +31,8 @@ func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 		Path:        path,
 		PropertyIds: make(map[string]uint64),
 		LastId:      0,
+		Initialised: true,
+
 	}
 
 	// read the file into memory
@@ -61,6 +64,10 @@ func (t *JsonPropertyIdTracker) Flush(flushBackup bool) error {
 	t.Lock()
 	defer t.Unlock()
 
+	if !t.Initialised {
+		panic("tracker not initialised")
+	}
+
 	bytes, err := json.Marshal(t)
 	if err != nil {
 		return err
@@ -91,6 +98,9 @@ func (t *JsonPropertyIdTracker) Flush(flushBackup bool) error {
 func (t *JsonPropertyIdTracker) Drop() error {
 	t.Lock()
 	defer t.Unlock()
+	if !t.Initialised {
+		panic("tracker not initialised")
+	}
 
 	if err := os.Remove(t.Path); err != nil {
 		return fmt.Errorf("remove prop length tracker state from disk:%v, %w", t.Path, err)
@@ -120,6 +130,10 @@ func (t *JsonPropertyIdTracker) GetIdForProperty(property string) uint64 {
 	t.Lock()
 	defer t.Unlock()
 
+	if !t.Initialised {
+		panic("tracker not initialised")
+	}
+
 	if id, ok := t.PropertyIds[property]; ok {
 		return id
 	}
@@ -136,6 +150,9 @@ func (t *JsonPropertyIdTracker) CreateProperty(property string) (uint64, error) 
 }
 
 func (t *JsonPropertyIdTracker) doCreateProperty(property string) (uint64, error) {
+	if !t.Initialised {
+		panic("tracker not initialised")
+	}
 	if id, ok := t.PropertyIds[property]; ok {
 		return id, fmt.Errorf("property %v already exists\n", property)
 	}
