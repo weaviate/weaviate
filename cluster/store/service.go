@@ -436,7 +436,7 @@ func (s *Service) QueryTenantsShards(class string, tenants ...string) (map[strin
 		return nil, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
-	return resp.Tenants, resp.SchemaVersion, nil
+	return resp.TenantsActivityStatus, resp.SchemaVersion, nil
 }
 
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse

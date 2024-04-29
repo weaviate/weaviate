@@ -761,7 +761,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 
 	byShard := map[string]objsAndPos{}
 	// get all tenants shards
-	tenants := []string{}
+	tenants := make([]string, len(objects))
 	tenantsStatus := map[string]string{}
 	var err error
 	for _, obj := range objects {
@@ -1403,13 +1403,13 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("tenant name is empty"))
 	}
 
-	tenantShard, err := i.getSchema.TenantsShards(className, tenant)
+	tenantShards, err := i.getSchema.TenantsShards(className, tenant)
 	if err != nil {
 		return nil, err
 	}
 
-	if tenantShard[tenant] != "" {
-		if tenantShard[tenant] == models.TenantActivityStatusHOT {
+	if tenantShards[tenant] != "" {
+		if tenantShards[tenant] == models.TenantActivityStatusHOT {
 			return []string{tenant}, nil
 		}
 		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))

@@ -82,6 +82,6 @@ type QueryTenantsShardsRequest struct {
 }
 
 type QueryTenantsShardsResponse struct {
-	Tenants       map[string]string // map[tenant]status
-	SchemaVersion uint64
+	TenantsActivityStatus map[string]string // map[tenant]status
+	SchemaVersion         uint64
 }
