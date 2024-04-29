@@ -48,7 +48,7 @@ type metaWriter interface {
 	// QueryTenants returns the tenants for a class. If tenants is empty, all tenants are returned.
 	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
-	QueryTenantShard(class, tenant string) (string, string, uint64, error)
+	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
@@ -69,7 +69,6 @@ type metaReader interface {
 	ShardReplicas(class, shard string) ([]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardOwner(class, shard string) (string, error)
-	TenantShard(class, tenant string) (string, string)
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 
@@ -80,7 +79,7 @@ type metaReader interface {
 	ShardOwnerWithVersion(ctx context.Context, lass, shard string, version uint64) (string, error)
 	ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (string, error)
 	ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) ([]string, error)
-	TenantShardWithVersion(ctx context.Context, class, tenant string, version uint64) (name string, st string, err error)
+	TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error)
 	CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (*sharding.State, error)
 }
 
