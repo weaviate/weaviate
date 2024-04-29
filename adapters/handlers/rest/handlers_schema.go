@@ -31,7 +31,7 @@ type schemaHandlers struct {
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	_, err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
+	_, _, err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
 		switch err.(type) {

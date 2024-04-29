@@ -36,7 +36,7 @@ import (
 )
 
 type schemaManager interface {
-	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (uint64, error)
+	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
 	AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) (uint64, error)
 	GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error)
 	// ReadOnlyClass return class model.

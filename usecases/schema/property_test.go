@@ -35,7 +35,7 @@ func TestHandler_AddProperty(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 		dataTypes := []schema.DataType{
 			schema.DataTypeInt,
@@ -91,7 +91,7 @@ func TestHandler_AddProperty(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 
 		existingNames := []string{
@@ -132,7 +132,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 		dataTypes := []schema.DataType{
 			schema.DataTypeObject,
@@ -405,9 +405,9 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&refClass)
 	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
 	fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
-	_, err := handler.AddClass(ctx, nil, &class)
+	_, _, err := handler.AddClass(ctx, nil, &class)
 	require.NoError(t, err)
-	_, err = handler.AddClass(ctx, nil, &refClass)
+	_, _, err = handler.AddClass(ctx, nil, &refClass)
 	require.NoError(t, err)
 
 	dataType := []string{refClass.Class}
