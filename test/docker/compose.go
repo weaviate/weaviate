@@ -38,6 +38,7 @@ import (
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
@@ -104,6 +105,7 @@ type Compose struct {
 	withRerankerTransformers      bool
 	withOllamaVectorizer          bool
 	withOllamaGenerative          bool
+	withOctoAIVectorizer          bool
 	withOctoAIGenerative          bool
 	withOctoAIApiKey              string
 	weaviateEnvs                  map[string]string
@@ -148,6 +150,13 @@ func (d *Compose) WithText2VecContextionary() *Compose {
 func (d *Compose) WithText2VecOllama() *Compose {
 	d.withOllamaVectorizer = true
 	d.enableModules = append(d.enableModules, modollama.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecOctoAI(apiKey string) *Compose {
+	d.withOctoAIApiKey = apiKey
+	d.withOctoAIVectorizer = true
+	d.enableModules = append(d.enableModules, modoctoai.Name)
 	return d
 }
 
