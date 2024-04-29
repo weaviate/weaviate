@@ -311,7 +311,6 @@ func searchParamsFromProto(req *pb.SearchRequest, scheme schema.Schema, config *
 
 		out.GroupBy = groupBy
 	}
-	fmt.Println("out.GroupBy", out.GroupBy)
 	return out, nil
 }
 
