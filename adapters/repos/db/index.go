@@ -548,29 +548,38 @@ func indexID(class schema.ClassName) string {
 }
 
 func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
-	var shard, status string
-	className := i.Config.ClassName.String()
-	if tenant != "" {
-		if shard, status = i.getSchema.TenantShard(className, tenant); shard != "" {
-			if status == models.TenantActivityStatusHOT {
-				return shard, nil
-			}
-			return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+	return i.determineObjectShardByStatus(id, tenant, nil)
+}
+
+func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shardsStatus map[string]string) (string, error) {
+	if tenant == "" {
+		uuid, err := uuid.Parse(id.String())
+		if err != nil {
+			return "", fmt.Errorf("parse uuid: %q", id.String())
 		}
-		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+
+		uuidBytes, err := uuid.MarshalBinary() // cannot error
+		if err != nil {
+			return "", fmt.Errorf("marshal uuid: %q", id.String())
+		}
+		return i.getSchema.ShardFromUUID(i.Config.ClassName.String(), uuidBytes), nil
 	}
 
-	uuid, err := uuid.Parse(id.String())
-	if err != nil {
-		return "", fmt.Errorf("parse uuid: %q", id.String())
+	var err error
+	if len(shardsStatus) == 0 {
+		shardsStatus, err = i.getSchema.TenantsShards(i.Config.ClassName.String(), tenant)
+		if err != nil {
+			return "", err
+		}
 	}
 
-	uuidBytes, err := uuid.MarshalBinary() // cannot error
-	if err != nil {
-		return "", fmt.Errorf("marshal uuid: %q", id.String())
+	if status := shardsStatus[tenant]; status != "" {
+		if status == models.TenantActivityStatusHOT {
+			return tenant, nil
+		}
+		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 	}
-	shard = i.getSchema.ShardFromUUID(className, uuidBytes)
-	return shard, err
+	return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -751,12 +760,30 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	byShard := map[string]objsAndPos{}
+	// get all tenants shards
+	tenants := make([]string, len(objects))
+	tenantsStatus := map[string]string{}
+	var err error
+	for _, obj := range objects {
+		if obj.Object.Tenant == "" {
+			continue
+		}
+		tenants = append(tenants, obj.Object.Tenant)
+	}
+
+	if len(tenants) > 0 {
+		tenantsStatus, err = i.getSchema.TenantsShards(i.Config.ClassName.String(), tenants...)
+		if err != nil {
+			return []error{err}
+		}
+	}
+
 	for pos, obj := range objects {
 		if err := i.validateMultiTenancy(obj.Object.Tenant); err != nil {
 			out[pos] = err
 			continue
 		}
-		shardName, err := i.determineObjectShard(obj.ID(), obj.Object.Tenant)
+		shardName, err := i.determineObjectShardByStatus(obj.ID(), obj.Object.Tenant, tenantsStatus)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -1376,9 +1403,14 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("tenant name is empty"))
 	}
 
-	if shard, status := i.getSchema.TenantShard(className, tenant); shard != "" {
-		if status == models.TenantActivityStatusHOT {
-			return []string{shard}, nil
+	tenantShards, err := i.getSchema.TenantsShards(className, tenant)
+	if err != nil {
+		return nil, err
+	}
+
+	if tenantShards[tenant] != "" {
+		if tenantShards[tenant] == models.TenantActivityStatusHOT {
+			return []string{tenant}, nil
 		}
 		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 	}

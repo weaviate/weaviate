@@ -57,6 +57,7 @@ func TestServiceEndpoints(t *testing.T) {
 	m.indexer.On("AddTenants", Anything, Anything).Return(nil)
 	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
@@ -154,10 +155,12 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
 
 	// Query ShardTenant
-	getTenantTenant, getTenantActivityStatus, _, err := srv.QueryTenantShard(cls.Class, "T0")
-	assert.Nil(t, err)
-	assert.Equal(t, "T0", getTenantTenant)
-	assert.Equal(t, models.TenantActivityStatusHOT, getTenantActivityStatus)
+	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")
+	for tenant, status := range getTenantShards {
+		assert.Nil(t, err)
+		assert.Equal(t, "T0", tenant)
+		assert.Equal(t, models.TenantActivityStatusHOT, status)
+	}
 
 	// QueryShardOwner - Err
 	_, _, err = srv.QueryShardOwner(cls.Class, "T0")
@@ -363,6 +366,7 @@ func TestStoreApply(t *testing.T) {
 	doFirst := func(m *MockStore) {
 		m.indexer.On("Open", mock.Anything).Return(nil)
 		m.parser.On("ParseClass", mock.Anything).Return(nil)
+		m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	}
 
 	cls := &models.Class{Class: "C1"}
@@ -466,6 +470,7 @@ func TestStoreApply(t *testing.T) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("RestoreClassDir", cls.Class).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 			doAfter: func(ms *MockStore) error {
 				_, ok := ms.store.db.Schema.Classes["C1"]
@@ -518,6 +523,7 @@ func TestStoreApply(t *testing.T) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 				m.store.db.Schema.addClass(cls, ss, 1)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 		},
 		{
@@ -528,6 +534,7 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 			doAfter: func(ms *MockStore) error {
 				if _, ok := ms.store.db.Schema.Classes["C1"]; ok {
@@ -572,6 +579,7 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, ss, 1)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 			doAfter: func(ms *MockStore) error {
 				ok := false
@@ -942,6 +950,10 @@ func (m *MockIndexer) Open(ctx context.Context) error {
 func (m *MockIndexer) Close(ctx context.Context) error {
 	args := m.Called(ctx)
 	return args.Error(0)
+}
+
+func (m *MockIndexer) TriggerSchemaUpdateCallbacks() {
+	m.Called()
 }
 
 type MockParser struct {

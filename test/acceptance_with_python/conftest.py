@@ -1,5 +1,5 @@
 import os
-from typing import Any, Optional, List, Generator, Protocol, Type, Dict, Tuple, Union
+from typing import Any, Optional, List, Generator, Protocol, Type, Dict, Tuple, Union, Callable
 
 import pytest
 from _pytest.fixtures import SubRequest
@@ -48,6 +48,16 @@ class CollectionFactory(Protocol):
     ) -> Collection[Any, Any]:
         """Typing for fixture."""
         ...
+
+@pytest.fixture
+def weaviate_client() -> Callable[[int, int], weaviate.WeaviateClient]:
+    def connect(http_port : int = 8080, grpc_port : int = 50051) -> weaviate.WeaviateClient:
+        return weaviate.connect_to_local(
+            port=http_port,
+            grpc_port=grpc_port,
+            additional_config=AdditionalConfig(timeout=(60, 120)),  # for image tests
+        )
+    return connect
 
 
 @pytest.fixture

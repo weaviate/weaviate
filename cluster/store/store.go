@@ -75,6 +75,8 @@ type Indexer interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 
+	TriggerSchemaUpdateCallbacks()
+
 	// ReloadLocalDB reloads the local database using the latest schema.
 	ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error
 
@@ -566,7 +568,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	classInfo := st.db.Schema.ClassInfo(req.Class)
 	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
 		st.log.WithField("class", req.Class).Info("class already restored")
-		return 0, nil
+		return 0, fmt.Errorf("class name %s already exists", req.Class)
 	}
 	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
 		if other := st.FindSimilarClass(req.Class); other == req.Class {

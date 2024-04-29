@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -61,7 +62,7 @@ type SchemaGetter interface {
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
-	TenantShard(class, tenant string) (string, string)
+	TenantsShards(class string, tenants ...string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }
@@ -347,16 +348,15 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 	return name2Addr, nil
 }
 
-func (m *Manager) TenantShard(class, tenant string) (string, string) {
+func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
 	// TODO-RAFT: we always query the leader
 	// we need to make sure what is the side effect of
 	// if the leader says "tenant is HOT", but locally
 	// it's still COLD.
-	resTenant, resStatus, _, err := m.metaWriter.QueryTenantShard(class, tenant)
-	if err != nil {
-		return "", ""
-	}
-	return resTenant, resStatus
+	slices.Sort(tenants)
+	tenants = slices.Compact(tenants)
+	status, _, err := m.metaWriter.QueryTenantsShards(class, tenants...)
+	return status, err
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
