@@ -76,6 +76,10 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return NewErrNotFound("object %v could not be found", path)
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
 	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, schemaVersion)
 	if err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)

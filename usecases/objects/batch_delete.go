@@ -82,6 +82,10 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
 	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
