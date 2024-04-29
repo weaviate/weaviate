@@ -210,6 +210,7 @@ func TestContentReader_PreadWithCache(t *testing.T) {
 		startOffset uint64
 		endOffset   uint64
 	}{
+		{name: "empty", startOffset: 0, endOffset: 0},
 		{name: "full file", startOffset: 0, endOffset: size},
 		{name: "one full page", startOffset: uint64(pageSize), endOffset: uint64(pageSize * 2)},
 		{name: "one full page and a bit", startOffset: uint64(pageSize), endOffset: uint64(pageSize*2 + 2)},

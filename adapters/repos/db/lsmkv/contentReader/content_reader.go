@@ -125,6 +125,9 @@ func (c Pread) ReadValue(offset uint64) (byte, uint64) {
 }
 
 func (c Pread) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64) {
+	if length == 0 {
+		return []byte{}, offset
+	}
 	fullOffset := c.startOffset + offset
 	offsetKey := int(fullOffset / uint64(c.pageSize))
 
