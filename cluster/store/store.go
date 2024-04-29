@@ -75,6 +75,8 @@ type Indexer interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 
+	TriggerSchemaUpdateCallbacks()
+
 	// ReloadLocalDB reloads the local database using the latest schema.
 	ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error
 
