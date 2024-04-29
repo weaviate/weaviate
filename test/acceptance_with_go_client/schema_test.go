@@ -98,7 +98,7 @@ func checkDuplicateClassErrors(t *testing.T, err error, tt testCase) {
 		require.Nil(t, json.Unmarshal([]byte(rawError.Msg), &clientErr))
 		require.Len(t, clientErr.Error, 1)
 		if tt.className1 == tt.className2 {
-			require.Contains(t, clientErr.Error[0].Message, "class already exists")
+			require.Contains(t, clientErr.Error[0].Message, fmt.Sprintf("class name %s already exists", tt.className1))
 		} else {
 			require.Contains(t, clientErr.Error[0].Message, "class already exists")
 			require.Contains(t, clientErr.Error[0].Message, fmt.Sprintf("found similar class %q", tt.className1))
