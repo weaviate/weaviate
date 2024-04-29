@@ -171,6 +171,10 @@ func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig
 	return models.MultiTenancyConfig{Enabled: f.tenantsEnabled}
 }
 
+func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
+}
+
 type fakeLocks struct {
 	Err error
 }

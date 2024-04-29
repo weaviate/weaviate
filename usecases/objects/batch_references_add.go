@@ -44,8 +44,6 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
-	ctx = classcache.ContextWithClassCache(ctx)
-
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 
@@ -82,6 +80,10 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		}
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
 	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, schemaVersion); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {

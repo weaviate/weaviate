@@ -457,7 +457,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 
 func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	principal *models.Principal, objects []*models.Object,
-) error {
+) (uint64, error) {
 	classTenants := make(map[string]map[string]struct{})
 
 	// group by tenants by class
@@ -469,15 +469,15 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	}
 
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
+	var maxSchemaVersion uint64
 	for className, tenantNames := range classTenants {
-		class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+		class, schemaVersion, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 		if err != nil || // invalid class
 			class == nil || // class is nil
 			!schema.MultiTenancyEnabled(class) || // non-MT class
 			!class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation
 			continue
 		}
-
 		tenants := make([]*models.Tenant, len(tenantNames))
 		i := 0
 		for name := range tenantNames {
@@ -485,10 +485,14 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 			i++
 		}
 		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
-			return fmt.Errorf("add tenants to class %q: %w", className, err)
+			return 0, fmt.Errorf("add tenants to class %q: %w", className, err)
+		}
+
+		if schemaVersion > maxSchemaVersion {
+			maxSchemaVersion = schemaVersion
 		}
 	}
-	return nil
+	return maxSchemaVersion, nil
 }
 
 func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,
