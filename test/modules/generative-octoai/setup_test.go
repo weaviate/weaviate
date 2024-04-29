@@ -46,7 +46,7 @@ func createSingleNodeEnvironment(ctx context.Context, octoAIApiKey string,
 
 func composeModules(octoAIApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		// WithText2VecOctoAI(octoAIApiKey).
+		WithText2VecOctoAI(octoAIApiKey).
 		WithGenerativeOctoAI(octoAIApiKey)
 	return
 }
