@@ -35,24 +35,24 @@ var ErrAny = errors.New("any error")
 
 func TestService(t *testing.T) {
 	var (
-		ctx                          = context.Background()
-		addr                         = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
-		members                      = &MockMembers{leader: addr}
-		executor                     = &MockExecutor{}
-		logger                       = NewMockLogger(t)
-		adrResolver                  = MocKAddressResolver{addr: addr, err: nil}
-		grpcClientMaxCallRecvMsgSize = 1024 * 1024 * 4
+		ctx             = context.Background()
+		addr            = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
+		members         = &MockMembers{leader: addr}
+		executor        = &MockExecutor{}
+		logger          = NewMockLogger(t)
+		adrResolver     = MocKAddressResolver{addr: addr, err: nil}
+		raftGrpcMaxSize = 1024 * 1024 * 1024
 	)
 	// Empty sever address
-	srv := New(members, executor, "", logger.Logger, grpcClientMaxCallRecvMsgSize)
+	srv := New(members, executor, "", logger.Logger, raftGrpcMaxSize)
 	assert.NotNil(t, srv.Open())
 
 	// Invalid IP
-	srv = New(members, executor, "abc", logger.Logger, grpcClientMaxCallRecvMsgSize)
+	srv = New(members, executor, "abc", logger.Logger, raftGrpcMaxSize)
 	netErr := &net.OpError{}
 	assert.ErrorAs(t, srv.Open(), &netErr)
 
-	srv = New(members, executor, addr, logger.Logger, grpcClientMaxCallRecvMsgSize)
+	srv = New(members, executor, addr, logger.Logger, raftGrpcMaxSize)
 	assert.Nil(t, srv.Open())
 	defer srv.Close()
 	time.Sleep(time.Millisecond * 50)

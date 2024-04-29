@@ -35,7 +35,7 @@ type Service struct {
 
 func New(cfg store.Config) *Service {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
-	cl := transport.NewClient(transport.NewRPCResolver(cfg.IsLocalHost, cfg.RPCPort), cfg.RPCClientMaxCallRecvMsgSize)
+	cl := transport.NewClient(transport.NewRPCResolver(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMaxSize)
 	fsm := store.New(cfg)
 	server := store.NewService(&fsm, cl)
 	return &Service{
@@ -44,7 +44,7 @@ func New(cfg store.Config) *Service {
 
 		config:     &cfg,
 		client:     cl,
-		rpcService: transport.New(&fsm, server, addr, cfg.Logger, cfg.RPCClientMaxCallRecvMsgSize),
+		rpcService: transport.New(&fsm, server, addr, cfg.Logger, cfg.RaftRPCMaxSize),
 		logger:     cfg.Logger,
 	}
 }

@@ -69,17 +69,17 @@ const (
 type Flags struct {
 	ConfigFile string `long:"config-file" description:"path to config file (default: ./weaviate.conf.json)"`
 
-	RaftPort                                int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
-	RaftInternalRPCPort                     int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
-	RaftInternalRPCClientMaxCallRecvMsgSize int      `long:"raft-internal-rpc-client-max-call-recv-msg-size" description:"TODO"` // TODO
-	RaftJoin                                []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
-	RaftBootstrapTimeout                    int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
-	RaftBootstrapExpect                     int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
-	RaftHeartbeatTimeout                    int      `long:"raft-heartbeat-timeout" description:"raft heartbeat timeout"`
-	RaftElectionTimeout                     int      `long:"raft-election-timeout" description:"raft election timeout"`
-	RaftSnapshotThreshold                   int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
-	RaftSnapshotInterval                    int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
-	RaftMetadataOnlyVoters                  bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
+	RaftPort               int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
+	RaftInternalRPCPort    int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
+	RaftRPCMaxSize         int      `long:"raft-rpc-max-size" description:"maximum internal raft grpc message size in bytes, defaults to 1GB"`
+	RaftJoin               []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
+	RaftBootstrapTimeout   int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
+	RaftBootstrapExpect    int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
+	RaftHeartbeatTimeout   int      `long:"raft-heartbeat-timeout" description:"raft heartbeat timeout"`
+	RaftElectionTimeout    int      `long:"raft-election-timeout" description:"raft election timeout"`
+	RaftSnapshotThreshold  int      `long:"raft-snap-threshold" description:"number of outstanding log entries before performing a snapshot"`
+	RaftSnapshotInterval   int      `long:"raft-snap-interval" description:"controls how often raft checks if it should perform a snapshot"`
+	RaftMetadataOnlyVoters bool     `long:"raft-metadata-only-voters" description:"configures the voters to store metadata exclusively, without storing any other data"`
 }
 
 // Config outline of the config file
@@ -291,15 +291,15 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port                                int
-	InternalRPCPort                     int
-	InternalRPCClientMaxCallRecvMsgSize int // TODO names throughout
-	Join                                []string
-	SnapshotThreshold                   uint64
-	HeartbeatTimeout                    time.Duration
-	RecoveryTimeout                     time.Duration
-	ElectionTimeout                     time.Duration
-	SnapshotInterval                    time.Duration
+	Port              int
+	InternalRPCPort   int
+	RPCMaxSize        int
+	Join              []string
+	SnapshotThreshold uint64
+	HeartbeatTimeout  time.Duration
+	RecoveryTimeout   time.Duration
+	ElectionTimeout   time.Duration
+	SnapshotInterval  time.Duration
 
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
@@ -476,8 +476,8 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	if flags.RaftInternalRPCPort > 0 {
 		f.Config.Raft.InternalRPCPort = flags.RaftInternalRPCPort
 	}
-	if flags.RaftInternalRPCClientMaxCallRecvMsgSize > 0 {
-		f.Config.Raft.InternalRPCClientMaxCallRecvMsgSize = flags.RaftInternalRPCClientMaxCallRecvMsgSize
+	if flags.RaftRPCMaxSize > 0 {
+		f.Config.Raft.RPCMaxSize = flags.RaftRPCMaxSize
 	}
 	if flags.RaftJoin != nil {
 		f.Config.Raft.Join = flags.RaftJoin
