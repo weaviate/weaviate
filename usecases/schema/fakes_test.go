@@ -230,6 +230,10 @@ func (f *fakeMetaHandler) GetShardsStatus(class, tenant string) (models.ShardSta
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
 }
 
+func (f *fakeMetaHandler) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
+}
+
 type fakeStore struct {
 	collections map[string]*models.Class
 	parser      Parser
