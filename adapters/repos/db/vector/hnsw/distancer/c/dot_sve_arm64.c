@@ -33,24 +33,24 @@ void dot_sve(float *a, float *b, float *res, long *len)
     uint64_t i = 0;
 
     // load 4*vsize floats at a time
-    // while (i + vsizex4 < l)
-    // {
-    //     svfloat32_t a0 = svld1_f32(pred, a + i);
-    //     svfloat32_t a1 = svld1_f32(pred, a + i + vsize);
-    //     svfloat32_t a2 = svld1_f32(pred, a + i + vsize * 2);
-    //     svfloat32_t a3 = svld1_f32(pred, a + i + vsize * 3);
-    //     svfloat32_t b0 = svld1_f32(pred, b + i);
-    //     svfloat32_t b1 = svld1_f32(pred, b + i + vsize);
-    //     svfloat32_t b2 = svld1_f32(pred, b + i + vsize * 2);
-    //     svfloat32_t b3 = svld1_f32(pred, b + i + vsize * 3);
+    while (i + vsizex4 <= l)
+    {
+        svfloat32_t a0 = svld1_f32(pred, a + i);
+        svfloat32_t a1 = svld1_f32(pred, a + i + vsize);
+        svfloat32_t a2 = svld1_f32(pred, a + i + vsize * 2);
+        svfloat32_t a3 = svld1_f32(pred, a + i + vsize * 3);
+        svfloat32_t b0 = svld1_f32(pred, b + i);
+        svfloat32_t b1 = svld1_f32(pred, b + i + vsize);
+        svfloat32_t b2 = svld1_f32(pred, b + i + vsize * 2);
+        svfloat32_t b3 = svld1_f32(pred, b + i + vsize * 3);
 
-    //     res_vec0 = svmad_f32_x(pred, a0, b0, res_vec0);
-    //     res_vec1 = svmad_f32_x(pred, a1, b1, res_vec1);
-    //     res_vec2 = svmad_f32_x(pred, a2, b2, res_vec2);
-    //     res_vec3 = svmad_f32_x(pred, a3, b3, res_vec3);
+        res_vec0 = svmad_f32_m(pred, a0, b0, res_vec0);
+        res_vec1 = svmad_f32_m(pred, a1, b1, res_vec1);
+        res_vec2 = svmad_f32_m(pred, a2, b2, res_vec2);
+        res_vec3 = svmad_f32_m(pred, a3, b3, res_vec3);
 
-    //     i += vsizex4;
-    // }
+        i += vsizex4;
+    }
 
     while (i < l)
     {
