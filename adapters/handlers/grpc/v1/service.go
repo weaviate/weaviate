@@ -152,6 +152,9 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 
+	scheme := s.schemaManager.GetSchemaSkipAuth()
+	replier := NewReplier(req.Uses_123Api, req.Uses_125Api)
+
 	type reply struct {
 		Result *pb.SearchReply
 		Error  error
@@ -191,7 +194,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 			}
 		}
 
-		proto, err := searchResultsToProto(res, before, searchParams, s.schemaManager.ReadOnlyClass, req.Uses_123Api)
+		proto, err := replier.Search(res, before, searchParams, scheme)
 		c <- reply{
 			Result: proto,
 			Error:  err,
