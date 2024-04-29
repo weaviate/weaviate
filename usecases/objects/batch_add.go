@@ -52,10 +52,14 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		return nil, errEmptyObjects
 	}
 
-	batchObjects, schemaVersion := b.validateAndGetVector(ctx, principal, objects, repl)
-
-	if err := b.autoSchemaManager.autoTenants(ctx, principal, objects); err != nil {
+	var maxSchemaVersion uint64
+	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl)
+	schemaVersion, err := b.autoSchemaManager.autoTenants(ctx, principal, objects)
+	if err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
+	}
+	if schemaVersion > maxSchemaVersion {
+		maxSchemaVersion = schemaVersion
 	}
 
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
@@ -64,7 +68,12 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, schemaVersion); err != nil {
+
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := b.schemaManager.WaitForUpdate(ctx, maxSchemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", maxSchemaVersion, err)
+	}
+	if res, err = b.vectorRepo.BatchPutObjects(ctx, batchObjects, repl, maxSchemaVersion); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 
@@ -157,7 +166,6 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			origIndex := originalIndexPerClass[className][i]
 			batchObjects[origIndex].Err = err
 		}
-
 	}
 
 	return batchObjects, maxSchemaVersion

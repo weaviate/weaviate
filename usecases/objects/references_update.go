@@ -109,6 +109,15 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		obj.Properties.(map[string]interface{})[input.Property] = input.Refs
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
+
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &Error{
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Code: StatusInternalServerError,
+			Err:  err,
+		}
+	}
 	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
