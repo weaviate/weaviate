@@ -296,8 +296,8 @@ func (sg *fakeMigrationSchemaGetter) ShardOwner(class, shard string) (string, er
 	return "", nil
 }
 
-func (sg *fakeMigrationSchemaGetter) TenantShard(class, tenant string) (string, string) {
-	return "", ""
+func (sg *fakeMigrationSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	return nil, nil
 }
 
 func (sg *fakeMigrationSchemaGetter) ShardFromUUID(class string, uuid []byte) string {

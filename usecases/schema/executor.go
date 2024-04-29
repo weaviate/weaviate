@@ -199,6 +199,7 @@ func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) er
 			"class":  class,
 		}).WithError(err).Error("error deleting tenants")
 	}
+
 	return nil
 }
 
