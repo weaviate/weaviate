@@ -107,7 +107,7 @@ func TestClient(t *testing.T) {
 		assert.EqualError(t, err, "connection to: OctoAI API failed with status: 500 error: nope, not gonna happen")
 	})
 
-	t.Run("when OctoAI key is passed using X-Octoai-Api-Key header", func(t *testing.T) {
+	t.Run("when OctoAI key is passed using X-OctoAI-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", 0, nullLogger())
@@ -116,7 +116,7 @@ func TestClient(t *testing.T) {
 		}
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Octoai-Api-Key", []string{"some-key"})
+			"X-OctoAI-Api-Key", []string{"some-key"})
 
 		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
@@ -144,11 +144,11 @@ func TestClient(t *testing.T) {
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
-			"neither in request header: X-Octoai-Api-Key "+
-			"nor in environment variable under OCTOAI_API_KEY")
+			"neither in request header: X-OctoAI-Api-Key "+
+			"nor in environment variable under OCTOAI_APIKEY")
 	})
 
-	t.Run("when X-Octoai-Api-Key header is passed but empty", func(t *testing.T) {
+	t.Run("when X-OctoAI-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", 0, nullLogger())
@@ -157,14 +157,14 @@ func TestClient(t *testing.T) {
 		}
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Octoai-Api-Key", []string{""})
+			"X-OctoAI-Api-Key", []string{""})
 
 		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Model": "thenlper/gte-large"}})
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "API Key: no api key found "+
-			"neither in request header: X-Octoai-Api-Key "+
-			"nor in environment variable under OCTOAI_API_KEY")
+			"neither in request header: X-OctoAI-Api-Key "+
+			"nor in environment variable under OCTOAI_APIKEY")
 	})
 }
 

@@ -512,7 +512,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
 	}
 	if d.withOctoAIApiKey != "" {
-		envSettings["OCTOAI_API_KEY"] = d.withOctoAIApiKey
+		envSettings["OCTOAI_APIKEY"] = d.withOctoAIApiKey
 	}
 	if d.withBind {
 		image := os.Getenv(envTestMulti2VecBindImage)

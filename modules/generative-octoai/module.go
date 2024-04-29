@@ -65,7 +65,7 @@ func (m *GenerativeOctoAIModule) Init(ctx context.Context,
 func (m *GenerativeOctoAIModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("OCTOAI_API_KEY")
+	apiKey := os.Getenv("OCTOAI_APIKEY")
 
 	client := clients.New(apiKey, timeout, logger)
 

@@ -21,9 +21,9 @@ import (
 )
 
 func TestGenerativeOctoAI_SingleNode(t *testing.T) {
-	octoAIApiKey := os.Getenv("OCTOAI_API_KEY")
+	octoAIApiKey := os.Getenv("OCTOAI_APIKEY")
 	if octoAIApiKey == "" {
-		t.Skip("skipping, OCTOAI_API_KEY environment variable not present")
+		t.Skip("skipping, OCTOAI_APIKEY environment variable not present")
 	}
 	ctx := context.Background()
 	compose, err := createSingleNodeEnvironment(ctx, octoAIApiKey)

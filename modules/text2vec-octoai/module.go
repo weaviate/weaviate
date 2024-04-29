@@ -92,7 +92,7 @@ func (m *OctoAIModule) InitExtension(modules []modulecapabilities.Module) error 
 func (m *OctoAIModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	octoAIApiKey := os.Getenv("OCTOAI_API_KEY")
+	octoAIApiKey := os.Getenv("OCTOAI_APIKEY")
 
 	client := clients.New(octoAIApiKey, timeout, logger)
 

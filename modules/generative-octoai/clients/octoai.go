@@ -78,15 +78,9 @@ func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		{"role": "user", "content": prompt},
 	}
 
-	// message := Message{
-	// 	Role:    "user",
-	// 	Content: prompt,
-	// }
-
 	input := generateInput{
 		Messages:    octoAIPrompt,
 		Model:       settings.Model(),
-		// Prompt: prompt,
 		MaxTokens:   settings.MaxTokens(),
 		Temperature: settings.Temperature(),
 	}
@@ -176,23 +170,22 @@ func (v *octoai) getValueFromContext(ctx context.Context, key string) string {
 			return keyHeader[0]
 		}
 	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
+	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, key); apiKeyValue != "" {
+		return apiKeyValue
 	}
 	return ""
 }
 
 func (v *octoai) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-Octoai-Api-Key"); apiKey != "" {
+	if apiKey := v.getValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Octoai-Api-Key " +
-		"nor in environment variable under OPENAI_API_KEY")
+		"neither in request header: X-OctoAI-Api-Key " +
+		"nor in environment variable under OCTOAI_APIKEY")
 }
 
 type generateInput struct {
