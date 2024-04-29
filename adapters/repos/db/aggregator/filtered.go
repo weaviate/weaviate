@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+	"github.com/weaviate/weaviate/usecases/traverser"
+
 )
 
 type filteredAggregator struct {
@@ -84,7 +86,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 	res, err := hybrid.Search(ctx, &hybrid.Params{
 		HybridSearch: fa.params.Hybrid,
 		Class:        fa.params.ClassName.String(),
-	}, fa.logger, sparseSearch, denseSearch, nil, nil, nil, nil)
+	}, fa.logger, sparseSearch, denseSearch, nil, fa.modules, fa.getSchema, traverser.NewTargetParamHelper())
 	if err != nil {
 		return nil, err
 	}
