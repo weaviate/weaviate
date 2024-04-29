@@ -49,6 +49,7 @@ message SearchRequest {
   optional Rerank rerank = 61;
 
   bool uses_123_api = 100 [deprecated = true];
+  bool uses_125_api = 101;
 }
 
 message GroupBy {
