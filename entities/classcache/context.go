@@ -15,7 +15,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 )
 
 const classCacheKey = "classCache"
@@ -39,23 +39,17 @@ func RemoveClassFromContext(ctxWithClassCache context.Context, name string) erro
 	return nil
 }
 
-type VersionedClass struct {
-	*models.Class
-	Version uint64
-	// TODO: we can pass error to check against
-}
-
-func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...string) (map[string]VersionedClass, error), names ...string) (map[string]VersionedClass, error) {
+func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...string) (map[string]versioned.Class, error), names ...string) (map[string]versioned.Class, error) {
 	cache, err := extractCache(ctxWithClassCache)
 	if err != nil {
 		return nil, err
 	}
 
-	versionedClasses := map[string]VersionedClass{}
+	versionedClasses := map[string]versioned.Class{}
 	notFoundInCtx := []string{}
 	for _, name := range names {
 		if entry, ok := cache.Load(name); ok {
-			versionedClasses[entry.class.Class] = VersionedClass{Class: entry.class, Version: entry.version}
+			versionedClasses[entry.class.Class] = versioned.Class{Class: entry.class, Version: entry.version}
 			continue
 		}
 		notFoundInCtx = append(notFoundInCtx, name)
@@ -74,7 +68,7 @@ func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...
 	for _, vclass := range vclasses {
 		// do not replace entry if it was loaded in the meantime by concurrent access
 		entry, _ := cache.LoadOrStore(vclass.Class.Class, &classCacheEntry{class: vclass.Class, version: vclass.Version})
-		versionedClasses[entry.class.Class] = VersionedClass{Class: entry.class, Version: entry.version}
+		versionedClasses[entry.class.Class] = versioned.Class{Class: entry.class, Version: entry.version}
 	}
 
 	return versionedClasses, nil

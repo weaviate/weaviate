@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -90,7 +91,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		vclass, exists := vclasses[schema.UppercaseClassName(object.Class)]
 		if !exists {
-			vclass = classcache.VersionedClass{}
+			vclass = versioned.Class{}
 		}
 
 		schemaClass := vclass.Class
@@ -111,7 +112,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 				return 0, err
 			}
 
-			vclasses[schema.UppercaseClassName(object.Class)] = classcache.VersionedClass{Class: schemaClass, Version: schemaVersion}
+			vclasses[schema.UppercaseClassName(object.Class)] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {

@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 )
 
 func Test_ContextWithClassCache(t *testing.T) {
@@ -156,28 +157,28 @@ func Test_ClassesFromContext(t *testing.T) {
 	})
 }
 
-func noopGetter(names ...string) (map[string]VersionedClass, error) {
+func noopGetter(names ...string) (map[string]versioned.Class, error) {
 	return nil, nil
 }
 
-func createErrorGetter() func(names ...string) (map[string]VersionedClass, error) {
+func createErrorGetter() func(names ...string) (map[string]versioned.Class, error) {
 	errorCounter := uint64(0)
-	return func(names ...string) (map[string]VersionedClass, error) {
+	return func(names ...string) (map[string]versioned.Class, error) {
 		return nil, fmt.Errorf("error getting class %s, count_%d", names[0], atomic.AddUint64(&errorCounter, 1))
 	}
 }
 
-func createCounterGetter(sleep time.Duration) func(names ...string) (map[string]VersionedClass, error) {
+func createCounterGetter(sleep time.Duration) func(names ...string) (map[string]versioned.Class, error) {
 	versionCounter := uint64(0)
-	return func(names ...string) (map[string]VersionedClass, error) {
+	return func(names ...string) (map[string]versioned.Class, error) {
 		if sleep > 0 {
 			time.Sleep(sleep)
 		}
-		res := make(map[string]VersionedClass, len(names))
+		res := make(map[string]versioned.Class, len(names))
 
 		for _, name := range names {
 			version := atomic.AddUint64(&versionCounter, 1)
-			res[name] = VersionedClass{
+			res[name] = versioned.Class{
 				Version: version,
 				Class: &models.Class{
 					Class:       name,

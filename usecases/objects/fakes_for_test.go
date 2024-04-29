@@ -25,7 +25,6 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -34,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 )
 
 const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
@@ -100,14 +100,14 @@ func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *m
 
 func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 	principal *models.Principal, names ...string,
-) (map[string]classcache.VersionedClass, error) {
-	res := map[string]classcache.VersionedClass{}
+) (map[string]versioned.Class, error) {
+	res := map[string]versioned.Class{}
 	for _, name := range names {
 		cls, err := f.GetClass(ctx, principal, name)
 		if err != nil {
 			return res, err
 		}
-		res[name] = classcache.VersionedClass{Class: cls}
+		res[name] = versioned.Class{Class: cls}
 	}
 	return res, nil
 }

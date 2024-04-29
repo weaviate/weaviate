@@ -19,8 +19,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -126,7 +126,7 @@ func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeMetaHandler) QueryReadOnlyClasses(classes ...string) (map[string]classcache.VersionedClass, error) {
+func (f *fakeMetaHandler) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
 	args := f.Called(classes)
 
 	models := args.Get(0)
@@ -134,7 +134,7 @@ func (f *fakeMetaHandler) QueryReadOnlyClasses(classes ...string) (map[string]cl
 		return nil, args.Error(2)
 	}
 
-	return models.(map[string]classcache.VersionedClass), nil
+	return models.(map[string]versioned.Class), nil
 }
 
 func (f *fakeMetaHandler) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
