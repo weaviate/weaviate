@@ -69,19 +69,24 @@ func (v *octoai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
-	octoaiUrl, err := v.getOctoAIUrl(ctx, settings.BaseURL())
+	octoAIUrl, err := v.getOctoAIUrl(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "join OctoAI API host and path")
 	}
-
-	message := Message{
-		Role:    "user",
-		Content: prompt,
+	octoAIPrompt := []map[string]string{
+		{"role": "system", "content": "You are a helpful assistant."},
+		{"role": "user", "content": prompt},
 	}
 
+	// message := Message{
+	// 	Role:    "user",
+	// 	Content: prompt,
+	// }
+
 	input := generateInput{
-		Messages:    []Message{message},
+		Messages:    octoAIPrompt,
 		Model:       settings.Model(),
+		// Prompt: prompt,
 		MaxTokens:   settings.MaxTokens(),
 		Temperature: settings.Temperature(),
 	}
@@ -91,7 +96,7 @@ func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", octoaiUrl,
+	req, err := http.NewRequestWithContext(ctx, "POST", octoAIUrl,
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
@@ -135,7 +140,7 @@ func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 func (v *octoai) getOctoAIUrl(ctx context.Context, baseURL string) (string, error) {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-OctoAI-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := v.getValueFromContext(ctx, "X-Octoai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return url.JoinPath(passedBaseURL, "/v1/chat/completions")
@@ -179,14 +184,14 @@ func (v *octoai) getValueFromContext(ctx context.Context, key string) string {
 }
 
 func (v *octoai) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
+	if apiKey := v.getValueFromContext(ctx, "X-Octoai-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-OctoAI-Api-Key " +
+		"neither in request header: X-Octoai-Api-Key " +
 		"nor in environment variable under OPENAI_API_KEY")
 }
 

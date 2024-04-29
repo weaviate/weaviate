@@ -90,10 +90,11 @@ func TestGetAnswer(t *testing.T) {
 			}
 		})
 	}
-	t.Run("when X-OctoAI-BaseURL header is passed", func(t *testing.T) {
+	t.Run("when X-Octoai-BaseURL header is passed", func(t *testing.T) {
 		c := New("apiKey", 5*time.Second, nullLogger())
 		baseUrl := "https://text.octoai.run"
-		buildURL := c.getOctoAIUrl(context.Background(), baseUrl)
+		buildURL, err := c.getOctoAIUrl(context.Background(), baseUrl)
+		assert.Equal(t, nil, err)
 		assert.Equal(t, "https://text.octoai.run/v1/chat/completions", buildURL)
 	})
 }

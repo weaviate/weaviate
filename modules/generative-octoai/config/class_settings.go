@@ -39,13 +39,13 @@ var availableOctoAIModels = []string{
 	"codellama-13b-instruct",
 	"codellama-34b-instruct",
 	"llama-2-13b-chat",
-	"llama-2-70b-chat"
+	"llama-2-70b-chat",
 }
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultBaseURL            = "https://text.octoai.run"
-	DefaultOctoAIModel       = "mixtral-8x7b-instruct"
+	DefaultBaseURL           = "https://text.octoai.run"
+	DefaultOctoAIModel       = "mistral-7b-instruct"
 	DefaultOctoAITemperature = 0
 	DefaultOctoAIMaxTokens   = 2048
 )

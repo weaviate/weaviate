@@ -45,12 +45,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"model":       "mixtral-8x7b-instruct",
-					"maxTokens":   50,
+					"maxTokens":   1024,
 					"temperature": 1,
 				},
 			},
 			wantModel:       "mixtral-8x7b-instruct",
-			wantMaxTokens:   50,
+			wantMaxTokens:   1024,
 			wantTemperature: 1,
 			wantBaseURL:     "https://text.octoai.run",
 			wantErr:         nil,
