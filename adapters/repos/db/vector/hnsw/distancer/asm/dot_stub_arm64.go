@@ -15,7 +15,9 @@ package asm
 //   go install github.com/gorse-io/goat@v0.1.0
 //   go generate
 
-//go:generate goat ../c/dot_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//// go:generate goat ../c/dot_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//go:generate goat ../c/dot_neon_arm64.c -O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//go:generate goat ../c/dot_sve_arm64.c -O3 -e="-mcpu=neoverse-v1" -e="--target=arm64" -e="-march=armv8-a+sve"
 
 import (
 	"reflect"
@@ -24,7 +26,7 @@ import (
 
 // Dot calculates the dot product between two vectors
 // using SIMD instructions.
-func Dot(x []float32, y []float32) float32 {
+func Dot_Neon(x []float32, y []float32) float32 {
 	switch len(x) {
 	case 2:
 		return dot2[float32, float32](x, y)
@@ -53,7 +55,48 @@ func Dot(x []float32, y []float32) float32 {
 	hdry := (*reflect.SliceHeader)(unsafe.Pointer(&y))
 
 	l := len(x)
-	dot(
+	dot_neon(
+		// The slice header contains the address of the underlying array.
+		// We only need to cast it to a pointer.
+		unsafe.Pointer(hdrx.Data),
+		unsafe.Pointer(hdry.Data),
+		// The C function expects pointers to the result and the length of the arrays.
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	return res
+}
+
+func Dot_SVE(x []float32, y []float32) float32 {
+	switch len(x) {
+	case 2:
+		return dot2[float32, float32](x, y)
+	case 4:
+		return dot4[float32, float32](x, y)
+	case 6:
+		return dot6[float32, float32](x, y)
+	case 8:
+		// manually inlined dot8(x, y)
+		sum := x[7]*y[7] + x[6]*y[6]
+		return dot6[float32, float32](x, y) + sum
+	case 10:
+		// manually inlined dot10(x, y)
+		sum := x[9]*y[9] + x[8]*y[8] + x[7]*y[7] + x[6]*y[6]
+		return dot6[float32, float32](x, y) + sum
+	case 12:
+		// manually inlined dot12(x, y)
+		sum := x[11]*y[11] + x[10]*y[10] + x[9]*y[9] + x[8]*y[8] + x[7]*y[7] + x[6]*y[6]
+		return dot6[float32, float32](x, y) + sum
+	}
+
+	var res float32
+
+	// The C function expects pointers to the underlying array, not slices.
+	hdrx := (*reflect.SliceHeader)(unsafe.Pointer(&x))
+	hdry := (*reflect.SliceHeader)(unsafe.Pointer(&y))
+
+	l := len(x)
+	dot_sve(
 		// The slice header contains the address of the underlying array.
 		// We only need to cast it to a pointer.
 		unsafe.Pointer(hdrx.Data),

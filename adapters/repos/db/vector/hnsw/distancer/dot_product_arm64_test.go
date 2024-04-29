@@ -32,7 +32,7 @@ func testDotProductFixedValue(t *testing.T, size uint) {
 		}
 		vec1 = Normalize(vec1)
 		vec2 = Normalize(vec2)
-		res := -asm.Dot(vec1, vec2)
+		res := -asm.Dot_SVE(vec1, vec2)
 		if math.IsNaN(float64(res)) {
 			panic("NaN")
 		}
@@ -72,7 +72,7 @@ func testDotProductRandomValue(t *testing.T, size uint) {
 	}
 
 	for i := 0; i < count; i++ {
-		res := -asm.Dot(vec1s[i], vec2s[i])
+		res := -asm.Dot_SVE(vec1s[i], vec2s[i])
 		if math.IsNaN(float64(res)) {
 			panic("NaN")
 		}

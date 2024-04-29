@@ -46,7 +46,7 @@ func benchmarkDotNeon(b *testing.B, dims int) {
 
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		asm.Dot(vec1, vec2)
+		asm.Dot_SVE(vec1, vec2)
 	}
 }
 

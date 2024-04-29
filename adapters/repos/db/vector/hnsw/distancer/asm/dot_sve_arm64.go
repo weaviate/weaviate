@@ -6,4 +6,4 @@ package asm
 import "unsafe"
 
 //go:noescape
-func l2_sve(a, b, res, len unsafe.Pointer)
+func dot_sve(a, b, res, len unsafe.Pointer)
