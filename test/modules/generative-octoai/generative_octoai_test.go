@@ -86,7 +86,7 @@ func testGenerativeOctoAI(host, octoAIApiEndpoint string) func(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				class.ModuleConfig = map[string]interface{}{
 					"generative-octoai": map[string]interface{}{
-						"modelId":     tt.generativeModel,
+						"modelId": tt.generativeModel,
 					},
 				}
 				// create schema
