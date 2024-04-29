@@ -59,17 +59,19 @@ func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...
 	// remove dedup, empty and a void calls if there is non
 	slices.Sort(notFoundInCtx)
 	notFoundInCtx = slices.Compact(notFoundInCtx)
-	if notFoundInCtx[0] == "" {
-		notFoundInCtx = notFoundInCtx[1:]
-	}
 	if len(notFoundInCtx) == 0 {
 		return versionedClasses, nil
 	}
+
+	if notFoundInCtx[0] == "" {
+		notFoundInCtx = notFoundInCtx[1:]
+	}
+
 	// TODO prevent concurrent getter calls for the same class if it was not loaded,
 	// get once and share results
 	vclasses, err := getter(notFoundInCtx...)
 	if err != nil {
-		return versionedClasses, nil
+		return versionedClasses, err
 	}
 
 	for _, vclass := range vclasses {
