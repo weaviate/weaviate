@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -238,7 +239,7 @@ func (s *Service) Execute(req *cmd.ApplyRequest) (uint64, error) {
 
 	leader := s.store.Leader()
 	if leader == "" {
-		return 0, ErrLeaderNotFound
+		return 0, s.leaderErr()
 	}
 	resp, err := s.cl.Apply(leader, req)
 	if err != nil {
@@ -259,7 +260,7 @@ func (s *Service) Join(ctx context.Context, id, addr string, voter bool) error {
 	}
 	leader := s.store.Leader()
 	if leader == "" {
-		return ErrLeaderNotFound
+		return s.leaderErr()
 	}
 	req := &cmd.JoinPeerRequest{Id: id, Address: addr, Voter: voter}
 	_, err := s.cl.Join(ctx, leader, req)
@@ -273,7 +274,7 @@ func (s *Service) Remove(ctx context.Context, id string) error {
 	}
 	leader := s.store.Leader()
 	if leader == "" {
-		return ErrLeaderNotFound
+		return s.leaderErr()
 	}
 	req := &cmd.RemovePeerRequest{Id: id}
 	_, err := s.cl.Remove(ctx, leader, req)
@@ -448,7 +449,7 @@ func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryR
 
 	leader := s.store.Leader()
 	if leader == "" {
-		return &cmd.QueryResponse{}, ErrLeaderNotFound
+		return &cmd.QueryResponse{}, s.leaderErr()
 	}
 
 	return s.cl.Query(ctx, leader, req)
@@ -463,4 +464,22 @@ func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {
 		}
 	}
 	return tenants[:n]
+}
+
+// leaderErr decorates ErrLeaderNotFound by distinguishing between
+// normal election happening and there is no leader been chosen yet
+// and if it can't reach the other nodes either for intercluster
+// communication issues or other nodes were down.
+func (s *Service) leaderErr() error {
+	if s.store.addResolver != nil && len(s.store.addResolver.notResolvedNodes) > 0 {
+		var nodes []string
+		for n := range s.store.addResolver.notResolvedNodes {
+			nodes = append(nodes, string(n))
+		}
+
+		return fmt.Errorf("%w, can not resolve nodes [%s]",
+			ErrLeaderNotFound,
+			strings.Join(nodes, ","))
+	}
+	return ErrLeaderNotFound
 }
