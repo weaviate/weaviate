@@ -88,3 +88,9 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
 	return nil, nil
 }
+
+func (f *fakeSchemaManager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
+}
