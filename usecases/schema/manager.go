@@ -361,13 +361,28 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 }
 
 func (m *Manager) TenantShardLocal(class string, tenant string) (map[string]string, error) {
-	status, err := m.metaReader.GetShardsStatus(class, tenant)
+	var foundTenant bool
+	var status string
+	err := m.metaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
+		t, ok := ss.Physical[tenant]
+		if !ok {
+			return nil
+		}
+
+		foundTenant = true
+		status = t.Status
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
 
+	if !foundTenant {
+		return map[string]string{}, nil
+	}
+
 	return map[string]string{
-		tenant: status[0].Status,
+		tenant: status,
 	}, nil
 }
 
