@@ -63,6 +63,7 @@ type SchemaGetter interface {
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
 	TenantsShards(class string, tenants ...string) (map[string]string, error)
+	TenantShardLocal(class string, tenants string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }
@@ -357,6 +358,17 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 	tenants = slices.Compact(tenants)
 	status, _, err := m.metaWriter.QueryTenantsShards(class, tenants...)
 	return status, err
+}
+
+func (m *Manager) TenantShardLocal(class string, tenant string) (map[string]string, error) {
+	status, err := m.metaReader.GetShardsStatus(class, tenant)
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]string{
+		tenant: status[0].Status,
+	}, nil
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
