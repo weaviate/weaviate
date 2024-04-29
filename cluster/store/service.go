@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -303,6 +304,13 @@ func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration,
 func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]classcache.VersionedClass, error) {
 	if len(classes) == 0 {
 		return nil, fmt.Errorf("empty class name: %w", errBadRequest)
+	}
+
+	// remove dedup and empty
+	slices.Sort(classes)
+	classes = slices.Compact(classes)
+	if classes[0] == "" {
+		classes = classes[1:]
 	}
 
 	// Build the query and execute it

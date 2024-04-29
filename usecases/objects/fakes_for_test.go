@@ -122,7 +122,7 @@ func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
-) (uint64, error) {
+) (*models.Class, uint64, error) {
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
@@ -136,7 +136,7 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
-	return 0, nil
+	return class, 0, nil
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,

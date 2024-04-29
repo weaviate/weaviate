@@ -70,7 +70,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		}
 		classes = append(classes, schema.UppercaseClassName(object.Class))
 	}
-	// TODO: remove dedup
+
 	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
 	if err != nil {
 		return 0, err
@@ -105,15 +105,12 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		}
 
 		if schemaClass == nil {
-			_, err = m.createClass(ctx, principal, object.Class, properties)
+			// it returns the newly created class and version
+			schemaClass, schemaVersion, err = m.createClass(ctx, principal, object.Class, properties)
 			if err != nil {
 				return 0, err
 			}
-			// TODO: we may need to return class on creation to avoid extra calls
-			schemaClass, schemaVersion, err = m.schemaManager.GetConsistentClass(ctx, principal, object.Class, true)
-			if err != nil {
-				return 0, err
-			}
+
 			vclasses[schema.UppercaseClassName(object.Class)] = classcache.VersionedClass{Class: schemaClass, Version: schemaVersion}
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
@@ -135,7 +132,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
 	className string, properties []*models.Property,
-) (uint64, error) {
+) (*models.Class, uint64, error) {
 	now := time.Now()
 	class := &models.Class{
 		Class:       className,
@@ -145,8 +142,8 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 	m.logger.
 		WithField("auto_schema", "createClass").
 		Debugf("create class %s", className)
-	schemaVersion, err := m.schemaManager.AddClass(ctx, principal, class)
-	return schemaVersion, err
+	class, schemaVersion, err := m.schemaManager.AddClass(ctx, principal, class)
+	return class, schemaVersion, err
 }
 
 func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {

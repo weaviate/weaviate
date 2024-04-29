@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -68,11 +67,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 		return nil, err
 	}
 
-	// remove dedup
-	slices.Sort(names)
-	names = slices.Compact(names)
-
-	return classcache.ClassFromContext(ctxWithClassCache, func(names ...string) (map[string]classcache.VersionedClass, error) {
+	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]classcache.VersionedClass, error) {
 		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
 		if err != nil {
 			return nil, err
@@ -93,16 +88,16 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 // AddClass to the schema
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
-) (uint64, error) {
+) (*models.Class, uint64, error) {
 	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 	if cls.ShardingConfig != nil && schema.MultiTenancyEnabled(cls) {
-		return 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+		return nil, 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
 	} else if cls.MultiTenancyConfig == nil {
 		cls.MultiTenancyConfig = &models.MultiTenancyConfig{}
 	} else if cls.MultiTenancyConfig.Enabled {
@@ -112,17 +107,17 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	h.setClassDefaults(cls)
 
 	if err := h.validateCanAddClass(ctx, cls, false); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
 	if err := h.parser.ParseClass(cls); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -130,9 +125,10 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		h.clusterState, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
-		return 0, fmt.Errorf("init sharding state: %w", err)
+		return nil, 0, fmt.Errorf("init sharding state: %w", err)
 	}
-	return h.metaWriter.AddClass(cls, shardState)
+	version, err := h.metaWriter.AddClass(cls, shardState)
+	return cls, version, err
 }
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {

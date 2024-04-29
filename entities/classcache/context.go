@@ -45,26 +45,29 @@ type VersionedClass struct {
 	// TODO: we can pass error to check against
 }
 
-func ClassFromContext(ctxWithClassCache context.Context, getter func(names ...string) (map[string]VersionedClass, error), names ...string) (map[string]VersionedClass, error) {
+func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...string) (map[string]VersionedClass, error), names ...string) (map[string]VersionedClass, error) {
 	cache, err := extractCache(ctxWithClassCache)
 	if err != nil {
 		return nil, err
 	}
 
 	versionedClasses := map[string]VersionedClass{}
-	notFoundInCTX := []string{}
+	notFoundInCtx := []string{}
 	for _, name := range names {
 		if entry, ok := cache.Load(name); ok {
 			versionedClasses[entry.class.Class] = VersionedClass{Class: entry.class, Version: entry.version}
 			continue
 		}
-		notFoundInCTX = append(notFoundInCTX, name)
+		notFoundInCtx = append(notFoundInCtx, name)
 	}
 
 	// TODO prevent concurrent getter calls for the same class if it was not loaded,
 	// get once and share results
-	vclasses, err := getter(notFoundInCTX...)
-	if err != nil || len(vclasses) == 0 {
+	vclasses, err := getter(notFoundInCtx...)
+	if err != nil {
+		return nil, err
+	}
+	if len(vclasses) == 0 {
 		return versionedClasses, nil
 	}
 
