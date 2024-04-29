@@ -138,8 +138,10 @@ func (req *DeleteReferenceInput) validate(
 	if err != nil {
 		return nil, 0, err
 	}
-	vclass := vclasses[req.Class]
-	// TODO mogoa
+	vclass, exists := vclasses[req.Class]
+	if !exists {
+		return nil, 0, fmt.Errorf("class not found")
+	}
 	return vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 

@@ -144,8 +144,10 @@ func (req *PutReferenceInput) validate(
 		return nil, 0, err
 	}
 
-	vclass := vclasses[req.Class]
-	// TODO mogoa
+	vclass, exists := vclasses[req.Class]
+	if !exists {
+		return nil, 0, fmt.Errorf("class not found")
+	}
 	return refs, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 

@@ -24,13 +24,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -57,7 +57,7 @@ type schemaManager interface {
 
 	// GetCachedClass extracts class from context. If class was not set it is fetched first
 	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string,
-	) (map[string]classcache.VersionedClass, error)
+	) (map[string]versioned.Class, error)
 
 	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error

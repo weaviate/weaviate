@@ -21,8 +21,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/protobuf/proto"
 )
@@ -301,7 +301,7 @@ func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration,
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
-func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]classcache.VersionedClass, error) {
+func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
 	if len(classes) == 0 {
 		return nil, fmt.Errorf("empty class name: %w", errBadRequest)
 	}

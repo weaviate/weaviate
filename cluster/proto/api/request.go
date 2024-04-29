@@ -12,8 +12,8 @@
 package api
 
 import (
-	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -45,7 +45,7 @@ type QueryReadOnlyClassesRequest struct {
 }
 
 type QueryReadOnlyClassResponse struct {
-	Classes map[string]classcache.VersionedClass
+	Classes map[string]versioned.Class
 }
 
 type QueryTenantsRequest struct {

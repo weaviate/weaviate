@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -62,12 +63,12 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
-) (map[string]classcache.VersionedClass, error) {
+) (map[string]versioned.Class, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, err
 	}
 
-	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]classcache.VersionedClass, error) {
+	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
 		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
 		if err != nil {
 			return nil, err
