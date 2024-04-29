@@ -12,7 +12,6 @@
 package contentReader
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -163,6 +162,28 @@ func (c Pread) NewWithOffsetStartEnd(start uint64, end uint64) (ContentReader, e
 func (c Pread) ReaderFromOffset(start uint64, end uint64) io.Reader {
 	if end == 0 {
 		end = c.size
+	} else {
+		end = c.startOffset + end
 	}
-	return bufio.NewReader(io.NewSectionReader(c.contentFile, int64(c.startOffset+start), int64(c.startOffset+end-start)))
+	startVal := c.startOffset + start
+	return PReader{contentReader: c, position: &startVal, end: end}
+}
+
+type PReader struct {
+	contentReader ContentReader
+	position      *uint64 // cant use a pointer receiver for Read because of the io.Reader interface
+	end           uint64
+}
+
+func (c PReader) Read(b []byte) (int, error) {
+	lenB := uint64(len(b))
+	position := *c.position
+	if position >= c.end {
+		return 0, io.EOF
+	} else if position+lenB >= c.end {
+		lenB = c.end - position
+	}
+	_, _ = c.contentReader.ReadRange(position, lenB, b[:lenB])
+	*c.position += lenB
+	return len(b), nil
 }
