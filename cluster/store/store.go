@@ -570,7 +570,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
 		if other := st.FindSimilarClass(req.Class); other == req.Class {
-			return 0, errClassExists
+			return 0, fmt.Errorf("class name %s already exists", req.Class)
 		} else if other != "" {
 			return 0, fmt.Errorf("%w: found similar class %q", errClassExists, other)
 		}
