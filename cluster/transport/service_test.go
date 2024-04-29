@@ -56,7 +56,7 @@ func TestService(t *testing.T) {
 	assert.Nil(t, srv.Open())
 	defer srv.Close()
 	time.Sleep(time.Millisecond * 50)
-	client := NewClient(&adrResolver, 1024*1024*4)
+	client := NewClient(&adrResolver, raftGrpcMaxSize)
 	assert.Equal(t, addr, srv.Leader())
 
 	t.Run("Notify", func(t *testing.T) {
@@ -168,7 +168,7 @@ func TestClient(t *testing.T) {
 
 	t.Run("Resolve", func(t *testing.T) {
 		addr := fmt.Sprintf("localhost:%v", 8013)
-		c := NewClient(&MocKAddressResolver{addr: addr, err: ErrAny}, 1024*1024*4)
+		c := NewClient(&MocKAddressResolver{addr: addr, err: ErrAny}, 1024*1024*1024)
 		_, err := c.Join(ctx, addr,
 			&cmd.JoinPeerRequest{Id: "Node1", Address: addr, Voter: false})
 		assert.ErrorIs(t, err, ErrAny)
