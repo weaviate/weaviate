@@ -25,8 +25,8 @@ import (
 )
 
 const (
-	MaxObjectsPerBatch = 2048        // TBD
-	MaxTimePerBatch    = float64(10) // TBD
+	MaxObjectsPerBatch = 2048
+	MaxTimePerBatch    = float64(10)
 )
 
 func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {

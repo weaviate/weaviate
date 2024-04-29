@@ -32,7 +32,7 @@ import (
 )
 
 const (
-	DefaultRPM = 100 * 60 // TBD
+	DefaultRPM = 30 * 60
 	DefaultTPM = 10000000 // TBD
 )
 
