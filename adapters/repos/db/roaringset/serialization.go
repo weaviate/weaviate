@@ -61,7 +61,7 @@ type SegmentNode struct {
 // segments back-2-back, such as in a cursor situation, the offset of element
 // (n+1) is the offset of element n + Len()
 func (sn *SegmentNode) Len() uint64 {
-	l, _ := sn.contentReader.ReadUint64(0)
+	l, _ := sn.contentReader.ReadUint64(0, nil)
 	return l
 }
 
@@ -70,7 +70,7 @@ func (sn *SegmentNode) Len() uint64 {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.AdditionsWithCopy].
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
-	length, offset := sn.contentReader.ReadUint64(8) // 8 bytes offset for length
+	length, offset := sn.contentReader.ReadUint64(8, nil) // 8 bytes offset for length
 	buf, _ := sn.contentReader.ReadRange(offset, length, nil)
 	return sroar.FromBuffer(buf)
 }
@@ -82,7 +82,7 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Additions].
 func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
-	length, offset := sn.contentReader.ReadUint64(8) // 8 bytes offset for length
+	length, offset := sn.contentReader.ReadUint64(8, nil) // 8 bytes offset for length
 	buf, _ := sn.contentReader.ReadRange(offset, length, nil)
 	return sroar.FromBufferWithCopy(buf)
 }
@@ -92,8 +92,8 @@ func (sn *SegmentNode) AdditionsWithCopy() *sroar.Bitmap {
 // maintenance lock or can otherwise be sure that no compaction can occur. If
 // you can't guarantee that, instead use [*SegmentNode.DeletionsWithCopy].
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
-	length, offset := sn.contentReader.ReadUint64(8)              // 8 bytes offset for length
-	length, offset = sn.contentReader.ReadUint64(length + offset) // jump over additions
+	length, offset := sn.contentReader.ReadUint64(8, nil)            // 8 bytes offset for length
+	length, offset = sn.contentReader.ReadUint64(length+offset, nil) // jump over additions
 	buf, _ := sn.contentReader.ReadRange(offset, length, nil)
 	return sroar.FromBuffer(buf)
 }
@@ -105,16 +105,16 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 // duration of time where a lock is held that prevents compactions, it is more
 // efficient to use [*SegmentNode.Deletions].
 func (sn *SegmentNode) DeletionsWithCopy() *sroar.Bitmap {
-	length, offset := sn.contentReader.ReadUint64(8)              // 8 bytes offset for length
-	length, offset = sn.contentReader.ReadUint64(length + offset) // jump over additions
+	length, offset := sn.contentReader.ReadUint64(8, nil)            // 8 bytes offset for length
+	length, offset = sn.contentReader.ReadUint64(length+offset, nil) // jump over additions
 	buf, _ := sn.contentReader.ReadRange(offset, length, nil)
 	return sroar.FromBufferWithCopy(buf)
 }
 
 func (sn *SegmentNode) PrimaryKey() []byte {
-	length, offset := sn.contentReader.ReadUint64(8)                  // 8 bytes offset for length
-	length, offset = sn.contentReader.ReadUint64(length + offset)     // jump over additions
-	lengthKey, offset := sn.contentReader.ReadUint32(length + offset) // jump over deletions
+	length, offset := sn.contentReader.ReadUint64(8, nil)                // 8 bytes offset for length
+	length, offset = sn.contentReader.ReadUint64(length+offset, nil)     // jump over additions
+	lengthKey, offset := sn.contentReader.ReadUint32(length+offset, nil) // jump over deletions
 	buf, _ := sn.contentReader.ReadRange(offset, uint64(lengthKey), nil)
 	return buf
 }

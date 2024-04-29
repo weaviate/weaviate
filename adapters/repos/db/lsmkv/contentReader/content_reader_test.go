@@ -165,27 +165,27 @@ func TestContentReader_MixedOperations(t *testing.T) {
 				var val32 uint32
 
 				if tt.startOffset < uint64Len {
-					val64, offset = contReader.ReadUint64(offset)
+					val64, offset = contReader.ReadUint64(offset, nil)
 					require.Equal(t, val64, valuesNumbers[0])
 				}
 				if tt.startOffset < uint64Len+uint32Len {
-					val32, offset = contReader.ReadUint32(offset)
+					val32, offset = contReader.ReadUint32(offset, nil)
 					require.Equal(t, uint64(val32), valuesNumbers[1])
 				}
-				val32, offset = contReader.ReadUint32(offset)
+				val32, offset = contReader.ReadUint32(offset, nil)
 				require.Equal(t, uint64(val32), valuesNumbers[2])
 				buf, offset := contReader.ReadRange(offset, uint64(len(valuesByteArray)), nil)
 				require.Equal(t, buf, valuesByteArray)
-				val64, offset = contReader.ReadUint64(offset)
+				val64, offset = contReader.ReadUint64(offset, nil)
 				require.Equal(t, val64, valuesNumbers[3])
-				val32, offset = contReader.ReadUint32(offset)
+				val32, offset = contReader.ReadUint32(offset, nil)
 				require.Equal(t, uint64(val32), valuesNumbers[4])
 				if tt.endOffset > bufLength-uint64Len {
-					val64, offset = contReader.ReadUint64(offset)
+					val64, offset = contReader.ReadUint64(offset, nil)
 					require.Equal(t, val64, valuesNumbers[5])
 				}
 				if tt.endOffset > bufLength-uint32Len {
-					val32, _ = contReader.ReadUint32(offset)
+					val32, _ = contReader.ReadUint32(offset, nil)
 					require.Equal(t, uint64(val32), valuesNumbers[6])
 				}
 			})
