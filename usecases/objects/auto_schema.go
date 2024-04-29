@@ -143,8 +143,8 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 	m.logger.
 		WithField("auto_schema", "createClass").
 		Debugf("create class %s", className)
-	class, schemaVersion, err := m.schemaManager.AddClass(ctx, principal, class)
-	return class, schemaVersion, err
+	newClass, schemaVersion, err := m.schemaManager.AddClass(ctx, principal, class)
+	return newClass, schemaVersion, err
 }
 
 func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
