@@ -5,4 +5,3 @@ pytest-xdist==3.5.0
 
 black>=24.2.0,<25.0.0
 loguru>=0.7.2
-tqdm>=4.66.2<5.0.0

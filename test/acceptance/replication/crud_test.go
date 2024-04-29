@@ -89,8 +89,6 @@ func immediateReplicaCRUD(t *testing.T) {
 		helper.CreateClass(t, articleClass)
 	})
 
-	time.Sleep(1 * time.Second) // remove once eventual consistency has been addressed
-
 	t.Run("InsertParagraphsBatch", func(t *testing.T) {
 		t.Run("CreateObjectsOnNode-3", func(t *testing.T) {
 			batch := make([]*models.Object, len(paragraphIDs))

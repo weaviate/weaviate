@@ -23,4 +23,5 @@ func TestReplication(t *testing.T) {
 	t.Run("ReadRepair", readRepair)
 	t.Run("GraphqlSearch", graphqlSearch)
 	t.Run("MultiTenancy", multiTenancyEnabled)
+	t.Run("MultiTenancyEventualConsistency", multiTenancyEventualConsistency)
 }
