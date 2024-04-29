@@ -27,6 +27,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
@@ -103,6 +104,8 @@ type Compose struct {
 	withRerankerTransformers      bool
 	withOllamaVectorizer          bool
 	withOllamaGenerative          bool
+	withOctoAIGenerative          bool
+	withOctoAIApiKey              string
 	weaviateEnvs                  map[string]string
 }
 
@@ -280,6 +283,13 @@ func (d *Compose) WithGenerativeAnyscale() *Compose {
 func (d *Compose) WithGenerativeOllama() *Compose {
 	d.withOllamaGenerative = true
 	d.enableModules = append(d.enableModules, modgenerativeollama.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeOctoAI(apiKey string) *Compose {
+	d.withOctoAIApiKey = apiKey
+	d.withOctoAIGenerative = true
+	d.enableModules = append(d.enableModules, modgenerativeoctoai.Name)
 	return d
 }
 
@@ -491,6 +501,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withPaLMApiKey != "" {
 		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
+	}
+	if d.withOctoAIApiKey != "" {
+		envSettings["OCTOAI_API_KEY"] = d.withOctoAIApiKey
 	}
 	if d.withBind {
 		image := os.Getenv(envTestMulti2VecBindImage)
