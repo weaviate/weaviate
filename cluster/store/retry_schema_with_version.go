@@ -25,7 +25,7 @@ func (rs retrySchema) ClassInfoWithVersion(ctx context.Context, class string, ve
 	rs.retry(func(s *schema) error {
 		ci = s.ClassInfo(class)
 		if !ci.Exists {
-			return errClassExists
+			return errClassNotFound
 		}
 		return nil
 	})

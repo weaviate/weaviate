@@ -14,6 +14,7 @@ package store
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/hashicorp/raft"
@@ -32,6 +33,9 @@ type addrResolver struct {
 	// IsLocalCluster is cluster running Weaviate from the console in localhost
 	IsLocalCluster   bool
 	NodeName2PortMap map[string]int
+
+	nodesLock        sync.Mutex
+	notResolvedNodes map[raft.ServerID]struct{}
 }
 
 func newAddrResolver(cfg *Config) *addrResolver {
@@ -40,15 +44,22 @@ func newAddrResolver(cfg *Config) *addrResolver {
 		RaftPort:         cfg.RaftPort,
 		IsLocalCluster:   cfg.IsLocalHost,
 		NodeName2PortMap: cfg.ServerName2PortMap,
+		notResolvedNodes: make(map[raft.ServerID]struct{}),
 	}
 }
 
 // ServerAddr resolves server ID to a RAFT address
 func (a *addrResolver) ServerAddr(id raft.ServerID) (raft.ServerAddress, error) {
 	addr := a.addressResolver.NodeAddress(string(id))
+
+	a.nodesLock.Lock()
+	defer a.nodesLock.Unlock()
 	if addr == "" {
+		a.notResolvedNodes[id] = struct{}{}
 		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
+	delete(a.notResolvedNodes, id)
+
 	if !a.IsLocalCluster {
 		return raft.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort)), nil
 	}
