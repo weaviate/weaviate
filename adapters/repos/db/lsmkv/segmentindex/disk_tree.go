@@ -51,7 +51,7 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 
 	var keyLen uint32
 	offset := uint64(0)
-	tmpBuffer := make([]byte, len(key))
+	tmpBuffer := make([]byte, max(len(key), 8))
 	// jump to the buffer until the node with _key_ is found or return a NotFound error.
 	// This function avoids allocations by reusing the same buffer for all keys and avoids memory reads by only
 	// extracting the necessary pieces of information while skipping the rest
@@ -65,16 +65,14 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 
 		if int(keyLen) > len(tmpBuffer) {
 			tmpBuffer = make([]byte, int(max(keyLen, 8))) // leave place to use this as a Uint64 buffer
-		} else if int(keyLen) < len(tmpBuffer) {
-			tmpBuffer = tmpBuffer[:keyLen]
 		}
 
 		_, offset = t.contentReader.ReadRange(offset, uint64(keyLen), tmpBuffer)
 
 		keyEqual := bytes.Compare(key, tmpBuffer[:keyLen])
 		if keyEqual == 0 {
-			keyBuf := make([]byte, len(tmpBuffer))
-			copy(keyBuf, tmpBuffer)
+			keyBuf := make([]byte, keyLen)
+			copy(keyBuf, tmpBuffer[:keyLen])
 			out.Key = keyBuf
 			out.Start, offset = t.contentReader.ReadUint64(offset, tmpBuffer)
 			out.End, _ = t.contentReader.ReadUint64(offset, tmpBuffer)

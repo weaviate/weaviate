@@ -17,6 +17,8 @@ import (
 	"math/big"
 	"testing"
 
+	lru "github.com/hashicorp/golang-lru/v2"
+
 	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/stretchr/testify/require"
@@ -190,5 +192,40 @@ func TestContentReader_MixedOperations(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestContentReader_PreadWithCache(t *testing.T) {
+	size := uint64(50)
+	pageSize := int(size / 10)
+	valuesByteArray := make([]byte, int64(size))
+	rand.Read(valuesByteArray)
+	fi := writeBytesToFile(t, valuesByteArray)
+
+	l, _ := lru.New[int, []byte](5)
+	contReader := Pread{contentFile: fi, size: size, startOffset: 0, endOffset: size, cache: l, pageSize: pageSize}
+
+	tests := []struct {
+		name        string
+		startOffset uint64
+		endOffset   uint64
+	}{
+		{name: "full file", startOffset: 0, endOffset: size},
+		{name: "one full page", startOffset: uint64(pageSize), endOffset: uint64(pageSize * 2)},
+		{name: "one full page and a bit", startOffset: uint64(pageSize), endOffset: uint64(pageSize*2 + 2)},
+		{name: "two partial pages", startOffset: 4, endOffset: 6},
+		{name: "two partial pages", startOffset: 1, endOffset: 9},
+		{name: "two partial pages and one full page", startOffset: 1, endOffset: 14},
+		{name: "partial first and last page", startOffset: 1, endOffset: size - 1},
+		{name: "full first and partial last page", startOffset: 0, endOffset: size - 1},
+		{name: "partial first and full last page", startOffset: 4, endOffset: size - 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// read data that overlaps with the first page
+			buf, offset := contReader.ReadRange(tt.startOffset, tt.endOffset-tt.startOffset, nil)
+			require.Equal(t, valuesByteArray[tt.startOffset:tt.endOffset], buf)
+			require.Equal(t, tt.endOffset, offset)
+		})
 	}
 }

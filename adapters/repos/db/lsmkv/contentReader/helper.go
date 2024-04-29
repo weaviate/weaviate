@@ -18,20 +18,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func writeBytesToFile(t *testing.T, bytes []byte) *os.File {
+	path := t.TempDir()
+	fo, err := os.Create(path + "output.txt")
+	require.Nil(t, err)
+	defer fo.Close()
+	_, err = fo.Write(bytes)
+	require.Nil(t, err)
+
+	fi, err := os.Open(path + "output.txt")
+	require.Nil(t, err)
+	return fi
+}
+
 func GetContentReaderFromBytes(t *testing.T, mmap bool, bytes []byte) ContentReader {
 	if mmap {
 		return NewMMap(bytes)
 	} else {
-		path := t.TempDir()
-		fo, err := os.Create(path + "output.txt")
-		require.Nil(t, err)
-		defer fo.Close()
-		_, err = fo.Write(bytes)
-		require.Nil(t, err)
-
-		fi, err := os.Open(path + "output.txt")
-		require.Nil(t, err)
-
+		fi := writeBytesToFile(t, bytes)
 		return NewPread(fi, uint64(len(bytes)))
 	}
 }

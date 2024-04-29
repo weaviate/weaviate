@@ -17,6 +17,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"syscall"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 
 	"github.com/edsrzf/mmap-go"
 )
@@ -100,7 +103,10 @@ func NewMMap(contents []byte) ContentReader {
 }
 
 func NewPread(contentFile *os.File, size uint64) ContentReader {
-	return Pread{contentFile: contentFile, size: size, startOffset: 0, endOffset: size}
+	pageSize := syscall.Getpagesize()
+	l, _ := lru.New[int, []byte](128)
+
+	return Pread{contentFile: contentFile, size: size, startOffset: 0, endOffset: size, cache: l, pageSize: pageSize}
 }
 
 type Pread struct {
@@ -108,6 +114,8 @@ type Pread struct {
 	size        uint64
 	startOffset uint64
 	endOffset   uint64
+	cache       *lru.Cache[int, []byte]
+	pageSize    int
 }
 
 func (c Pread) ReadValue(offset uint64) (byte, uint64) {
@@ -117,11 +125,57 @@ func (c Pread) ReadValue(offset uint64) (byte, uint64) {
 }
 
 func (c Pread) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64) {
+	fullOffset := c.startOffset + offset
+	offsetKey := int(fullOffset / uint64(c.pageSize))
+
+	pagesAffected := 1 + int((fullOffset+length-1)/uint64(c.pageSize)) - int(fullOffset/uint64(c.pageSize))
+	offsetInFirstPage := fullOffset % uint64(c.pageSize)
+	if pagesAffected == 1 {
+		memory := c.readFromCache(offsetKey)
+
+		// if the memory is in a single page we can just return the slice
+		if outBuf == nil {
+			return memory[offsetInFirstPage : offsetInFirstPage+length], offset + length
+		}
+		copy(outBuf, memory[offsetInFirstPage:offsetInFirstPage+length])
+		return outBuf, offset + length
+	}
+
 	if outBuf == nil {
 		outBuf = make([]byte, length)
 	}
-	c.contentFile.ReadAt(outBuf, int64(c.startOffset+offset))
+
+	// (partial) first page
+	memory := c.readFromCache(offsetKey)
+	copy(outBuf[:uint64(c.pageSize)-offsetInFirstPage], memory[offsetInFirstPage:])
+
+	// (partial) last page if needed
+	if lastPageOffsetEnd := int(fullOffset+length) % c.pageSize; lastPageOffsetEnd > 0 {
+		memory = c.readFromCache(int((fullOffset + length) / uint64(c.pageSize)))
+		copy(outBuf[len(outBuf)-lastPageOffsetEnd:], memory[:lastPageOffsetEnd])
+	}
+
+	// full pages in-between, last (potentially partial page) is handled above
+	for i := 1; i <= pagesAffected; i++ {
+		if uint64(c.pageSize*(i+1)) > length {
+			break
+		}
+		offsetKey = int((fullOffset + uint64(c.pageSize*i)) / uint64(c.pageSize))
+		memory = c.readFromCache(offsetKey)
+		copy(outBuf[uint64(c.pageSize*i)-offsetInFirstPage:uint64(c.pageSize*(i+1))-offsetInFirstPage], memory)
+	}
+
 	return outBuf, offset + length
+}
+
+func (c Pread) readFromCache(offsetKey int) []byte {
+	memory, ok := c.cache.Get(offsetKey)
+	if !ok {
+		memory = make([]byte, c.pageSize)
+		c.contentFile.ReadAt(memory, int64(c.pageSize*offsetKey))
+		c.cache.Add(offsetKey, memory)
+	}
+	return memory
 }
 
 func (c Pread) ReadUint64(offset uint64, tmpBuf []byte) (uint64, uint64) {
@@ -142,6 +196,7 @@ func (c Pread) Close() error {
 	if err := c.contentFile.Close(); err != nil {
 		return fmt.Errorf("close contents file: %w", err)
 	}
+	c.cache.Purge()
 	return nil
 }
 
@@ -156,7 +211,7 @@ func (c Pread) NewWithOffsetStartEnd(start uint64, end uint64) (ContentReader, e
 	if end > c.endOffset {
 		return nil, fmt.Errorf("end offset %d is greater than the length of the file %d", c.endOffset+end, c.size)
 	}
-	return Pread{contentFile: c.contentFile, size: c.size, startOffset: c.startOffset + start, endOffset: c.startOffset + end}, nil
+	return Pread{contentFile: c.contentFile, size: c.size, startOffset: c.startOffset + start, endOffset: c.startOffset + end, cache: c.cache, pageSize: c.pageSize}, nil
 }
 
 func (c Pread) ReaderFromOffset(start uint64, end uint64) io.Reader {
