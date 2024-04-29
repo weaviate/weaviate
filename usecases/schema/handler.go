@@ -232,12 +232,18 @@ func (h *Handler) JoinNode(ctx context.Context, node string, nodePort string, vo
 		nodePort = fmt.Sprintf("%d", config.DefaultRaftPort)
 	}
 
-	return h.metaWriter.Join(ctx, node, nodeAddr+":"+nodePort, voter)
+	if err := h.metaWriter.Join(ctx, node, nodeAddr+":"+nodePort, voter); err != nil {
+		return fmt.Errorf("node failed to join cluster: %w", err)
+	}
+	return nil
 }
 
 // RemoveNode removes the given node from the cluster.
 func (h *Handler) RemoveNode(ctx context.Context, node string) error {
-	return h.metaWriter.Remove(ctx, node)
+	if err := h.metaWriter.Remove(ctx, node); err != nil {
+		return fmt.Errorf("node failed to leave cluster: %w", err)
+	}
+	return nil
 }
 
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
