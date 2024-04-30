@@ -343,6 +343,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 	}, appState.Logger)
 
+	// TODO-RAFT: refactor remove this sleep
+	// this sleep was used to block GraphQL and give time to RAFT to start.
+	time.Sleep(2 * time.Second)
+
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
