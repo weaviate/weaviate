@@ -71,7 +71,7 @@ type Flags struct {
 
 	RaftPort               int      `long:"raft-port" description:"the port used by Raft for inter-node communication"`
 	RaftInternalRPCPort    int      `long:"raft-internal-rpc-port" description:"the port used for internal RPCs within the cluster"`
-	RaftRPCMaxSize         int      `long:"raft-rpc-max-size" description:"maximum internal raft grpc message size in bytes, defaults to 1073741824"`
+	RaftRPCMessageMaxSize  int      `long:"raft-rpc-message-max-size" description:"maximum internal raft grpc message size in bytes, defaults to 1073741824"`
 	RaftJoin               []string `long:"raft-join" description:"a comma-separated list of server addresses to join on startup. Each element needs to be in the form NODE_NAME[:NODE_PORT]. If NODE_PORT is not present, raft-internal-rpc-port default value will be used instead"`
 	RaftBootstrapTimeout   int      `long:"raft-bootstrap-timeout" description:"the duration for which the raft bootstrap procedure will wait for each node in raft-join to be reachable"`
 	RaftBootstrapExpect    int      `long:"raft-bootstrap-expect" description:"specifies the number of server nodes to wait for before bootstrapping the cluster"`
@@ -293,7 +293,7 @@ func (r ResourceUsage) Validate() error {
 type Raft struct {
 	Port              int
 	InternalRPCPort   int
-	RPCMaxSize        int
+	RPCMessageMaxSize int
 	Join              []string
 	SnapshotThreshold uint64
 	HeartbeatTimeout  time.Duration
@@ -476,8 +476,8 @@ func (f *WeaviateConfig) fromFlags(flags *Flags) {
 	if flags.RaftInternalRPCPort > 0 {
 		f.Config.Raft.InternalRPCPort = flags.RaftInternalRPCPort
 	}
-	if flags.RaftRPCMaxSize > 0 {
-		f.Config.Raft.RPCMaxSize = flags.RaftRPCMaxSize
+	if flags.RaftRPCMessageMaxSize > 0 {
+		f.Config.Raft.RPCMessageMaxSize = flags.RaftRPCMessageMaxSize
 	}
 	if flags.RaftJoin != nil {
 		f.Config.Raft.Join = flags.RaftJoin

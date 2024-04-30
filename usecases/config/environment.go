@@ -397,8 +397,8 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	}
 
 	if err := parsePositiveInt(
-		"RAFT_GRPC_MAX_SIZE",
-		func(val int) { cfg.RPCMaxSize = val },
+		"RAFT_GRPC_MESSAGE_MAX_SIZE",
+		func(val int) { cfg.RPCMessageMaxSize = val },
 		DefaultRaftGRPCMaxSize,
 	); err != nil {
 		return cfg, err

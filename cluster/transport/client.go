@@ -62,14 +62,14 @@ type rpcAddressResolver interface {
 type Client struct {
 	rpc rpcAddressResolver
 
-	connLock   sync.Mutex
-	leaderAddr string
-	leaderConn *grpc.ClientConn
-	rpcMaxSize int
+	connLock          sync.Mutex
+	leaderAddr        string
+	leaderConn        *grpc.ClientConn
+	rpcMessageMaxSize int
 }
 
-func NewClient(r rpcAddressResolver, rpcMaxSize int) *Client {
-	return &Client{rpc: r, rpcMaxSize: rpcMaxSize}
+func NewClient(r rpcAddressResolver, rpcMessageMaxSize int) *Client {
+	return &Client{rpc: r, rpcMessageMaxSize: rpcMessageMaxSize}
 }
 
 // Join joins this node to an existing cluster identified by its leader's address.
@@ -159,7 +159,7 @@ func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMaxSize)),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMessageMaxSize)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)

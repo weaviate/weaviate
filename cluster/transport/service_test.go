@@ -35,28 +35,28 @@ var ErrAny = errors.New("any error")
 
 func TestService(t *testing.T) {
 	var (
-		ctx             = context.Background()
-		addr            = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
-		members         = &MockMembers{leader: addr}
-		executor        = &MockExecutor{}
-		logger          = NewMockLogger(t)
-		adrResolver     = MocKAddressResolver{addr: addr, err: nil}
-		raftGrpcMaxSize = 1024 * 1024 * 1024
+		ctx                    = context.Background()
+		addr                   = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
+		members                = &MockMembers{leader: addr}
+		executor               = &MockExecutor{}
+		logger                 = NewMockLogger(t)
+		adrResolver            = MocKAddressResolver{addr: addr, err: nil}
+		raftGrpcMessageMaxSize = 1024 * 1024 * 1024
 	)
 	// Empty sever address
-	srv := New(members, executor, "", logger.Logger, raftGrpcMaxSize)
+	srv := New(members, executor, "", logger.Logger, raftGrpcMessageMaxSize)
 	assert.NotNil(t, srv.Open())
 
 	// Invalid IP
-	srv = New(members, executor, "abc", logger.Logger, raftGrpcMaxSize)
+	srv = New(members, executor, "abc", logger.Logger, raftGrpcMessageMaxSize)
 	netErr := &net.OpError{}
 	assert.ErrorAs(t, srv.Open(), &netErr)
 
-	srv = New(members, executor, addr, logger.Logger, raftGrpcMaxSize)
+	srv = New(members, executor, addr, logger.Logger, raftGrpcMessageMaxSize)
 	assert.Nil(t, srv.Open())
 	defer srv.Close()
 	time.Sleep(time.Millisecond * 50)
-	client := NewClient(&adrResolver, raftGrpcMaxSize)
+	client := NewClient(&adrResolver, raftGrpcMessageMaxSize)
 	assert.Equal(t, addr, srv.Leader())
 
 	t.Run("Notify", func(t *testing.T) {
@@ -196,7 +196,7 @@ func TestClient(t *testing.T) {
 	t.Run("Dial", func(t *testing.T) {
 		// invalid control character in URL
 		badAddr := string(byte(0))
-		c := NewClient(&MocKAddressResolver{addr: badAddr, err: nil}, 1024*1024*4)
+		c := NewClient(&MocKAddressResolver{addr: badAddr, err: nil}, 1024*1024*1024)
 
 		_, err := c.Join(ctx, badAddr,
 			&cmd.JoinPeerRequest{Id: "Node1", Address: "abc", Voter: false})
