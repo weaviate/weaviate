@@ -13,6 +13,7 @@ package contentReader
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"testing"
@@ -195,6 +196,12 @@ func TestContentReader_MixedOperations(t *testing.T) {
 	}
 }
 
+type testCase struct {
+	name        string
+	startOffset uint64
+	endOffset   uint64
+}
+
 func TestContentReader_PreadWithCache(t *testing.T) {
 	size := uint64(50)
 	pageSize := int(size / 10)
@@ -204,12 +211,7 @@ func TestContentReader_PreadWithCache(t *testing.T) {
 
 	l, _ := lru.New[int, []byte](5)
 	contReader := Pread{contentFile: fi, size: size, startOffset: 0, endOffset: size, cache: l, pageSize: pageSize}
-
-	tests := []struct {
-		name        string
-		startOffset uint64
-		endOffset   uint64
-	}{
+	readTests := []testCase{
 		{name: "empty", startOffset: 0, endOffset: 0},
 		{name: "full file", startOffset: 0, endOffset: size},
 		{name: "one full page", startOffset: uint64(pageSize), endOffset: uint64(pageSize * 2)},
@@ -219,9 +221,9 @@ func TestContentReader_PreadWithCache(t *testing.T) {
 		{name: "two partial pages and one full page", startOffset: 1, endOffset: 14},
 		{name: "partial first and last page", startOffset: 1, endOffset: size - 1},
 		{name: "full first and partial last page", startOffset: 0, endOffset: size - 1},
-		{name: "partial first and full last page", startOffset: 4, endOffset: size - 1},
+		{name: "partial first and full last page", startOffset: 4, endOffset: 10},
 	}
-	for _, tt := range tests {
+	for _, tt := range readTests {
 		t.Run(tt.name, func(t *testing.T) {
 			// read data that overlaps with the first page
 			buf, offset := contReader.ReadRange(tt.startOffset, tt.endOffset-tt.startOffset, nil)
@@ -229,4 +231,59 @@ func TestContentReader_PreadWithCache(t *testing.T) {
 			require.Equal(t, tt.endOffset, offset)
 		})
 	}
+}
+
+func IntsToBytes(ints ...uint64) []byte {
+	byteOps := byteops.NewReadWriter(make([]byte, len(ints)*uint64Len))
+	for _, i := range ints {
+		byteOps.WriteUint64(i)
+	}
+	return byteOps.Buffer
+}
+
+func FuzzContentReader(f *testing.F) {
+	size := uint64(10)
+	pageSize := int(size / 2)
+	valuesByteArray := make([]byte, int64(size))
+	rand.Read(valuesByteArray)
+	fi := writeBytesToFile(f, valuesByteArray)
+
+	readTests := []testCase{
+		{name: "empty", startOffset: 0, endOffset: 0},
+		{name: "full file", startOffset: 0, endOffset: size},
+		{name: "one full page", startOffset: uint64(pageSize), endOffset: uint64(pageSize * 2)},
+		{name: "one full page and a bit", startOffset: uint64(pageSize), endOffset: uint64(pageSize*2 + 2)},
+		{name: "two partial pages", startOffset: 4, endOffset: 6},
+		{name: "two partial pages", startOffset: 1, endOffset: 9},
+		{name: "two partial pages and one full page", startOffset: 1, endOffset: 14},
+		{name: "partial first and last page", startOffset: 1, endOffset: size - 1},
+		{name: "full first and partial last page", startOffset: 0, endOffset: size - 1},
+		{name: "partial first and full last page", startOffset: 2, endOffset: 3},
+		{name: "partial first and full last page", startOffset: 4, endOffset: size - 1},
+	}
+	for _, tc := range readTests {
+		f.Add(IntsToBytes(tc.startOffset, tc.endOffset)) // Use f.Add to provide a seed corpus
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) != 16 {
+			return
+		}
+		startOffset := binary.LittleEndian.Uint64(data[0:8])
+		endOffset := binary.LittleEndian.Uint64(data[8:16])
+
+		if startOffset > endOffset {
+			return
+		}
+
+		if endOffset > size {
+			return
+		}
+
+		l, _ := lru.New[int, []byte](10)
+		contReader := Pread{contentFile: fi, size: size, startOffset: 0, endOffset: size, cache: l, pageSize: pageSize}
+
+		buf, offset := contReader.ReadRange(startOffset, endOffset-startOffset, nil)
+		require.Equal(t, valuesByteArray[startOffset:endOffset], buf)
+		require.Equal(t, endOffset, offset)
+	})
 }

@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func writeBytesToFile(t *testing.T, bytes []byte) *os.File {
+func writeBytesToFile(t testing.TB, bytes []byte) *os.File {
 	path := t.TempDir()
 	fo, err := os.Create(path + "output.txt")
 	require.Nil(t, err)

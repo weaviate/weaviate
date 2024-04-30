@@ -156,13 +156,11 @@ func (c Pread) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, u
 	if lastPageOffsetEnd := int(fullOffset+length) % c.pageSize; lastPageOffsetEnd > 0 {
 		memory = c.readFromCache(int((fullOffset + length) / uint64(c.pageSize)))
 		copy(outBuf[len(outBuf)-lastPageOffsetEnd:], memory[:lastPageOffsetEnd])
+		pagesAffected -= 1 // handled last page here, so no need to check it in the loop below
 	}
 
 	// full pages in-between, last (potentially partial page) is handled above
-	for i := 1; i <= pagesAffected; i++ {
-		if uint64(c.pageSize*(i+1)) > length {
-			break
-		}
+	for i := 1; i < pagesAffected; i++ {
 		offsetKey = int((fullOffset + uint64(c.pageSize*i)) / uint64(c.pageSize))
 		memory = c.readFromCache(offsetKey)
 		copy(outBuf[uint64(c.pageSize*i)-offsetInFirstPage:uint64(c.pageSize*(i+1))-offsetInFirstPage], memory)
@@ -183,12 +181,12 @@ func (c Pread) readFromCache(offsetKey int) []byte {
 
 func (c Pread) ReadUint64(offset uint64, tmpBuf []byte) (uint64, uint64) {
 	val, _ := c.ReadRange(offset, uint64Len, tmpBuf)
-	return binary.LittleEndian.Uint64(val), offset + uint64Len
+	return binary.LittleEndian.Uint64(val[:uint64Len]), offset + uint64Len
 }
 
 func (c Pread) ReadUint32(offset uint64, tmpBuf []byte) (uint32, uint64) {
 	val, _ := c.ReadRange(offset, uint32Len, tmpBuf)
-	return binary.LittleEndian.Uint32(val), offset + uint32Len
+	return binary.LittleEndian.Uint32(val[:uint32Len]), offset + uint32Len
 }
 
 func (c Pread) Length() uint64 {
