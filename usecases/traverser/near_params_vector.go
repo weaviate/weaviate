@@ -296,6 +296,13 @@ func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 				return additional.DistToCertainty(hybrid.NearVectorParams.Distance)
 			}
 		}
+		if hybrid.NearTextParams != nil {
+			if hybrid.NearTextParams.Certainty != 0 {
+				return hybrid.NearTextParams.Certainty
+			} else if hybrid.NearTextParams.WithDistance {
+				return additional.DistToCertainty(hybrid.NearTextParams.Distance)
+			}
+		}
 	}
 
 	if len(moduleParams) == 1 {

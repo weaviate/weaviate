@@ -83,19 +83,16 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 			return nil, err
 		}
 
+		params.TargetVector = targetVector
+
 		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
-			params.NearObject, params.ModuleParams, nil)
+			params.NearObject, params.ModuleParams, params.Hybrid)
 
 		if certainty == 0 && params.ObjectLimit == nil {
 			return nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
 		}
 
 		params.Certainty = certainty
-		vec, err := t.nearParamsVector.modulesProvider.VectorFromInput(ctx, params.ClassName.String(), params.Hybrid.Query, targetVector)
-		if err != nil {
-			return nil, err
-		}
-		params.Hybrid.Vector = vec
 	}
 
 	if params.Filters != nil {
