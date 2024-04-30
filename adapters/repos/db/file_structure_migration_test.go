@@ -304,6 +304,10 @@ func (sg *fakeMigrationSchemaGetter) TenantsShards(class string, tenants ...stri
 	return nil, nil
 }
 
+func (f *fakeMigrationSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	return nil, nil
+}
+
 func (sg *fakeMigrationSchemaGetter) ShardFromUUID(class string, uuid []byte) string {
 	return ""
 }
