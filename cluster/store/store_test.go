@@ -74,7 +74,7 @@ func TestServiceEndpoints(t *testing.T) {
 	func() {
 		ctx, cancel := context.WithTimeout(ctx, time.Millisecond*30)
 		defer cancel()
-		assert.ErrorIs(t, srv.WaitUntilDBRestored(ctx, 5*time.Millisecond), context.DeadlineExceeded)
+		assert.ErrorIs(t, srv.WaitUntilDBRestored(ctx, 5*time.Millisecond, make(chan struct{})), context.DeadlineExceeded)
 	}()
 
 	// Open
@@ -88,7 +88,7 @@ func TestServiceEndpoints(t *testing.T) {
 	// Connect
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 
-	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	assert.True(t, srv.store.IsLeader())
@@ -296,7 +296,7 @@ func TestServiceEndpoints(t *testing.T) {
 	srv = NewService(m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
-	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	clInfo := srv.store.db.Schema.ClassInfo("C")
@@ -341,6 +341,27 @@ func TestServiceStoreInit(t *testing.T) {
 	// not enough voter
 	store.bootstrapExpect = 2
 	assert.Nil(t, store.Notify("A", "localhost:123"))
+}
+
+func TestServiceClose(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	s := New(m.cfg)
+	m.store = &s
+	srv := NewService(m.store, nil)
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	assert.Nil(t, srv.Open(ctx, m.indexer))
+	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
+	close := make(chan struct{})
+	go func() {
+		time.Sleep(time.Second)
+		close <- struct{}{}
+	}()
+	now := time.Now()
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*10, close))
+	after := time.Now()
+	assert.Less(t, after.Sub(now), 2*time.Second)
 }
 
 func TestServicePanics(t *testing.T) {

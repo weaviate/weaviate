@@ -32,7 +32,7 @@ type Service struct {
 	rpcService *transport.Service
 	logger     *logrus.Logger
 
-	//closing channels
+	// closing channels
 	closeBootstrapper chan struct{}
 	noWaitForDB       chan struct{}
 }
