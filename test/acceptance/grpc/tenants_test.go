@@ -56,10 +56,10 @@ func TestGRPCTenantsGet(t *testing.T) {
 	helper.CreateTenants(t, className, tenants)
 
 	t.Run("Gets consistent tenants of a class", func(t *testing.T) {
-		for _, isConsistent := range []bool{true, false} {
+		for _, consistencyLevel := range []*pb.ConsistencyLevel{pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL.Enum(), pb.ConsistencyLevel_CONSISTENCY_LEVEL_ONE.Enum()} {
 			resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-				Collection:   className,
-				IsConsistent: isConsistent,
+				Collection:       className,
+				ConsistencyLevel: consistencyLevel,
 			})
 			if err != nil {
 				t.Fatalf("error while getting tenants: %v", err)
@@ -72,10 +72,10 @@ func TestGRPCTenantsGet(t *testing.T) {
 	})
 
 	t.Run("Gets two tenants by their names", func(t *testing.T) {
-		for _, isConsistent := range []bool{true, false} {
+		for _, consistencyLevel := range []*pb.ConsistencyLevel{pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL.Enum(), pb.ConsistencyLevel_CONSISTENCY_LEVEL_ONE.Enum()} {
 			resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-				Collection:   className,
-				IsConsistent: isConsistent,
+				Collection:       className,
+				ConsistencyLevel: consistencyLevel,
 				Params: &pb.TenantsGetRequest_Names{
 					Names: &pb.TenantNames{
 						Values: []string{tenantNames[0], tenantNames[2]},
@@ -97,17 +97,17 @@ func TestGRPCTenantsGet(t *testing.T) {
 
 	t.Run("Returns error when tenant names are missing", func(t *testing.T) {
 		_, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-			Collection:   className,
-			IsConsistent: true,
-			Params:       &pb.TenantsGetRequest_Names{},
+			Collection:       className,
+			ConsistencyLevel: pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL.Enum(),
+			Params:           &pb.TenantsGetRequest_Names{},
 		})
 		require.NotNil(t, err)
 	})
 
 	t.Run("Returns error when tenant names are specified empty", func(t *testing.T) {
 		_, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-			Collection:   className,
-			IsConsistent: true,
+			Collection:       className,
+			ConsistencyLevel: pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL.Enum(),
 			Params: &pb.TenantsGetRequest_Names{
 				Names: &pb.TenantNames{
 					Values: []string{},
@@ -118,10 +118,10 @@ func TestGRPCTenantsGet(t *testing.T) {
 	})
 
 	t.Run("Returns nothing when tenant names are not found", func(t *testing.T) {
-		for _, isConsistent := range []bool{true, false} {
+		for _, consistencyLevel := range []*pb.ConsistencyLevel{pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL.Enum(), pb.ConsistencyLevel_CONSISTENCY_LEVEL_ONE.Enum()} {
 			resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-				Collection:   className,
-				IsConsistent: isConsistent,
+				Collection:       className,
+				ConsistencyLevel: consistencyLevel,
 				Params: &pb.TenantsGetRequest_Names{
 					Names: &pb.TenantNames{
 						Values: []string{"NonExistentTenant"},
