@@ -263,8 +263,9 @@ func (c *coordinator) restoreClasses(
 		return
 	}
 	errors := make([]string, 0, 5)
+	hasReqClasses := len(req.Classes) > 0
 	for _, cls := range schema {
-		if len(req.Classes) > 0 && !slices.Contains(req.Classes, cls.Name) {
+		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
 			continue
 		}
 		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping); err != nil {
