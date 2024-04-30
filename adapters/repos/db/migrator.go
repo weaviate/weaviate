@@ -748,6 +748,6 @@ func (m *Migrator) Shutdown(ctx context.Context) error {
 	if !m.db.StartupComplete() {
 		return nil
 	}
-	m.logger.Info("database was loaded before, closing ...")
+	m.logger.Info("closing loaded database ...")
 	return m.db.Shutdown(ctx)
 }
