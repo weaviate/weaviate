@@ -233,7 +233,7 @@ func (c *coordinator) Restore(
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
-		c.restoreClasses(ctx, schema, req.NodeMapping)
+		c.restoreClasses(ctx, schema, req)
 		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
@@ -257,14 +257,17 @@ func (c *coordinator) Restore(
 func (c *coordinator) restoreClasses(
 	ctx context.Context,
 	schema []backup.ClassDescriptor,
-	mapping map[string]string,
+	req *Request,
 ) {
 	if c.descriptor.Status != backup.Success {
 		return
 	}
 	errors := make([]string, 0, 5)
 	for _, cls := range schema {
-		if err := c.schema.RestoreClass(ctx, &cls, mapping); err != nil {
+		if len(req.Classes) > 0 && !slices.Contains(req.Classes, cls.Name) {
+			continue
+		}
+		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping); err != nil {
 			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
 			errors = append(errors, fmt.Sprintf("%q: %v", cls.Name, err))
 		}
