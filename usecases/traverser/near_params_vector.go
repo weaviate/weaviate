@@ -270,7 +270,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
-	nearObject *searchparams.NearObject, moduleParams map[string]interface{},
+	nearObject *searchparams.NearObject, moduleParams map[string]interface{}, hybrid *searchparams.HybridSearch,
 ) float64 {
 	if nearVector != nil {
 		if nearVector.Certainty != 0 {
@@ -285,6 +285,16 @@ func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 			return nearObject.Certainty
 		} else if nearObject.WithDistance {
 			return additional.DistToCertainty(nearObject.Distance)
+		}
+	}
+
+	if hybrid != nil {
+		if hybrid.NearVectorParams != nil {
+			if hybrid.NearVectorParams.Certainty != 0 {
+				return hybrid.NearVectorParams.Certainty
+			} else if hybrid.NearVectorParams.WithDistance {
+				return additional.DistToCertainty(hybrid.NearVectorParams.Distance)
+			}
 		}
 	}
 

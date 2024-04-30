@@ -52,6 +52,14 @@ func TestGraphQL_SyncIndexing(t *testing.T) {
 	testGraphQL(t)
 }
 
+func TestTemp(t *testing.T) {
+	t.Run("setup test schema", addTestSchema)
+	t.Run("import test data (city, country, airport)", addTestDataCityAirport)
+	t.Run("import test data (companies)", addTestDataCompanies)
+	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
+	deleteObjectClass(t, "Company")
+}
+
 func testGraphQL(t *testing.T) {
 	// tests with classes that have objects with same uuids
 	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
