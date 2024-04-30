@@ -51,13 +51,11 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 
 	var keyLen uint32
 	offset := uint64(0)
-	tmpBuffer := make([]byte, max(len(key), 8))
+	tmpBuffer := make([]byte, len(key))
 	// jump to the buffer until the node with _key_ is found or return a NotFound error.
 	// This function avoids allocations by reusing the same buffer for all keys and avoids memory reads by only
 	// extracting the necessary pieces of information while skipping the rest
-	count := 0
 	for {
-		count += 1
 		// detect if there is no node with the wanted key.
 		if offset+4 > t.contentReader.Length() || offset+4 < 4 {
 			return out, lsmkv.NotFound
