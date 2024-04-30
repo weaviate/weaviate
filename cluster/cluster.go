@@ -34,7 +34,7 @@ type Service struct {
 
 	// closing channels
 	closeBootstrapper chan struct{}
-	noWaitForDB       chan struct{}
+	closeWaitForDB    chan struct{}
 }
 
 func New(cfg store.Config) *Service {
@@ -51,7 +51,7 @@ func New(cfg store.Config) *Service {
 		rpcService:        transport.New(&fsm, server, addr, cfg.Logger, cfg.RaftRPCMessageMaxSize),
 		logger:            cfg.Logger,
 		closeBootstrapper: make(chan struct{}),
-		noWaitForDB:       make(chan struct{}),
+		closeWaitForDB:    make(chan struct{}),
 	}
 }
 
@@ -83,7 +83,7 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 10*time.Second, c.noWaitForDB); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, 10*time.Second, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
@@ -93,7 +93,7 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 func (c *Service) Close(ctx context.Context) error {
 	go func() {
 		c.closeBootstrapper <- struct{}{}
-		c.noWaitForDB <- struct{}{}
+		c.closeWaitForDB <- struct{}{}
 	}()
 
 	if err := c.Service.Close(ctx); err != nil {
