@@ -83,6 +83,10 @@ func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
 	panic("not implemented")
 }
 
+func (f *fakeSchemaGetter) Statistics() map[string]any {
+	panic("not implemented")
+}
+
 type fakeClassificationRepo struct {
 	sync.Mutex
 	db map[strfmt.UUID]models.Classification

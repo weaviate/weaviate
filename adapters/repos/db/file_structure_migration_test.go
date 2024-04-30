@@ -288,6 +288,10 @@ func (sg *fakeMigrationSchemaGetter) ResolveParentNodes(string, string) (map[str
 	return nil, nil
 }
 
+func (sg *fakeMigrationSchemaGetter) Statistics() map[string]any {
+	return nil
+}
+
 func (sg *fakeMigrationSchemaGetter) CopyShardingState(class string) *sharding.State {
 	return sg.states[class]
 }

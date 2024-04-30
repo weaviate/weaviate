@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/classifications"
+	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -78,6 +79,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Backups = backups.New(transport, formats)
 	cli.Batch = batch.New(transport, formats)
 	cli.Classifications = classifications.New(transport, formats)
+	cli.Cluster = cluster.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
 	cli.Nodes = nodes.New(transport, formats)
@@ -135,6 +137,8 @@ type Weaviate struct {
 
 	Classifications classifications.ClientService
 
+	Cluster cluster.ClientService
+
 	Graphql graphql.ClientService
 
 	Meta meta.ClientService
@@ -158,6 +162,7 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Backups.SetTransport(transport)
 	c.Batch.SetTransport(transport)
 	c.Classifications.SetTransport(transport)
+	c.Cluster.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Meta.SetTransport(transport)
 	c.Nodes.SetTransport(transport)

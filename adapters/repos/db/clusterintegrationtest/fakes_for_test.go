@@ -153,6 +153,10 @@ func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	return f.shardState
 }
 
+func (f *fakeSchemaManager) Statistics() map[string]any {
+	return nil
+}
+
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
 	ss := f.shardState
 	x, ok := ss.Physical[shard]
