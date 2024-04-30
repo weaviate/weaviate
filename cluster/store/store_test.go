@@ -232,7 +232,8 @@ func TestServiceEndpoints(t *testing.T) {
 	_, err = srv.AddTenants("", &command.AddTenantsRequest{})
 	assert.ErrorIs(t, err, errBadRequest)
 	version, err = srv.AddTenants("C", &command.AddTenantsRequest{
-		Tenants: []*command.Tenant{nil, {Name: "T2", Status: "S1"}, nil},
+		ClusterNodes: []string{"Node-1"},
+		Tenants:      []*command.Tenant{nil, {Name: "T2", Status: "S1"}, nil},
 	})
 	assert.Nil(t, err)
 	info.ShardVersion = version
@@ -369,7 +370,7 @@ func TestStoreApply(t *testing.T) {
 		m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	}
 
-	cls := &models.Class{Class: "C1"}
+	cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
 	ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
 		Name:           "T1",
 		BelongsToNodes: []string{"THIS"},
@@ -626,7 +627,8 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "AddTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
-				Tenants: []*command.Tenant{nil, {Name: "T1"}, nil},
+				ClusterNodes: []string{"THIS"},
+				Tenants:      []*command.Tenant{nil, {Name: "T1"}, nil},
 			})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
@@ -659,7 +661,7 @@ func TestStoreApply(t *testing.T) {
 			name: "UpdateTenant/NoFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 				}})},
 			resp: Response{Error: errSchema},
 			doBefore: func(m *MockStore) {
@@ -672,9 +674,9 @@ func TestStoreApply(t *testing.T) {
 			name: "UpdateTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
-					{Name: "T2", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
-					{Name: "T3", Status: models.TenantActivityStatusCOLD, Nodes: []string{"NODE-2"}},
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
+					{Name: "T2", Status: models.TenantActivityStatusCOLD},
+					{Name: "T3", Status: models.TenantActivityStatusCOLD},
 				}})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
