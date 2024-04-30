@@ -131,10 +131,11 @@ func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.Quer
 	return c.Query(ctx, req)
 }
 
-func (cl *Client) Close() {
+func (cl *Client) Close() error {
 	if cl.leaderConn != nil {
-		cl.leaderConn.Close()
+		return cl.leaderConn.Close()
 	}
+	return nil
 }
 
 func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {

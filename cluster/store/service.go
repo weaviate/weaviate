@@ -293,8 +293,8 @@ func (s *Service) LeaderWithID() (string, string) {
 	return string(addr), string(id)
 }
 
-func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
-	return s.store.WaitToRestoreDB(ctx, period)
+func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
+	return s.store.WaitToRestoreDB(ctx, period, close)
 }
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
