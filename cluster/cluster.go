@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/cluster/transport"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -91,10 +92,10 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 }
 
 func (c *Service) Close(ctx context.Context) error {
-	go func() {
+	enterrors.GoWrapper(func() {
 		c.closeBootstrapper <- struct{}{}
 		c.closeWaitForDB <- struct{}{}
-	}()
+	}, c.logger)
 
 	if err := c.Service.Close(ctx); err != nil {
 		return err
