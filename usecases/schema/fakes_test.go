@@ -20,6 +20,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -230,6 +231,10 @@ func (f *fakeMetaHandler) GetShardsStatus(class, tenant string) (models.ShardSta
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
 }
 
+func (f *fakeMetaHandler) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
+}
+
 type fakeStore struct {
 	collections map[string]*models.Class
 	parser      Parser
@@ -238,7 +243,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(&fakeClusterState{}, dummyParseVectorConfig, &fakeValidator{}),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}),
 	}
 }
 

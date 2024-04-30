@@ -58,6 +58,9 @@ type metaWriter interface {
 }
 
 type metaReader interface {
+	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
+	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
+
 	ClassEqual(name string) string
 	// MultiTenancy checks for multi-tenancy support
 	MultiTenancy(class string) models.MultiTenancyConfig

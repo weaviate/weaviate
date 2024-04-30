@@ -81,6 +81,12 @@ func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[s
 	return res, nil
 }
 
+func (f *fakeSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
+}
+
 func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string {
 	ss := f.shardState
 	return ss.Shard("", string(uuid))
@@ -100,6 +106,10 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 
 func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string) (map[string]string, error) {
 	return nil, nil
+}
+
+func (f fakeSchemaGetter) Statistics() map[string]any {
+	return nil
 }
 
 func singleShardState() *sharding.State {
@@ -270,6 +280,10 @@ type fakeRemoteNodeClient struct{}
 
 func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
+}
+
+func (f *fakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+	return &models.Statistics{}, nil
 }
 
 type fakeReplicationClient struct{}
