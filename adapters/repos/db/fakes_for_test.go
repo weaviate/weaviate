@@ -102,6 +102,10 @@ func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string) (map[string
 	return nil, nil
 }
 
+func (f fakeSchemaGetter) Statistics() map[string]any {
+	return nil
+}
+
 func singleShardState() *sharding.State {
 	config, err := shardingConfig.ParseConfig(nil, 1)
 	if err != nil {
@@ -270,6 +274,10 @@ type fakeRemoteNodeClient struct{}
 
 func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
+}
+
+func (f *fakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+	return &models.Statistics{}, nil
 }
 
 type fakeReplicationClient struct{}

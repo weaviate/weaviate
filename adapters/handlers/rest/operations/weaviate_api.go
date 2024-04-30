@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
@@ -95,6 +96,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		ClassificationsClassificationsPostHandler: classifications.ClassificationsPostHandlerFunc(func(params classifications.ClassificationsPostParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation classifications.ClassificationsPost has not yet been implemented")
+		}),
+		ClusterClusterGetStatisticsHandler: cluster.ClusterGetStatisticsHandlerFunc(func(params cluster.ClusterGetStatisticsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation cluster.ClusterGetStatistics has not yet been implemented")
 		}),
 		GraphqlGraphqlBatchHandler: graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation graphql.GraphqlBatch has not yet been implemented")
@@ -291,6 +295,8 @@ type WeaviateAPI struct {
 	ClassificationsClassificationsGetHandler classifications.ClassificationsGetHandler
 	// ClassificationsClassificationsPostHandler sets the operation handler for the classifications post operation
 	ClassificationsClassificationsPostHandler classifications.ClassificationsPostHandler
+	// ClusterClusterGetStatisticsHandler sets the operation handler for the cluster get statistics operation
+	ClusterClusterGetStatisticsHandler cluster.ClusterGetStatisticsHandler
 	// GraphqlGraphqlBatchHandler sets the operation handler for the graphql batch operation
 	GraphqlGraphqlBatchHandler graphql.GraphqlBatchHandler
 	// GraphqlGraphqlPostHandler sets the operation handler for the graphql post operation
@@ -486,6 +492,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ClassificationsClassificationsPostHandler == nil {
 		unregistered = append(unregistered, "classifications.ClassificationsPostHandler")
+	}
+	if o.ClusterClusterGetStatisticsHandler == nil {
+		unregistered = append(unregistered, "cluster.ClusterGetStatisticsHandler")
 	}
 	if o.GraphqlGraphqlBatchHandler == nil {
 		unregistered = append(unregistered, "graphql.GraphqlBatchHandler")
@@ -750,6 +759,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/classifications"] = classifications.NewClassificationsPost(o.context, o.ClassificationsClassificationsPostHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/cluster/statistics"] = cluster.NewClusterGetStatistics(o.context, o.ClusterClusterGetStatisticsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

@@ -59,6 +59,7 @@ type SchemaGetter interface {
 	NodeName() string
 	ClusterHealthScore() int
 	ResolveParentNodes(string, string) (map[string]string, error)
+	Statistics() map[string]any
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
