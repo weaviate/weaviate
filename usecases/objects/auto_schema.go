@@ -89,10 +89,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		vclass, exists := vclasses[schema.UppercaseClassName(object.Class)]
-		if !exists {
-			vclass = versioned.Class{}
-		}
+		vclass := vclasses[schema.UppercaseClassName(object.Class)]
 
 		schemaClass := vclass.Class
 		schemaVersion := vclass.Version

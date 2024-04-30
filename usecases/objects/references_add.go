@@ -171,10 +171,7 @@ func (req *AddReferenceInput) validate(
 		return nil, nil, 0, err
 	}
 
-	vclass, exists := vclasses[req.Class]
-	if !exists {
-		return nil, nil, 0, fmt.Errorf("class not foun")
-	}
+	vclass := vclasses[req.Class]
 	return ref, vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 

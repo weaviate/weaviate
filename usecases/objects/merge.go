@@ -162,10 +162,7 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	if err != nil {
 		return nil, err
 	}
-	vclass, exists := vclasses[className]
-	if !exists {
-		return nil, fmt.Errorf("class not found")
-	}
+	vclass := vclasses[className]
 	class := vclass.Class
 
 	var mergedProps map[string]interface{}

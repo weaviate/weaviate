@@ -109,6 +109,10 @@ func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
 func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
+	if len(classes) == 0 {
+		return map[string]versioned.Class{}
+	}
+
 	vclasses := make(map[string]versioned.Class, len(classes))
 	s.RLock()
 	defer s.RUnlock()
