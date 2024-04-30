@@ -51,10 +51,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	}
 	if consistency {
 		vclasses, err := h.metaWriter.QueryReadOnlyClasses(name)
-		vclass, exists := vclasses[name]
-		if !exists {
-			return nil, 0, fmt.Errorf("class not found")
-		}
+		vclass := vclasses[name]
 		return vclass.Class, vclass.Version, err
 	}
 	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)

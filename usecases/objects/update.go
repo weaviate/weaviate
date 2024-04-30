@@ -101,10 +101,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	vclass, exists := vclasses[className]
-	if !exists {
-		return nil, fmt.Errorf("class not found")
-	}
+	vclass := vclasses[className]
 	err = m.modulesProvider.UpdateVector(ctx, updates, vclass.Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
