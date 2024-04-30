@@ -186,6 +186,12 @@ func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[
 	return res, nil
 }
 
+func (f *fakeSchemaManager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
+}
+
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	ss := f.shardState
 	return ss.Shard("", string(uuid))
