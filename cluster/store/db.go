@@ -112,7 +112,11 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
+		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.ClassVersion = cmd.Version
+		if req.State != nil {
+			meta.Sharding = *req.State
+		}
 		return nil
 	}
 
