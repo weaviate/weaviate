@@ -72,6 +72,10 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 	panic("not implemented")
 }
 
+func (f *fakeSchemaGetter) Statistics() map[string]any {
+	panic("not implemented")
+}
+
 func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
 ) (map[string]string, error) {
 	panic("not implemented")

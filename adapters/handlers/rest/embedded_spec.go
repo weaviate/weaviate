@@ -721,6 +721,47 @@ func init() {
         ]
       }
     },
+    "/cluster/statistics": {
+      "get": {
+        "description": "Returns Raft cluster statistics of Weaviate DB.",
+        "tags": [
+          "cluster"
+        ],
+        "operationId": "cluster.get.statistics",
+        "responses": {
+          "200": {
+            "description": "Cluster statistics successfully returned",
+            "schema": {
+              "$ref": "#/definitions/ClusterStatisticsResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.cluster.statistics.get"
+        ]
+      }
+    },
     "/graphql": {
       "post": {
         "description": "Get an object based on GraphQL",
@@ -3801,6 +3842,22 @@ func init() {
         }
       }
     },
+    "ClusterStatisticsResponse": {
+      "description": "The cluster statistics of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "statistics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Statistics"
+          }
+        },
+        "synchronized": {
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
     "Deprecation": {
       "type": "object",
       "properties": {
@@ -4547,6 +4604,66 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "RaftStatistics": {
+      "description": "The definition of Raft statistics.",
+      "properties": {
+        "appliedIndex": {
+          "type": "string"
+        },
+        "commitIndex": {
+          "type": "string"
+        },
+        "fsmPending": {
+          "type": "string"
+        },
+        "lastContact": {
+          "type": "string"
+        },
+        "lastLogIndex": {
+          "type": "string"
+        },
+        "lastLogTerm": {
+          "type": "string"
+        },
+        "lastSnapshotIndex": {
+          "type": "string"
+        },
+        "lastSnapshotTerm": {
+          "type": "string"
+        },
+        "latestConfiguration": {
+          "description": "Weaviate Raft nodes.",
+          "type": "object"
+        },
+        "latestConfigurationIndex": {
+          "type": "string"
+        },
+        "numPeers": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "string"
+        },
+        "protocolVersionMax": {
+          "type": "string"
+        },
+        "protocolVersionMin": {
+          "type": "string"
+        },
+        "snapshotVersionMax": {
+          "type": "string"
+        },
+        "snapshotVersionMin": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "term": {
+          "type": "string"
+        }
+      }
+    },
     "ReferenceMetaClassification": {
       "description": "This meta field contains additional info about the classified reference property",
       "properties": {
@@ -4744,6 +4861,62 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        }
+      }
+    },
+    "Statistics": {
+      "description": "The definition of node statistics.",
+      "properties": {
+        "bootstrapped": {
+          "type": "boolean"
+        },
+        "candidates": {
+          "type": "object"
+        },
+        "dbLoaded": {
+          "type": "boolean"
+        },
+        "initialLastAppliedIndex": {
+          "type": "number",
+          "format": "uint64"
+        },
+        "isVoter": {
+          "type": "boolean"
+        },
+        "lastAppliedIndex": {
+          "type": "number"
+        },
+        "leaderAddress": {
+          "type": "object"
+        },
+        "leaderId": {
+          "type": "object"
+        },
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "raft": {
+          "description": "Weaviate Raft statistics.",
+          "type": "object",
+          "$ref": "#/definitions/RaftStatistics"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE",
+            "TIMEOUT"
+          ]
         }
       }
     },
@@ -5825,6 +5998,47 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.classifications.get"
+        ]
+      }
+    },
+    "/cluster/statistics": {
+      "get": {
+        "description": "Returns Raft cluster statistics of Weaviate DB.",
+        "tags": [
+          "cluster"
+        ],
+        "operationId": "cluster.get.statistics",
+        "responses": {
+          "200": {
+            "description": "Cluster statistics successfully returned",
+            "schema": {
+              "$ref": "#/definitions/ClusterStatisticsResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.cluster.statistics.get"
         ]
       }
     },
@@ -9171,6 +9385,22 @@ func init() {
         }
       }
     },
+    "ClusterStatisticsResponse": {
+      "description": "The cluster statistics of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "statistics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Statistics"
+          }
+        },
+        "synchronized": {
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
     "Deprecation": {
       "type": "object",
       "properties": {
@@ -9941,6 +10171,66 @@ func init() {
       "description": "This is an open object, with OpenAPI Specification 3.0 this will be more detailed. See Weaviate docs for more info. In the future this will become a key/value OR a SingleRef definition.",
       "type": "object"
     },
+    "RaftStatistics": {
+      "description": "The definition of Raft statistics.",
+      "properties": {
+        "appliedIndex": {
+          "type": "string"
+        },
+        "commitIndex": {
+          "type": "string"
+        },
+        "fsmPending": {
+          "type": "string"
+        },
+        "lastContact": {
+          "type": "string"
+        },
+        "lastLogIndex": {
+          "type": "string"
+        },
+        "lastLogTerm": {
+          "type": "string"
+        },
+        "lastSnapshotIndex": {
+          "type": "string"
+        },
+        "lastSnapshotTerm": {
+          "type": "string"
+        },
+        "latestConfiguration": {
+          "description": "Weaviate Raft nodes.",
+          "type": "object"
+        },
+        "latestConfigurationIndex": {
+          "type": "string"
+        },
+        "numPeers": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "string"
+        },
+        "protocolVersionMax": {
+          "type": "string"
+        },
+        "protocolVersionMin": {
+          "type": "string"
+        },
+        "snapshotVersionMax": {
+          "type": "string"
+        },
+        "snapshotVersionMin": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "term": {
+          "type": "string"
+        }
+      }
+    },
     "ReferenceMetaClassification": {
       "description": "This meta field contains additional info about the classified reference property",
       "properties": {
@@ -10138,6 +10428,62 @@ func init() {
         "schema": {
           "description": "If using a concept reference (rather than a direct reference), specify the desired properties here",
           "$ref": "#/definitions/PropertySchema"
+        }
+      }
+    },
+    "Statistics": {
+      "description": "The definition of node statistics.",
+      "properties": {
+        "bootstrapped": {
+          "type": "boolean"
+        },
+        "candidates": {
+          "type": "object"
+        },
+        "dbLoaded": {
+          "type": "boolean"
+        },
+        "initialLastAppliedIndex": {
+          "type": "number",
+          "format": "uint64"
+        },
+        "isVoter": {
+          "type": "boolean"
+        },
+        "lastAppliedIndex": {
+          "type": "number"
+        },
+        "leaderAddress": {
+          "type": "object"
+        },
+        "leaderId": {
+          "type": "object"
+        },
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "raft": {
+          "description": "Weaviate Raft statistics.",
+          "type": "object",
+          "$ref": "#/definitions/RaftStatistics"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE",
+            "TIMEOUT"
+          ]
         }
       }
     },
