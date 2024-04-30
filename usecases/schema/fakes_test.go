@@ -20,6 +20,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -242,7 +243,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(&fakeClusterState{}, dummyParseVectorConfig, &fakeValidator{}),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}),
 	}
 }
 

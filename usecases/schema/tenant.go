@@ -51,48 +51,15 @@ func (h *Handler) AddTenants(ctx context.Context,
 		return 0, err
 	}
 
-	info, err := h.multiTenancy(class)
-	if err != nil {
-		return 0, err
-	}
-
-	names := make([]string, len(validated))
-	for i, tenant := range validated {
-		names[i] = tenant.Name
-	}
-
-	// create transaction payload
-	var partitions map[string][]string
-	f := func(_ *models.Class, st *sharding.State) (err error) {
-		if st == nil {
-			return fmt.Errorf("sharding state %w", ErrNotFound)
-		}
-		partitions, err = st.GetPartitions(h.clusterState, names, int64(info.ReplicationFactor))
-		return err
-	}
-
-	if err := h.metaReader.Read(class, f); err != nil {
-		return 0, fmt.Errorf("get partitions from class %q: %w", class, err)
-	}
-
-	if len(partitions) != len(names) {
-		h.logger.WithField("action", "add_tenants").
-			WithField("#partitions", len(partitions)).
-			WithField("#requested", len(names)).
-			Tracef("number of partitions for class %q does not match number of requested tenants", class)
-	}
 	request := api.AddTenantsRequest{
-		Tenants: make([]*api.Tenant, 0, len(partitions)),
+		ClusterNodes: h.clusterState.Candidates(),
+		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
-	for i, name := range names {
-		part, ok := partitions[name]
-		if ok {
-			request.Tenants = append(request.Tenants, &api.Tenant{
-				Name:   name,
-				Nodes:  part,
-				Status: schema.ActivityStatus(validated[i].ActivityStatus),
-			})
-		}
+	for i, tenant := range validated {
+		request.Tenants = append(request.Tenants, &api.Tenant{
+			Name:   tenant.Name,
+			Status: schema.ActivityStatus(validated[i].ActivityStatus),
+		})
 	}
 
 	return h.metaWriter.AddTenants(class, &request)
@@ -167,9 +134,6 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err := validateActivityStatuses(validated, false); err != nil {
 		return err
 	}
-	if _, err := h.multiTenancy(class); err != nil {
-		return err
-	}
 
 	req := api.UpdateTenantsRequest{
 		Tenants: make([]*api.Tenant, len(tenants)),
@@ -192,12 +156,6 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		if name == "" {
 			return fmt.Errorf("empty tenant name at index %d", i)
 		}
-	}
-
-	// TODO-RAFT when should we update metadata before or after apply
-	// Same thing for the other operation
-	if _, err := h.multiTenancy(class); err != nil {
-		return err
 	}
 
 	req := api.DeleteTenantsRequest{
