@@ -83,7 +83,8 @@ message QueryResponse {
 }
 
 message AddTenantsRequest {
-  repeated Tenant tenants = 1;
+  repeated string cluster_nodes = 1;
+  repeated Tenant tenants = 2;
 }
 
 message UpdateTenantsRequest {
@@ -97,5 +98,4 @@ message DeleteTenantsRequest {
 message Tenant {
   string name = 1;
   string status = 2;
-  repeated string nodes = 3;
 }
