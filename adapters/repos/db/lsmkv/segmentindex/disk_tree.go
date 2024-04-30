@@ -55,16 +55,18 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 	// jump to the buffer until the node with _key_ is found or return a NotFound error.
 	// This function avoids allocations by reusing the same buffer for all keys and avoids memory reads by only
 	// extracting the necessary pieces of information while skipping the rest
+	count := 0
 	for {
+		count += 1
 		// detect if there is no node with the wanted key.
 		if offset+4 > t.contentReader.Length() || offset+4 < 4 {
 			return out, lsmkv.NotFound
 		}
 
-		keyLen, offset = t.contentReader.ReadUint32(offset, tmpBuffer)
+		keyLen, offset = t.contentReader.ReadUint32(offset)
 
 		if int(keyLen) > len(tmpBuffer) {
-			tmpBuffer = make([]byte, int(max(keyLen, 8))) // leave place to use this as a Uint64 buffer
+			tmpBuffer = make([]byte, int(keyLen)) // leave place to use this as a Uint64 buffer
 		}
 
 		_, offset = t.contentReader.ReadRange(offset, uint64(keyLen), tmpBuffer)
@@ -74,25 +76,25 @@ func (t *DiskTree) Get(key []byte) (Node, error) {
 			keyBuf := make([]byte, keyLen)
 			copy(keyBuf, tmpBuffer[:keyLen])
 			out.Key = keyBuf
-			out.Start, offset = t.contentReader.ReadUint64(offset, tmpBuffer)
-			out.End, _ = t.contentReader.ReadUint64(offset, tmpBuffer)
+			out.Start, offset = t.contentReader.ReadUint64(offset)
+			out.End, _ = t.contentReader.ReadUint64(offset)
 			return out, nil
 		} else if keyEqual < 0 {
-			offset += 2 * 8                                           // jump over start+end position
-			offset, _ = t.contentReader.ReadUint64(offset, tmpBuffer) // left child
+			offset += 2 * 8                                // jump over start+end position
+			offset, _ = t.contentReader.ReadUint64(offset) // left child
 		} else {
-			offset += 3 * 8                                           // jump over start+end position and left child
-			offset, _ = t.contentReader.ReadUint64(offset, tmpBuffer) // right child
+			offset += 3 * 8                                // jump over start+end position and left child
+			offset, _ = t.contentReader.ReadUint64(offset) // right child
 		}
 	}
 }
 
 func (t *DiskTree) readNodeAt(offset int64) (dtNode, error) {
-	retNode, _, err := t.readNode(uint64(offset), nil)
+	retNode, _, err := t.readNode(uint64(offset))
 	return retNode, err
 }
 
-func (t *DiskTree) readNode(offsetRead uint64, tmpBuf []byte) (dtNode, int, error) {
+func (t *DiskTree) readNode(offsetRead uint64) (dtNode, int, error) {
 	var out dtNode
 
 	contReader, err := t.contentReader.NewWithOffsetStart(offsetRead)
@@ -106,16 +108,16 @@ func (t *DiskTree) readNode(offsetRead uint64, tmpBuf []byte) (dtNode, int, erro
 		return out, 0, io.EOF
 	}
 
-	keyLen, offset := contReader.ReadUint32(0, tmpBuf)
+	keyLen, offset := contReader.ReadUint32(0)
 	key := make([]byte, keyLen)
 	_, offset = contReader.ReadRange(offset, uint64(keyLen), key)
 
 	out.key = key
 
-	out.startPos, offset = contReader.ReadUint64(offset, tmpBuf)
-	out.endPos, offset = contReader.ReadUint64(offset, tmpBuf)
-	leftChild, offset := contReader.ReadUint64(offset, tmpBuf)
-	rightChild, offset := contReader.ReadUint64(offset, tmpBuf)
+	out.startPos, offset = contReader.ReadUint64(offset)
+	out.endPos, offset = contReader.ReadUint64(offset)
+	leftChild, offset := contReader.ReadUint64(offset)
+	rightChild, offset := contReader.ReadUint64(offset)
 	out.leftChild = int64(leftChild)
 	out.rightChild = int64(rightChild)
 	return out, int(offset), nil
@@ -180,10 +182,9 @@ func (t *DiskTree) seekAt(offset int64, key []byte) (Node, error) {
 // bloom filter.
 func (t *DiskTree) AllKeys() ([][]byte, error) {
 	var out [][]byte
-	tmpBuf := make([]byte, 8)
 	bufferPos := 0
 	for {
-		node, readLength, err := t.readNode(uint64(bufferPos), tmpBuf)
+		node, readLength, err := t.readNode(uint64(bufferPos))
 		bufferPos += readLength
 		if errors.Is(err, io.EOF) {
 			break

@@ -19,14 +19,12 @@ type segmentCursorReplace struct {
 	segment      *segment
 	nextOffset   uint64
 	reusableNode *segmentReplaceNode
-	tmpBuf       []byte
 }
 
 func (s *segment) newCursor() *segmentCursorReplace {
 	return &segmentCursorReplace{
 		segment:      s,
 		reusableNode: &segmentReplaceNode{},
-		tmpBuf:       make([]byte, 8),
 	}
 }
 
@@ -144,7 +142,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error
 	tombstoneByte, offset := contentReader.ReadValue(offset)
 	s.reusableNode.tombstone = tombstoneByte != 0
 
-	valueLength, offset := contentReader.ReadUint64(offset, s.tmpBuf)
+	valueLength, offset := contentReader.ReadUint64(offset)
 	if valueLength > uint64(len(s.reusableNode.value)) {
 		s.reusableNode.value = make([]byte, valueLength)
 	} else {
@@ -152,7 +150,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error
 	}
 	_, offset = contentReader.ReadRange(offset, valueLength, s.reusableNode.value)
 
-	keyLength, offset := contentReader.ReadUint32(offset, s.tmpBuf)
+	keyLength, offset := contentReader.ReadUint32(offset)
 	if keyLength > uint32(len(s.reusableNode.primaryKey)) {
 		s.reusableNode.primaryKey = make([]byte, keyLength)
 	} else {
@@ -166,7 +164,7 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error
 
 	var secKeyLen uint32
 	for j := 0; j < int(s.segment.secondaryIndexCount); j++ {
-		secKeyLen, offset = contentReader.ReadUint32(offset, s.tmpBuf)
+		secKeyLen, offset = contentReader.ReadUint32(offset)
 		if secKeyLen == 0 {
 			continue
 		}

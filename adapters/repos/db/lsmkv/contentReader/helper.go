@@ -31,7 +31,7 @@ func writeBytesToFile(t testing.TB, bytes []byte) *os.File {
 	return fi
 }
 
-func GetContentReaderFromBytes(t *testing.T, mmap bool, bytes []byte) ContentReader {
+func GetContentReaderFromBytes(t testing.TB, mmap bool, bytes []byte) ContentReader {
 	if mmap {
 		return NewMMap(bytes)
 	} else {

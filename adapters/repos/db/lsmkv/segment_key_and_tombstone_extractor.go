@@ -95,14 +95,13 @@ func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 	e.offset++
 	e.outputBufferOffset++
 
-	tmpBuf := make([]byte, 8)
-	valueLen, _ := e.contentReader.ReadUint64(e.offset, tmpBuf)
+	valueLen, _ := e.contentReader.ReadUint64(e.offset)
 	e.offset += 8
 
 	// we're not actually interested in the value, so we can skip it entirely
 	e.offset += valueLen
 
-	primaryKeyLen, _ := e.contentReader.ReadUint32(e.offset, tmpBuf)
+	primaryKeyLen, _ := e.contentReader.ReadUint32(e.offset)
 	if !e.outputBufferCanFit(uint64(primaryKeyLen) + 4) {
 		e.offset = offsetAtLoopStart
 		e.outputBufferOffset = outputOffsetAtLoopStart
@@ -122,7 +121,7 @@ func (e *bufferedKeyAndTombstoneExtractor) readSingleEntry() bool {
 	e.outputBufferOffset += uint64(primaryKeyLen)
 
 	for i := uint16(0); i < e.secondaryIndexCount; i++ {
-		secKeyLen, _ := e.contentReader.ReadUint32(e.offset, tmpBuf)
+		secKeyLen, _ := e.contentReader.ReadUint32(e.offset)
 		e.offset += 4
 		e.offset += uint64(secKeyLen)
 	}

@@ -168,27 +168,27 @@ func TestContentReader_MixedOperations(t *testing.T) {
 				var val32 uint32
 
 				if tt.startOffset < uint64Len {
-					val64, offset = contReader.ReadUint64(offset, nil)
+					val64, offset = contReader.ReadUint64(offset)
 					require.Equal(t, val64, valuesNumbers[0])
 				}
 				if tt.startOffset < uint64Len+uint32Len {
-					val32, offset = contReader.ReadUint32(offset, nil)
+					val32, offset = contReader.ReadUint32(offset)
 					require.Equal(t, uint64(val32), valuesNumbers[1])
 				}
-				val32, offset = contReader.ReadUint32(offset, nil)
+				val32, offset = contReader.ReadUint32(offset)
 				require.Equal(t, uint64(val32), valuesNumbers[2])
 				buf, offset := contReader.ReadRange(offset, uint64(len(valuesByteArray)), nil)
 				require.Equal(t, buf, valuesByteArray)
-				val64, offset = contReader.ReadUint64(offset, nil)
+				val64, offset = contReader.ReadUint64(offset)
 				require.Equal(t, val64, valuesNumbers[3])
-				val32, offset = contReader.ReadUint32(offset, nil)
+				val32, offset = contReader.ReadUint32(offset)
 				require.Equal(t, uint64(val32), valuesNumbers[4])
 				if tt.endOffset > bufLength-uint64Len {
-					val64, offset = contReader.ReadUint64(offset, nil)
+					val64, offset = contReader.ReadUint64(offset)
 					require.Equal(t, val64, valuesNumbers[5])
 				}
 				if tt.endOffset > bufLength-uint32Len {
-					val32, _ = contReader.ReadUint32(offset, nil)
+					val32, _ = contReader.ReadUint32(offset)
 					require.Equal(t, uint64(val32), valuesNumbers[6])
 				}
 			})
@@ -200,6 +200,7 @@ type testCase struct {
 	name        string
 	startOffset uint64
 	endOffset   uint64
+	outbuf      int
 }
 
 func TestContentReader_PreadWithCache(t *testing.T) {
@@ -218,6 +219,7 @@ func TestContentReader_PreadWithCache(t *testing.T) {
 		{name: "one full page and a bit", startOffset: uint64(pageSize), endOffset: uint64(pageSize*2 + 2)},
 		{name: "two partial pages", startOffset: 4, endOffset: 6},
 		{name: "two partial pages", startOffset: 1, endOffset: 9},
+		{name: "two partial pages with outbuf", startOffset: 1, endOffset: 9, outbuf: 11},
 		{name: "two partial pages and one full page", startOffset: 1, endOffset: 14},
 		{name: "partial first and last page", startOffset: 1, endOffset: size - 1},
 		{name: "full first and partial last page", startOffset: 0, endOffset: size - 1},
@@ -225,8 +227,12 @@ func TestContentReader_PreadWithCache(t *testing.T) {
 	}
 	for _, tt := range readTests {
 		t.Run(tt.name, func(t *testing.T) {
+			var outbuf []byte
+			if tt.outbuf > 0 {
+				outbuf = make([]byte, tt.outbuf)
+			}
 			// read data that overlaps with the first page
-			buf, offset := contReader.ReadRange(tt.startOffset, tt.endOffset-tt.startOffset, nil)
+			buf, offset := contReader.ReadRange(tt.startOffset, tt.endOffset-tt.startOffset, outbuf)
 			require.Equal(t, valuesByteArray[tt.startOffset:tt.endOffset], buf)
 			require.Equal(t, tt.endOffset, offset)
 		})

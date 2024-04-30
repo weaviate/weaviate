@@ -61,7 +61,7 @@ func (h *Header) PrimaryIndex(contentReader contentReader.ContentReader) (conten
 	}
 
 	// the beginning of the first secondary is also the end of the primary
-	end, _ := contentReader.ReadUint64(h.IndexStart, nil)
+	end, _ := contentReader.ReadUint64(h.IndexStart)
 	return contentReader.NewWithOffsetStartEnd(h.secondaryIndexOffsetsEnd(), end)
 }
 
