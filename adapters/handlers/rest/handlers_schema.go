@@ -235,7 +235,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsCreateOK() //.WithPayload(created)
+	return schema.NewTenantsCreateOK().WithPayload(params.Body)
 }
 
 func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
