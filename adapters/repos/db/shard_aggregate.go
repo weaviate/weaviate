@@ -23,7 +23,7 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, module
 	var queue *IndexQueue
 
 	// we only need the index queue for vector search
-	if params.NearObject != nil || params.NearVector != nil || params.Hybrid != nil || params.GroupBy != nil || params.SearchVector != nil {
+	if params.NearObject != nil || params.NearVector != nil || params.Hybrid != nil || params.SearchVector != nil {
 		var err error
 		queue, err = s.getIndexQueue(params.TargetVector)
 		if err != nil {

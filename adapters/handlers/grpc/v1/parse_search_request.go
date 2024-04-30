@@ -85,8 +85,10 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		// bytes vector has precedent for being more efficient
 		if len(nv.VectorBytes) > 0 {
 			vector = byteops.Float32FromByteVector(nv.VectorBytes)
-		} else {
+		} else if len(nv.Vector) > 0 {
 			vector = nv.Vector
+		} else {
+			return dto.GetParams{}, fmt.Errorf("near_vector: vector is required")
 		}
 		out.NearVector = &searchparams.NearVector{
 			Vector:        vector,
@@ -111,8 +113,11 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if no := req.NearObject; no != nil {
+		if no.Id == "" {
+			return dto.GetParams{}, fmt.Errorf("near_object: id is required")
+		}
 		out.NearObject = &searchparams.NearObject{
-			ID:            req.NearObject.Id,
+			ID:            no.Id,
 			TargetVectors: no.TargetVectors,
 		}
 
@@ -326,7 +331,6 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 
 		out.GroupBy = groupBy
 	}
-
 	return out, nil
 }
 
