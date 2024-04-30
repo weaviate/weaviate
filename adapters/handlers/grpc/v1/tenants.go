@@ -23,11 +23,12 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 	if req.Collection == "" {
 		return nil, fmt.Errorf("missing collection %s", req.Collection)
 	}
+	isConsistent := req.GetConsistencyLevel() == pb.ConsistencyLevel_CONSISTENCY_LEVEL_ALL
 
 	var err error
 	var tenants []*models.Tenant
 	if req.Params == nil {
-		tenants, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, req.IsConsistent, []string{})
+		tenants, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, isConsistent, []string{})
 		if err != nil {
 			return nil, err
 		}
@@ -38,7 +39,7 @@ func (s *Service) tenantsGet(ctx context.Context, principal *models.Principal, r
 			if len(requestedNames) == 0 {
 				return nil, fmt.Errorf("must specify at least one tenant name")
 			}
-			tenants, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, req.IsConsistent, requestedNames)
+			tenants, err = s.schemaManager.GetConsistentTenants(ctx, principal, req.Collection, isConsistent, requestedNames)
 			if err != nil {
 				return nil, err
 			}

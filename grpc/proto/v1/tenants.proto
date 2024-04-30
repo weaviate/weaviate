@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package weaviate.v1;
 
+import "v1/base.proto";
+
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProtoTenants";
@@ -16,7 +18,7 @@ enum TenantActivityStatus {
 
 message TenantsGetRequest {
   string collection = 1;
-  bool is_consistent = 2;
+  optional ConsistencyLevel consistency_level = 2;
   // we might need to add a tenant-cursor api at some point, make this easily extendable
   oneof params {
     TenantNames names = 3;
