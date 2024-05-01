@@ -317,7 +317,7 @@ func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]versioned.
 	req := cmd.QueryReadOnlyClassesRequest{Classes: classes}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		return map[string]versioned.Class{}, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_CLASSES,
@@ -325,7 +325,7 @@ func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]versioned.
 	}
 	queryResp, err := s.Query(context.Background(), command)
 	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+		return map[string]versioned.Class{}, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Empty payload doesn't unmarshal to an empty struct and will instead result in an error.
@@ -339,7 +339,7 @@ func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]versioned.
 	resp := cmd.QueryReadOnlyClassResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return map[string]versioned.Class{}, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 	return resp.Classes, nil
 }

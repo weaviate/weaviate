@@ -51,8 +51,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	}
 	if consistency {
 		vclasses, err := h.metaWriter.QueryReadOnlyClasses(name)
-		vclass := vclasses[name]
-		return vclass.Class, vclass.Version, err
+		return vclasses[name].Class, vclasses[name].Version, err
 	}
 	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)
 	return class, 0, nil
@@ -69,6 +68,10 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
 		if err != nil {
 			return nil, err
+		}
+
+		if len(vclasses) == 0 {
+			return nil, nil
 		}
 
 		for _, vclass := range vclasses {
