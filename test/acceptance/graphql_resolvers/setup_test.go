@@ -56,6 +56,7 @@ func TestGraphQL_SyncIndexing(t *testing.T) {
 	testGraphQL(t)
 }
 
+/*
 func deleteClasses() {
 	transport := httptransport.New(fmt.Sprintf("%s:%s", "127.0.0.1", "8080"), "/v1", []string{"http"})
 
@@ -71,7 +72,7 @@ func deleteClasses() {
 	}
 }
 
-/*
+
 func TestTemp(t *testing.T) {
 	deleteClasses()
 	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
