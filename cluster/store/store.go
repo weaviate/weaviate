@@ -75,6 +75,8 @@ type Indexer interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 
+	TriggerSchemaUpdateCallbacks()
+
 	// ReloadLocalDB reloads the local database using the latest schema.
 	ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error
 
@@ -94,11 +96,12 @@ type Parser interface {
 }
 
 type Config struct {
-	WorkDir  string // raft working directory
-	NodeID   string
-	Host     string
-	RaftPort int
-	RPCPort  int
+	WorkDir               string // raft working directory
+	NodeID                string
+	Host                  string
+	RaftPort              int
+	RPCPort               int
+	RaftRPCMessageMaxSize int
 
 	// ServerName2PortMap maps server names to port numbers
 	ServerName2PortMap map[string]int
@@ -532,7 +535,21 @@ func (st *Store) Stats() map[string]any {
 	// If the raft stats exist, add them as a nested map
 	if st.raft != nil {
 		stats["raft"] = st.raft.Stats()
+		// add the servers information
+		var servers []map[string]any
+		if cf := st.raft.GetConfiguration(); cf.Error() == nil {
+			servers = make([]map[string]any, len(cf.Configuration().Servers))
+			for i, server := range cf.Configuration().Servers {
+				servers[i] = map[string]any{
+					"id":       server.ID,
+					"address":  server.Address,
+					"suffrage": server.Suffrage,
+				}
+			}
+			stats["raft_latest_configuration_servers"] = servers
+		}
 	}
+
 	return stats
 }
 
@@ -566,11 +583,11 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	classInfo := st.db.Schema.ClassInfo(req.Class)
 	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
 		st.log.WithField("class", req.Class).Info("class already restored")
-		return 0, nil
+		return 0, fmt.Errorf("class name %s already exists", req.Class)
 	}
 	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
 		if other := st.FindSimilarClass(req.Class); other == req.Class {
-			return 0, errClassExists
+			return 0, fmt.Errorf("class name %s already exists", req.Class)
 		} else if other != "" {
 			return 0, fmt.Errorf("%w: found similar class %q", errClassExists, other)
 		}

@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -52,6 +53,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -444,9 +446,47 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		dynamicUserConfig, ok := vectorIndexUserConfig.(dynamicent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("dynamic vector index: config is not dynamic.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+
+		// a shard can actually have multiple vector indexes:
+		// - the main index, which is used for all normal object vectors
+		// - a geo property index for each geo prop in the schema
+		//
+		// here we label the main vector index as such.
+		vecIdxID := s.vectorIndexID(targetVector)
+
+		vi, err := dynamic.New(dynamic.Config{
+			ID:                   vecIdxID,
+			TargetVector:         targetVector,
+			Logger:               s.index.logger,
+			DistanceProvider:     distProv,
+			RootPath:             s.path(),
+			ShardName:            s.name,
+			ClassName:            s.index.Config.ClassName.String(),
+			PrometheusMetrics:    s.promMetrics,
+			VectorForIDThunk:     s.vectorByIndexID,
+			TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(s.path(), vecIdxID,
+					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
+			},
+			TombstoneCallbacks:       s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			ShardCompactionCallbacks: s.cycleCallbacks.compactionCallbacks,
+			ShardFlushCallbacks:      s.cycleCallbacks.flushCallbacks,
+		}, dynamicUserConfig, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT)
+		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil

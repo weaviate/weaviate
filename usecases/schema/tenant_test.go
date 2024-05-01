@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -70,29 +69,29 @@ func TestAddTenants(t *testing.T) {
 			name:    "MTIsNil",
 			class:   mtNilClass.Class,
 			tenants: tenants,
-			errMsgs: []string{"not enabled"},
+			errMsgs: nil,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{}})
+				// MT validation is done leader side now
+				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
 			name:    "MTDisabled",
 			class:   mtDisabledClass.Class,
 			tenants: tenants,
-			errMsgs: []string{"not enabled"},
+			errMsgs: nil,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{}})
+				// MT validation is done leader side now
+				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
 			name:    "UnknownClass",
 			class:   "UnknownClass",
 			tenants: tenants,
-			errMsgs: []string{ErrNotFound.Error()},
+			errMsgs: nil,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: false})
+				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -144,9 +143,6 @@ func TestAddTenants(t *testing.T) {
 			},
 			errMsgs: []string{},
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{Enabled: true}})
-				fakeMetaHandler.On("Read", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
@@ -228,32 +224,30 @@ func TestUpdateTenants(t *testing.T) {
 			name:            "MTIsNil",
 			class:           mtNilClass.Class,
 			updateTenants:   tenants,
-			errMsgs:         []string{"not enabled"},
+			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{}})
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
 			name:            "MTDisabled",
 			class:           mtDisabledClass.Class,
 			updateTenants:   tenants,
-			errMsgs:         []string{"not enabled"},
+			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{}})
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
 			name:            "UnknownClass",
 			class:           "UnknownClass",
 			updateTenants:   tenants,
-			errMsgs:         []string{ErrNotFound.Error()},
+			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(store.ClassInfo{Exists: false})
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -320,8 +314,6 @@ func TestUpdateTenants(t *testing.T) {
 				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusCOLD},
 			},
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{Enabled: true}})
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
@@ -401,33 +393,30 @@ func TestDeleteTenants(t *testing.T) {
 			name:            "MTIsNil",
 			class:           mtNilClass.Class,
 			tenants:         tenants,
-			errMsgs:         []string{"not enabled"},
+			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{}})
+				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
 			name:            "MTDisabled",
 			class:           mtDisabledClass.Class,
 			tenants:         tenants,
-			errMsgs:         []string{"not enabled"},
+			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{}})
+				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
 			name:            "UnknownClass",
 			class:           "UnknownClass",
 			tenants:         tenants,
-			errMsgs:         []string{ErrNotFound.Error()},
+			errMsgs:         nil,
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: false, MultiTenancy: models.MultiTenancyConfig{}})
+				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -449,8 +438,6 @@ func TestDeleteTenants(t *testing.T) {
 			errMsgs:         []string{},
 			expectedTenants: tenants[2:],
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("ClassInfo", mock.Anything).Return(
-					store.ClassInfo{Exists: true, MultiTenancy: models.MultiTenancyConfig{Enabled: true}})
 				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},

@@ -15,7 +15,7 @@ message Properties {
 message Value {
   oneof kind {
     double number_value = 1;
-    string string_value = 2;
+    string string_value = 2 [deprecated = true];
     bool bool_value = 3;
     Properties object_value = 4;
     ListValue list_value = 5;
@@ -26,11 +26,57 @@ message Value {
     string blob_value = 10;
     PhoneNumber phone_value = 11;
     google.protobuf.NullValue null_value = 12;
+    string text_value = 13;
   }
 }
 
 message ListValue {
-  repeated Value values = 1;
+  repeated Value values = 1 [deprecated = true];
+  oneof kind {
+    NumberValues number_values = 2;
+    BoolValues bool_values = 3;
+    ObjectValues object_values = 4;
+    DateValues date_values = 5;
+    UuidValues uuid_values = 6;
+    IntValues int_values = 7;
+    TextValues text_values = 8;
+  }
+}
+
+message NumberValues {
+  /**
+    * The values are stored as a byte array, where each 8 bytes represent a single float64 value.
+    * The byte array is stored in little-endian order using uint64 encoding.
+    */
+  bytes values = 1;
+}
+
+message TextValues {
+  repeated string values = 1;
+}
+
+message BoolValues {
+  repeated bool values = 1;
+}
+
+message ObjectValues {
+  repeated Properties values = 1;
+}
+
+message DateValues {
+  repeated string values = 1;
+}
+
+message UuidValues {
+  repeated string values = 1;
+}
+
+message IntValues {
+  /**
+    * The values are stored as a byte array, where each 8 bytes represent a single int64 value.
+    * The byte array is stored in little-endian order using uint64 encoding.
+    */
+  bytes values = 1;
 }
 
 message GeoCoordinate {

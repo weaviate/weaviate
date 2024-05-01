@@ -73,7 +73,7 @@ func (f *fakeSchemaManager) GetConsistentSchema(principal *models.Principal, con
 }
 
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) { return "", nil }
-func (f *fakeSchemaManager) TenantShard(class, tenant string) string        { return tenant }
+
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { return "" }
 
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
@@ -169,6 +169,10 @@ func (f *fakeSchemaManager) AddTenants(ctx context.Context,
 
 func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {
 	return models.MultiTenancyConfig{Enabled: f.tenantsEnabled}
+}
+
+func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
 }
 
 type fakeLocks struct {
