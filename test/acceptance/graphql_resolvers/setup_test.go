@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	// httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -28,8 +27,6 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
-	// apiclient "github.com/weaviate/weaviate/client"
-	// clschema "github.com/weaviate/weaviate/client/schema"
 )
 
 func TestGraphQL_AsyncIndexing(t *testing.T) {
@@ -54,43 +51,6 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 func TestGraphQL_SyncIndexing(t *testing.T) {
 	testGraphQL(t)
 }
-
-/*
-func deleteClasses() {
-	transport := httptransport.New(fmt.Sprintf("%s:%s", "127.0.0.1", "8080"), "/v1", []string{"http"})
-
-	// If a test case is provided, and we want to dump HTTP traffic,
-	// create a simple logger that logs HTTP traffic to the test case.
-
-	client := apiclient.New(transport, strfmt.Default)
-
-	for _, class := range []string{"Person", "Pizza", "Country", "City", "Airport", "Company", "RansomNote", "MultiShard", "HasDateField", "CursorClass", "CompanyGroup"} {
-
-		delParams := clschema.NewSchemaObjectsDeleteParams().WithClassName(class)
-		client.Schema.SchemaObjectsDelete(delParams, nil)
-	}
-}
-
-
-func TestTemp(t *testing.T) {
-	deleteClasses()
-	t.Run("import test data (near object search class)", addTestDataNearObjectSearch)
-
-
-
-	deleteObjectClass(t, "NearObjectSearch")
-	deleteObjectClass(t, "NearObjectSearchShadow")
-
-	// setup tests
-	t.Run("setup test schema", addTestSchema)
-	t.Run("import test data (company groups)", addTestDataCompanyGroups)
-	t.Run("import test data (500 random strings)", addTestDataRansomNotes)
-	t.Run("import test data (companies)", addTestDataCompanies)
-	t.Run("aggregates local meta with where and nearText filters", localMetaWithWhereAndNearTextFilters)
-	t.Run("aggregates with hybrid search", aggregationWithHybridSearch)
-
-}
-*/
 
 func testGraphQL(t *testing.T) {
 	// tests with classes that have objects with same uuids
