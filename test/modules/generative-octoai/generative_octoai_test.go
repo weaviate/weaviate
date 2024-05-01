@@ -45,7 +45,9 @@ func testGenerativeOctoAI(host, octoAIApiEndpoint string) func(t *testing.T) {
 				"description": {
 					Vectorizer: map[string]interface{}{
 						"text2vec-octoai": map[string]interface{}{
-							"properties": []interface{}{"description"},
+							"properties": []interface{}{
+								"description"
+							},
 							"vectorizeClassName": false,
 						},
 					},
