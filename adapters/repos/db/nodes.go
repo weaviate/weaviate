@@ -278,9 +278,12 @@ func (db *DB) localNodeStatistics() (*models.Statistics, error) {
 			Term:                     raftStats["term"],
 		}
 	}
-	healthy := models.StatisticsStatusHEALTHY
+	status := models.StatisticsStatusHEALTHY
+	if db.schemaGetter.ClusterHealthScore() > 0 {
+		status = models.StatisticsStatusUNHEALTHY
+	}
 	statistics := &models.Statistics{
-		Status:                  &healthy,
+		Status:                  &status,
 		Name:                    stats["id"].(string),
 		LeaderAddress:           stats["leader_address"],
 		LeaderID:                stats["leader_id"],
