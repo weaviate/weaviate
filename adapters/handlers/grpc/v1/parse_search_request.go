@@ -15,7 +15,6 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -339,7 +338,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	if out.HybridSearch != nil && out.HybridSearch.NearTextParams != nil && out.HybridSearch.Query != "" {
 		return dto.GetParams{}, errors.New("cannot combine nearText and query in hybrid search")
 	}
-	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != "" {
+	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != nil {
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
 	return out, nil
