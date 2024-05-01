@@ -1047,7 +1047,6 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 }
 
 func localMetaWithObjectLimit(t *testing.T) {
-
 	t.Run("with nearText and no distance/certainty, where filter and groupBy", func(t *testing.T) {
 		objectLimit := 4
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`

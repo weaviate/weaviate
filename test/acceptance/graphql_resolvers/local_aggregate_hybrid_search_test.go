@@ -217,6 +217,5 @@ func aggregationWithHybridSearch(t *testing.T) {
 	}`
 
 		graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
-
 	})
 }

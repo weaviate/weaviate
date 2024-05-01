@@ -12,10 +12,11 @@
 package grpc_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
