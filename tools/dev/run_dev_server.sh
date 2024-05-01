@@ -38,6 +38,22 @@ case $CONFIG in
         --write-timeout=600s
   ;;
 
+  local-single-node)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
+      ENABLE_MODULES="backup-filesystem" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
   local-development)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -67,6 +83,7 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_PORT="2113" \
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
@@ -92,6 +109,7 @@ case $CONFIG in
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
+      PROMETHEUS_MONITORING_PORT="2114" \
         RAFT_PORT="8304" \
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
