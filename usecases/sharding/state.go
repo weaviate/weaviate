@@ -292,8 +292,9 @@ func (s *State) initPhysical(nodes []string, replFactor int64) error {
 
 // GetPartitions based on the specified shards, available nodes, and replFactor
 // It doesn't change the internal state
-func (s *State) GetPartitions(lookUp nodes, shards []string, replFactor int64) (map[string][]string, error) {
-	nodes := lookUp.Candidates()
+// TODO-RAFT: Ensure this function is higherorder, if the repartition result is changed, this will result in
+// inconsistency when applying old log entry for add tenants
+func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) (map[string][]string, error) {
 	if len(nodes) == 0 {
 		return nil, fmt.Errorf("list of storage nodes is empty")
 	}

@@ -58,6 +58,7 @@ type flat struct {
 
 	compression string
 	bqCache     cache.Cache[uint64]
+	count       uint64
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -266,6 +267,8 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
 	}
+	newCount := atomic.LoadUint64(&index.count)
+	atomic.StoreUint64(&index.count, newCount+1)
 	return nil
 }
 
@@ -734,4 +737,8 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 		}
 	}
 	return nil
+}
+
+func (index *flat) AlreadyIndexed() uint64 {
+	return atomic.LoadUint64(&index.count)
 }

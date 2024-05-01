@@ -70,7 +70,6 @@ func (e *executor) AddClass(pl api.AddClassRequest) error {
 	if err := e.migrator.AddClass(ctx, pl.Class, pl.State); err != nil {
 		return fmt.Errorf("apply add class: %w", err)
 	}
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -99,7 +98,6 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		req.Class.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
 	}
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -108,7 +106,6 @@ func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
 	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
 		return err
 	}
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -125,7 +122,6 @@ func (e *executor) DeleteClass(cls string) error {
 		"action": "delete_class",
 		"class":  cls,
 	}).Debug("deleting class")
-	e.triggerSchemaUpdateCallbacks()
 
 	return nil
 }
@@ -140,7 +136,6 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 		"action": "add_property",
 		"class":  className,
 	}).Debug("adding property")
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -199,6 +194,7 @@ func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) er
 			"class":  class,
 		}).WithError(err).Error("error deleting tenants")
 	}
+
 	return nil
 }
 
@@ -234,7 +230,7 @@ func (e *executor) rebuildGQL(s models.Schema) {
 	}
 }
 
-func (e *executor) triggerSchemaUpdateCallbacks() {
+func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.rebuildGQL(e.store.ReadOnlySchema())
 }
 

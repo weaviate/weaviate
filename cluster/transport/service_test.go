@@ -35,27 +35,28 @@ var ErrAny = errors.New("any error")
 
 func TestService(t *testing.T) {
 	var (
-		ctx         = context.Background()
-		addr        = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
-		members     = &MockMembers{leader: addr}
-		executor    = &MockExecutor{}
-		logger      = NewMockLogger(t)
-		adrResolver = MocKAddressResolver{addr: addr, err: nil}
+		ctx                    = context.Background()
+		addr                   = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
+		members                = &MockMembers{leader: addr}
+		executor               = &MockExecutor{}
+		logger                 = NewMockLogger(t)
+		adrResolver            = MocKAddressResolver{addr: addr, err: nil}
+		raftGrpcMessageMaxSize = 1024 * 1024 * 1024
 	)
 	// Empty sever address
-	srv := New(members, executor, "", logger.Logger)
+	srv := New(members, executor, "", logger.Logger, raftGrpcMessageMaxSize)
 	assert.NotNil(t, srv.Open())
 
 	// Invalid IP
-	srv = New(members, executor, "abc", logger.Logger)
+	srv = New(members, executor, "abc", logger.Logger, raftGrpcMessageMaxSize)
 	netErr := &net.OpError{}
 	assert.ErrorAs(t, srv.Open(), &netErr)
 
-	srv = New(members, executor, addr, logger.Logger)
+	srv = New(members, executor, addr, logger.Logger, raftGrpcMessageMaxSize)
 	assert.Nil(t, srv.Open())
 	defer srv.Close()
 	time.Sleep(time.Millisecond * 50)
-	client := NewClient(&adrResolver)
+	client := NewClient(&adrResolver, raftGrpcMessageMaxSize)
 	assert.Equal(t, addr, srv.Leader())
 
 	t.Run("Notify", func(t *testing.T) {
@@ -167,7 +168,7 @@ func TestClient(t *testing.T) {
 
 	t.Run("Resolve", func(t *testing.T) {
 		addr := fmt.Sprintf("localhost:%v", 8013)
-		c := NewClient(&MocKAddressResolver{addr: addr, err: ErrAny})
+		c := NewClient(&MocKAddressResolver{addr: addr, err: ErrAny}, 1024*1024*1024)
 		_, err := c.Join(ctx, addr,
 			&cmd.JoinPeerRequest{Id: "Node1", Address: addr, Voter: false})
 		assert.ErrorIs(t, err, ErrAny)
@@ -195,7 +196,7 @@ func TestClient(t *testing.T) {
 	t.Run("Dial", func(t *testing.T) {
 		// invalid control character in URL
 		badAddr := string(byte(0))
-		c := NewClient(&MocKAddressResolver{addr: badAddr, err: nil})
+		c := NewClient(&MocKAddressResolver{addr: badAddr, err: nil}, 1024*1024*1024)
 
 		_, err := c.Join(ctx, badAddr,
 			&cmd.JoinPeerRequest{Id: "Node1", Address: "abc", Voter: false})
