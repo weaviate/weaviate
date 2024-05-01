@@ -262,7 +262,7 @@ func conflictingSubSearches(t *testing.T) {
 	`
 		errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
 		require.Len(t, errors, 1)
-		require.Contains(t, "hybrid search cannot have both nearText and nearVector parameters", errors[0].Message)
+		require.Contains(t, errors[0].Message, "hybrid search cannot have both nearText and nearVector parameters")
 	})
 }
 
@@ -296,7 +296,7 @@ func twoVector(t *testing.T) {
 	`
 		errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
 		require.Len(t, errors, 1)
-		require.Contains(t, "cannot have both vector and nearVectorParams", errors[0].Message)
+		require.Contains(t, errors[0].Message, "cannot have both vector and nearVectorParams")
 	})
 }
 
@@ -328,7 +328,7 @@ func vectorNearText(t *testing.T) {
 `
 		errors := graphqlhelper.ErrorGraphQL(t, helper.RootAuth, query)
 		require.Len(t, errors, 1)
-		require.Contains(t, "cannot have both vector and nearTextParams", errors[0].Message)
+		require.Contains(t, errors[0].Message, "cannot have both vector and nearTextParams")
 	})
 }
 
@@ -338,10 +338,12 @@ func aggregateHybridGroupBy(t *testing.T) {
 
 		{
 			Aggregate {
-			  CompanyGroup (hybrid: {
+			  CompanyGroup (
+				objectLimit: 30
+				hybrid: {
 				alpha: 0.5
 				query: "Apple"
-				objectLimit: 30
+
 				searches:{
 				  nearText: {
 					concepts: ["Apple"]
