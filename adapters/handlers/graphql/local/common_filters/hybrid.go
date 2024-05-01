@@ -145,13 +145,13 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	args.Type = "hybrid"
 
 	if args.NearTextParams != nil && args.NearVectorParams != nil {
-		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector")
+		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
 	}
 	if args.Vector != nil && args.NearTextParams != nil {
-		return nil, fmt.Errorf("hybrid search cannot have both query and nearText")
+		return nil, fmt.Errorf("cannot have both vector and nearTextParams")
 	}
 	if args.Vector != nil && args.NearVectorParams != nil {
-		return nil, fmt.Errorf("hybrid search cannot have both vector and nearVector")
+		return nil, fmt.Errorf("cannot have both vector and nearVectorParams")
 	}
 
 	return &args, nil
