@@ -288,6 +288,10 @@ func (sg *fakeMigrationSchemaGetter) ResolveParentNodes(string, string) (map[str
 	return nil, nil
 }
 
+func (sg *fakeMigrationSchemaGetter) Statistics() map[string]any {
+	return nil
+}
+
 func (sg *fakeMigrationSchemaGetter) CopyShardingState(class string) *sharding.State {
 	return sg.states[class]
 }
@@ -297,6 +301,10 @@ func (sg *fakeMigrationSchemaGetter) ShardOwner(class, shard string) (string, er
 }
 
 func (sg *fakeMigrationSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (f *fakeMigrationSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 
