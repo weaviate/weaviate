@@ -110,7 +110,7 @@ func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
 // The copy is read-only and should not be modified.
 func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
 	if len(classes) == 0 {
-		return map[string]versioned.Class{}
+		return nil
 	}
 
 	vclasses := make(map[string]versioned.Class, len(classes))

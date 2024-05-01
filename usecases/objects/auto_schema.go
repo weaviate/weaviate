@@ -503,7 +503,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
 	var maxSchemaVersion uint64
 	for className, tenantNames := range classTenants {
-		vclass, exists := vclasses[className]
+		vclass, exists := vclasses[schema.UppercaseClassName(className)]
 		if !exists || // invalid class
 			vclass.Class == nil || // class is nil
 			!schema.MultiTenancyEnabled(vclass.Class) || // non-MT class
