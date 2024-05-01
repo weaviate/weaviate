@@ -18,7 +18,7 @@ import (
 	"testing"
 	"time"
 
-	httptransport "github.com/go-openapi/runtime/client"
+	//httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -28,9 +28,8 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
-
-	apiclient "github.com/weaviate/weaviate/client"
-	clschema "github.com/weaviate/weaviate/client/schema"
+	//apiclient "github.com/weaviate/weaviate/client"
+	//clschema "github.com/weaviate/weaviate/client/schema"
 )
 
 func TestGraphQL_AsyncIndexing(t *testing.T) {
