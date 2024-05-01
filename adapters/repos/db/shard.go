@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -156,6 +157,11 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
+
+	// A thread-safe counter that goes up any time there is activity on this
+	// shard. The absolute value has no meaning, it's only purpose is to compare
+	// the previous value to the current value.
+	Activity() int32
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -201,6 +207,8 @@ type Shard struct {
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
+
+	activityTracker atomic.Int32
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -220,6 +228,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		centralJobQueue:  jobQueueCh,
 		indexCheckpoints: indexCheckpoints,
 	}
+
+	s.activityTracker.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -1049,4 +1059,8 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 		return []byte{uint8(filters.InternalNullState)}, nil
 	}
 	return []byte{uint8(filters.InternalNotNullState)}, nil
+}
+
+func (s *Shard) Activity() int32 {
+	return s.activityTracker.Load()
 }
