@@ -36,6 +36,7 @@ import (
 )
 
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	s.activityTracker.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -59,6 +60,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 }
 
 func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
+	s.activityTracker.Add(1)
 	objects := make([]*storobj.Object, len(query))
 
 	ids := make([][]byte, len(query))
@@ -98,6 +100,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 // of a true negative would be considerably faster. For a (false) positive,
 // we'd still need to check, though.
 func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
+	s.activityTracker.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, err
@@ -165,6 +168,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	s.activityTracker.Add(1)
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
@@ -233,6 +237,7 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 }
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	s.activityTracker.Add(1)
 	var (
 		ids       []uint64
 		dists     []float32
@@ -308,6 +313,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
+	s.activityTracker.Add(1)
 	if len(sort) > 0 {
 		docIDs, err := s.sortedObjectList(ctx, limit, sort, className)
 		if err != nil {
@@ -470,6 +476,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 }
 
 func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
+	s.activityTracker.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, err
