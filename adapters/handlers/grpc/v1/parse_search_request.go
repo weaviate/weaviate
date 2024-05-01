@@ -335,7 +335,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	if out.HybridSearch != nil && out.HybridSearch.NearTextParams != nil && out.HybridSearch.NearVectorParams != nil {
 		return dto.GetParams{}, errors.New("cannot combine nearText and nearVector in hybrid search")
 	}
-	if out.HybridSearch != nil && out.HybridSearch.NearTextParams != nil && out.HybridSearch.Query != "" {
+	if out.HybridSearch != nil && out.HybridSearch.NearTextParams != nil && out.HybridSearch.Vector != nil {
 		return dto.GetParams{}, errors.New("cannot combine nearText and query in hybrid search")
 	}
 	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != nil {
