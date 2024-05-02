@@ -156,6 +156,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		ID:          req.ID,
 		Backend:     req.Backend,
 		Compression: req.Compression,
+		Classes:     meta.Classes(),
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {

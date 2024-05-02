@@ -28,6 +28,7 @@ type authorizer interface {
 
 type db interface {
 	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
+	GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error)
 }
 
 type Manager struct {
@@ -55,4 +56,16 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 		return nil, err
 	}
 	return m.db.GetNodeStatus(ctxWithTimeout, className, verbosity)
+}
+
+func (m *Manager) GetNodeStatistics(ctx context.Context,
+	principal *models.Principal,
+) ([]*models.Statistics, error) {
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	defer cancel()
+
+	if err := m.authorizer.Authorize(principal, "list", "cluster"); err != nil {
+		return nil, err
+	}
+	return m.db.GetNodeStatistics(ctxWithTimeout)
 }

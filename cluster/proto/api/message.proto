@@ -71,7 +71,8 @@ message QueryRequest {
     TYPE_GET_SCHEMA = 2;
     TYPE_GET_TENANTS = 3;
     TYPE_GET_SHARD_OWNER = 4;
-    TYPE_GET_TENANT_SHARD = 5;
+    TYPE_GET_TENANTS_SHARDS = 5;
+    TYPE_GET_SHARDING_STATE = 6;
   }
 
   Type type = 1;
@@ -83,7 +84,8 @@ message QueryResponse {
 }
 
 message AddTenantsRequest {
-  repeated Tenant tenants = 1;
+  repeated string cluster_nodes = 1;
+  repeated Tenant tenants = 2;
 }
 
 message UpdateTenantsRequest {
@@ -97,5 +99,4 @@ message DeleteTenantsRequest {
 message Tenant {
   string name = 1;
   string status = 2;
-  repeated string nodes = 3;
 }

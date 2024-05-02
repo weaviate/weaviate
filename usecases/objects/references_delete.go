@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
@@ -39,6 +40,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 ) *Error {
 	m.metrics.DeleteReferenceInc()
 	defer m.metrics.DeleteReferenceDec()
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	deprecatedEndpoint := input.Class == ""
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
@@ -107,6 +110,14 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &Error{
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Code: StatusInternalServerError,
+			Err:  err,
+		}
+	}
 	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
@@ -123,12 +134,11 @@ func (req *DeleteReferenceInput) validate(
 		return nil, 0, err
 	}
 
-	// TODO-RAFT: Pull the schemaversion here and return it alongside the class
-	class, err := sm.GetClass(ctx, principal, req.Class)
+	class, schemaVersion, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, 0, err
 	}
-	return class, 0, validateReferenceSchema(sm, class, req.Property)
+	return class, schemaVersion, validateReferenceSchema(sm, class, req.Property)
 }
 
 // removeReference removes ref from object obj with property prop.

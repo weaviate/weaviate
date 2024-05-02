@@ -20,7 +20,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 type executor struct {
@@ -71,7 +70,6 @@ func (e *executor) AddClass(pl api.AddClassRequest) error {
 	if err := e.migrator.AddClass(ctx, pl.Class, pl.State); err != nil {
 		return fmt.Errorf("apply add class: %w", err)
 	}
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -91,7 +89,7 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		}
 	} else {
 		if err := e.migrator.UpdateVectorIndexConfig(ctx,
-			className, req.Class.VectorIndexConfig.(schemaConfig.VectorIndexConfig)); err != nil {
+			className, asVectorIndexConfig(req.Class)); err != nil {
 			return fmt.Errorf("vector index config update: %w", err)
 		}
 	}
@@ -100,7 +98,6 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		req.Class.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
 	}
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
@@ -109,19 +106,22 @@ func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
 	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
 		return err
 	}
-	e.triggerSchemaUpdateCallbacks()
 	return nil
 }
 
 func (e *executor) DeleteClass(cls string) error {
 	ctx := context.Background()
 	if err := e.migrator.DropClass(ctx, cls); err != nil {
-		e.logger.WithField("action", "delete_class").
-			WithField("class", cls).Errorf("migrator: %v", err)
+		e.logger.WithFields(logrus.Fields{
+			"action": "delete_class",
+			"class":  cls,
+		}).WithError(err).Errorf("migrator")
 	}
 
-	e.logger.WithField("action", "delete_class").WithField("class", cls).Debug("")
-	e.triggerSchemaUpdateCallbacks()
+	e.logger.WithFields(logrus.Fields{
+		"action": "delete_class",
+		"class":  cls,
+	}).Debug("deleting class")
 
 	return nil
 }
@@ -132,8 +132,10 @@ func (e *executor) AddProperty(className string, req api.AddPropertyRequest) err
 		return err
 	}
 
-	e.logger.WithField("action", "add_property").WithField("class", className)
-	e.triggerSchemaUpdateCallbacks()
+	e.logger.WithFields(logrus.Fields{
+		"action": "add_property",
+		"class":  className,
+	}).Debug("adding property")
 	return nil
 }
 
@@ -175,8 +177,10 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 	}
 
 	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
-		e.logger.WithField("action", "update_tenants").
-			WithField("class", class).Error(err)
+		e.logger.WithFields(logrus.Fields{
+			"action": "update_tenants",
+			"class":  class,
+		}).WithError(err).Error("error updating tenants")
 		return err
 	}
 	return nil
@@ -185,9 +189,12 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) error {
 	ctx := context.Background()
 	if err := e.migrator.DeleteTenants(ctx, class, req.Tenants); err != nil {
-		e.logger.WithField("action", "delete_tenants").
-			WithField("class", class).Error(err)
+		e.logger.WithFields(logrus.Fields{
+			"action": "delete_tenants",
+			"class":  class,
+		}).WithError(err).Error("error deleting tenants")
 	}
+
 	return nil
 }
 
@@ -196,13 +203,9 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
-// TODO-RAFT START
-// change GetShardsStatus() to accept a tenant parameter
-// TODO-RAFT END
-
-func (e *executor) GetShardsStatus(class string) (models.ShardStatusList, error) {
+func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
 	ctx := context.Background()
-	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, "") // tenant needed here
+	shardsStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +230,7 @@ func (e *executor) rebuildGQL(s models.Schema) {
 	}
 }
 
-func (e *executor) triggerSchemaUpdateCallbacks() {
+func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.rebuildGQL(e.store.ReadOnlySchema())
 }
 

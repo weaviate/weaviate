@@ -107,7 +107,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "ShardsStatus",
-			additionalArgs:   []interface{}{"className"},
+			additionalArgs:   []interface{}{"className", "tenant"},
 			expectedVerb:     "list",
 			expectedResource: "schema/className/shards",
 		},
@@ -139,7 +139,13 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "GetConsistentTenants",
-			additionalArgs:   []interface{}{"className", false},
+			additionalArgs:   []interface{}{"className", false, []string{}},
+			expectedVerb:     "get",
+			expectedResource: tenantsPath,
+		},
+		{
+			methodName:       "ConsistentTenantExists",
+			additionalArgs:   []interface{}{"className", false, "P1"},
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},

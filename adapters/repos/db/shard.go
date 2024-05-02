@@ -19,6 +19,7 @@ import (
 	"path"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -52,8 +54,10 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -100,7 +104,7 @@ type ShardLike interface {
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
 
-	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
+	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
@@ -165,6 +169,10 @@ type ShardLike interface {
 	ObjectCount_unmerged() int
 	NotifyReady_unmerged()
 	UpdateVectorIndexConfig_unmerged(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
+	// A thread-safe counter that goes up any time there is activity on this
+	// shard. The absolute value has no meaning, it's only purpose is to compare
+	// the previous value to the current value.
+	Activity() int32
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -211,6 +219,8 @@ type Shard struct {
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
+
+	activityTracker atomic.Int32
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job, indexCheckpoints *indexcheckpoint.Checkpoints) (*Shard, error) {
@@ -230,6 +240,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, sh
 		centralJobQueue:  jobQueueCh,
 		indexCheckpoints: indexCheckpoints,
 	}
+
+	s.activityTracker.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -447,9 +459,47 @@ func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vector
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		dynamicUserConfig, ok := vectorIndexUserConfig.(dynamicent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("dynamic vector index: config is not dynamic.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+
+		// a shard can actually have multiple vector indexes:
+		// - the main index, which is used for all normal object vectors
+		// - a geo property index for each geo prop in the schema
+		//
+		// here we label the main vector index as such.
+		vecIdxID := s.vectorIndexID(targetVector)
+
+		vi, err := dynamic.New(dynamic.Config{
+			ID:                   vecIdxID,
+			TargetVector:         targetVector,
+			Logger:               s.index.logger,
+			DistanceProvider:     distProv,
+			RootPath:             s.path(),
+			ShardName:            s.name,
+			ClassName:            s.index.Config.ClassName.String(),
+			PrometheusMetrics:    s.promMetrics,
+			VectorForIDThunk:     s.vectorByIndexID,
+			TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(s.path(), vecIdxID,
+					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
+			},
+			TombstoneCallbacks:       s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			ShardCompactionCallbacks: s.cycleCallbacks.compactionCallbacks,
+			ShardFlushCallbacks:      s.cycleCallbacks.flushCallbacks,
+		}, dynamicUserConfig, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT)
+		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
@@ -807,6 +857,7 @@ func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGrou
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -1121,4 +1172,8 @@ func InvalidBucketPanic(bucket string) {
 	str := string(debug.Stack())
 	// Log the stack trace
 	panic(fmt.Sprintf("Invalid bucket: %s\n%s", bucket, str))
+}
+
+func (s *Shard) Activity() int32 {
+	return s.activityTracker.Load()
 }

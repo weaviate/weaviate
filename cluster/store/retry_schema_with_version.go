@@ -18,6 +18,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+func (rs retrySchema) WaitForUpdate(ctx context.Context, version uint64) error {
+	if version > 0 {
+		return rs.versionedSchema.WaitForUpdate(ctx, version)
+	}
+	return nil
+}
+
 func (rs retrySchema) ClassInfoWithVersion(ctx context.Context, class string, version uint64) (ci ClassInfo, err error) {
 	if version > 0 {
 		return rs.versionedSchema.ClassInfo(ctx, class, version)
@@ -25,7 +32,7 @@ func (rs retrySchema) ClassInfoWithVersion(ctx context.Context, class string, ve
 	rs.retry(func(s *schema) error {
 		ci = s.ClassInfo(class)
 		if !ci.Exists {
-			return errClassExists
+			return errClassNotFound
 		}
 		return nil
 	})
@@ -93,13 +100,14 @@ func (rs retrySchema) ShardReplicasWithVersion(ctx context.Context, class, shard
 	return
 }
 
-// TenantShard returns shard name for the provided tenant and its activity status
-func (rs retrySchema) TenantShardWithVersion(ctx context.Context, class, tenant string, version uint64) (name string, st string, err error) {
+// TenantsShardsWithVersion returns shard name for the provided tenant and its activity status
+func (rs retrySchema) TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
 	if version > 0 {
-		return rs.versionedSchema.TenantShard(ctx, class, tenant, version)
+		status, _, err := rs.versionedSchema.TenantsShards(ctx, version, class, tenants...)
+		return status, err
 	}
 	rs.retry(func(s *schema) error {
-		if name, st, _ = s.TenantShard(class, tenant); name == "" {
+		if tenantShards, _ = s.TenantsShards(class, tenants...); len(tenantShards) == 0 {
 			return errShardNotFound
 		}
 		return nil

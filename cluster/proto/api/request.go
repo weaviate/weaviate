@@ -49,7 +49,8 @@ type QueryReadOnlyClassResponse struct {
 }
 
 type QueryTenantsRequest struct {
-	Class string
+	Class   string
+	Tenants []string // If empty, all tenants are returned
 }
 
 type TenantWithVersion struct {
@@ -75,13 +76,21 @@ type QueryShardOwnerResponse struct {
 	Owner        string
 }
 
-type QueryTenantShardRequest struct {
-	Class  string
-	Tenant string
+type QueryTenantsShardsRequest struct {
+	Class   string
+	Tenants []string
 }
 
-type QueryTenantShardResponse struct {
-	Tenant         string
-	ActivityStatus string
-	SchemaVersion  uint64
+type QueryTenantsShardsResponse struct {
+	TenantsActivityStatus map[string]string // map[tenant]status
+	SchemaVersion         uint64
+}
+
+type QueryShardingStateRequest struct {
+	Class string
+}
+
+type QueryShardingStateResponse struct {
+	State   *sharding.State
+	Version uint64
 }

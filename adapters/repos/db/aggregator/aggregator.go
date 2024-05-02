@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -51,6 +52,7 @@ type Aggregator struct {
 	PropertyName           string
 	propLenTracker         *inverted.JsonPropertyLengthTracker
 	bitmapFactory          *roaringset.BitmapFactory
+	modules                *modules.Provider
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -61,6 +63,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, propertyIds *tracker.JsonPropertyIdTracker, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
+	modules *modules.Provider,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,
@@ -77,6 +80,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		propertyIds:            propertyIds,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
+		modules:                modules,
 	}
 }
 

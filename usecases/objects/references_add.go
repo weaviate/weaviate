@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -32,6 +33,8 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 ) *Error {
 	m.metrics.AddReferenceInc()
 	defer m.metrics.AddReferenceDec()
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	deprecatedEndpoint := input.Class == ""
 	if deprecatedEndpoint { // for backward compatibility only
@@ -107,13 +110,21 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if shouldValidateMultiTenantRef(tenant, source, target) {
-		err = validateReferenceMultiTenancy(ctx, principal,
+		_, err = validateReferenceMultiTenancy(ctx, principal,
 			m.schemaManager, m.vectorRepo, source, target, tenant)
 		if err != nil {
 			return &Error{"multi-tenancy violation", StatusInternalServerError, err}
 		}
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &Error{
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Code: StatusInternalServerError,
+			Err:  err,
+		}
+	}
 	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenant, schemaVersion); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
@@ -155,12 +166,11 @@ func (req *AddReferenceInput) validate(
 		return nil, nil, 0, err
 	}
 
-	// TODO-RAFT: Pull the schemaversion here and return it alongside the class
-	class, err := sm.GetClass(ctx, principal, req.Class)
+	class, schemaVersion, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	return ref, class, 0, validateReferenceSchema(sm, class, req.Property)
+	return ref, class, schemaVersion, validateReferenceSchema(sm, class, req.Property)
 }
 
 func (req *AddReferenceInput) validateExistence(

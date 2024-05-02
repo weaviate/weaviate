@@ -58,6 +58,9 @@ type schemaManager interface {
 	GetCachedClass(ctx context.Context, principal *models.Principal, name string,
 	) (*models.Class, uint64, error)
 
+	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
+	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
+
 	// GetConsistentSchema retrieves a locally cached copy of the schema
 	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
 }

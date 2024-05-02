@@ -85,7 +85,7 @@ func TestBootStrapper(t *testing.T) {
 		b.jitter = time.Millisecond
 		test.doBefore(m)
 		ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
-		err := b.Do(ctx, test.servers, NewMockSLog(t).Logger, test.voter)
+		err := b.Do(ctx, test.servers, NewMockLogger(t).Logger, test.voter, make(chan struct{}))
 		cancel()
 		if test.success && err != nil {
 			t.Errorf("%s: %v", test.name, err)

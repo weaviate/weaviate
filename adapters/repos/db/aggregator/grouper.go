@@ -22,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
 	bolt "go.etcd.io/bbolt"
 )
@@ -95,7 +97,7 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 			return nil, fmt.Errorf("failed to perform vector search: %w", err)
 		}
 	} else if g.params.Hybrid != nil {
-		ids, err = g.hybrid(ctx, allowList)
+		ids, err = g.hybrid(ctx, allowList, g.modules)
 		if err != nil {
 			return nil, fmt.Errorf("hybrid search: %w", err)
 		}
@@ -106,7 +108,7 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 	return
 }
 
-func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]uint64, error) {
+func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modules *modules.Provider) ([]uint64, error) {
 	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		kw, err := g.buildHybridKeywordRanking()
 		if err != nil {
@@ -139,7 +141,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 		HybridSearch: g.params.Hybrid,
 		Keyword:      nil,
 		Class:        g.params.ClassName.String(),
-	}, g.logger, sparseSearch, denseSearch, nil, nil, nil, nil)
+	}, g.logger, sparseSearch, denseSearch, nil, modules, g.getSchema, traverser.NewTargetParamHelper())
 	if err != nil {
 		return nil, err
 	}

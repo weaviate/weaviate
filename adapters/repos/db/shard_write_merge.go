@@ -25,6 +25,7 @@ import (
 )
 
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
+	s.activityTracker.Add(1)
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}

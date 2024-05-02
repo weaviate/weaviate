@@ -52,58 +52,64 @@ func newAutoSchemaManager(schemaManager schemaManager, vectorRepo VectorRepo,
 
 func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Principal,
 	allowCreateClass bool, objects ...*models.Object,
-) error {
+) (uint64, error) {
 	if !m.config.Enabled {
-		return nil
+		return 0, nil
 	}
 
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
+	var maxSchemaVersion uint64
 	for _, object := range objects {
 		if object == nil {
-			return fmt.Errorf(validation.ErrorMissingObject)
+			return 0, fmt.Errorf(validation.ErrorMissingObject)
 		}
 
 		if len(object.Class) == 0 {
 			// stop performing auto schema
-			return fmt.Errorf(validation.ErrorMissingClass)
+			return 0, fmt.Errorf(validation.ErrorMissingClass)
 		}
 
 		object.Class = schema.UppercaseClassName(object.Class)
 
-		schemaClass, _, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
+		schemaClass, schemaVersion, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		if schemaClass == nil && !allowCreateClass {
-			return fmt.Errorf("given class does not exist")
+			return 0, fmt.Errorf("given class does not exist")
 		}
 		properties, err := m.getProperties(object)
 		if err != nil {
-			return err
+			return 0, err
 		}
+
 		if schemaClass == nil {
-			if err := m.createClass(ctx, principal, object.Class, properties); err != nil {
-				return err
+			if schemaVersion, err = m.createClass(ctx, principal, object.Class, properties); err != nil {
+				return 0, err
 			}
 			classcache.RemoveClassFromContext(ctx, object.Class)
-			continue
+		} else {
+			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
+				if schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
+					principal, schemaClass, true, newProperties...); err != nil {
+					return 0, err
+				}
+				classcache.RemoveClassFromContext(ctx, object.Class)
+			}
 		}
-		newProperties := schema.DedupProperties(schemaClass.Properties, properties)
-		if len(newProperties) > 0 {
-			if _, err := m.schemaManager.AddClassProperty(ctx, principal, schemaClass, true, newProperties...); err != nil {
-				return err
-			}
-			classcache.RemoveClassFromContext(ctx, object.Class)
+
+		if schemaVersion > maxSchemaVersion {
+			maxSchemaVersion = schemaVersion
 		}
 	}
-	return nil
+	return maxSchemaVersion, nil
 }
 
 func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.Principal,
 	className string, properties []*models.Property,
-) error {
+) (uint64, error) {
 	now := time.Now()
 	class := &models.Class{
 		Class:       className,
@@ -113,8 +119,8 @@ func (m *autoSchemaManager) createClass(ctx context.Context, principal *models.P
 	m.logger.
 		WithField("auto_schema", "createClass").
 		Debugf("create class %s", className)
-	_, err := m.schemaManager.AddClass(ctx, principal, class)
-	return err
+	schemaVersion, err := m.schemaManager.AddClass(ctx, principal, class)
+	return schemaVersion, err
 }
 
 func (m *autoSchemaManager) getProperties(object *models.Object) ([]*models.Property, error) {
@@ -451,7 +457,7 @@ func (m *autoSchemaManager) determineNestedPropertiesOfArray(valArray []interfac
 
 func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	principal *models.Principal, objects []*models.Object,
-) error {
+) (uint64, error) {
 	classTenants := make(map[string]map[string]struct{})
 
 	// group by tenants by class
@@ -463,14 +469,15 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 	}
 
 	// skip invalid classes, non-MT classes, no auto tenant creation classes
+	var maxSchemaVersion uint64
 	for className, tenantNames := range classTenants {
-		class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+		class, schemaVersion, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 		if err != nil || // invalid class
+			class == nil || // class is nil
 			!schema.MultiTenancyEnabled(class) || // non-MT class
 			!class.MultiTenancyConfig.AutoTenantCreation { // no auto tenant creation
 			continue
 		}
-
 		tenants := make([]*models.Tenant, len(tenantNames))
 		i := 0
 		for name := range tenantNames {
@@ -478,10 +485,14 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 			i++
 		}
 		if err := m.addTenants(ctx, principal, className, tenants); err != nil {
-			return fmt.Errorf("add tenants to class %q: %w", className, err)
+			return 0, fmt.Errorf("add tenants to class %q: %w", className, err)
+		}
+
+		if schemaVersion > maxSchemaVersion {
+			maxSchemaVersion = schemaVersion
 		}
 	}
-	return nil
+	return maxSchemaVersion, nil
 }
 
 func (m *autoSchemaManager) addTenants(ctx context.Context, principal *models.Principal,

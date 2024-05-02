@@ -58,6 +58,26 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	}
 }
 
+func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
+	before := time.Now()
+
+	principal, err := s.principalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+
+	retTenants, err := s.tenantsGet(ctx, principal, req)
+	if err != nil {
+		return nil, fmt.Errorf("get tenants: %w", err)
+	}
+
+	result := &pb.TenantsGetReply{
+		Took:    float32(time.Since(before).Seconds()),
+		Tenants: retTenants,
+	}
+	return result, nil
+}
+
 func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
 	before := time.Now()
 	principal, err := s.principalFromContext(ctx)
@@ -132,6 +152,9 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 
+	scheme := s.schemaManager.GetSchemaSkipAuth()
+	replier := NewReplier(req.Uses_123Api, req.Uses_125Api)
+
 	type reply struct {
 		Result *pb.SearchReply
 		Error  error
@@ -171,7 +194,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 			}
 		}
 
-		proto, err := searchResultsToProto(res, before, searchParams, s.schemaManager.ReadOnlyClass, req.Uses_123Api)
+		proto, err := replier.Search(res, before, searchParams, scheme)
 		c <- reply{
 			Result: proto,
 			Error:  err,
