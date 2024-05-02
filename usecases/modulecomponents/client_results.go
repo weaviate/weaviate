@@ -20,6 +20,8 @@ type RateLimits struct {
 	LimitTokens          int
 	RemainingRequests    int
 	RemainingTokens      int
+	ReservedRequests     int
+	ReservedTokens       int
 	ResetRequests        time.Time
 	ResetTokens          time.Time
 }
@@ -34,6 +36,28 @@ func (rl *RateLimits) CheckForReset() {
 	if rl.AfterRequestFunction != nil {
 		rl.AfterRequestFunction(rl, 0, false)
 	}
+}
+
+func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int) bool {
+	freeRequests := rl.RemainingRequests - rl.ReservedRequests
+	freeTokens := rl.RemainingTokens - rl.ReservedTokens
+
+	fitsCurrentBatch := freeRequests >= numRequests && freeTokens >= batchTokens
+	if !fitsCurrentBatch {
+		return false
+	}
+
+	// also make sure that we do not "spend" all the rate limit at once
+	percentageOfRequests := numRequests * 100 / rl.LimitRequests
+	percentageOfTokens := batchTokens * 100 / rl.LimitTokens
+
+	// the clients aim for 10s per batch, or 6 batches per minute in sequential-mode. 15% is somewhat below that to
+	// account for some variance in the rate limits
+	return percentageOfRequests <= 15 && percentageOfTokens <= 15
+}
+
+func (rl *RateLimits) updateUsagePercentage() bool {
+	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
 
 func (rl *RateLimits) IsInitialized() bool {
