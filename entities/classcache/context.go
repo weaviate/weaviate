@@ -49,6 +49,7 @@ func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...
 	versionedClasses := map[string]versioned.Class{}
 	notFoundInCtx := []string{}
 	for _, name := range names {
+		// collect what is not in context
 		if entry, ok := cache.Load(name); ok {
 			versionedClasses[entry.class.Class] = versioned.Class{Class: entry.class, Version: entry.version}
 			continue
@@ -63,7 +64,7 @@ func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...
 		return versionedClasses, nil
 	}
 
-	if notFoundInCtx[0] == "" {
+	if len(notFoundInCtx) > 1 && notFoundInCtx[0] == "" {
 		notFoundInCtx = notFoundInCtx[1:]
 	}
 

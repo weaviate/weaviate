@@ -309,7 +309,11 @@ func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]versioned.
 	// remove dedup and empty
 	slices.Sort(classes)
 	classes = slices.Compact(classes)
-	if classes[0] == "" {
+	if len(classes) == 0 {
+		return nil, fmt.Errorf("empty class name: %w", errBadRequest)
+	}
+
+	if len(classes) > 1 && classes[0] == "" {
 		classes = classes[1:]
 	}
 
