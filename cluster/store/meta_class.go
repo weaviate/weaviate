@@ -143,17 +143,17 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	defer m.Unlock()
 
 	// update all at once to prevent race condition with concurrent readers
-	mergedProps := mergeProps(m.Class.Properties, props)
+	mergedProps := MergeProps(m.Class.Properties, props)
 	m.Class.Properties = mergedProps
 	m.ClassVersion = v
 	return nil
 }
 
-// mergeProps makes sure duplicates are not created by ignoring new props
+// MergeProps makes sure duplicates are not created by ignoring new props
 // with the same names as old props.
 // If property of nested type is present in both new and old slices,
 // final property is created by merging new property into copy of old one
-func mergeProps(old, new []*models.Property) []*models.Property {
+func MergeProps(old, new []*models.Property) []*models.Property {
 	mergedProps := make([]*models.Property, len(old), len(old)+len(new))
 	copy(mergedProps, old)
 

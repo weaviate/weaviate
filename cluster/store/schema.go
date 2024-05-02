@@ -20,6 +20,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -103,6 +104,28 @@ func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
 		return nil, 0
 	}
 	return meta.CloneClass(), meta.ClassVersion
+}
+
+// ReadOnlyClass returns a shallow copy of a class.
+// The copy is read-only and should not be modified.
+func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
+	if len(classes) == 0 {
+		return nil
+	}
+
+	vclasses := make(map[string]versioned.Class, len(classes))
+	s.RLock()
+	defer s.RUnlock()
+
+	for _, class := range classes {
+		meta := s.Classes[class]
+		if meta == nil {
+			continue
+		}
+		vclasses[class] = versioned.Class{Class: meta.CloneClass(), Version: meta.ClassVersion}
+	}
+
+	return vclasses
 }
 
 // ReadOnlySchema returns a read only schema

@@ -55,7 +55,7 @@ func testAddObjectClass(t *testing.T, handler *Handler, fakeMetaHandler *fakeMet
 		VectorIndexConfig: map[string]interface{}{},
 	}
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
 
@@ -73,7 +73,7 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeMe
 		}},
 	}
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
 
@@ -91,7 +91,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeMe
 
 	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
 
@@ -108,7 +108,7 @@ func testAddObjectClassWrongVectorizer(t *testing.T, handler *Handler, fakeMetaH
 		}},
 	}
 
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Error(t, err)
 }
 
@@ -125,7 +125,7 @@ func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeMetaHa
 		}},
 	}
 
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.NotNil(t, err)
 	assert.Equal(t, "unrecognized or unsupported vectorIndexType \"vector-index-2-million\"", err.Error())
 }
@@ -144,7 +144,7 @@ func testRemoveObjectClass(t *testing.T, handler *Handler, fakeMetaHandler *fake
 	}
 
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	require.Nil(t, err)
 
 	// Now delete the class
@@ -168,7 +168,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeMetaHandler *
 		},
 	}
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 
 	// Reset schema to simulate the class has been added
@@ -186,7 +186,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeMetaHandler *
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(ErrNotFound)
 
 	// Add it again
-	_, err = handler.AddClass(context.Background(), nil, class)
+	_, _, err = handler.AddClass(context.Background(), nil, class)
 	assert.NotNil(t, err)
 }
 
@@ -203,7 +203,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 		},
 	}
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-	_, err := handler.AddClass(ctx, nil, class)
+	_, _, err := handler.AddClass(ctx, nil, class)
 	assert.Nil(t, err)
 
 	class.ModuleConfig = map[string]interface{}{
@@ -214,7 +214,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 
 	// Add it again, but with a different kind.
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-	_, err = handler.AddClass(context.Background(), nil, class)
+	_, _, err = handler.AddClass(context.Background(), nil, class)
 	assert.NotNil(t, err)
 }
 
@@ -308,7 +308,7 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeMetaHandl
 		Properties: properties,
 	}
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }
 
@@ -319,7 +319,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeMe
 		{Name: "color", DataType: []string{"blurp"}},
 	}
 
-	_, err := handler.AddClass(context.Background(), nil, &models.Class{
+	_, _, err := handler.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -333,7 +333,7 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler
 		{Name: "color", DataType: []string{""}},
 	}
 
-	_, err := handler.AddClass(context.Background(), nil, &models.Class{
+	_, _, err := handler.AddClass(context.Background(), nil, &models.Class{
 		Class:      "Car",
 		Properties: properties,
 	})
@@ -358,7 +358,7 @@ func testDropProperty(t *testing.T, handler *Handler, fakeMetaHandler *fakeMetaH
 		Properties: properties,
 	}
 	fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-	_, err := handler.AddClass(context.Background(), nil, class)
+	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 
 	// Now drop the property

@@ -127,15 +127,16 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
-		class, _, err := b.schemaManager.GetCachedClass(ctx, principal, obj.Class)
+		vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, obj.Class)
 		if err != nil {
 			batchObjects[i].Err = err
 			continue
 		}
-		if class == nil {
+		if len(vclasses) == 0 || vclasses[obj.Class].Class == nil {
 			batchObjects[i].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
 			continue
 		}
+		class := vclasses[obj.Class].Class
 		// Set most up-to-date class's schema (in case new properties were added by autoschema)
 		// If it was not changed, same class will be fetched from cache
 		classPerClassName[obj.Class] = class
