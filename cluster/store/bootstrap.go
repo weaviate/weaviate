@@ -53,13 +53,15 @@ func NewBootstrapper(joiner joiner, raftID, raftAddr string, r addressResolver) 
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, voter bool) error {
+func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, voter bool, close chan struct{}) error {
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
 	servers := make([]string, 0, len(serverPortMap))
 	defer ticker.Stop()
 	for {
 		servers = b.servers(servers, serverPortMap)
 		select {
+		case <-close:
+			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:

@@ -287,6 +287,7 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 	type args struct {
 		nearVector   *searchparams.NearVector
 		nearObject   *searchparams.NearObject
+		hybrid       *searchparams.HybridSearch
 		moduleParams map[string]interface{}
 	}
 	tests := []struct {
@@ -355,6 +356,53 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 			},
 			want: 0.77,
 		},
+		{
+			name: "Should extract distance from hybrid nearVector",
+			args: args{
+				hybrid: &searchparams.HybridSearch{
+					NearVectorParams: &searchparams.NearVector{
+						Distance:     0.88,
+						WithDistance: true,
+					},
+				},
+			},
+			want: 1 - 0.88/2,
+		},
+		{
+			name: "Should extract certainty from hybrid nearText",
+			args: args{
+				hybrid: &searchparams.HybridSearch{
+					NearTextParams: &searchparams.NearTextParams{
+						Certainty: 0.77,
+					},
+				},
+			},
+			want: 0.77,
+		},
+		{
+			name: "Should extract distance from hybrid nearText",
+			args: args{
+				hybrid: &searchparams.HybridSearch{
+					NearTextParams: &searchparams.NearTextParams{
+						Distance:     0.77,
+						WithDistance: true,
+					},
+				},
+			},
+			want: 1 - 0.77/2,
+		},
+		{
+			name: "Should extract distance from hybrid nearVector",
+			args: args{
+				hybrid: &searchparams.HybridSearch{
+					NearVectorParams: &searchparams.NearVector{
+						Distance:     0.88,
+						WithDistance: true,
+					},
+				},
+			},
+			want: 1 - 0.88/2,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -362,7 +410,7 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 				modulesProvider: &fakeModulesProvider{},
 				search:          &fakeNearParamsSearcher{},
 			}
-			got := e.extractCertaintyFromParams(tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams)
+			got := e.extractCertaintyFromParams(tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.hybrid)
 			if !assert.InDelta(t, tt.want, got, 1e-9) {
 				t.Errorf("nearParamsVector.extractCertaintyFromParams() = %v, want %v", got, tt.want)
 			}

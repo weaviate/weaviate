@@ -24,6 +24,17 @@ func MultiTenancyEnabled(class *models.Class) bool {
 	return false
 }
 
+func AutoTenantCreationEnabled(class *models.Class) bool {
+	if class == nil {
+		return false
+	}
+
+	if class.MultiTenancyConfig != nil {
+		return class.MultiTenancyConfig.AutoTenantCreation
+	}
+	return false
+}
+
 func ActivityStatus(status string) string {
 	if status == "" {
 		return models.TenantActivityStatusHOT
