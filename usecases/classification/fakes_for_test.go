@@ -64,6 +64,12 @@ func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[s
 	return res, nil
 }
 
+func (f *fakeSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
+}
+
 func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return string(uuid) }
 
 func (f *fakeSchemaGetter) Nodes() []string {
@@ -80,6 +86,10 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 
 func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
 ) (map[string]string, error) {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) Statistics() map[string]any {
 	panic("not implemented")
 }
 

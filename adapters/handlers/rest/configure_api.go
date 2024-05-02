@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -59,6 +60,7 @@ import (
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
+	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
@@ -81,6 +83,7 @@ import (
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
@@ -139,10 +142,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.TenantActivity = tenantactivity.NewHandler()
+
 		// only monitoring tool supported at the moment is prometheus
 		enterrors.GoWrapper(func() {
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
+			mux.Handle("/tenant-activity", appState.TenantActivity)
 			http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
 		}, appState.Logger)
 	}
@@ -212,6 +218,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.TenantActivity.SetSource(appState.DB)
+	}
 	migrator := db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	// migrator = vectorMigrator
@@ -265,30 +274,31 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	rConfig := rStore.Config{
-		WorkDir:            filepath.Join(dataPath, "raft"),
-		NodeID:             nodeName,
-		Host:               addrs[0],
-		RaftPort:           appState.ServerConfig.Config.Raft.Port,
-		RPCPort:            appState.ServerConfig.Config.Raft.InternalRPCPort,
-		ServerName2PortMap: server2port,
-		BootstrapTimeout:   appState.ServerConfig.Config.Raft.BootstrapTimeout,
-		BootstrapExpect:    appState.ServerConfig.Config.Raft.BootstrapExpect,
-		HeartbeatTimeout:   appState.ServerConfig.Config.Raft.HeartbeatTimeout,
-		RecoveryTimeout:    appState.ServerConfig.Config.Raft.RecoveryTimeout,
-		ElectionTimeout:    appState.ServerConfig.Config.Raft.ElectionTimeout,
-		SnapshotInterval:   appState.ServerConfig.Config.Raft.SnapshotInterval,
-		SnapshotThreshold:  appState.ServerConfig.Config.Raft.SnapshotThreshold,
-		UpdateWaitTimeout:  time.Second * 10, // TODO-RAFT read from the flag
-		MetadataOnlyVoters: appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
-		DB:                 nil,
-		Parser:             schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
-		AddrResolver:       appState.Cluster,
-		Logger:             appState.Logger,
-		LogLevel:           logLevel(),
-		LogJSONFormat:      !logTextFormat(),
-		IsLocalHost:        appState.ServerConfig.Config.Cluster.Localhost,
-		LoadLegacySchema:   schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:   schemaRepo.SaveLegacySchema,
+		WorkDir:               filepath.Join(dataPath, "raft"),
+		NodeID:                nodeName,
+		Host:                  addrs[0],
+		RaftPort:              appState.ServerConfig.Config.Raft.Port,
+		RPCPort:               appState.ServerConfig.Config.Raft.InternalRPCPort,
+		RaftRPCMessageMaxSize: appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
+		ServerName2PortMap:    server2port,
+		BootstrapTimeout:      appState.ServerConfig.Config.Raft.BootstrapTimeout,
+		BootstrapExpect:       appState.ServerConfig.Config.Raft.BootstrapExpect,
+		HeartbeatTimeout:      appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		RecoveryTimeout:       appState.ServerConfig.Config.Raft.RecoveryTimeout,
+		ElectionTimeout:       appState.ServerConfig.Config.Raft.ElectionTimeout,
+		SnapshotInterval:      appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold:     appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		UpdateWaitTimeout:     time.Second * 10, // TODO-RAFT read from the flag
+		MetadataOnlyVoters:    appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		DB:                    nil,
+		Parser:                schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
+		AddrResolver:          appState.Cluster,
+		Logger:                appState.Logger,
+		LogLevel:              logLevel(),
+		LogJSONFormat:         !logTextFormat(),
+		IsLocalHost:           appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema:      schemaRepo.LoadLegacySchema,
+		SaveLegacySchema:      schemaRepo.SaveLegacySchema,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -321,7 +331,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.SchemaManager = schemaManager
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader())
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
-	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
+	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules)
@@ -333,18 +343,18 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
-	// TODO-RAFT START
-	go func() {
+	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
 				WithField("action", "startup").
 				WithError(err).
 				Fatal("could not open cloud meta store")
 		}
-	}()
+	}, appState.Logger)
 
+	// TODO-RAFT: refactor remove this sleep
+	// this sleep was used to block GraphQL and give time to RAFT to start.
 	time.Sleep(2 * time.Second)
-	// TODO-RAFT END
 
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
@@ -978,6 +988,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modollama.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativeoctoai.Name]; ok {
+		appState.Modules.Register(modgenerativeoctoai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeoctoai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2vecoctoai.Name]; ok {
+		appState.Modules.Register(modtext2vecoctoai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecoctoai.Name).
 			Debug("enabled module")
 	}
 

@@ -153,6 +153,10 @@ func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	return f.shardState
 }
 
+func (f *fakeSchemaManager) Statistics() map[string]any {
+	return nil
+}
+
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
 	ss := f.shardState
 	x, ok := ss.Physical[shard]
@@ -179,6 +183,12 @@ func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT
 	}
+	return res, nil
+}
+
+func (f *fakeSchemaManager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
 }
 

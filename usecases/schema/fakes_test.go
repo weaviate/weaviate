@@ -20,6 +20,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -152,6 +153,11 @@ func (f *fakeMetaHandler) QueryTenantsShards(class string, tenants ...string) (m
 	return res, 0, nil
 }
 
+func (f *fakeMetaHandler) QueryShardingState(class string) (*sharding.State, uint64, error) {
+	args := f.Called(class)
+	return args.Get(0).(*sharding.State), 0, args.Error(0)
+}
+
 func (f *fakeMetaHandler) ReadOnlyClass(class string) *models.Class {
 	args := f.Called(class)
 	model := args.Get(0)
@@ -242,7 +248,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(&fakeClusterState{}, dummyParseVectorConfig, &fakeValidator{}),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}),
 	}
 }
 

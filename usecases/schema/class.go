@@ -210,8 +210,11 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		updatedRF := updated.ReplicationConfig.Factor
 
 		if initialRF != updatedRF {
-			shardingState, err = h.scaleOut.Scale(ctx, className,
-				h.metaReader.CopyShardingState(className).Config, initialRF, updatedRF)
+			ss, _, err := h.metaWriter.QueryShardingState(className)
+			if err != nil {
+				return fmt.Errorf("query sharding state for %q: %w", className, err)
+			}
+			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
 			if err != nil {
 				return fmt.Errorf(
 					"scale %q from %d replicas to %d: %w",
@@ -672,6 +675,9 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 		} else {
 			err = fmt.Errorf("enabling multi-tenancy for an existing class is not supported")
 		}
+	}
+	if !enabled && schema.AutoTenantCreationEnabled(update) {
+		err = fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
 	}
 	return
 }

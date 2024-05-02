@@ -1419,7 +1419,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("tenant name is empty"))
 	}
 
-	tenantShards, err := i.getSchema.TenantsShards(className, tenant)
+	tenantShards, err := i.getSchema.OptimisticTenantStatus(className, tenant)
 	if err != nil {
 		return nil, err
 	}
