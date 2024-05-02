@@ -173,7 +173,6 @@ func (st *Store) QueryShardingState(req *cmd.QueryRequest) ([]byte, error) {
 		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
 	}
 
-	// Read the meta class to get both the class and sharding information
 	state, version := st.db.Schema.CopyShardingState(subCommand.Class)
 	// Build the response, marshal and return
 	response := cmd.QueryShardingStateResponse{State: state, Version: version}
