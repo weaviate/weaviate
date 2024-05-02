@@ -65,7 +65,6 @@ func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjec
 		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
 		maxTokensPerBatch:         maxTokensPerBatch,
 		concurrentBatches:         atomic.Int32{},
-		sequentialBatching:        atomic.Bool{},
 	}
 
 	batch.rateLimitChannel = make(chan rateLimitJob, BatchChannelSize)
@@ -100,7 +99,6 @@ type Batch struct {
 	rateLimitChannel          chan rateLimitJob
 	endOfBatchChannel         chan endOfBatchJob
 	concurrentBatches         atomic.Int32
-	sequentialBatching        atomic.Bool
 }
 
 // batchWorker is a go routine that handles the communication with the vectorizer
@@ -160,17 +158,17 @@ func (b *Batch) batchWorker() {
 		//    updated there. This allows to use the rate-limit in an optimal way, but also requires more checks. No
 		//    concurrent batch can be started while a sequential batch is running.
 
-		numRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
 		for {
 			timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
-			if !b.sequentialBatching.Load() && rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
+			numRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
+			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
 				rateLimit.ReservedRequests += numRequests
 				rateLimit.ReservedTokens += job.tokenSum
 				go b.sendBatch(job, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
 				break
 			} else if b.concurrentBatches.Load() < 1 {
-				b.sequentialBatching.Store(true)
-				go b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
+				// block so no concurrent batch can be sent
+				b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
 				break
 			}
 			time.Sleep(100 * time.Millisecond)
@@ -180,6 +178,7 @@ func (b *Batch) batchWorker() {
 	}
 }
 
+// updateState collects the latest updates from finished batches
 func (b *Batch) updateState(rateLimits map[[32]byte]*modulecomponents.RateLimits, timePerToken float64, objectsPerBatch int) (float64, int) {
 	for _, rateLimit := range rateLimits {
 		rateLimit.CheckForReset()
@@ -343,7 +342,6 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 	}
 	job.wg.Done()
 	b.concurrentBatches.Add(-1)
-	b.sequentialBatching.Store(false)
 }
 
 func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *modulecomponents.RateLimits, tokensInCurrentBatch int) error {
