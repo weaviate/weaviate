@@ -56,6 +56,7 @@ func Test_ClassesFromContext(t *testing.T) {
 		vclasses, err := ClassesFromContext(noCacheCtx, noopGetter, "class1")
 		_, exists := vclasses["class1"]
 		assert.False(t, exists)
+		assert.NotContains(t, vclasses, "class1")
 		assert.ErrorContains(t, err, "context does not contain classCache")
 	})
 
@@ -65,6 +66,7 @@ func Test_ClassesFromContext(t *testing.T) {
 		vclasses, err := ClassesFromContext(invalidCacheCtx, noopGetter, "class1")
 		_, exists := vclasses["class1"]
 		assert.False(t, exists)
+		assert.NotContains(t, vclasses, "class1")
 		assert.ErrorContains(t, err, "context does not contain classCache")
 	})
 

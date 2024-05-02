@@ -159,7 +159,7 @@ func (m *Manager) validateSchema(ctx context.Context,
 		return nil, err
 	}
 
-	if vclasses[obj.Class].Class == nil {
+	if len(vclasses) == 0 || vclasses[obj.Class].Class == nil {
 		return nil, fmt.Errorf("class %q not found in schema", obj.Class)
 	}
 

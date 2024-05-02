@@ -134,6 +134,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, fmt.Errorf("init sharding state: %w", err)
 	}
 	version, err := h.metaWriter.AddClass(cls, shardState)
+	if err != nil {
+		return nil, 0, err
+	}
 	return cls, version, err
 }
 

@@ -141,7 +141,7 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class *models.Class, merge bool, newProps ...*models.Property,
-) (uint64, error) {
+) (*models.Class, uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
@@ -165,7 +165,7 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 		}
 	}
 
-	return 0, nil
+	return class, 0, nil
 }
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,

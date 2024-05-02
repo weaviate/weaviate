@@ -113,10 +113,13 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			classcache.RemoveClassFromContext(ctx, object.Class)
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
-				if schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
-					principal, schemaClass, true, newProperties...); err != nil {
+				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
+					principal, schemaClass, true, newProperties...)
+
+				if err != nil {
 					return 0, err
 				}
+				vclasses[schema.UppercaseClassName(object.Class)] = versioned.Class{Class: schemaClass, Version: schemaVersion}
 				classcache.RemoveClassFromContext(ctx, object.Class)
 			}
 		}
