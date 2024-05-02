@@ -190,6 +190,8 @@ func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, inde
 func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, indexName string,
 	schemaVersion uint64,
 ) (RemoteIndexIncomingRepo, *SimpleResponse) {
+	// TODO-RAFT: We can change the wait here to simply wait for a given update to apply, we are only using
+	// `ReadOnlyClassWithVersion` as a utility to wait
 	// wait for schema and store to reach version >= schemaVersion
 	if _, err := rri.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
 		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("could not find class %q in schema: %w", indexName, err)}}}
