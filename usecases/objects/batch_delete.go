@@ -126,10 +126,12 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 
 	// Validate schema given in body with the weaviate schema
-	class, schemaVersion, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
-	if err != nil || class == nil {
+	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
+	if err != nil || vclasses[match.Class].Class == nil {
 		return nil, 0, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
 	}
+
+	class := vclasses[match.Class].Class
 
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
@@ -157,5 +159,5 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		DryRun:    dryRunParam,
 		Output:    outputParam,
 	}
-	return params, schemaVersion, nil
+	return params, vclasses[match.Class].Version, nil
 }

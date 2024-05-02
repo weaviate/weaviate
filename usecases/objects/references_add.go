@@ -166,11 +166,13 @@ func (req *AddReferenceInput) validate(
 		return nil, nil, 0, err
 	}
 
-	class, schemaVersion, err := sm.GetCachedClass(ctx, principal, req.Class)
+	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	return ref, class, schemaVersion, validateReferenceSchema(sm, class, req.Property)
+
+	vclass := vclasses[req.Class]
+	return ref, vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 
 func (req *AddReferenceInput) validateExistence(

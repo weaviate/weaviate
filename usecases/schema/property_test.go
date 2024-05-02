@@ -35,7 +35,7 @@ func TestHandler_AddProperty(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 		dataTypes := []schema.DataType{
 			schema.DataTypeInt,
@@ -65,7 +65,7 @@ func TestHandler_AddProperty(t *testing.T) {
 						DataType: dt.PropString(),
 					}
 					fakeMetaHandler.On("AddProperty", class.Class, []*models.Property{prop}).Return(nil)
-					_, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
 					require.NoError(t, err)
 				})
 			}
@@ -91,7 +91,7 @@ func TestHandler_AddProperty(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 
 		existingNames := []string{
@@ -109,7 +109,7 @@ func TestHandler_AddProperty(t *testing.T) {
 						Name:     propName,
 						DataType: schema.DataTypeText.PropString(),
 					}
-					_, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
 					require.ErrorContains(t, err, "conflict for property")
 					require.ErrorContains(t, err, "already in use or provided multiple times")
 				})
@@ -132,7 +132,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 			Vectorizer: "none",
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NoError(t, err)
 		dataTypes := []schema.DataType{
 			schema.DataTypeObject,
@@ -148,7 +148,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 						NestedProperties: []*models.NestedProperty{{Name: "test", DataType: schema.DataTypeInt.PropString()}},
 					}
 					fakeMetaHandler.On("AddProperty", class.Class, []*models.Property{prop}).Return(nil)
-					_, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
 					require.NoError(t, err)
 				})
 			}
@@ -205,7 +205,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 					fakeMetaHandler.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
 				}
 
-				_, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+				_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
 				if len(tc.expectedErrContains) == 0 {
 					require.NoError(t, err)
 				} else {
@@ -405,9 +405,9 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&refClass)
 	fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
 	fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
-	_, err := handler.AddClass(ctx, nil, &class)
+	_, _, err := handler.AddClass(ctx, nil, &class)
 	require.NoError(t, err)
-	_, err = handler.AddClass(ctx, nil, &refClass)
+	_, _, err = handler.AddClass(ctx, nil, &refClass)
 	require.NoError(t, err)
 
 	dataType := []string{refClass.Class}
@@ -416,7 +416,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	for _, tokenization := range helpers.Tokenizations {
 		propName := fmt.Sprintf("ref_%s", tokenization)
 		t.Run(propName, func(t *testing.T) {
-			_, err := handler.AddClassProperty(ctx, nil, &class, false,
+			_, _, err := handler.AddClassProperty(ctx, nil, &class, false,
 				&models.Property{
 					Name:         propName,
 					DataType:     dataType,
@@ -432,7 +432,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	// non-existent tokenization
 	propName := "ref_nonExistent"
 	t.Run(propName, func(t *testing.T) {
-		_, err := handler.AddClassProperty(ctx, nil, &class, false,
+		_, _, err := handler.AddClassProperty(ctx, nil, &class, false,
 			&models.Property{
 				Name:         propName,
 				DataType:     dataType,
@@ -448,7 +448,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	propName = "ref_empty"
 	t.Run(propName, func(t *testing.T) {
 		fakeMetaHandler.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
-		_, err := handler.AddClassProperty(ctx, nil, &class, false,
+		_, _, err := handler.AddClassProperty(ctx, nil, &class, false,
 			&models.Property{
 				Name:         propName,
 				DataType:     dataType,

@@ -67,7 +67,7 @@ message ApplyResponse {
 message QueryRequest {
   enum Type {
     TYPE_UNSPECIFIED = 0;
-    TYPE_GET_CLASS = 1;
+    TYPE_GET_CLASSES = 1;
     TYPE_GET_SCHEMA = 2;
     TYPE_GET_TENANTS = 3;
     TYPE_GET_SHARD_OWNER = 4;
