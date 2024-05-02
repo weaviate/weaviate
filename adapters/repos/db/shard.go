@@ -211,9 +211,13 @@ type Shard struct {
 	bitmapFactory  *roaringset.BitmapFactory
 
 	activityTracker atomic.Int32
-	shut            bool
-	inUseCounter    atomic.Int64
-	shutdownLock    *sync.RWMutex
+
+	// indicates whether shard is shut down or dropped (or ongoing)
+	shut bool
+	// indicates whether shard in being used at the moment (e.g. write request)
+	inUseCounter atomic.Int64
+	// allows concurrent shut read/write
+	shutdownLock *sync.RWMutex
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -973,73 +977,9 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 */
 
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
-	shutdownCheck := func() (bool, error) {
-		s.shutdownLock.Lock()
-		defer s.shutdownLock.Unlock()
-
-		if s.shut {
-			return false, fmt.Errorf("already shut or ongoing shutdown")
-		}
-
-		if s.inUseCounter.Load() == 0 {
-			s.shut = true
-			return true, nil
-		}
-		return false, nil
-	}
-
-	var shut bool
-	if shut, err = shutdownCheck(); err != nil {
+	if err = s.waitForShutdown(ctx); err != nil {
 		return
 	}
-	if !shut {
-		if err = func() error {
-			ticker := time.NewTicker(50 * time.Millisecond)
-			defer ticker.Stop()
-
-			i := 0
-			for {
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-ticker.C:
-					if shut, err := shutdownCheck(); err != nil {
-						return err
-					} else if shut {
-						return nil
-					}
-					i++
-				}
-			}
-		}(); err != nil {
-			return
-		}
-	}
-
-	// if !s.shutdownLock.TryLock() {
-	// 	t := time.NewTicker(50 * time.Millisecond)
-	// 	defer t.Stop()
-
-	// 	for {
-	// 		select {
-	// 		case <-t.C:
-	// 			if s.shutdownLock.TryLock() {
-	// 				break
-	// 			}
-	// 		case <-ctx.Done():
-	// 			return ctx.Err()
-	// 		}
-	// 	}
-	// }
-
-	// // s.shutdownLock.Lock()
-	// defer s.shutdownLock.Unlock()
-
-	// defer func() {
-	// 	if err == nil {
-	// 		s.shut = true
-	// 	}
-	// }()
 
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
@@ -1105,14 +1045,58 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	defer s.shutdownLock.RUnlock()
 
 	if s.shut {
-		return func() {}, fmt.Errorf("already shut or dropped %q", s.name)
+		return func() {}, fmt.Errorf("shard %q already shut or dropped", s.name)
 	}
 
 	s.inUseCounter.Add(1)
+	return func() { s.inUseCounter.Add(-1) }, nil
+}
 
-	return func() {
-		s.inUseCounter.Add(-1)
-	}, nil
+func (s *Shard) waitForShutdown(ctx context.Context) error {
+	checkInterval := 50 * time.Millisecond
+	timeout := 30 * time.Second
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if eligible, err := s.checkEligibleForShutdown(); err != nil {
+		return err
+	} else if !eligible {
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("Shard::proceedWithShutdown: %w", ctx.Err())
+			case <-ticker.C:
+				if eligible, err := s.checkEligibleForShutdown(); err != nil {
+					return err
+				} else if eligible {
+					return nil
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// checks whether shutdown can be executed
+// (shard is not in use at the moment)
+func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+
+	if s.shut {
+		return false, fmt.Errorf("shard %q already shut or dropped", s.name)
+	}
+
+	if s.inUseCounter.Load() == 0 {
+		s.shut = true
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (s *Shard) NotifyReady() {
