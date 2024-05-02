@@ -158,7 +158,6 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 }
 
 func TestHandler_AddProperty_Tokenization(t *testing.T) {
-	t.Skip("TODO-RAFT: test appears to be deprecated or needs updating for the raft version")
 	ctx := context.Background()
 
 	class := models.Class{
@@ -364,9 +363,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 					dataType:     dataType,
 					tokenization: tokenization,
 					expectedErrContains: []string{
-						// TODO should be changed as on master
-						"Tokenization is not allowed for reference data type",
-						// "Tokenization is not allowed for object/object[] data types",
+						"Tokenization is not allowed for object/object[] data types",
 					},
 				})
 			}
@@ -383,9 +380,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 				dataType:     dataType,
 				tokenization: "nonExistent",
 				expectedErrContains: []string{
-					// TODO should be changed as on master
-					"Tokenization is not allowed for reference data type",
-					// "Tokenization is not allowed for object/object[] data types",
+					"Tokenization is not allowed for object/object[] data types",
 				},
 			})
 		}
