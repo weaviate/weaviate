@@ -65,6 +65,7 @@ func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjec
 		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
 		maxTokensPerBatch:         maxTokensPerBatch,
 		concurrentBatches:         atomic.Int32{},
+		sequentialBatching:        atomic.Bool{},
 	}
 
 	batch.rateLimitChannel = make(chan rateLimitJob, BatchChannelSize)
@@ -85,6 +86,7 @@ type endOfBatchJob struct {
 	reservedTokens    int
 	reservedReqs      int
 	apiKeyHash        [32]byte
+	concurrentBatch   bool
 }
 
 type Batch struct {
@@ -98,6 +100,7 @@ type Batch struct {
 	rateLimitChannel          chan rateLimitJob
 	endOfBatchChannel         chan endOfBatchJob
 	concurrentBatches         atomic.Int32
+	sequentialBatching        atomic.Bool
 }
 
 // batchWorker is a go routine that handles the communication with the vectorizer
@@ -145,27 +148,29 @@ func (b *Batch) batchWorker() {
 		//
 		// If the rate limit is high enough to "fit" the current batch, we send it concurrently. If not, we wait for
 		// either
-		//   - the rate limit to refresh
-		//   - the current batch to finish, so the next batch can be send sequentially
+		//   - the rate limit to refresh, so we can schedule another concurrent batch
+		//   - the current batch to finish, so the next batch can be sent sequentially
 		//
-		// While using the same code they are working slightly different:
-		//   - If the rate limit only allows a single concurrent batch, the rate limit object will be passed into the
-		//     sendBatch function and will be updated there. This is needed to avoid reaching the limit during a batch
-		//   - To be able to send multiple batches concurrently, the rate limit will be observed and updated in the main
-		//     loop and a dummy object is passed in so all checks in the send function pass.
+		// While using the same code both modes are working slightly different:
+		// 	- For concurrent batching, the amount of used tokens/requests is reserved as long as the batch is running
+		//	  and is cleared when it finishes. This ensures that we never exceed the rate limit and don't need to check
+		//	  the rate limit in the sendBatch function (we use a dummy that never fails a check). All updates happen
+		//	  in the main loop.
+		//  - For sequential batching, the rate limit  will be passed into the sendBatch function and is observed and
+		//    updated there. This allows to use the rate-limit in an optimal way, but also requires more checks. No
+		//    concurrent batch can be started while a sequential batch is running.
 
 		numRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
 		for {
 			timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
-			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
+			if !b.sequentialBatching.Load() && rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
 				rateLimit.ReservedRequests += numRequests
 				rateLimit.ReservedTokens += job.tokenSum
-				go b.sendBatch(job, objCounter, dummyRateLimit(), timePerToken, numRequests)
-				fmt.Println("Sending concurrent batch")
+				go b.sendBatch(job, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
 				break
 			} else if b.concurrentBatches.Load() < 1 {
-				go b.sendBatch(job, objCounter, rateLimit, timePerToken, 0)
-				fmt.Println("Sending single batch")
+				b.sequentialBatching.Store(true)
+				go b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
 				break
 			}
 			time.Sleep(100 * time.Millisecond)
@@ -197,11 +202,16 @@ timeLoop:
 		select {
 		case endOfBatch := <-b.endOfBatchChannel:
 			timePerToken = endOfBatch.timePerToken
-			rateLimits[endOfBatch.apiKeyHash].ReservedTokens -= endOfBatch.reservedTokens
-			rateLimits[endOfBatch.apiKeyHash].ReservedRequests -= endOfBatch.reservedReqs
 			if endOfBatch.objectsPerRequest > 0 {
 				objectsPerBatch = endOfBatch.objectsPerRequest
 			}
+
+			// if we have a concurrent batch we need to remove the reserved tokens from the rate limit
+			if endOfBatch.concurrentBatch {
+				rateLimits[endOfBatch.apiKeyHash].ReservedTokens -= endOfBatch.reservedTokens
+				rateLimits[endOfBatch.apiKeyHash].ReservedRequests -= endOfBatch.reservedReqs
+			}
+
 		default:
 			break timeLoop
 		}
@@ -209,7 +219,7 @@ timeLoop:
 	return timePerToken, objectsPerBatch
 }
 
-func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int) {
+func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecomponents.RateLimits, timePerToken float64, reservedReqs int, concurrentBatch bool) {
 	maxTokensPerBatch := b.maxTokensPerBatch(job.cfg)
 	tokensInCurrentBatch := 0
 	numRequests := 0
@@ -329,10 +339,11 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 		reservedTokens:    job.tokenSum,
 		reservedReqs:      reservedReqs,
 		apiKeyHash:        job.apiKeyHash,
+		concurrentBatch:   concurrentBatch,
 	}
 	job.wg.Done()
 	b.concurrentBatches.Add(-1)
-	fmt.Println("Took", time.Since(job.startTime), "for", len(job.texts), "objects")
+	b.sequentialBatching.Store(false)
 }
 
 func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassConfig, origIndex []int, rateLimit *modulecomponents.RateLimits, tokensInCurrentBatch int) error {
