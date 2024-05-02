@@ -22,7 +22,6 @@ import (
 // the original schema, it segregates waiting logic from the actual operation.
 // It waits until it finds an update at least as up-to-date as the specified version.
 // Note that updates may take some time to propagate to the follower, hence this process might take time.
-
 type versionedSchema struct { // TODO TEST
 	schema        *schema
 	WaitForUpdate func(ctx context.Context, version uint64) error

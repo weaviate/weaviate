@@ -30,19 +30,20 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type schemaManager interface {
-	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (uint64, error)
+	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
 	AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) (uint64, error)
 	GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error)
 	// ReadOnlyClass return class model.
 	ReadOnlyClass(name string) *models.Class
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
-	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, merge bool, prop ...*models.Property) (uint64, error)
+	AddClassProperty(ctx context.Context, principal *models.Principal, class *models.Class, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
 	MultiTenancy(class string) models.MultiTenancyConfig
 
 	// Consistent methods with the consistency flag.
@@ -55,8 +56,8 @@ type schemaManager interface {
 	) (*models.Class, uint64, error)
 
 	// GetCachedClass extracts class from context. If class was not set it is fetched first
-	GetCachedClass(ctx context.Context, principal *models.Principal, name string,
-	) (*models.Class, uint64, error)
+	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string,
+	) (map[string]versioned.Class, error)
 
 	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error

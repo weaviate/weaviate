@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 )
 
 const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
@@ -98,10 +99,17 @@ func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *m
 }
 
 func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
-	principal *models.Principal, name string,
-) (*models.Class, uint64, error) {
-	cls, err := f.GetClass(ctx, principal, name)
-	return cls, 0, err
+	principal *models.Principal, names ...string,
+) (map[string]versioned.Class, error) {
+	res := map[string]versioned.Class{}
+	for _, name := range names {
+		cls, err := f.GetClass(ctx, principal, name)
+		if err != nil {
+			return res, err
+		}
+		res[name] = versioned.Class{Class: cls}
+	}
+	return res, nil
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
@@ -114,7 +122,7 @@ func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
-) (uint64, error) {
+) (*models.Class, uint64, error) {
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
@@ -128,12 +136,12 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
-	return 0, nil
+	return class, 0, nil
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class *models.Class, merge bool, newProps ...*models.Property,
-) (uint64, error) {
+) (*models.Class, uint64, error) {
 	existing := map[string]int{}
 	var existedClass *models.Class
 	for _, c := range f.GetSchemaResponse.Objects.Classes {
@@ -157,7 +165,7 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 		}
 	}
 
-	return 0, nil
+	return class, 0, nil
 }
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,

@@ -119,16 +119,16 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.ErrorIs(t, err, errClassExists)
 
 	// QueryReadOnlyClass
-	readOnlyClass, _, err := srv.QueryReadOnlyClass(cls.Class)
+	readOnlyVClass, err := srv.QueryReadOnlyClasses(cls.Class)
 	assert.NoError(t, err)
-	assert.NotNil(t, readOnlyClass)
-	assert.Equal(t, cls, readOnlyClass)
+	assert.NotNil(t, readOnlyVClass[cls.Class].Class)
+	assert.Equal(t, cls, readOnlyVClass[cls.Class].Class)
 
 	// QuerySchema
 	getSchema, err := srv.QuerySchema()
 	assert.NoError(t, err)
 	assert.NotNil(t, getSchema)
-	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyClass}}, getSchema)
+	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyVClass[cls.Class].Class}}, getSchema)
 
 	// QueryTenants all
 	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})

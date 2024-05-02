@@ -20,6 +20,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -125,13 +126,15 @@ func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, uint64, error) {
-	args := f.Called(class)
-	model := args.Get(0)
-	if model == nil {
-		return nil, 0, args.Error(2)
+func (f *fakeMetaHandler) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	args := f.Called(classes)
+
+	models := args.Get(0)
+	if models == nil {
+		return nil, args.Error(2)
 	}
-	return model.(*models.Class), 0, nil
+
+	return models.(map[string]versioned.Class), nil
 }
 
 func (f *fakeMetaHandler) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {

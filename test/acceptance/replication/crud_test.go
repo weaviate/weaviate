@@ -89,8 +89,6 @@ func immediateReplicaCRUD(t *testing.T) {
 		helper.CreateClass(t, articleClass)
 	})
 
-	time.Sleep(1 * time.Second) // remove once eventual consistency has been addressed
-
 	t.Run("InsertParagraphsBatch", func(t *testing.T) {
 		t.Run("CreateObjectsOnNode-3", func(t *testing.T) {
 			batch := make([]*models.Object, len(paragraphIDs))
@@ -294,7 +292,6 @@ func immediateReplicaCRUD(t *testing.T) {
 }
 
 func eventualReplicaCRUD(t *testing.T) {
-	t.Skip("To be addressed as part of https://semi-technology.atlassian.net/browse/WEAVIATE-701")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -361,6 +358,9 @@ func eventualReplicaCRUD(t *testing.T) {
 	})
 
 	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
+		// TODO-RAFT : we need to avoid any sleeps, come back and remove it
+		// sleep 2 sec to make sure data not affected by EC issue
+		time.Sleep(2 * time.Second)
 		resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One)
 		assert.Len(t, resp, len(articleIDs))
 		resp = gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
