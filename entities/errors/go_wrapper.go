@@ -12,6 +12,7 @@
 package errors
 
 import (
+	"fmt"
 	"os"
 	"runtime/debug"
 
@@ -32,4 +33,22 @@ func GoWrapper(f func(), logger logrus.FieldLogger) {
 		}()
 		f()
 	}()
+}
+
+func GoWrapperWithBlock(f func(), logger logrus.FieldLogger) error {
+	errChan := make(chan error)
+	go func() {
+		defer func() {
+			if !configbase.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+				if r := recover(); r != nil {
+					logger.Errorf("Recovered from panic: %v", r)
+					debug.PrintStack()
+					errChan <- fmt.Errorf("panic occurred: %v", r)
+				}
+			}
+		}()
+		f()
+		errChan <- nil
+	}()
+	return <-errChan
 }
