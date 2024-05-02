@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -76,7 +77,11 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 
 		for _, vclass := range vclasses {
 			if err := h.parser.ParseClass(vclass.Class); err != nil {
-				// TODO: check if needed
+				// remove invalid classes
+				h.logger.WithFields(logrus.Fields{
+					"Class": vclass.Class.Class,
+					"Error": err,
+				}).Warn("parsing class error")
 				delete(vclasses, vclass.Class.Class)
 				continue
 			}
