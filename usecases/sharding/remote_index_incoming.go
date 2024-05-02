@@ -31,7 +31,7 @@ import (
 )
 
 type RemoteIncomingRepo interface {
-	GetIndexForIncoming(className schema.ClassName) RemoteIndexIncomingRepo
+	GetIndexForIncomingSharding(className schema.ClassName) RemoteIndexIncomingRepo
 }
 
 type RemoteIncomingSchema interface {
@@ -133,7 +133,7 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, selectProperties search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, nil
 	}
@@ -144,7 +144,7 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return false, nil
 	}
@@ -177,7 +177,7 @@ func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 	shardName string, ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return make([]*storobj.Object, 0), nil
 	}
@@ -190,7 +190,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return make([]*storobj.Object, 0), make([]float32, 0), nil
 	}
@@ -202,7 +202,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return &aggregation.Result{}, nil
 	}
@@ -213,7 +213,7 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
 	filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return make([]strfmt.UUID, 0), nil
 	}
@@ -235,7 +235,7 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
 	indexName, shardName string,
 ) (int64, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return 0, nil
 	}
@@ -246,7 +246,7 @@ func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
 func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
 	indexName, shardName string,
 ) (string, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return "", errors.Errorf("local index %q not found", indexName)
 	}
@@ -268,7 +268,7 @@ func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
 func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
 	indexName, shardName, filePath string,
 ) (io.WriteCloser, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, errors.Errorf("local index %q not found", indexName)
 	}
@@ -279,7 +279,7 @@ func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
 func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
 	indexName, shardName string,
 ) error {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return errors.Errorf("local index %q not found", indexName)
 	}
@@ -290,7 +290,7 @@ func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
 func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	indexName, shardName string,
 ) error {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return errors.Errorf("local index %q not found", indexName)
 	}
@@ -301,7 +301,7 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 	indexName, shardName string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
@@ -312,7 +312,7 @@ func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) ([]replica.RepairResponse, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
@@ -327,7 +327,7 @@ func (rii *RemoteIndexIncoming) indexForIncomingWrite(ctx context.Context, index
 	if _, err := rii.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
 		return nil, fmt.Errorf("local index %q not found: %w", indexName, err)
 	}
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, fmt.Errorf("local index %q not found", indexName)
 	}
