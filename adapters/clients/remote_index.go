@@ -71,7 +71,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	_, err = c.do(c.timeoutUnit*30, req, body, nil, successCode)
+	_, err = c.do(c.timeoutUnit*60, req, body, nil, successCode)
 	return err
 }
 
@@ -111,7 +111,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	if err = c.doWithCustomMarshaller(c.timeoutUnit*30, req, body, decode, successCode); err != nil {
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode); err != nil {
 		return duplicateErr(err, len(objs))
 	}
 

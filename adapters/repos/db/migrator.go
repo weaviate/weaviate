@@ -743,6 +743,11 @@ func (m *Migrator) WaitForStartup(ctx context.Context) error {
 	return m.db.WaitForStartup(ctx)
 }
 
+// Shutdown no-op if db was never loaded
 func (m *Migrator) Shutdown(ctx context.Context) error {
+	if !m.db.StartupComplete() {
+		return nil
+	}
+	m.logger.Info("closing loaded database ...")
 	return m.db.Shutdown(ctx)
 }

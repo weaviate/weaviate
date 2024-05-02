@@ -112,7 +112,6 @@ func Benchmark_L2_PureGo_VS_SIMD(b *testing.B) {
 					asm.L2_Neon(x, y)
 				}
 			})
-
 		})
 	}
 }

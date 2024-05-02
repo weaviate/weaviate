@@ -1047,6 +1047,68 @@ func localMetaWithWhereGroupByNearMediaFilters(t *testing.T) {
 }
 
 func localMetaWithObjectLimit(t *testing.T) {
+	t.Run("with nearText and no distance/certainty, where filter and groupBy", func(t *testing.T) {
+		objectLimit := 4
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
+			{
+				Aggregate {
+					Company (
+						groupBy: ["name"]
+						where: {
+							valueText: "Apple*",
+							operator: Like,
+							path: ["name"]
+						}
+						objectLimit: %d
+						nearText: {
+							concepts: ["Apple"]
+							certainty: 0.5
+						}
+					){
+						meta {
+							count
+						}
+						groupedBy {
+        					value
+						}
+					}
+				}
+			}
+		`, objectLimit))
+
+		expected := []interface{}{
+			map[string]interface{}{
+				"groupedBy": map[string]interface{}{
+					"value": "Apple Incorporated",
+				},
+				"meta": map[string]interface{}{
+					"count": json.Number("1"),
+				},
+			},
+			map[string]interface{}{
+				"groupedBy": map[string]interface{}{
+					"value": "Apple Inc.",
+				},
+				"meta": map[string]interface{}{
+					"count": json.Number("1"),
+				},
+			},
+			map[string]interface{}{
+				"groupedBy": map[string]interface{}{
+					"value": "Apple",
+				},
+				"meta": map[string]interface{}{
+					"count": json.Number("1"),
+				},
+			},
+		}
+
+		companies := result.Get("Aggregate", "Company").Result.([]interface{})
+		for _, company := range companies {
+			assert.Contains(t, expected, company)
+		}
+	})
+
 	t.Run("with nearObject and distance", func(t *testing.T) {
 		objectLimit := 1
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, fmt.Sprintf(`
