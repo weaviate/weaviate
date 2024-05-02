@@ -21,7 +21,7 @@ type wcsEmbedUrlBuilder struct {
 func newWCSEmbedUrlBuilder() *wcsEmbedUrlBuilder {
 	return &wcsEmbedUrlBuilder{
 		origin:   "https://some.path.to.wcs.embed",
-		pathMask: "/v1/embed",
+		pathMask: "/v1/embeddings/embed",
 	}
 }
 
