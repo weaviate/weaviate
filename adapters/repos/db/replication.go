@@ -309,13 +309,13 @@ func (db *DB) OverwriteObjects(ctx context.Context,
 	class, shardName string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
 	index := db.GetIndex(schema.ClassName(class))
-	return index.overwriteObjects(ctx, shardName, vobjects)
+	return index.OverwriteObjects(ctx, shardName, vobjects)
 }
 
-// overwrite objects if their state didn't change in the meantime
+// OverwriteObjects if their state didn't change in the meantime
 // It returns nil if all object have been successfully overwritten
 // and otherwise a list of failed operations.
-func (i *Index) overwriteObjects(ctx context.Context,
+func (i *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
 	result := make([]replica.RepairResponse, 0, len(updates)/2)
@@ -366,7 +366,7 @@ func (i *Index) overwriteObjects(ctx context.Context,
 func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 	shardName string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	return i.overwriteObjects(ctx, shardName, vobjects)
+	return i.OverwriteObjects(ctx, shardName, vobjects)
 }
 
 func (db *DB) DigestObjects(ctx context.Context,
@@ -376,10 +376,10 @@ func (db *DB) DigestObjects(ctx context.Context,
 	if index == nil {
 		return nil, fmt.Errorf("index for class %v not found locally", index)
 	}
-	return index.digestObjects(ctx, shardName, ids)
+	return index.DigestObjects(ctx, shardName, ids)
 }
 
-func (i *Index) digestObjects(ctx context.Context,
+func (i *Index) DigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	result = make([]replica.RepairResponse, len(ids))
@@ -426,17 +426,17 @@ func (i *Index) digestObjects(ctx context.Context,
 func (i *Index) IncomingDigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
-	return i.digestObjects(ctx, shardName, ids)
+	return i.DigestObjects(ctx, shardName, ids)
 }
 
 func (db *DB) FetchObject(ctx context.Context,
 	class, shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
 	index := db.GetIndex(schema.ClassName(class))
-	return index.readRepairGetObject(ctx, shardName, id)
+	return index.FetchObject(ctx, shardName, id)
 }
 
-func (i *Index) readRepairGetObject(ctx context.Context,
+func (i *Index) FetchObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
 	shard, err := i.getOrInitLocalShard(ctx, shardName)
@@ -470,10 +470,10 @@ func (db *DB) FetchObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
 	index := db.GetIndex(schema.ClassName(class))
-	return index.fetchObjects(ctx, shardName, ids)
+	return index.FetchObjects(ctx, shardName, ids)
 }
 
-func (i *Index) fetchObjects(ctx context.Context,
+func (i *Index) FetchObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
 	shard, err := i.getOrInitLocalShard(ctx, shardName)
