@@ -255,7 +255,7 @@ func getReferenceClasses(ctx context.Context,
 		err = fmt.Errorf("get source class %q: %w", classFrom, err)
 		return
 	}
-	if len(vclasses) == 0 {
+	if vclasses[classFrom].Class == nil {
 		err = fmt.Errorf("source class %q not found in schema", classFrom)
 		return
 	}
