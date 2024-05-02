@@ -44,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/locks"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -197,8 +198,8 @@ type Index struct {
 	// loading will be set to true once the last shard was loaded.
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
-	shardCreateLocks *shardCreateLocks
-	shardLocks       *shardLocks // TODO experiment
+	shardCreateLocks *locks.NamedLocks
+	shardInUseLocks  *locks.NamedRWLocks
 	modules          *modules.Provider
 }
 
@@ -268,8 +269,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:    indexCheckpoints,
 		allocChecker:        allocChecker,
-		shardCreateLocks:    newShardCreateLocks(),
-		shardLocks:          newShardLocks(),
+		shardCreateLocks:    locks.NewNamedLocks(),
+		shardInUseLocks:     locks.NewNamedRWLocks(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -836,7 +837,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
-				shard, release, err := i.getLocalShardWithShutdownPrevention(shardName)
+				shard, release, err := i.getLocalShardNoShutdown(shardName)
 				if err != nil {
 					errs = []error{err}
 				} else if shard != nil {
@@ -927,7 +928,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 		}
 	}
 
-	shard, release, err := i.getOrInitLocalShardWithShutdownPrevention(ctx, shardName)
+	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
 		return duplicateErr(ErrShardNotFound, len(objects))
 	}
@@ -1679,14 +1680,13 @@ func (i *Index) localShard(name string) ShardLike {
 	return i.shards.Load(name)
 }
 
-func (i *Index) getOrInitLocalShardWithShutdownPrevention(ctx context.Context, shardName string,
-) (ShardLike, func(), error) {
-	i.shardLocks.RLock(shardName)
-	defer i.shardLocks.RUnlock(shardName)
+func (i *Index) getLocalShardNoShutdown(shardName string) (ShardLike, func(), error) {
+	i.shardInUseLocks.RLock(shardName)
+	defer i.shardInUseLocks.RUnlock(shardName)
 
-	shard, err := i.getOrInitLocalShard(ctx, shardName)
-	if err != nil {
-		return nil, func() {}, err
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
 	}
 
 	release, err := shard.preventShutdown()
@@ -1696,13 +1696,14 @@ func (i *Index) getOrInitLocalShardWithShutdownPrevention(ctx context.Context, s
 	return shard, release, nil
 }
 
-func (i *Index) getLocalShardWithShutdownPrevention(shardName string) (ShardLike, func(), error) {
-	i.shardLocks.RLock(shardName)
-	defer i.shardLocks.RUnlock(shardName)
+func (i *Index) getOrInitLocalShardNoShutdown(ctx context.Context, shardName string,
+) (ShardLike, func(), error) {
+	i.shardInUseLocks.RLock(shardName)
+	defer i.shardInUseLocks.RUnlock(shardName)
 
-	shard := i.shards.Load(shardName)
-	if shard == nil {
-		return nil, func() {}, nil
+	shard, err := i.getOrInitLocalShard(ctx, shardName)
+	if err != nil {
+		return nil, func() {}, err
 	}
 
 	release, err := shard.preventShutdown()
@@ -2231,93 +2232,4 @@ func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[str
 		return vectorIndexConfigs
 	}
 	return nil
-}
-
-type shardCreateLocks struct {
-	main  *sync.Mutex
-	locks map[string]*sync.Mutex
-}
-
-func newShardCreateLocks() *shardCreateLocks {
-	return &shardCreateLocks{
-		main:  new(sync.Mutex),
-		locks: make(map[string]*sync.Mutex),
-	}
-}
-
-func (l *shardCreateLocks) Lock(name string) {
-	l.shardLock(name).Lock()
-}
-
-func (l *shardCreateLocks) Unlock(name string) {
-	l.shardLock(name).Unlock()
-}
-
-func (l *shardCreateLocks) Locked(name string, callback func()) {
-	l.Lock(name)
-	defer l.Unlock(name)
-
-	callback()
-}
-
-func (l *shardCreateLocks) shardLock(name string) *sync.Mutex {
-	l.main.Lock()
-	defer l.main.Unlock()
-
-	if _, ok := l.locks[name]; !ok {
-		l.locks[name] = new(sync.Mutex)
-	}
-	return l.locks[name]
-}
-
-type shardLocks struct {
-	main  *sync.Mutex
-	locks map[string]*sync.RWMutex
-}
-
-func newShardLocks() *shardLocks {
-	return &shardLocks{
-		main:  new(sync.Mutex),
-		locks: make(map[string]*sync.RWMutex),
-	}
-}
-
-func (l *shardLocks) Lock(name string) {
-	l.shardLock(name).Lock()
-}
-
-func (l *shardLocks) Unlock(name string) {
-	l.shardLock(name).Unlock()
-}
-
-func (l *shardLocks) Locked(name string, callback func()) {
-	l.Lock(name)
-	defer l.Unlock(name)
-
-	callback()
-}
-
-func (l *shardLocks) RLock(name string) {
-	l.shardLock(name).RLock()
-}
-
-func (l *shardLocks) RUnlock(name string) {
-	l.shardLock(name).RUnlock()
-}
-
-func (l *shardLocks) RLocked(name string, callback func()) {
-	l.RLock(name)
-	defer l.RUnlock(name)
-
-	callback()
-}
-
-func (l *shardLocks) shardLock(name string) *sync.RWMutex {
-	l.main.Lock()
-	defer l.main.Unlock()
-
-	if _, ok := l.locks[name]; !ok {
-		l.locks[name] = new(sync.RWMutex)
-	}
-	return l.locks[name]
 }

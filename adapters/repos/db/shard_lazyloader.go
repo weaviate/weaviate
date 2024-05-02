@@ -420,7 +420,7 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 	if err := l.Load(context.Background()); err != nil {
-		return nil, fmt.Errorf("preventShutdown: %w", err)
+		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
 	}
 	return l.shard.preventShutdown()
 }
