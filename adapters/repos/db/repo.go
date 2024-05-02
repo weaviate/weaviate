@@ -233,7 +233,7 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 }
 
 // TODO-RAFT: Because of interfaces and import order we can't have this function just return the same index interface
-// for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remode the
+// for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remove the
 // deduplication
 
 // GetIndexForIncomingSharding returns the index if it exists or nil if it doesn't

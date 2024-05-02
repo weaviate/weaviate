@@ -305,13 +305,6 @@ func (s *Shard) reinit(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) OverwriteObjects(ctx context.Context,
-	class, shardName string, vobjects []*objects.VObject,
-) ([]replica.RepairResponse, error) {
-	index := db.GetIndex(schema.ClassName(class))
-	return index.OverwriteObjects(ctx, shardName, vobjects)
-}
-
 // OverwriteObjects if their state didn't change in the meantime
 // It returns nil if all object have been successfully overwritten
 // and otherwise a list of failed operations.
@@ -369,16 +362,6 @@ func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 	return i.OverwriteObjects(ctx, shardName, vobjects)
 }
 
-func (db *DB) DigestObjects(ctx context.Context,
-	class, shardName string, ids []strfmt.UUID,
-) (result []replica.RepairResponse, err error) {
-	index := db.GetIndex(schema.ClassName(class))
-	if index == nil {
-		return nil, fmt.Errorf("index for class %v not found locally", index)
-	}
-	return index.DigestObjects(ctx, shardName, ids)
-}
-
 func (i *Index) DigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
@@ -429,13 +412,6 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 	return i.DigestObjects(ctx, shardName, ids)
 }
 
-func (db *DB) FetchObject(ctx context.Context,
-	class, shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
-	index := db.GetIndex(schema.ClassName(class))
-	return index.FetchObject(ctx, shardName, id)
-}
-
 func (i *Index) FetchObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
@@ -464,13 +440,6 @@ func (i *Index) FetchObject(ctx context.Context,
 		Object: obj,
 		ID:     obj.ID(),
 	}, nil
-}
-
-func (db *DB) FetchObjects(ctx context.Context,
-	class, shardName string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
-	index := db.GetIndex(schema.ClassName(class))
-	return index.FetchObjects(ctx, shardName, ids)
 }
 
 func (i *Index) FetchObjects(ctx context.Context,
