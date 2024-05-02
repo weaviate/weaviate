@@ -418,6 +418,13 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	return l.shard.Shutdown(ctx)
 }
 
+func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
+	if err := l.Load(context.Background()); err != nil {
+		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
+	}
+	return l.shard.preventShutdown()
+}
+
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
