@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/cluster/transport"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -31,6 +32,10 @@ type Service struct {
 	client     *transport.Client
 	rpcService *transport.Service
 	logger     *logrus.Logger
+
+	// closing channels
+	closeBootstrapper chan struct{}
+	closeWaitForDB    chan struct{}
 }
 
 func New(cfg store.Config) *Service {
@@ -42,10 +47,12 @@ func New(cfg store.Config) *Service {
 		Service:  server,
 		raftAddr: fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
 
-		config:     &cfg,
-		client:     cl,
-		rpcService: transport.New(&fsm, server, addr, cfg.Logger, cfg.RaftRPCMessageMaxSize),
-		logger:     cfg.Logger,
+		config:            &cfg,
+		client:            cl,
+		rpcService:        transport.New(&fsm, server, addr, cfg.Logger, cfg.RaftRPCMessageMaxSize),
+		logger:            cfg.Logger,
+		closeBootstrapper: make(chan struct{}),
+		closeWaitForDB:    make(chan struct{}),
 	}
 }
 
@@ -73,22 +80,36 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 		bCtx,
 		c.config.ServerName2PortMap,
 		c.logger,
-		c.config.Voter); err != nil {
+		c.config.Voter, c.closeBootstrapper); err != nil {
 		return fmt.Errorf("bootstrap: %w", err)
 	}
 
-	if err := c.WaitUntilDBRestored(ctx, 10*time.Second); err != nil {
+	if err := c.WaitUntilDBRestored(ctx, 10*time.Second, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
 	return nil
 }
 
-func (c *Service) Close(ctx context.Context) (err error) {
-	err = c.Service.Close(ctx)
+func (c *Service) Close(ctx context.Context) error {
+	enterrors.GoWrapper(func() {
+		c.closeBootstrapper <- struct{}{}
+		c.closeWaitForDB <- struct{}{}
+	}, c.logger)
+
+	if err := c.Service.Close(ctx); err != nil {
+		return err
+	}
+
+	c.logger.Info("closing raft-rpc client ...")
+
+	if err := c.client.Close(); err != nil {
+		return err
+	}
+
+	c.logger.Info("closing raft-rpc server ...")
 	c.rpcService.Close()
-	c.client.Close()
-	return
+	return nil
 }
 
 func (c *Service) Ready() bool {

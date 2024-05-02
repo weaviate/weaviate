@@ -293,8 +293,8 @@ func (s *Service) LeaderWithID() (string, string) {
 	return string(addr), string(id)
 }
 
-func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
-	return s.store.WaitToRestoreDB(ctx, period)
+func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
+	return s.store.WaitToRestoreDB(ctx, period, close)
 }
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
@@ -411,7 +411,7 @@ func (s *Service) QueryShardOwner(class, shard string) (string, uint64, error) {
 	return resp.Owner, resp.ShardVersion, nil
 }
 
-// QueryShardOwner build a Query to read the tenant and activity status  of a given class and tenant pair.
+// QueryTenantsShards build a Query to read the tenants and their activity status of a given class.
 // The request will be directed to the leader to ensure we  will read the tenant with strong consistency and return the
 // shard owner node
 func (s *Service) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
@@ -438,6 +438,35 @@ func (s *Service) QueryTenantsShards(class string, tenants ...string) (map[strin
 	}
 
 	return resp.TenantsActivityStatus, resp.SchemaVersion, nil
+}
+
+// QueryShardingState build a Query to read the sharding state of a given class.
+// The request will be directed to the leader to ensure we  will read the shard state with strong consistency and return the
+// state and it's version.
+func (s *Service) QueryShardingState(class string) (*sharding.State, uint64, error) {
+	// Build the query and execute it
+	req := cmd.QueryShardingStateRequest{Class: class}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_SHARDING_STATE,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Unmarshal the response
+	resp := cmd.QueryShardingStateResponse{}
+	err = json.Unmarshal(queryResp.Payload, &resp)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return resp.State, resp.Version, nil
 }
 
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse

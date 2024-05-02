@@ -40,8 +40,6 @@ func TestGRPC_Batch(t *testing.T) {
 }
 
 func TestGRPC_Batch_Cluster(t *testing.T) {
-	t.Skip("disabled due to eventual consistency failure. Re-enable when eventual consistency on batch is tackled. See: WEAVIATE-754")
-
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviateClusterWithGRPC().
