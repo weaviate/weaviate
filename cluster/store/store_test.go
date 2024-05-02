@@ -173,6 +173,12 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 
+	// QueryShardingState
+	mc.Sharding = sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}}
+	getShardingState, _, err := srv.QueryShardingState(cls.Class)
+	assert.Nil(t, err)
+	assert.Equal(t, &mc.Sharding, getShardingState)
+
 	// UpdateClass
 	info := ClassInfo{
 		Exists:            true,
