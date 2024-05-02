@@ -85,3 +85,12 @@ type QueryTenantsShardsResponse struct {
 	TenantsActivityStatus map[string]string // map[tenant]status
 	SchemaVersion         uint64
 }
+
+type QueryShardingStateRequest struct {
+	Class string
+}
+
+type QueryShardingStateResponse struct {
+	State   *sharding.State
+	Version uint64
+}
