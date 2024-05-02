@@ -60,6 +60,7 @@ import (
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
+	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
@@ -82,6 +83,7 @@ import (
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
@@ -986,6 +988,22 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modollama.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativeoctoai.Name]; ok {
+		appState.Modules.Register(modgenerativeoctoai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeoctoai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2vecoctoai.Name]; ok {
+		appState.Modules.Register(modtext2vecoctoai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecoctoai.Name).
 			Debug("enabled module")
 	}
 
