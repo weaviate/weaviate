@@ -65,7 +65,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		params.SearchVector = searchVector
 
 		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
-			params.NearObject, params.ModuleParams)
+			params.NearObject, params.ModuleParams, nil)
 
 		if certainty == 0 && params.ObjectLimit == nil {
 			return nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
@@ -78,17 +78,21 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if len(params.Hybrid.TargetVectors) == 1 {
 			targetVector = params.Hybrid.TargetVectors[0]
 		}
-		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
-			params.ClassName.String(), targetVector)
+		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(), params.ClassName.String(), targetVector)
 		if err != nil {
 			return nil, err
 		}
-		vec, err := t.nearParamsVector.modulesProvider.
-			VectorFromInput(ctx, params.ClassName.String(), params.Hybrid.Query, targetVector)
-		if err != nil {
-			return nil, err
+
+		params.TargetVector = targetVector
+
+		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
+			params.NearObject, params.ModuleParams, params.Hybrid)
+
+		if certainty == 0 && params.ObjectLimit == nil {
+			return nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
 		}
-		params.Hybrid.Vector = vec
+
+		params.Certainty = certainty
 	}
 
 	if params.Filters != nil {
