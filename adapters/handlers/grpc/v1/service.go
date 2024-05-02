@@ -79,6 +79,19 @@ func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*p
 }
 
 func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+	var result *pb.BatchDeleteReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.batchDelete(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
 	before := time.Now()
 	principal, err := s.principalFromContext(ctx)
 	if err != nil {
@@ -111,6 +124,19 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 }
 
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	var result *pb.BatchObjectsReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.batchObjects(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	before := time.Now()
 	principal, err := s.principalFromContext(ctx)
 	if err != nil {
@@ -145,6 +171,19 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	var result *pb.SearchReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.search(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
@@ -155,54 +194,21 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	scheme := s.schemaManager.GetSchemaSkipAuth()
 	replier := NewReplier(req.Uses_123Api, req.Uses_125Api)
 
-	type reply struct {
-		Result *pb.SearchReply
-		Error  error
+	searchParams, err := searchParamsFromProto(req, s.schemaManager.ReadOnlyClass, s.config)
+	if err != nil {
+		return nil, err
 	}
 
-	c := make(chan reply, 1)
-	f := func() {
-		defer func() {
-			if err := recover(); err != nil {
-				c <- reply{
-					Result: nil,
-					Error:  fmt.Errorf("panic occurred: %v", err),
-				}
-			}
-		}()
-
-		searchParams, err := searchParamsFromProto(req, s.schemaManager.ReadOnlyClass, s.config)
-		if err != nil {
-			c <- reply{
-				Result: nil,
-				Error:  fmt.Errorf("extract params: %w", err),
-			}
-		}
-
-		if err := s.validateClassAndProperty(searchParams); err != nil {
-			c <- reply{
-				Result: nil,
-				Error:  err,
-			}
-		}
-
-		res, err := s.traverser.GetClass(ctx, principal, searchParams)
-		if err != nil {
-			c <- reply{
-				Result: nil,
-				Error:  err,
-			}
-		}
-
-		proto, err := replier.Search(res, before, searchParams, scheme)
-		c <- reply{
-			Result: proto,
-			Error:  err,
-		}
+	if err := s.validateClassAndProperty(searchParams); err != nil {
+		return nil, err
 	}
-	enterrors.GoWrapper(f, s.logger)
-	res := <-c
-	return res.Result, res.Error
+
+	res, err := s.traverser.GetClass(ctx, principal, searchParams)
+	if err != nil {
+		return nil, err
+	}
+
+	return replier.Search(res, before, searchParams, scheme)
 }
 
 func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
