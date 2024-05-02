@@ -303,14 +303,14 @@ func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration,
 // ensure we will read the class with strong consistency
 func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
 	if len(classes) == 0 {
-		return nil, fmt.Errorf("empty class name: %w", errBadRequest)
+		return nil, fmt.Errorf("empty classes names: %w", errBadRequest)
 	}
 
 	// remove dedup and empty
 	slices.Sort(classes)
 	classes = slices.Compact(classes)
 	if len(classes) == 0 {
-		return nil, fmt.Errorf("empty class name: %w", errBadRequest)
+		return map[string]versioned.Class{}, fmt.Errorf("empty classes names: %w", errBadRequest)
 	}
 
 	if len(classes) > 1 && classes[0] == "" {

@@ -471,7 +471,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 				fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 				fakeMetaHandler.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				t.Run("added_"+tc.propName, func(t *testing.T) {
-					_, err := handler.AddClassProperty(ctx, nil, &class, false, &models.Property{
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, &models.Property{
 						Name:         "added_" + tc.propName,
 						DataType:     tc.dataType.PropString(),
 						Tokenization: tc.tokenization,
@@ -643,7 +643,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 						IndexSearchable: tc.indexSearchable,
 					}
 					fakeMetaHandler.On("AddProperty", className, []*models.Property{prop}).Return(nil)
-					_, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
 
 					require.Nil(t, err)
 				})
@@ -967,7 +967,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddProperty", class.Class, []*models.Property{property}).Return(nil)
 					}
-					_, err = handler.AddClassProperty(context.Background(), nil, class, false, property)
+					_, _, err = handler.AddClassProperty(context.Background(), nil, class, false, property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)

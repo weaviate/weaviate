@@ -132,7 +132,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			batchObjects[i].Err = err
 			continue
 		}
-		if vclasses[obj.Class].Class == nil {
+		if len(vclasses) == 0 || vclasses[obj.Class].Class == nil {
 			batchObjects[i].Err = fmt.Errorf("class '%v' not present in schema", obj.Class)
 			continue
 		}
