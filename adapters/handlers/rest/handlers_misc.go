@@ -109,7 +109,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 					{
 						Name:              "trigger and view status of classifications",
 						Href:              fmt.Sprintf("%s/v1/classifications{/:id}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/classifications,
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/classifications",
 					},
 					{
 						Name:              "check if Weaviate is live (returns 200 on GET when live)",
