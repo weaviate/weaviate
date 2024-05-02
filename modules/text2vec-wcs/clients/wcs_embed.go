@@ -37,7 +37,6 @@ const (
 
 type embeddingsRequest struct {
 	Texts         []string `json:"texts"`
-	Model         string   `json:"model,omitempty"`
 	IsSearchQuery bool     `json:"is_search_query,omitempty"`
 }
 
@@ -51,9 +50,9 @@ type embeddingsResponseError struct {
 }
 
 type metadata struct {
-	Model                 string        `json:"model,omitempty"`
-	TimeTakenInference    time.Duration `json:"time_taken_inference,omitempty"`
-	NumEmbeddingsInferred int           `json:"num_embeddings_inferred,omitempty"`
+	Model                 string  `json:"model,omitempty"`
+	TimeTakenInference    float32 `json:"time_taken_inference,omitempty"`
+	NumEmbeddingsInferred int     `json:"num_embeddings_inferred,omitempty"`
 }
 
 type vectorizer struct {
@@ -103,7 +102,6 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 ) (*modulecomponents.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Texts:         input,
-		Model:         model,
 		IsSearchQuery: isSearchQuery,
 	})
 	if err != nil {

@@ -38,7 +38,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &wcsEmbedUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -61,7 +61,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &wcsEmbedUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -85,7 +85,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &wcsEmbedUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -103,7 +103,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &wcsEmbedUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -129,7 +129,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &wcsEmbedUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -152,7 +152,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &wcsEmbedUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -175,7 +175,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &wcsEmbedUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings/embed",
 			},
 			logger: nullLogger(),
 		}
@@ -185,10 +185,10 @@ func TestClient(t *testing.T) {
 			"X-WCS-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
 		buildURL := c.getWcsEmbedURL(ctxWithValue, baseURL)
-		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embed", buildURL)
+		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embeddings/embed", buildURL)
 
 		buildURL = c.getWcsEmbedURL(context.TODO(), baseURL)
-		assert.Equal(t, "http://default-url.com/v1/embed", buildURL)
+		assert.Equal(t, "http://default-url.com/v1/embeddings/embed", buildURL)
 	})
 
 	t.Run("pass rate limit headers requests", func(t *testing.T) {
@@ -199,7 +199,7 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			urlBuilder: &wcsEmbedUrlBuilder{
 				origin:   server.URL,
-				pathMask: "/v1/embed",
+				pathMask: "/v1/embeddings/embed",
 			},
 			logger: nullLogger(),
 		}
