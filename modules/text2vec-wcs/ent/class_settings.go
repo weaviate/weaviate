@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	// TODO:  to be replaced with actual URL
-	DefaultBaseURL               = "https://api.wcs.io"
+	// TODO: replace docker internal host with actual host
+	DefaultBaseURL               = "http://host.docker.internal:8000" 
 	DefaultWCSModel              = "mixedbread-ai/mxbai-embed-large-v1"
 	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true
