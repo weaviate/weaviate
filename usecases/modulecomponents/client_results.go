@@ -56,10 +56,6 @@ func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int) bool {
 	return percentageOfRequests <= 15 && percentageOfTokens <= 15
 }
 
-func (rl *RateLimits) updateUsagePercentage() bool {
-	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
-}
-
 func (rl *RateLimits) IsInitialized() bool {
 	return rl.RemainingRequests == 0 && rl.RemainingTokens == 0
 }
