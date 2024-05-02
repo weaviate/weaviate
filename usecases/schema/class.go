@@ -663,6 +663,9 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 			err = fmt.Errorf("enabling multi-tenancy for an existing class is not supported")
 		}
 	}
+	if !enabled && schema.AutoTenantCreationEnabled(update) {
+		err = fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
+	}
 	return
 }
 
