@@ -358,6 +358,9 @@ func eventualReplicaCRUD(t *testing.T) {
 	})
 
 	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
+		// TODO-RAFT : we need to avoid any sleeps, come back and remove it
+		// sleep 2 sec to make sure data not affected by EC issue
+		time.Sleep(2 * time.Second)
 		resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One)
 		assert.Len(t, resp, len(articleIDs))
 		resp = gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
