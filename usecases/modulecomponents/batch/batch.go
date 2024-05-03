@@ -164,10 +164,12 @@ func (b *Batch) batchWorker() {
 			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
 				rateLimit.ReservedRequests += numRequests
 				rateLimit.ReservedTokens += job.tokenSum
+				fmt.Println("Concurrent batch", job.cfg)
 				go b.sendBatch(job, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
 				break
 			} else if b.concurrentBatches.Load() < 1 {
 				// block so no concurrent batch can be sent
+				fmt.Println("Sequential batch", job.cfg)
 				b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
 				break
 			}
