@@ -14,6 +14,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  Buf-Checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-setup-action@v1
+      - uses: bufbuild/buf-lint-action@v1
+        with:
+          input: "cluster/proto"
+      - uses: bufbuild/buf-breaking-action@v1
+        if: github.event_name == 'pull_request'
+        with:
+          input: "cluster/proto"
+          against: "https://github.com/${GITHUB_REPOSITORY}.git#branch=${{ github.event.pull_request.base.ref }},subdir=cluster/proto"
   Run-Swagger:
     name: run-swagger
     runs-on: ubuntu-latest
