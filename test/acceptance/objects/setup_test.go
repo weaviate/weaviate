@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
 
@@ -79,6 +80,7 @@ func TestObjects_AsyncIndexing(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	testObjects(t)
+	asyncTestObjects(t)
 }
 
 func TestObjects_SyncIndexing(t *testing.T) {
@@ -169,6 +171,45 @@ func testObjects(t *testing.T) {
 	deleteObjectClass(t, "NonExistingClass")
 	deleteObjectClass(t, "TestDeleteClassOne")
 	deleteObjectClass(t, "TestDeleteClassTwo")
+}
+
+func asyncTestObjects(t *testing.T) {
+	className := "Dynamic"
+	createObjectClass(t, &models.Class{
+		Class:           className,
+		Vectorizer:      "none",
+		VectorIndexType: "dynamic",
+		VectorIndexConfig: map[string]interface{}{
+			"threshold": 999,
+			"hnsw": map[string]interface{}{
+				"ef": 123,
+			},
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "description",
+				DataType: []string{"text"},
+			},
+		},
+	})
+
+	t.Run("update dynamic hnsw ef", func(t *testing.T) {
+		params := clschema.NewSchemaObjectsGetParams().
+			WithClassName(className)
+		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
+		require.Nil(t, err)
+
+		class := res.Payload
+
+		class.InvertedIndexConfig.Stopwords.Preset = "none"
+
+		updateParams := clschema.NewSchemaObjectsUpdateParams().
+			WithClassName(className).
+			WithObjectClass(class)
+		_, err = helper.Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		assert.Nil(t, err)
+	})
+	deleteObjectClass(t, className)
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {
