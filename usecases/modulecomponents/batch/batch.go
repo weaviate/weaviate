@@ -65,6 +65,7 @@ func NewBatchVectorizer(client BatchClient, maxBatchTime time.Duration, maxObjec
 		maxTimePerVectorizerBatch: maxTimePerVectorizerBatch,
 		maxTokensPerBatch:         maxTokensPerBatch,
 		concurrentBatches:         atomic.Int32{},
+		logger:                    logger,
 	}
 
 	batch.rateLimitChannel = make(chan rateLimitJob, BatchChannelSize)
@@ -99,6 +100,7 @@ type Batch struct {
 	rateLimitChannel          chan rateLimitJob
 	endOfBatchChannel         chan endOfBatchJob
 	concurrentBatches         atomic.Int32
+	logger                    logrus.FieldLogger
 }
 
 // batchWorker is a go routine that handles the communication with the vectorizer
@@ -164,12 +166,12 @@ func (b *Batch) batchWorker() {
 			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
 				rateLimit.ReservedRequests += numRequests
 				rateLimit.ReservedTokens += job.tokenSum
-				fmt.Println("Concurrent batch", job.cfg)
-				go b.sendBatch(job, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
+				enterrors.GoWrapper(func() {
+					b.sendBatch(job, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
+				}, b.logger)
 				break
 			} else if b.concurrentBatches.Load() < 1 {
 				// block so no concurrent batch can be sent
-				fmt.Println("Sequential batch", job.cfg)
 				b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
 				break
 			}
