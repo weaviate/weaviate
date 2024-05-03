@@ -48,6 +48,22 @@ type BatchJob struct {
 	tokenSum   int
 }
 
+func (b BatchJob) copy() BatchJob {
+	return BatchJob{
+		texts:      b.texts,
+		tokens:     b.tokens,
+		ctx:        b.ctx,
+		wg:         b.wg,
+		errs:       b.errs,
+		cfg:        b.cfg,
+		vecs:       b.vecs,
+		skipObject: b.skipObject,
+		startTime:  b.startTime,
+		apiKeyHash: b.apiKeyHash,
+		tokenSum:   b.tokenSum,
+	}
+}
+
 type BatchClient interface {
 	Vectorize(ctx context.Context, input []string,
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
@@ -113,7 +129,6 @@ type Batch struct {
 func (b *Batch) batchWorker() {
 	timePerToken := 0.0
 	objectsPerBatch := b.maxObjectsPerBatch
-	seenObjects := 0
 
 	rateLimitPerApiKey := make(map[[32]byte]*modulecomponents.RateLimits)
 
@@ -164,10 +179,13 @@ func (b *Batch) batchWorker() {
 			timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
 			numRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
 			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
+				jobCopy := job.copy()
 				rateLimit.ReservedRequests += numRequests
 				rateLimit.ReservedTokens += job.tokenSum
+				timePerToken := timePerToken
+				numRequests := numRequests
 				enterrors.GoWrapper(func() {
-					b.sendBatch(job, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
+					b.sendBatch(jobCopy, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
 				}, b.logger)
 				break
 			} else if b.concurrentBatches.Load() < 1 {
@@ -177,7 +195,6 @@ func (b *Batch) batchWorker() {
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		seenObjects += len(job.texts)
 		b.concurrentBatches.Add(1)
 	}
 }
