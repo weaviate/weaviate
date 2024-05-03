@@ -48,8 +48,13 @@ func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int) bool {
 	}
 
 	// also make sure that we do not "spend" all the rate limit at once
-	percentageOfRequests := numRequests * 100 / rl.LimitRequests
-	percentageOfTokens := batchTokens * 100 / rl.LimitTokens
+	var percentageOfRequests, percentageOfTokens int
+	if rl.LimitRequests > 0 {
+		percentageOfRequests = numRequests * 100 / rl.LimitRequests
+	}
+	if rl.LimitTokens > 0 {
+		percentageOfTokens = batchTokens * 100 / rl.LimitTokens
+	}
 
 	// the clients aim for 10s per batch, or 6 batches per minute in sequential-mode. 15% is somewhat below that to
 	// account for some variance in the rate limits
