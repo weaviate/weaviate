@@ -64,6 +64,8 @@ import (
 
 const IdLockPoolSize = 128
 
+var errAlreadyShutdown = errors.New("already shut or dropped")
+
 type ShardLike interface {
 	Index() *Index                                                                      // Get the parent index
 	Name() string                                                                       // Get the shard name
@@ -1057,7 +1059,7 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	defer s.shutdownLock.RUnlock()
 
 	if s.shut {
-		return func() {}, fmt.Errorf("shard %q already shut or dropped", s.name)
+		return func() {}, errAlreadyShutdown
 	}
 
 	s.inUseCounter.Add(1)
@@ -1100,7 +1102,7 @@ func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
 	defer s.shutdownLock.Unlock()
 
 	if s.shut {
-		return false, fmt.Errorf("shard %q already shut or dropped", s.name)
+		return false, errAlreadyShutdown
 	}
 
 	if s.inUseCounter.Load() == 0 {
