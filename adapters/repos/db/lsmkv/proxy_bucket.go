@@ -92,7 +92,7 @@ func NewBucketProxy(realB BucketInterface, propName string, propids *tracker.Jso
 	if propids == nil {
 		return nil, fmt.Errorf("propids is nil")
 	}
-	propid_bytes := helpers.MakeByteEncodedPropertyPostfix(propName, propids)
+	propid_bytes := helpers.MakeByteEncodedProperty(propName, propids)
 
 	return &BucketProxy{
 		realBucket:     realB,

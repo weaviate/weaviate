@@ -44,7 +44,7 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -58,7 +58,7 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -92,7 +92,7 @@ func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+		if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 			continue
 		}
 
@@ -175,7 +175,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -188,7 +188,7 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -224,7 +224,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -238,7 +238,7 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -274,7 +274,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 		defer c.Close()
 
 		for key, v := c.First(); key != nil; key, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), key) {
+			if !helpers.MatchesPropertyKey(b.PropertyPrefix(), key) {
 				continue
 			}
 			k := helpers.UnMakePropertyKey(b.PropertyPrefix(), key)
@@ -287,7 +287,7 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+			if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 				continue
 			}
 			k = helpers.UnMakePropertyKey(b.PropertyPrefix(), k)
@@ -351,7 +351,7 @@ func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+		if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 			continue
 		}
 		if err := ua.parseAndAddDateArrayRow(agg, v, prop.Name); err != nil {
@@ -494,7 +494,7 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+		if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 			continue
 		}
 
@@ -527,7 +527,7 @@ func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(b.PropertyPrefix(), k) {
+		if !helpers.MatchesPropertyKey(b.PropertyPrefix(), k) {
 			continue
 		}
 

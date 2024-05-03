@@ -54,7 +54,7 @@ func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, k) {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, k) {
 			continue
 		}
 
@@ -137,7 +137,7 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 	defer c.Close()
 
 	for compositeKey, v := c.Seek(rr.value); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
@@ -172,7 +172,7 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	defer c.Close()
 
 	for compositeKey, v := c.First(); compositeKey != nil && bytes.Compare(compositeKey, rr.value) != 1; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
@@ -219,7 +219,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	}
 
 	for compositeKey, v := initialK, initialV; compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)

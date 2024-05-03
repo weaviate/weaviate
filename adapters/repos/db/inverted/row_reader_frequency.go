@@ -105,7 +105,7 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 	defer c.Close()
 
 	for compositeKey, v := c.Seek(rr.value); compositeKey != nil; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
@@ -140,7 +140,7 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 	defer c.Close()
 
 	for compositeKey, v := c.First(); compositeKey != nil && bytes.Compare(compositeKey, rr.value) != 1; compositeKey, v = c.Next() {
-		if !helpers.MatchesPropertyKeyPostfix(rr.PropPrefix, compositeKey) {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
 			continue
 		}
 		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)

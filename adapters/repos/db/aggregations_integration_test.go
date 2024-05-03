@@ -37,7 +37,7 @@ func Test_KeyHelpers(t *testing.T) {
 	data := []byte("testdata")
 
 	composite_key := helpers.MakePropertyKey(prefix, data)
-	assert.True(t, helpers.MatchesPropertyKeyPostfix(prefix, composite_key))
+	assert.True(t, helpers.MatchesPropertyKey(prefix, composite_key))
 	recovered_key := helpers.UnMakePropertyKey(prefix, composite_key)
 
 	assert.Equal(t, data, recovered_key)
