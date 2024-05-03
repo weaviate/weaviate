@@ -83,20 +83,18 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 	}
 
 	hnswConfig, ok := asMap["hnsw"]
-	if !ok || hnswConfig == nil {
-		return uc, nil
-	}
+	if ok && hnswConfig != nil {
+		hnswUC, err := hnsw.ParseAndValidateConfig(hnswConfig)
+		if err != nil {
+			return uc, err
+		}
 
-	hnswUC, err := hnsw.ParseAndValidateConfig(hnswConfig)
-	if err != nil {
-		return uc, err
+		castedHnswUC, ok := hnswUC.(hnsw.UserConfig)
+		if !ok {
+			return uc, fmt.Errorf("invalid hnsw configuration")
+		}
+		uc.HnswUC = castedHnswUC
 	}
-
-	castedHnswUC, ok := hnswUC.(hnsw.UserConfig)
-	if !ok {
-		return uc, fmt.Errorf("invalid hnsw configuration")
-	}
-	uc.HnswUC = castedHnswUC
 
 	flatConfig, ok := asMap["flat"]
 	if !ok || flatConfig == nil {
