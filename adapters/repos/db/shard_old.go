@@ -62,6 +62,9 @@ func NewShard_unmerged(ctx context.Context, promMetrics *monitoring.PrometheusMe
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:  jobQueueCh,
 		indexCheckpoints: indexCheckpoints,
+
+		shut:         false,
+		shutdownLock: new(sync.RWMutex),
 	}
 	s.initCycleCallbacks()
 
