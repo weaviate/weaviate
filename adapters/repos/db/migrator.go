@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -417,11 +418,11 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	// to check, we can always use that an hnsw-specific validation should be
 	// used for now.
 	switch old.IndexType() {
-	case "hnsw":
+	case vectorindex.VectorIndexTypeHNSW:
 		return hnsw.ValidateUserConfigUpdate(old, updated)
-	case "flat":
+	case vectorindex.VectorIndexTypeFLAT:
 		return flat.ValidateUserConfigUpdate(old, updated)
-	case "dynamic":
+	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("Invalid index type: %s", old.IndexType())
