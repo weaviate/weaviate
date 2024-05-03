@@ -2,6 +2,8 @@
 
 set -eou pipefail
 
+export GOTEST="go test"
+
 function main() {
   # This script runs all non-benchmark tests if no CMD switch is given and the respective tests otherwise.
   run_all_tests=true
@@ -130,7 +132,7 @@ function main() {
     for pkg in $(go list ./test/modules/... | grep '/modules/'${mod}); do
       build_docker_image_for_tests
       echo_green "Weaviate image successfully built, run module tests for $mod..."
-      if ! go test -count 1 -race "$pkg"; then
+      if ! $GOTEST -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -163,7 +165,7 @@ function run_unit_tests() {
     echo "Skipping unit test"
     return
   fi
-  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
+  $GOTEST -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $(go list ./... | grep -v 'test/acceptance' | grep -v 'test/modules') | grep -v '\[no test files\]'
 }
 
 function run_integration_tests() {
@@ -199,13 +201,13 @@ function run_acceptance_only_fast() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   # for now we need to run the tests sequentially, there seems to be some sort of issues with running them in parallel
     for pkg in $(go list ./... | grep 'test/acceptance' | grep 'schema' | grep -v 'test/acceptance/stress_tests' | grep -v 'test/acceptance/replication' | grep -v 'test/acceptance/graphql_resolvers'); do
-      if ! go test -count 1 -race "$pkg"; then
+      if ! $GOTEST -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
     done
     for pkg in $(go list ./... | grep 'test/acceptance/stress_tests' ); do
-      if ! go test -count 1 "$pkg"; then
+      if ! $GOTEST -count 1 "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -217,7 +219,7 @@ function run_acceptance_go_client() {
    # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... ); do
-      if ! go test -count 1 -race "$pkg"; then
+      if ! $GOTEST -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -225,7 +227,7 @@ function run_acceptance_go_client() {
 }
 function run_acceptance_graphql_tests() {
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! $GOTEST -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -234,7 +236,7 @@ function run_acceptance_graphql_tests() {
 
 function run_acceptance_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! $GOTEST -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -243,7 +245,7 @@ function run_acceptance_replication_tests() {
 
 function run_module_only_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep 'test/modules/backup'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! $GOTEST -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -252,7 +254,7 @@ function run_module_only_backup_tests() {
 
 function run_module_except_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/backup'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! $GOTEST -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
