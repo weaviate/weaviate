@@ -425,6 +425,12 @@ func (m *Manager) activateTenantIfInactive(class string,
 				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
 		}
 	}
+
+	if len(req.Tenants) == 0 {
+		// nothing to do, all tenants are already HOT
+		return status, nil
+	}
+
 	_, err := m.metaWriter.UpdateTenants(class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
