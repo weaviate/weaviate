@@ -92,10 +92,6 @@ func appendFile(filename, msg string) {
 // Go overrides the Go method to add panic recovery logic.
 func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
 	egw.Group.Go(func() error {
-		// Print stack trace
-		trace := debug.Stack()
-		msg := fmt.Sprintf("Stack trace starting error group wrapper: %s\n", trace)
-		fmt.Println("!!!!!" + msg)
 		defer egw.deferFunc(localVars)
 		return f()
 	})
