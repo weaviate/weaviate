@@ -346,10 +346,6 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 }
 
 func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
-	// TODO-RAFT: we always query the leader
-	// we need to make sure what is the side effect of
-	// if the leader says "tenant is HOT", but locally
-	// it's still COLD.
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
 	status, _, err := m.metaWriter.QueryTenantsShards(class, tenants...)
@@ -449,8 +445,13 @@ func (m *Manager) activateTenantIfInactive(class string,
 }
 
 func (m *Manager) AllowImplicitTenantActivation(class string) bool {
-	// TODO implement
-	return true
+	allow := false
+	m.metaReader.Read(class, func(c *models.Class, _ *sharding.State) error {
+		allow = schema.AutoTenantActivationEnabled(c)
+		return nil
+	})
+
+	return allow
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
