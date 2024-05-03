@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -200,8 +201,22 @@ func asyncTestObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		class := res.Payload
-
-		class.InvertedIndexConfig.Stopwords.Preset = "none"
+		if vectorIndexConfig, ok := class.VectorIndexConfig.(map[string]interface{}); ok {
+			if hnsw, ok := vectorIndexConfig["hnsw"].(map[string]interface{}); ok {
+				if ef, ok := hnsw["ef"].(json.Number); ok {
+					efFloat, err := ef.Float64()
+					require.Nil(t, err)
+					require.Equal(t, 123.0, efFloat)
+					hnsw["ef"] = 1234.0
+				} else {
+					t.Errorf("type assertion failure 'ef' to json.Number")
+				}
+			} else {
+				t.Errorf("type assertion failure 'hnsw' to map[string]interface{}")
+			}
+		} else {
+			t.Errorf("type assertion failure 'vectorIndexConfig' to map[string]interface{}")
+		}
 
 		updateParams := clschema.NewSchemaObjectsUpdateParams().
 			WithClassName(className).
