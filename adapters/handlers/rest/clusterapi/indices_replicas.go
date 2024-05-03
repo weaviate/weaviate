@@ -30,19 +30,21 @@ import (
 type replicator interface {
 	// Write endpoints
 	ReplicateObject(ctx context.Context, indexName, shardName,
-		requestID string, object *storobj.Object, schemaVersion uint64) replica.SimpleResponse
+		requestID string, object *storobj.Object) replica.SimpleResponse
 	ReplicateObjects(ctx context.Context, indexName, shardName,
 		requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse
 	ReplicateUpdate(ctx context.Context, indexName, shardName,
-		requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse
+		requestID string, mergeDoc *objects.MergeDocument) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
-		requestID string, uuid strfmt.UUID, schemaVersion uint64) replica.SimpleResponse
+		requestID string, uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName, shardName,
 		requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName, shardName,
-		requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse
-	CommitReplication(indexName, shardName, requestID string) interface{}
-	AbortReplication(indexName, shardName, requestID string) interface{}
+		requestID string, refs []objects.BatchReference) replica.SimpleResponse
+	CommitReplication(indexName,
+		shardName, requestID string) interface{}
+	AbortReplication(indexName,
+		shardName, requestID string) interface{}
 	OverwriteObjects(ctx context.Context, index, shard string,
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 	// Read endpoints
@@ -286,7 +288,7 @@ func (i *replicatedIndices) postObject() http.Handler {
 		switch ct {
 
 		case IndicesPayloads.SingleObject.MIME():
-			i.postObjectSingle(w, r, index, shard, requestID, schemaVersion)
+			i.postObjectSingle(w, r, index, shard, requestID)
 			return
 		case IndicesPayloads.ObjectList.MIME():
 			i.postObjectBatch(w, r, index, shard, requestID, schemaVersion)
@@ -326,12 +328,7 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			return
 		}
 
-		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc, schemaVersion)
+		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -448,12 +445,7 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 
 		defer r.Body.Close()
 
-		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), schemaVersion)
+		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id))
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -521,7 +513,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 }
 
 func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Request,
-	index, shard, requestID string, schemaVersion uint64,
+	index, shard, requestID string,
 ) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -535,7 +527,7 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)
+	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj)
 	if localIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
@@ -693,13 +685,7 @@ func (i *replicatedIndices) postRefs() http.Handler {
 			return
 		}
 
-		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs, schemaVersion)
+		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

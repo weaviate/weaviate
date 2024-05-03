@@ -232,26 +232,10 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil
 }
 
-// TODO-RAFT: Because of interfaces and import order we can't have this function just return the same index interface
-// for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remove the
-// deduplication
-
-// GetIndexForIncomingSharding returns the index if it exists or nil if it doesn't
+// GetIndexForIncoming returns the index if it exists or nil if it doesn't
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
-	index := db.GetIndex(className)
-	if index == nil {
-		return nil
-	}
-
-	return index
-}
-
-// GetIndexForIncomingReplica returns the index if it exists or nil if it doesn't
-// by default it will retry 3 times between 0-150 ms to get the index
-// to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.RemoteIndexIncomingRepo {
+func (db *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil

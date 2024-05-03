@@ -2333,7 +2333,7 @@ func TestOverwriteObjects(t *testing.T) {
 		shd, err := idx.determineObjectShard(fresh.ID, "")
 		require.Nil(t, err)
 
-		received, err := idx.OverwriteObjects(context.Background(), shd, input)
+		received, err := idx.overwriteObjects(context.Background(), shd, input)
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, nil, received)
 	})
@@ -2441,7 +2441,7 @@ func TestIndexDigestObjects(t *testing.T) {
 			},
 		}
 
-		res, err := idx.DigestObjects(context.Background(), shd, input)
+		res, err := idx.digestObjects(context.Background(), shd, input)
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
 	})

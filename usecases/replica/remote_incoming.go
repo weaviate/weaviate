@@ -13,192 +13,119 @@ package replica
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type RemoteIncomingRepo interface {
-	GetIndexForIncomingReplica(className schema.ClassName) RemoteIndexIncomingRepo
-}
-
-type RemoteIncomingSchema interface {
-	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
-}
-
-type RemoteIndexIncomingRepo interface {
 	// Write endpoints
-	ReplicateObject(ctx context.Context, shardName, requestID string, object *storobj.Object) SimpleResponse
-	ReplicateObjects(ctx context.Context, shardName, requestID string, objects []*storobj.Object, schemaVersion uint64) SimpleResponse
-	ReplicateUpdate(ctx context.Context, shardName, requestID string, mergeDoc *objects.MergeDocument) SimpleResponse
-	ReplicateDeletion(ctx context.Context, shardName, requestID string, uuid strfmt.UUID) SimpleResponse
-	ReplicateDeletions(ctx context.Context, shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) SimpleResponse
-	ReplicateReferences(ctx context.Context, shardName, requestID string, refs []objects.BatchReference) SimpleResponse
-	CommitReplication(shardName, requestID string) interface{}
-	AbortReplication(shardName, requestID string) interface{}
-	OverwriteObjects(ctx context.Context, shard string, vobjects []*objects.VObject) ([]RepairResponse, error)
+	ReplicateObject(ctx context.Context, indexName, shardName,
+		requestID string, object *storobj.Object) SimpleResponse
+	ReplicateObjects(ctx context.Context, indexName,
+		shardName, requestID string, objects []*storobj.Object, schemaVersion uint64) SimpleResponse
+	ReplicateUpdate(ctx context.Context, indexName,
+		shardName, requestID string, mergeDoc *objects.MergeDocument) SimpleResponse
+	ReplicateDeletion(ctx context.Context, indexName,
+		shardName, requestID string, uuid strfmt.UUID) SimpleResponse
+	ReplicateDeletions(ctx context.Context, indexName,
+		shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) SimpleResponse
+	ReplicateReferences(ctx context.Context, indexName,
+		shardName, requestID string, refs []objects.BatchReference) SimpleResponse
+	CommitReplication(indexName,
+		shardName, requestID string) interface{}
+	AbortReplication(indexName,
+		shardName, requestID string) interface{}
+	OverwriteObjects(ctx context.Context, index, shard string,
+		vobjects []*objects.VObject) ([]RepairResponse, error)
 	// Read endpoints
-	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (objects.Replica, error)
-	FetchObjects(ctx context.Context, shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
-	DigestObjects(ctx context.Context, shardName string, ids []strfmt.UUID) (result []RepairResponse, err error)
+	FetchObject(ctx context.Context, indexName,
+		shardName string, id strfmt.UUID) (objects.Replica, error)
+	FetchObjects(ctx context.Context, class,
+		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
+	DigestObjects(ctx context.Context, class, shardName string,
+		ids []strfmt.UUID) (result []RepairResponse, err error)
 }
 
 type RemoteReplicaIncoming struct {
-	repo   RemoteIncomingRepo
-	schema RemoteIncomingSchema
+	repo RemoteIncomingRepo
 }
 
-func NewRemoteReplicaIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema) *RemoteReplicaIncoming {
+func NewRemoteReplicaIncoming(repo RemoteIncomingRepo) *RemoteReplicaIncoming {
 	return &RemoteReplicaIncoming{
-		schema: schema,
-		repo:   repo,
+		repo: repo,
 	}
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateObject(ctx context.Context, indexName,
-	shardName, requestID string, object *storobj.Object, schemaVersion uint64,
+	shardName, requestID string, object *storobj.Object,
 ) SimpleResponse {
-	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
-	if simpleResp != nil {
-		return *simpleResp
-	}
-	return index.ReplicateObject(ctx, shardName, requestID, object)
+	return rri.repo.ReplicateObject(ctx, indexName, shardName, requestID, object)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateObjects(ctx context.Context, indexName,
 	shardName, requestID string, objects []*storobj.Object, schemaVersion uint64,
 ) SimpleResponse {
-	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
-	if simpleResp != nil {
-		return *simpleResp
-	}
-	return index.ReplicateObjects(ctx, shardName, requestID, objects, schemaVersion)
+	return rri.repo.ReplicateObjects(ctx, indexName, shardName, requestID, objects, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateUpdate(ctx context.Context, indexName,
-	shardName, requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64,
+	shardName, requestID string, mergeDoc *objects.MergeDocument,
 ) SimpleResponse {
-	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
-	if simpleResp != nil {
-		return *simpleResp
-	}
-	return index.ReplicateUpdate(ctx, shardName, requestID, mergeDoc)
+	return rri.repo.ReplicateUpdate(ctx, indexName, shardName, requestID, mergeDoc)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexName,
-	shardName, requestID string, uuid strfmt.UUID, schemaVersion uint64,
+	shardName, requestID string, uuid strfmt.UUID,
 ) SimpleResponse {
-	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
-	if simpleResp != nil {
-		return *simpleResp
-	}
-	return index.ReplicateDeletion(ctx, shardName, requestID, uuid)
+	return rri.repo.ReplicateDeletion(ctx, indexName, shardName, requestID, uuid)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletions(ctx context.Context, indexName,
 	shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) SimpleResponse {
-	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
-	if simpleResp != nil {
-		return *simpleResp
-	}
-	return index.ReplicateDeletions(ctx, shardName, requestID, uuids, dryRun, schemaVersion)
+	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, uuids, dryRun, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, indexName,
-	shardName, requestID string, refs []objects.BatchReference, schemaVersion uint64,
+	shardName, requestID string, refs []objects.BatchReference,
 ) SimpleResponse {
-	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
-	if simpleResp != nil {
-		return *simpleResp
-	}
-	return index.ReplicateReferences(ctx, shardName, requestID, refs)
+	return rri.repo.ReplicateReferences(ctx, indexName, shardName, requestID, refs)
 }
 
 func (rri *RemoteReplicaIncoming) CommitReplication(indexName,
 	shardName, requestID string,
 ) interface{} {
-	index, simpleResp := rri.indexForIncomingRead(context.Background(), indexName)
-	if simpleResp != nil {
-		return *simpleResp
-	}
-	return index.CommitReplication(shardName, requestID)
+	return rri.repo.CommitReplication(indexName, shardName, requestID)
 }
 
 func (rri *RemoteReplicaIncoming) AbortReplication(indexName,
 	shardName, requestID string,
 ) interface{} {
-	index, simpleResp := rri.indexForIncomingRead(context.Background(), indexName)
-	if simpleResp != nil {
-		return *simpleResp
-	}
-	return index.AbortReplication(shardName, requestID)
+	return rri.repo.AbortReplication(indexName, shardName, requestID)
 }
 
 func (rri *RemoteReplicaIncoming) OverwriteObjects(ctx context.Context,
 	indexName, shardName string, vobjects []*objects.VObject,
 ) ([]RepairResponse, error) {
-	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
-	if simpleResp != nil {
-		return nil, simpleResp.Errors[0].Err
-	}
-	return index.OverwriteObjects(ctx, shardName, vobjects)
+	return rri.repo.OverwriteObjects(ctx, indexName, shardName, vobjects)
 }
 
 func (rri *RemoteReplicaIncoming) FetchObject(ctx context.Context,
 	indexName, shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
-	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
-	if simpleResp != nil {
-		return objects.Replica{}, simpleResp.Errors[0].Err
-	}
-	return index.FetchObject(ctx, shardName, id)
+	return rri.repo.FetchObject(ctx, indexName, shardName, id)
 }
 
 func (rri *RemoteReplicaIncoming) FetchObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
-	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
-	if simpleResp != nil {
-		return []objects.Replica{}, simpleResp.Errors[0].Err
-	}
-	return index.FetchObjects(ctx, shardName, ids)
+	return rri.repo.FetchObjects(ctx, indexName, shardName, ids)
 }
 
 func (rri *RemoteReplicaIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) (result []RepairResponse, err error) {
-	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
-	if simpleResp != nil {
-		return []RepairResponse{}, simpleResp.Errors[0].Err
-	}
-	return index.DigestObjects(ctx, shardName, ids)
-}
-
-func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, indexName string) (RemoteIndexIncomingRepo, *SimpleResponse) {
-	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
-	if index == nil {
-		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
-	}
-	return index, nil
-}
-
-func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, indexName string,
-	schemaVersion uint64,
-) (RemoteIndexIncomingRepo, *SimpleResponse) {
-	// TODO-RAFT: We can change the wait here to simply wait for a given update to apply, we are only using
-	// `ReadOnlyClassWithVersion` as a utility to wait
-	// wait for schema and store to reach version >= schemaVersion
-	if _, err := rri.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
-		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("could not find class %q in schema: %w", indexName, err)}}}
-	}
-	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
-	if index == nil {
-		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
-	}
-	return index, nil
+	return rri.repo.DigestObjects(ctx, indexName, shardName, ids)
 }
