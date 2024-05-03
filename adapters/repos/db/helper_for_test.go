@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/entities/locks"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -267,8 +266,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
 		allocChecker:          memwatch.NewDummyMonitor(),
-		shardCreateLocks:      locks.NewNamedLocks(),
-		shardInUseLocks:       locks.NewNamedRWLocks(),
+		shardCreateLocks:      newShardCreateLocks(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()

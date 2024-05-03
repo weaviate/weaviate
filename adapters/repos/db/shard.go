@@ -107,8 +107,6 @@ type ShardLike interface {
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
 	Shutdown(context.Context) error // Shutdown the shard
-	preventShutdown() (release func(), err error)
-
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
 		additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
@@ -211,13 +209,6 @@ type Shard struct {
 	bitmapFactory  *roaringset.BitmapFactory
 
 	activityTracker atomic.Int32
-
-	// indicates whether shard is shut down or dropped (or ongoing)
-	shut bool
-	// indicates whether shard in being used at the moment (e.g. write request)
-	inUseCounter atomic.Int64
-	// allows concurrent shut read/write
-	shutdownLock *sync.RWMutex
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -236,9 +227,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:  jobQueueCh,
 		indexCheckpoints: indexCheckpoints,
-
-		shut:         false,
-		shutdownLock: new(sync.RWMutex),
 	}
 
 	s.activityTracker.Store(1) // initial state
@@ -616,7 +604,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 // If there is any action that needs to be performed beside files/dirs being removed
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
-func (s *Shard) drop() (err error) {
+func (s *Shard) drop() error {
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.metrics.baseMetrics.StartUnloadingShard(s.index.Config.ClassName.String())
 	s.replicationMap.clear()
@@ -629,11 +617,11 @@ func (s *Shard) drop() (err error) {
 		s.clearDimensionMetrics()
 	}
 
-	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 
 	// unregister all callbacks at once, in parallel
-	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
+	if err := cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
@@ -642,18 +630,18 @@ func (s *Shard) drop() (err error) {
 		return err
 	}
 
-	if err = s.store.Shutdown(ctx); err != nil {
+	if err := s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
-	if _, err = os.Stat(s.pathLSM()); err == nil {
+	if _, err := os.Stat(s.pathLSM()); err == nil {
 		err := os.RemoveAll(s.pathLSM())
 		if err != nil {
 			return errors.Wrapf(err, "remove lsm store at %s", s.pathLSM())
 		}
 	}
 	// delete indexcount
-	err = s.counter.Drop()
+	err := s.counter.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.path())
 	}
@@ -953,52 +941,16 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	return err
 }
 
-/*
-
-	batch
-		shut
-		false
-			in_use ++
-			defer in_use --
-		true
-			fail request
-
-
-
-	shutdown
-		loop + time:
-		if shut == true
-			fail request
-		in_use == 0 && shut == false
-			shut = true
-
-
-
-*/
-
-func (s *Shard) Shutdown(ctx context.Context) (err error) {
-	if err = s.waitForShutdown(ctx); err != nil {
-		return
-	}
-
+func (s *Shard) Shutdown(ctx context.Context) error {
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
 	}
 
+	var err error
 	if err = s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
-	}
-
-	// unregister all callbacks at once, in parallel
-	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
-		s.cycleCallbacks.compactionCallbacksCtrl,
-		s.cycleCallbacks.flushCallbacksCtrl,
-		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
-		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
-	).Unregister(ctx); err != nil {
-		return err
 	}
 
 	if s.hasTargetVectors() {
@@ -1033,70 +985,21 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		}
 	}
 
+	// unregister all callbacks at once, in parallel
+	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
+		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.flushCallbacksCtrl,
+		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+	).Unregister(ctx); err != nil {
+		return err
+	}
+
 	if err = s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
 	return nil
-}
-
-func (s *Shard) preventShutdown() (release func(), err error) {
-	s.shutdownLock.RLock()
-	defer s.shutdownLock.RUnlock()
-
-	if s.shut {
-		return func() {}, fmt.Errorf("shard %q already shut or dropped", s.name)
-	}
-
-	s.inUseCounter.Add(1)
-	return func() { s.inUseCounter.Add(-1) }, nil
-}
-
-func (s *Shard) waitForShutdown(ctx context.Context) error {
-	checkInterval := 50 * time.Millisecond
-	timeout := 30 * time.Second
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	if eligible, err := s.checkEligibleForShutdown(); err != nil {
-		return err
-	} else if !eligible {
-		ticker := time.NewTicker(checkInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return fmt.Errorf("Shard::proceedWithShutdown: %w", ctx.Err())
-			case <-ticker.C:
-				if eligible, err := s.checkEligibleForShutdown(); err != nil {
-					return err
-				} else if eligible {
-					return nil
-				}
-			}
-		}
-	}
-	return nil
-}
-
-// checks whether shutdown can be executed
-// (shard is not in use at the moment)
-func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
-	s.shutdownLock.Lock()
-	defer s.shutdownLock.Unlock()
-
-	if s.shut {
-		return false, fmt.Errorf("shard %q already shut or dropped", s.name)
-	}
-
-	if s.inUseCounter.Load() == 0 {
-		s.shut = true
-		return true, nil
-	}
-
-	return false, nil
 }
 
 func (s *Shard) NotifyReady() {
