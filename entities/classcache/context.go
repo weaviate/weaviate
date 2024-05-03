@@ -14,9 +14,8 @@ package classcache
 import (
 	"context"
 	"fmt"
-	"slices"
 
-	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const classCacheKey = "classCache"
@@ -40,48 +39,26 @@ func RemoveClassFromContext(ctxWithClassCache context.Context, name string) erro
 	return nil
 }
 
-func ClassesFromContext(ctxWithClassCache context.Context, getter func(names ...string) (map[string]versioned.Class, error), names ...string) (map[string]versioned.Class, error) {
+func ClassFromContext(ctxWithClassCache context.Context, name string, getter func(name string) (*models.Class, uint64, error)) (*models.Class, uint64, error) {
 	cache, err := extractCache(ctxWithClassCache)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	versionedClasses := map[string]versioned.Class{}
-	notFoundInCtx := []string{}
-	for _, name := range names {
-		// collect what is not in context
-		if entry, ok := cache.Load(name); ok {
-			versionedClasses[entry.class.Class] = versioned.Class{Class: entry.class, Version: entry.version}
-			continue
-		}
-		notFoundInCtx = append(notFoundInCtx, name)
-	}
-
-	// remove dedup, empty and a void calls if there is non
-	slices.Sort(notFoundInCtx)
-	notFoundInCtx = slices.Compact(notFoundInCtx)
-	if len(notFoundInCtx) == 0 {
-		return versionedClasses, nil
-	}
-
-	if len(notFoundInCtx) > 1 && notFoundInCtx[0] == "" {
-		notFoundInCtx = notFoundInCtx[1:]
+	if entry, ok := cache.Load(name); ok {
+		return entry.class, entry.version, nil
 	}
 
 	// TODO prevent concurrent getter calls for the same class if it was not loaded,
 	// get once and share results
-	vclasses, err := getter(notFoundInCtx...)
+	class, version, err := getter(name)
 	if err != nil {
-		return versionedClasses, err
+		return nil, 0, err
 	}
 
-	for _, vclass := range vclasses {
-		// do not replace entry if it was loaded in the meantime by concurrent access
-		entry, _ := cache.LoadOrStore(vclass.Class.Class, &classCacheEntry{class: vclass.Class, version: vclass.Version})
-		versionedClasses[entry.class.Class] = versioned.Class{Class: entry.class, Version: entry.version}
-	}
-
-	return versionedClasses, nil
+	// do not replace entry if it was loaded in the meantime by concurrent access
+	entry, _ := cache.LoadOrStore(name, &classCacheEntry{class: class, version: version})
+	return entry.class, entry.version, nil
 }
 
 func extractCache(ctx context.Context) (*classCache, error) {

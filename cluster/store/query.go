@@ -25,8 +25,8 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	var payload []byte
 	var err error
 	switch req.Type {
-	case cmd.QueryRequest_TYPE_GET_CLASSES:
-		payload, err = st.QueryReadOnlyClasses(req)
+	case cmd.QueryRequest_TYPE_GET_CLASS:
+		payload, err = st.QueryReadOnlyClass(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get read only class: %w", err)
 		}
@@ -69,22 +69,23 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	return &cmd.QueryResponse{Payload: payload}, nil
 }
 
-func (st *Store) QueryReadOnlyClasses(req *cmd.QueryRequest) ([]byte, error) {
+func (st *Store) QueryReadOnlyClass(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
-	subCommand := cmd.QueryReadOnlyClassesRequest{}
+	subCommand := cmd.QueryReadOnlyClassRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
 	}
 
 	// Read the meta class to get both the class and sharding information
-	vclasses := st.db.Schema.ReadOnlyClasses(subCommand.Classes...)
-	if len(vclasses) == 0 {
+	class, version := st.db.Schema.ReadOnlyClass(subCommand.Class)
+	if class == nil {
 		return []byte{}, nil
 	}
 
 	// Build the response, marshal and return
 	response := cmd.QueryReadOnlyClassResponse{
-		Classes: vclasses,
+		ClassVersion: version,
+		Class:        class,
 	}
 	payload, err := json.Marshal(&response)
 	if err != nil {

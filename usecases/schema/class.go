@@ -21,14 +21,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
-	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -51,59 +49,49 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		return nil, 0, err
 	}
 	if consistency {
-		vclasses, err := h.metaWriter.QueryReadOnlyClasses(name)
-		return vclasses[name].Class, vclasses[name].Version, err
+		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
+		return class, version, err
 	}
 	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)
 	return class, 0, nil
 }
 
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
-	principal *models.Principal, names ...string,
-) (map[string]versioned.Class, error) {
+	principal *models.Principal, name string,
+) (*models.Class, uint64, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
+	return classcache.ClassFromContext(ctxWithClassCache, name, func(name string) (*models.Class, uint64, error) {
+		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-
-		if len(vclasses) == 0 {
-			return nil, nil
+		if class == nil {
+			return nil, 0, nil
 		}
-
-		for _, vclass := range vclasses {
-			if err := h.parser.ParseClass(vclass.Class); err != nil {
-				// remove invalid classes
-				h.logger.WithFields(logrus.Fields{
-					"Class": vclass.Class.Class,
-					"Error": err,
-				}).Warn("parsing class error")
-				delete(vclasses, vclass.Class.Class)
-				continue
-			}
+		err = h.parser.ParseClass(class)
+		if err != nil {
+			return nil, 0, err
 		}
-
-		return vclasses, nil
-	}, names...)
+		return class, version, nil
+	})
 }
 
 // AddClass to the schema
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
-) (*models.Class, uint64, error) {
+) (uint64, error) {
 	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 	if cls.ShardingConfig != nil && schema.MultiTenancyEnabled(cls) {
-		return nil, 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+		return 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
 	} else if cls.MultiTenancyConfig == nil {
 		cls.MultiTenancyConfig = &models.MultiTenancyConfig{}
 	} else if cls.MultiTenancyConfig.Enabled {
@@ -113,17 +101,17 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	h.setClassDefaults(cls)
 
 	if err := h.validateCanAddClass(ctx, cls, false); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
 	if err := h.parser.ParseClass(cls); err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
 	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
 	if err != nil {
-		return nil, 0, err
+		return 0, err
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -131,13 +119,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		h.clusterState, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
-		return nil, 0, fmt.Errorf("init sharding state: %w", err)
+		return 0, fmt.Errorf("init sharding state: %w", err)
 	}
-	version, err := h.metaWriter.AddClass(cls, shardState)
-	if err != nil {
-		return nil, 0, err
-	}
-	return cls, version, err
+	return h.metaWriter.AddClass(cls, shardState)
 }
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {

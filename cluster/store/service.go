@@ -15,14 +15,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/protobuf/proto"
 )
@@ -301,51 +299,40 @@ func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration,
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
-func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
-	if len(classes) == 0 {
-		return nil, fmt.Errorf("empty classes names: %w", errBadRequest)
-	}
-
-	// remove dedup and empty
-	slices.Sort(classes)
-	classes = slices.Compact(classes)
-	if len(classes) == 0 {
-		return map[string]versioned.Class{}, fmt.Errorf("empty classes names: %w", errBadRequest)
-	}
-
-	if len(classes) > 1 && classes[0] == "" {
-		classes = classes[1:]
+func (s *Service) QueryReadOnlyClass(class string) (*models.Class, uint64, error) {
+	if class == "" {
+		return &models.Class{}, 0, fmt.Errorf("empty class name: %w", errBadRequest)
 	}
 
 	// Build the query and execute it
-	req := cmd.QueryReadOnlyClassesRequest{Classes: classes}
+	req := cmd.QueryReadOnlyClassRequest{Class: class}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return map[string]versioned.Class{}, fmt.Errorf("marshal request: %w", err)
+		return &models.Class{}, 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
-		Type:       cmd.QueryRequest_TYPE_GET_CLASSES,
+		Type:       cmd.QueryRequest_TYPE_GET_CLASS,
 		SubCommand: subCommand,
 	}
 	queryResp, err := s.Query(context.Background(), command)
 	if err != nil {
-		return map[string]versioned.Class{}, fmt.Errorf("failed to execute query: %w", err)
+		return &models.Class{}, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Empty payload doesn't unmarshal to an empty struct and will instead result in an error.
 	// We have an empty payload when the requested class if not present in the schema.
 	// In that case return a nil pointer and no error.
 	if len(queryResp.Payload) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryReadOnlyClassResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return map[string]versioned.Class{}, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return &models.Class{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
-	return resp.Classes, nil
+	return resp.Class, resp.ClassVersion, nil
 }
 
 // QuerySchema build a Query to read the schema that will be directed to the leader to ensure we will read the class
