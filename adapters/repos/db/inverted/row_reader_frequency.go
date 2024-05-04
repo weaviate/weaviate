@@ -228,7 +228,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 // keyOnly==true
 func (rr *RowReaderFrequency) newCursor(
 	opts ...lsmkv.MapListOption,
-) *lsmkv.CursorMap {
+) lsmkv.CursorMap {
 	if rr.shardVersion < 2 {
 		opts = append(opts, lsmkv.MapListLegacySortingRequired())
 	}
