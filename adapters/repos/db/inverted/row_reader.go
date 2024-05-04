@@ -259,7 +259,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 
 // newCursor will either return a regular cursor - or a key-only cursor if
 // keyOnly==true
-func (rr *RowReader) newCursor() *lsmkv.CursorSet {
+func (rr *RowReader) newCursor() lsmkv.CursorSet {
 	if rr.keyOnly {
 		return rr.bucket.SetCursorKeyOnly()
 	}
