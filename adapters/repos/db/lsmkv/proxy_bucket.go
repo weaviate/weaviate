@@ -131,11 +131,11 @@ func (b *BucketProxy) CursorRoaringSetKeyOnly() CursorRoaringSet {
 	return b.realBucket.CursorRoaringSetKeyOnly()
 }
 
-func (b *BucketProxy) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
+func (b *BucketProxy) MapCursorKeyOnly(cfgs ...MapListOption) CursorMap {
 	return b.realBucket.MapCursorKeyOnly(cfgs...)
 }
 
-func (b *BucketProxy) MapCursor(cfgs ...MapListOption) *CursorMap {
+func (b *BucketProxy) MapCursor(cfgs ...MapListOption) CursorMap {
 	return b.realBucket.MapCursor(cfgs...)
 }
 
@@ -144,11 +144,11 @@ func (b *BucketProxy) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	return b.realBucket.RoaringSetGet(real_key)
 }
 
-func (b *BucketProxy) SetCursor() *CursorSet {
+func (b *BucketProxy) SetCursor() CursorSet {
 	return b.realBucket.SetCursor()
 }
 
-func (b *BucketProxy) SetCursorKeyOnly() *CursorSet {
+func (b *BucketProxy) SetCursorKeyOnly() CursorSet {
 	return b.realBucket.SetCursorKeyOnly()
 }
 
@@ -236,6 +236,6 @@ func (b *BucketProxy) RoaringSetAddOne(key []byte, value uint64) error {
 	return b.realBucket.RoaringSetAddOne(real_key, value)
 }
 
-func (b *BucketProxy) Cursor() *CursorReplace {
+func (b *BucketProxy) Cursor() CursorReplace {
 	return b.realBucket.Cursor()
 }
