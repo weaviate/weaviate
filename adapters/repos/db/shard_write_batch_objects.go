@@ -33,6 +33,7 @@ import (
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	s.activityTracker.Add(1)
 	if s.isReadOnly() {
 		return []error{storagestate.ErrStatusReadOnly}
 	}

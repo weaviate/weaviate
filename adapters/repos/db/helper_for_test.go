@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/entities/locks"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -265,6 +266,9 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		centralJobQueue:       repo.jobQueueCh,
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
+		allocChecker:          memwatch.NewDummyMonitor(),
+		shardCreateLocks:      locks.NewNamedLocks(),
+		shardInUseLocks:       locks.NewNamedRWLocks(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -273,11 +277,10 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	}
 
 	shardName := shardState.AllPhysicalShards()[0]
-	shard, err := idx.initShard(ctx, shardName, class, nil)
+	err = idx.initAndStoreShard(ctx, shardName, class, nil)
 	require.NoError(t, err)
 
-	idx.shards.Store(shardName, shard)
-	return shard, idx
+	return idx.shards.Load(shardName), idx
 }
 
 func testObject(className string) *storobj.Object {

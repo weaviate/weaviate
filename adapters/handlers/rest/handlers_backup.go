@@ -28,7 +28,7 @@ type backupHandlers struct {
 	metricRequestsTotal restApiRequestsTotal
 }
 
-// compressionFromCfg transforms model backup config to a backup compression config
+// compressionFromBCfg transforms model backup config to a backup compression config
 func compressionFromBCfg(cfg *models.BackupConfig) ubak.Compression {
 	if cfg != nil {
 		if cfg.CPUPercentage == 0 {

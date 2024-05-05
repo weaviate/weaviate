@@ -113,7 +113,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			Properties: map[string]interface{}{
 				"name": "source item",
 			},
-		}, []float32{0.5}, nil, nil)
+		}, []float32{0.5}, nil, nil, 0)
 		require.Nil(t, err)
 
 		targets := []strfmt.UUID{target1, target2, target3, target4}
@@ -125,7 +125,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				Properties: map[string]interface{}{
 					"name": fmt.Sprintf("target item %d", i),
 				},
-			}, []float32{0.7}, nil, nil)
+			}, []float32{0.7}, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -179,7 +179,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				OriginalIndex: i,
 			}
 		}
-		_, err = repo.AddBatchReferences(context.Background(), refs, nil)
+		_, err = repo.AddBatchReferences(context.Background(), refs, nil, 0)
 		assert.Nil(t, err)
 	})
 
@@ -254,7 +254,7 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 				OriginalIndex: 3*i + 2,
 			}
 		}
-		batchRefs, err := repo.AddBatchReferences(context.Background(), refs, nil)
+		batchRefs, err := repo.AddBatchReferences(context.Background(), refs, nil, 0)
 		assert.Nil(t, err)
 		require.Len(t, batchRefs, 6)
 		assert.Nil(t, batchRefs[0].Err)

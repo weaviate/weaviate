@@ -15,9 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"google.golang.org/grpc"
@@ -38,20 +38,22 @@ type executor interface {
 }
 
 type Service struct {
-	members    members
-	executor   executor
-	address    string
-	ln         net.Listener
-	grpcServer *grpc.Server
-	log        *slog.Logger
+	members            members
+	executor           executor
+	address            string
+	ln                 net.Listener
+	grpcServer         *grpc.Server
+	grpcMessageMaxSize int
+	log                *logrus.Logger
 }
 
-func New(ms members, ex executor, address string, l *slog.Logger) *Service {
+func New(ms members, ex executor, address string, l *logrus.Logger, grpcMessageMaxSize int) *Service {
 	return &Service{
-		members:  ms,
-		executor: ex,
-		address:  address,
-		log:      l,
+		members:            ms,
+		executor:           ex,
+		address:            address,
+		log:                l,
+		grpcMessageMaxSize: grpcMessageMaxSize,
 	}
 }
 
@@ -98,7 +100,7 @@ func (s *Service) Leader() string {
 }
 
 func (s *Service) Open() error {
-	s.log.Info("starting cloud rpc server ...", "address", s.address)
+	s.log.WithField("address", s.address).Info("starting cloud rpc server ...")
 	if s.address == "" {
 		return fmt.Errorf("address of rpc server cannot be empty")
 	}
@@ -108,11 +110,13 @@ func (s *Service) Open() error {
 	}
 
 	s.ln = ln
-	s.grpcServer = grpc.NewServer()
+	s.grpcServer = grpc.NewServer(
+		grpc.MaxRecvMsgSize(s.grpcMessageMaxSize),
+	)
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
 	go func() {
 		if err := s.grpcServer.Serve(s.ln); err != nil {
-			s.log.Error("serving incoming requests: " + err.Error())
+			s.log.WithError(err).Error("serving incoming requests")
 			panic("error accepting incoming requests")
 		}
 	}()

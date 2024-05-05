@@ -18,6 +18,7 @@ import (
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
@@ -49,7 +50,14 @@ func (m *metaClass) ClassInfo() (ci ClassInfo) {
 	return ci
 }
 
-func (m *metaClass) MultiTenancyConfig() (cfg models.MultiTenancyConfig, version uint64) {
+func (m *metaClass) version() uint64 {
+	if m == nil {
+		return 0
+	}
+	return max(m.ClassVersion, m.ShardVersion)
+}
+
+func (m *metaClass) MultiTenancyConfig() (mc models.MultiTenancyConfig, v uint64) {
 	if m == nil {
 		return
 	}
@@ -59,7 +67,7 @@ func (m *metaClass) MultiTenancyConfig() (cfg models.MultiTenancyConfig, version
 		return
 	}
 
-	return *m.Class.MultiTenancyConfig, m.ClassVersion
+	return *m.Class.MultiTenancyConfig, m.version()
 }
 
 // CloneClass returns a shallow copy of m
@@ -71,58 +79,63 @@ func (m *metaClass) CloneClass() *models.Class {
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (m *metaClass) ShardOwner(shard string) (string, error) {
+func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	m.RLock()
 	defer m.RUnlock()
 	x, ok := m.Sharding.Physical[shard]
 
 	if !ok {
-		return "", errShardNotFound
+		return "", 0, errShardNotFound
 	}
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
-		return "", fmt.Errorf("owner node not found")
+		return "", 0, fmt.Errorf("owner node not found")
 	}
-	return x.BelongsToNodes[0], nil
+	return x.BelongsToNodes[0], m.version(), nil
 }
 
 // ShardFromUUID returns shard name of the provided uuid
-func (m *metaClass) ShardFromUUID(uuid []byte) string {
+func (m *metaClass) ShardFromUUID(uuid []byte) (string, uint64) {
 	m.RLock()
 	defer m.RUnlock()
-	return m.Sharding.PhysicalShard(uuid)
+	return m.Sharding.PhysicalShard(uuid), m.version()
 }
 
 // ShardReplicas returns the replica nodes of a shard
-func (m *metaClass) ShardReplicas(shard string) ([]string, error) {
+func (m *metaClass) ShardReplicas(shard string) ([]string, uint64, error) {
 	m.RLock()
 	defer m.RUnlock()
 	x, ok := m.Sharding.Physical[shard]
 	if !ok {
-		return nil, errShardNotFound
+		return nil, 0, errShardNotFound
 	}
-	return slices.Clone(x.BelongsToNodes), nil
+	return slices.Clone(x.BelongsToNodes), m.version(), nil
 }
 
-// TenantShard returns shard name for the provided tenant and its activity status
-func (m *metaClass) TenantShard(tenant string) (string, string) {
+// TenantsShards returns shard name for the provided tenant and its activity status
+func (m *metaClass) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
 	m.RLock()
 	defer m.RUnlock()
 
+	v := m.version()
 	if !m.Sharding.PartitioningEnabled {
-		return "", ""
+		return nil, v
 	}
-	if physical, ok := m.Sharding.Physical[tenant]; ok {
-		return tenant, physical.ActivityStatus()
+
+	res := make(map[string]string, len(tenants))
+	for _, t := range tenants {
+		if physical, ok := m.Sharding.Physical[t]; ok {
+			res[t] = physical.ActivityStatus()
+		}
 	}
-	return "", ""
+	return res, v
 }
 
 // CopyShardingState returns a deep copy of the sharding state
-func (m *metaClass) CopyShardingState() *sharding.State {
+func (m *metaClass) CopyShardingState() (*sharding.State, uint64) {
 	m.RLock()
 	defer m.RUnlock()
 	st := m.Sharding.DeepCopy()
-	return &st
+	return &st, m.version()
 }
 
 func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
@@ -130,49 +143,79 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	defer m.Unlock()
 
 	// update all at once to prevent race condition with concurrent readers
-	src := filterOutDuplicates(m.Class.Properties, props)
-	dest := make([]*models.Property, len(src)+len(props))
-	copy(dest, append(src, props...))
-	m.Class.Properties = dest
+	mergedProps := MergeProps(m.Class.Properties, props)
+	m.Class.Properties = mergedProps
 	m.ClassVersion = v
 	return nil
 }
 
-// filterOutDuplicates removes from the old any existing property could cause duplication
-func filterOutDuplicates(old, new []*models.Property) []*models.Property {
+// MergeProps makes sure duplicates are not created by ignoring new props
+// with the same names as old props.
+// If property of nested type is present in both new and old slices,
+// final property is created by merging new property into copy of old one
+func MergeProps(old, new []*models.Property) []*models.Property {
+	mergedProps := make([]*models.Property, len(old), len(old)+len(new))
+	copy(mergedProps, old)
+
 	// create memory to avoid duplication
-	var newUnique []*models.Property
-	mem := make(map[string]int, len(new))
-	for idx := range new {
-		mem[strings.ToLower(new[idx].Name)] = idx
-	}
-
-	// pick only what is not in the new proprieties
+	mem := make(map[string]int, len(old))
 	for idx := range old {
-		if _, exists := mem[strings.ToLower(old[idx].Name)]; exists {
-			continue
-		}
-		newUnique = append(newUnique, old[idx])
+		mem[strings.ToLower(old[idx].Name)] = idx
 	}
 
-	return newUnique
+	// pick ones not present in old slice or merge nested properties
+	// if already present
+	for idx := range new {
+		if oldIdx, exists := mem[strings.ToLower(new[idx].Name)]; !exists {
+			mergedProps = append(mergedProps, new[idx])
+		} else {
+			nestedProperties, merged := entSchema.MergeRecursivelyNestedProperties(
+				mergedProps[oldIdx].NestedProperties,
+				new[idx].NestedProperties)
+			if merged {
+				propCopy := *mergedProps[oldIdx]
+				propCopy.NestedProperties = nestedProperties
+				mergedProps[oldIdx] = &propCopy
+			}
+		}
+	}
+
+	return mergedProps
 }
 
-func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, v uint64) error {
+func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, replFactor int64, v uint64) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 	m.Lock()
 	defer m.Unlock()
 
+	// TODO-RAFT: Optimize here and avoid iteration twice on the req.Tenants array
+	names := make([]string, len(req.Tenants))
+	for i, tenant := range req.Tenants {
+		names[i] = tenant.Name
+	}
+	// First determine the partition based on the node *present at the time of the log entry being created*
+	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, names, replFactor)
+	if err != nil {
+		return fmt.Errorf("get partitions: %w", err)
+	}
+
+	// Iterate over requested tenants and assign them, if found, a partition
 	for i, t := range req.Tenants {
 		if _, ok := m.Sharding.Physical[t.Name]; ok {
 			req.Tenants[i] = nil // already exists
 			continue
 		}
-
-		p := sharding.Physical{Name: t.Name, Status: t.Status, BelongsToNodes: t.Nodes}
+		// TODO-RAFT: Check in which cases can the partition not have assigned one to a tenant
+		part, ok := partitions[t.Name]
+		if !ok {
+			// TODO-RAFT: Do we want to silently continue here or raise an error ?
+			continue
+		}
+		p := sharding.Physical{Name: t.Name, Status: t.Status, BelongsToNodes: part}
 		m.Sharding.Physical[t.Name] = p
-		if !slices.Contains(t.Nodes, nodeID) {
-			req.Tenants[i] = nil // is owner by another node
+		// TODO-RAFT: Check here why we set =nil if it is "owned by another node"
+		if !slices.Contains(part, nodeID) {
+			req.Tenants[i] = nil // is owned by another node
 		}
 	}
 	m.ShardVersion = v
@@ -198,7 +241,6 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	missingShards := []string{}
 	ps := m.Sharding.Physical
 	for i, u := range req.Tenants {
-
 		p, ok := ps[u.Name]
 		if !ok {
 			missingShards = append(missingShards, u.Name)
@@ -211,15 +253,13 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		}
 		copy := p.DeepCopy()
 		copy.Status = u.Status
-		if u.Nodes != nil && len(u.Nodes) >= 0 {
-			copy.BelongsToNodes = u.Nodes
-		}
 		ps[u.Name] = copy
 		if !slices.Contains(copy.BelongsToNodes, nodeID) {
 			req.Tenants[i] = nil
 		}
 		n++
 	}
+
 	if len(missingShards) > 0 {
 		err = fmt.Errorf("%w: %v", errShardNotFound, missingShards)
 	}

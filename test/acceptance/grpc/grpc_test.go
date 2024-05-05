@@ -56,7 +56,7 @@ func TestGRPC(t *testing.T) {
 		require.NotNil(t, resp)
 	})
 
-	tests := []struct {
+	propsTests := []struct {
 		name string
 		req  *pb.SearchRequest
 	}{
@@ -88,6 +88,7 @@ func TestGRPC(t *testing.T) {
 					Uuid: true,
 				},
 				Uses_123Api: true,
+				Uses_125Api: true,
 			},
 		},
 		{
@@ -98,10 +99,11 @@ func TestGRPC(t *testing.T) {
 					Uuid: true,
 				},
 				Uses_123Api: true,
+				Uses_125Api: true,
 			},
 		},
 	}
-	for _, tt := range tests {
+	for _, tt := range propsTests {
 		t.Run(tt.name, func(t *testing.T) {
 			scifi := "sci-fi"
 			resp, err := grpcClient.Search(context.TODO(), tt.req)
@@ -116,7 +118,7 @@ func TestGRPC(t *testing.T) {
 				assert.True(t, id == books.Dune.String() || id == books.ProjectHailMary.String() || id == books.TheLordOfTheIceGarden.String())
 				titleRaw := res.Properties.NonRefProps.Fields["title"]
 				require.NotNil(t, titleRaw)
-				title := titleRaw.GetStringValue()
+				title := titleRaw.GetTextValue()
 				require.NotNil(t, title)
 
 				metaRaw := res.Properties.NonRefProps.Fields["meta"]
@@ -125,7 +127,7 @@ func TestGRPC(t *testing.T) {
 				require.NotNil(t, meta)
 				isbnRaw := meta.GetFields()["isbn"]
 				require.NotNil(t, isbnRaw)
-				isbn := isbnRaw.GetStringValue()
+				isbn := isbnRaw.GetTextValue()
 				require.NotNil(t, isbn)
 
 				objRaw := meta.GetFields()["obj"]
@@ -135,30 +137,24 @@ func TestGRPC(t *testing.T) {
 
 				objsRaw := meta.GetFields()["objs"]
 				require.NotNil(t, objsRaw)
-				objs := objsRaw.GetListValue()
+				objs := objsRaw.GetListValue().GetObjectValues()
 				require.NotNil(t, objs)
-
-				objEntryRaw := objs.Values[0]
-				require.NotNil(t, objEntryRaw)
-				objEntry := objEntryRaw.GetObjectValue()
+				objEntry := objs.Values[0]
 				require.NotNil(t, objEntry)
 
 				reviewsRaw := res.Properties.NonRefProps.Fields["reviews"]
 				require.NotNil(t, reviewsRaw)
-				reviews := reviewsRaw.GetListValue()
+				reviews := reviewsRaw.GetListValue().GetObjectValues()
 				require.NotNil(t, reviews)
 				require.Len(t, reviews.Values, 1)
 
-				review := reviews.Values[0].GetObjectValue()
+				review := reviews.Values[0]
 				require.NotNil(t, review)
 
-				tags := review.Fields["tags"].GetListValue()
+				tags := review.Fields["tags"].GetListValue().GetTextValues()
 				require.NotNil(t, tags)
 
-				strTags := make([]string, len(tags.Values))
-				for i, tag := range tags.Values {
-					strTags[i] = tag.GetStringValue()
-				}
+				txtTags := tags.Values
 
 				expectedTitle := ""
 				expectedIsbn := ""
@@ -180,11 +176,11 @@ func TestGRPC(t *testing.T) {
 				}
 				assert.Equal(t, expectedTitle, title)
 				assert.Equal(t, expectedIsbn, isbn)
-				assert.Equal(t, expectedTags, strTags)
+				assert.Equal(t, expectedTags, txtTags)
 
 				expectedObj := &pb.Properties{
 					Fields: map[string]*pb.Value{
-						"text": {Kind: &pb.Value_StringValue{StringValue: "some text"}},
+						"text": {Kind: &pb.Value_TextValue{TextValue: "some text"}},
 					},
 				}
 				assert.Equal(t, expectedObj, obj)
@@ -192,6 +188,72 @@ func TestGRPC(t *testing.T) {
 			}
 		})
 	}
+
+	t.Run("Search with hybrid", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			HybridSearch: &pb.Hybrid{
+				Query: "Dune",
+			},
+			Uses_123Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Results)
+		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue(), "Dune")
+	})
+
+	t.Run("Search with hybrid and group by", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			GroupBy: &pb.GroupBy{
+				Path:            []string{"title"},
+				NumberOfGroups:  1,
+				ObjectsPerGroup: 1,
+			},
+			HybridSearch: &pb.Hybrid{
+				Query: "Dune",
+			},
+			Uses_123Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.GroupByResults)
+		require.Len(t, resp.GroupByResults, 1)
+	})
+
+	t.Run("Search with near text", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			NearText: &pb.NearTextSearch{
+				Query: []string{"Dune"},
+			},
+			Uses_123Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.Results)
+		require.Equal(t, resp.Results[0].Properties.NonRefProps.Fields["title"].GetTextValue(), "Dune")
+	})
+
+	t.Run("Search with near text and group by", func(t *testing.T) {
+		resp, err := grpcClient.Search(context.TODO(), &pb.SearchRequest{
+			Collection: booksClass.Class,
+			GroupBy: &pb.GroupBy{
+				Path:            []string{"title"},
+				NumberOfGroups:  1,
+				ObjectsPerGroup: 1,
+			},
+			NearText: &pb.NearTextSearch{
+				Query: []string{"Dune"},
+			},
+			Uses_123Api: true,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.NotNil(t, resp.GroupByResults)
+		require.Len(t, resp.GroupByResults, 1)
+	})
 
 	t.Run("Batch delete", func(t *testing.T) {
 		resp, err := grpcClient.BatchDelete(context.TODO(), &pb.BatchDeleteRequest{

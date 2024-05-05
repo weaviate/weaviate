@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -102,7 +103,7 @@ func (m *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error 
 func (m *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{},
 ) (schemaConfig.VectorIndexConfig, error) {
-	if vectorIndexType != "hnsw" && vectorIndexType != "flat" {
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
 			vectorIndexType)
@@ -123,10 +124,6 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	mtEnabled, err := validateUpdatingMT(class, update)
 	if err != nil {
 		return nil, err
-	}
-
-	if class.ReplicationConfig.Factor != update.ReplicationConfig.Factor {
-		return nil, fmt.Errorf("updating replication factor is not supported yet")
 	}
 
 	if err := validateImmutableFields(class, update); err != nil {
@@ -262,6 +259,15 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 		cfgs[vecName] = c.VectorConfig[vecName].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 	}
 	return cfgs
+}
+
+func asVectorIndexConfig(c *models.Class) schemaConfig.VectorIndexConfig {
+	validCfg, ok := c.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+	if !ok {
+		return nil
+	}
+
+	return validCfg
 }
 
 func validateShardingConfig(current, update *models.Class, mtEnabled bool) error {

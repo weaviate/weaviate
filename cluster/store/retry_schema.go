@@ -12,6 +12,8 @@
 package store
 
 import (
+	"context"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,11 +25,12 @@ import (
 // Retry may be needed due to eventual consistency issues where
 // updates might take some time to arrive at the follower.
 type retrySchema struct {
-	schema *schema
+	schema          *schema
+	versionedSchema versionedSchema
 }
 
 func (rs retrySchema) ClassInfo(class string) (ci ClassInfo) {
-	res, _ := rs.ClassInfoWithVersion(class, 0)
+	res, _ := rs.ClassInfoWithVersion(context.TODO(), class, 0)
 	return res
 }
 
@@ -38,21 +41,21 @@ func (rs retrySchema) ClassEqual(name string) string {
 }
 
 func (rs retrySchema) MultiTenancy(class string) models.MultiTenancyConfig {
-	res, _ := rs.MultiTenancyWithVersion(class, 0)
+	res, _ := rs.MultiTenancyWithVersion(context.TODO(), class, 0)
 	return res
 }
 
 // Read performs a read operation `reader` on the specified class and sharding state
 func (rs retrySchema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
 	return rs.retry(func(s *schema) error {
-		return s.Read(class, reader, 0)
+		return s.Read(class, reader)
 	})
 }
 
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
 func (rs retrySchema) ReadOnlyClass(class string) (cls *models.Class) {
-	res, _ := rs.ReadOnlyClassWithVersion(class, 0)
+	res, _ := rs.ReadOnlyClassWithVersion(context.TODO(), class, 0)
 	return res
 }
 
@@ -81,35 +84,34 @@ func (rs retrySchema) ReadOnlySchema() models.Schema {
 
 // ShardOwner returns the node owner of the specified shard
 func (rs retrySchema) ShardOwner(class, shard string) (owner string, err error) {
-	res, _, err := rs.ShardOwnerWithVersion(class, shard, 0)
+	res, err := rs.ShardOwnerWithVersion(context.TODO(), class, shard, 0)
 	return res, err
 }
 
 // ShardFromUUID returns shard name of the provided uuid
 func (rs retrySchema) ShardFromUUID(class string, uuid []byte) (shard string) {
-	res, _ := rs.ShardFromUUIDWithVersion(class, uuid, 0)
+	res, _ := rs.ShardFromUUIDWithVersion(context.TODO(), class, uuid, 0)
 	return res
 }
 
 // ShardReplicas returns the replica nodes of a shard
 func (rs retrySchema) ShardReplicas(class, shard string) (nodes []string, err error) {
-	res, _, err := rs.ShardReplicasWithVersion(class, shard, 0)
+	res, err := rs.ShardReplicasWithVersion(context.TODO(), class, shard, 0)
 	return res, err
 }
 
-// TenantShard returns shard name for the provided tenant and its activity status
-func (rs retrySchema) TenantShard(class, tenant string) (name string, st string) {
-	name, st, _ = rs.TenantShardWithVersion(class, tenant, 0)
-	return name, st
+// TenantsShards returns shard name for the provided tenant and its activity status
+func (rs retrySchema) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
 }
 
 func (rs retrySchema) CopyShardingState(class string) (ss *sharding.State) {
-	res, _ := rs.CopyShardingStateWithVersion(class, 0)
+	res, _ := rs.CopyShardingStateWithVersion(context.TODO(), class, 0)
 	return res
 }
 
-func (rs retrySchema) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	return rs.schema.GetShardsStatus(class)
+func (rs retrySchema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	return rs.schema.GetShardsStatus(class, tenant)
 }
 
 func (rs retrySchema) Len() int { return rs.schema.len() }

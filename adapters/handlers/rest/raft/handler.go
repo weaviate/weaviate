@@ -137,17 +137,16 @@ func (h RaftHandler) RemoveNode(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Statistics will fetch internal statistics from the schema handler and returns them to the caller in json format.
-// If an internal error occurs, returns http.StatusInternalServerError
-func (h RaftHandler) Statistics(w http.ResponseWriter, r *http.Request) {
-	// Fetch statistics
-	stats := h.schemaHandler.Statistics()
-
-	// We are returning json
+// StoreSchemaV1 migrate from v2 (RAFT) to v1 (Non-RAFT)
+func (h RaftHandler) StoreSchemaV1(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "", http.StatusMethodNotAllowed)
+		return
+	}
+	restore := h.schemaHandler.StoreSchemaV1()
 	w.Header().Set("Content-Type", "application/json")
 
-	// Encode to json and return
-	err := json.NewEncoder(w).Encode(stats)
+	err := json.NewEncoder(w).Encode(restore)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -163,7 +162,7 @@ func ClusterRouter(schemaHandler schema.Handler) *http.ServeMux {
 	root := "/v1/cluster"
 	r.HandleFunc(root+"/join", raftHandler.JoinNode)
 	r.HandleFunc(root+"/remove", raftHandler.RemoveNode)
-	r.HandleFunc(root+"/statistics", raftHandler.Statistics)
+	r.HandleFunc(root+"/schema-v1", raftHandler.StoreSchemaV1)
 
 	return r
 }

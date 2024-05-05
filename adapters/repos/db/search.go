@@ -30,19 +30,20 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func (db *DB) Aggregate(ctx context.Context,
-	params aggregation.Params,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	return idx.aggregate(ctx, params)
+	return idx.aggregate(ctx, params, modules)
 }
 
 func (db *DB) GetQueryMaximumResults() int {

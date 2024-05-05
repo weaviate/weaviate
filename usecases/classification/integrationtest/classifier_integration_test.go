@@ -81,7 +81,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				}
 			}
 
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, 0)
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -97,7 +97,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 					Object:        elem.Object(),
 				}
 			}
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, 0)
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -214,7 +214,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 				}
 			}
 
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, 0)
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)

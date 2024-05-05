@@ -49,6 +49,7 @@ message SearchRequest {
   optional Rerank rerank = 61;
 
   bool uses_123_api = 100 [deprecated = true];
+  bool uses_125_api = 101;
 }
 
 message GroupBy {
@@ -117,7 +118,6 @@ message Hybrid {
   repeated string target_vectors = 7;
   NearTextSearch near_text = 8;
   NearVector near_vector = 9;
-
 }
 
 message NearTextSearch {

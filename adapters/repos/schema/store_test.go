@@ -15,18 +15,63 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	clusterStore "github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 
 	ucs "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+func TestSaveAndLoadSchema(t *testing.T) {
+	var (
+		ctx       = context.Background()
+		logger, _ = test.NewNullLogger()
+		dirName   = t.TempDir()
+	)
+
+	schema := ucs.NewState(2)
+	addClass(&schema, "C1", 0, 1, 0)
+	addClass(&schema, "C2", 0, 3, 3)
+
+	// Save the schema
+	repo, _ := newRepo(dirName, 0, logger)
+	defer repo.Close()
+
+	cs := map[string]clusterStore.ClassState{}
+	for _, s := range schema.ObjectSchema.Classes {
+		cs[s.Class] = clusterStore.ClassState{
+			Class:  *s,
+			Shards: *schema.ShardingState[s.Class],
+		}
+	}
+
+	if err := repo.SaveLegacySchema(cs); err != nil {
+		t.Fatalf("save all schema: %v", err)
+	}
+
+	// Load the schema
+	loadedSchema, err := repo.Load(ctx)
+	if err != nil {
+		t.Fatalf("load schema: %v", err)
+	}
+
+	// Assert that the loaded schema is the same as the saved schema
+
+	if !reflect.DeepEqual(schema.ObjectSchema, loadedSchema.ObjectSchema) {
+		t.Errorf("loaded schema does not match saved schema")
+	}
+	if !reflect.DeepEqual(schema.ShardingState, loadedSchema.ShardingState) {
+		t.Errorf("loaded sharding state does not match saved sharding state")
+	}
+}
 
 func TestRepositoryMigrate(t *testing.T) {
 	var (
