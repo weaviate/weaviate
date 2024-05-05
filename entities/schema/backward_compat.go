@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cenkalti/backoff/v4"
-	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -32,34 +30,24 @@ func GetClassByName(s *models.Schema, className string) (*models.Class, error) {
 		return nil, fmt.Errorf(ErrorNoSuchClass, className)
 	}
 
-	// retry to handle eventual consistency
-	var cls *models.Class
-	return cls, backoff.Retry(func() error {
-		for _, class := range s.Classes {
-			// Check if the name of the class is the given name, that's the class we need
-			if class.Class == className {
-				cls = class
-				return nil
-			}
+	for _, class := range s.Classes {
+		// Check if the name of the class is the given name, that's the class we need
+		if class.Class == className {
+			return class, nil
 		}
-		return fmt.Errorf(ErrorNoSuchClass, className)
-	}, utils.NewBackoff())
+	}
+	return nil, fmt.Errorf(ErrorNoSuchClass, className)
 }
 
 // GetPropertyByName returns the class by its name
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
-	// retry to handle eventual consistency
-	var property *models.Property
-	return property, backoff.Retry(func() error {
-		for _, prop := range c.Properties {
-			// Check if the name of the property is the given name, that's the property we need
-			if prop.Name == strings.Split(propName, ".")[0] {
-				property = prop
-				return nil
-			}
+	for _, prop := range c.Properties {
+		// Check if the name of the property is the given name, that's the property we need
+		if prop.Name == strings.Split(propName, ".")[0] {
+			return prop, nil
 		}
-		return fmt.Errorf(ErrorNoSuchProperty, propName, c.Class)
-	}, utils.NewBackoff())
+	}
+	return nil, fmt.Errorf(ErrorNoSuchProperty, propName, c.Class)
 }
 
 // GetPropertyDataType checks whether the given string is a valid data type

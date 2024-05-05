@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -38,6 +39,8 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return err
 	}
 
+	ctx = classcache.ContextWithClassCache(ctx)
+
 	unlock, err := m.locks.LockConnector()
 	if err != nil {
 		return NewErrInternal("could not acquire lock: %v", err)
@@ -56,6 +59,11 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, class)
+	if err != nil {
+		return fmt.Errorf("could not get class %s: %w", class, err)
+	}
+
 	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
 	if err != nil {
 		switch err.(type) {
@@ -69,8 +77,11 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return NewErrNotFound("object %v could not be found", path)
 	}
 
-	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant)
-	if err != nil {
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, vclasses[class].Version); err != nil {
+		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", vclasses[class].Version, err)
+	}
+	if err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, vclasses[class].Version); err != nil {
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
 	return nil
@@ -99,7 +110,7 @@ func (m *Manager) deleteObjectFromRepo(ctx context.Context, id strfmt.UUID) erro
 		}
 
 		object := objectRes.Object()
-		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, "")
+		err = m.vectorRepo.DeleteObject(ctx, object.Class, id, nil, "", 0)
 		if err != nil {
 			return NewErrInternal("could not delete object from vector repo: %v", err)
 		}

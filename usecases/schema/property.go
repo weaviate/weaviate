@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -24,88 +25,61 @@ import (
 // existing properties if the merge bool passed true.
 func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Principal,
 	class *models.Class, merge bool, newProps ...*models.Property,
-) (uint64, error) {
+) (*models.Class, uint64, error) {
 	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	if class == nil {
-		return 0, fmt.Errorf("class is nil: %w", ErrNotFound)
+		return nil, 0, fmt.Errorf("class is nil: %w", ErrNotFound)
 	}
 
 	if len(newProps) == 0 {
-		return 0, nil
+		return nil, 0, nil
 	}
 
 	// validate new props
 	for _, prop := range newProps {
 		if prop.Name == "" {
-			return 0, fmt.Errorf("property must contain name")
+			return nil, 0, fmt.Errorf("property must contain name")
 		}
 		prop.Name = schema.LowercaseFirstLetter(prop.Name)
 		if prop.DataType == nil {
-			return 0, fmt.Errorf("property must contain dataType")
+			return nil, 0, fmt.Errorf("property must contain dataType")
 		}
 	}
 
 	if err := h.setNewPropDefaults(class, newProps...); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	existingNames := make(map[string]bool, len(class.Properties))
 	if !merge {
-		for _, p := range class.Properties {
-			existingNames[strings.ToLower(p.Name)] = true
+		for _, prop := range class.Properties {
+			existingNames[strings.ToLower(prop.Name)] = true
 		}
 	}
 
 	if err := h.validateProperty(class, existingNames, false, newProps...); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-
-	migratePropertySettings(newProps...)
 
 	// TODO-RAFT use UpdateProperty() for adding/merging property when index idempotence exists
 	// revisit when index idempotence exists and/or allowing merging properties on index.
-	new, old := split(class.Properties, newProps)
-	if len(old) > 0 {
-		mergeClassExistedProp(class, old...)
-		if _, err = h.metaWriter.UpdateClass(class, nil); err != nil {
-			return 0, err
-		}
+	props := schema.DedupProperties(class.Properties, newProps)
+	if len(props) == 0 {
+		return class, 0, nil
 	}
 
-	if len(new) == 0 {
-		return 0, nil
-	}
+	migratePropertySettings(props...)
 
-	return h.metaWriter.AddProperty(class.Class, new...)
-}
-
-// split does split the passed properties based in their existence
-// it shouldn't be needed once we have idempotence on Add/Update Property
-// it's used to diff what need to be added and what to update.
-func split(old, new []*models.Property) (propertiesToAdd, propertiesToUpdate []*models.Property) {
-	exPropMap := make(map[string]int, len(old))
-	for index := range old {
-		exPropMap[old[index].Name] = index
+	class.Properties = store.MergeProps(class.Properties, props)
+	version, err := h.metaWriter.AddProperty(class.Class, props...)
+	if err != nil {
+		return nil, 0, err
 	}
-
-	for _, prop := range new {
-		index, exists := exPropMap[schema.LowercaseFirstLetter(prop.Name)]
-		if !exists {
-			propertiesToAdd = append(propertiesToAdd, prop)
-		} else if _, isNested := schema.AsNested(old[index].DataType); isNested {
-			mergedNestedProperties, merged := schema.MergeRecursivelyNestedProperties(old[index].NestedProperties,
-				prop.NestedProperties)
-			if merged {
-				prop.NestedProperties = mergedNestedProperties
-				propertiesToUpdate = append(propertiesToUpdate, prop)
-			}
-		}
-	}
-	return
+	return class, version, err
 }
 
 // DeleteClassProperty from existing Schema

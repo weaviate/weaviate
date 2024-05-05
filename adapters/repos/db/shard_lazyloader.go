@@ -13,15 +13,13 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sync"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -29,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -38,22 +37,28 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type LazyLoadShard struct {
-	shardOpts *deferredShardOpts
-	shard     *Shard
-	loaded    bool
-	mutex     sync.Mutex
+	shardOpts  *deferredShardOpts
+	shard      *Shard
+	loaded     bool
+	mutex      sync.Mutex
+	memMonitor memwatch.AllocChecker
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
 ) *LazyLoadShard {
+	if memMonitor == nil {
+		memMonitor = memwatch.NewDummyMonitor()
+	}
 	promMetrics.NewUnloadedshard(class.Class)
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
@@ -64,6 +69,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			jobQueueCh:       jobQueueCh,
 			indexCheckpoints: indexCheckpoints,
 		},
+		memMonitor: memMonitor,
 	}
 }
 
@@ -93,6 +99,11 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	if l.loaded {
 		return nil
 	}
+
+	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
+		return errors.Wrap(err, "memory pressure: cannot load shard")
+	}
+
 	if l.shardOpts.class == nil {
 		l.shardOpts.promMetrics.StartLoadingShard("unknown class")
 	} else {
@@ -112,6 +123,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	} else {
 		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
 	}
+
 	return nil
 }
 
@@ -375,11 +387,11 @@ func (l *LazyLoadShard) publishDimensionMetrics() {
 	l.shard.publishDimensionMetrics()
 }
 
-func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
+func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.Aggregate(ctx, params)
+	return l.shard.Aggregate(ctx, params, modules)
 }
 
 func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDocument) error {
@@ -404,6 +416,13 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	return l.shard.Shutdown(ctx)
+}
+
+func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
+	if err := l.Load(context.Background()); err != nil {
+		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
+	}
+	return l.shard.preventShutdown()
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
@@ -600,4 +619,19 @@ func (l *LazyLoadShard) isLoaded() bool {
 	defer l.mutex.Unlock()
 
 	return l.loaded
+}
+
+func (l *LazyLoadShard) Activity() int32 {
+	var loaded bool
+	l.mutex.Lock()
+	loaded = l.loaded
+	l.mutex.Unlock()
+
+	if !loaded {
+		// don't force-load the shard, just report the same number every time, so
+		// the caller can figure out there was no activity
+		return 0
+	}
+
+	return l.shard.Activity()
 }

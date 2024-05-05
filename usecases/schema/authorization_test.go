@@ -64,6 +64,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/*",
 		},
 		{
+			methodName:       "GetCachedClass",
+			additionalArgs:   []interface{}{"classname"},
+			expectedVerb:     "list",
+			expectedResource: "schema/*",
+		},
+		{
 			methodName:       "AddClass",
 			additionalArgs:   []interface{}{&models.Class{}},
 			expectedVerb:     "create",
@@ -101,7 +107,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "ShardsStatus",
-			additionalArgs:   []interface{}{"className"},
+			additionalArgs:   []interface{}{"className", "tenant"},
 			expectedVerb:     "list",
 			expectedResource: "schema/className/shards",
 		},
@@ -133,7 +139,13 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "GetConsistentTenants",
-			additionalArgs:   []interface{}{"className", false},
+			additionalArgs:   []interface{}{"className", false, []string{}},
+			expectedVerb:     "get",
+			expectedResource: tenantsPath,
+		},
+		{
+			methodName:       "ConsistentTenantExists",
+			additionalArgs:   []interface{}{"className", false, "P1"},
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},
@@ -155,7 +167,9 @@ func Test_Schema_Authorization(t *testing.T) {
 				// internal methods to indicate readiness state
 				"StartServing", "Shutdown", "Statistics",
 				// Cluster/nodes related endpoint
-				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes":
+				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
+				// revert to schema v0 (non raft)
+				"StoreSchemaV1":
 				// don't require auth on methods which are exported because other
 				// packages need to call them for maintenance and other regular jobs,
 				// but aren't user facing

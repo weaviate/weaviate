@@ -24,7 +24,9 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
@@ -186,23 +188,20 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
-	if params.Group != nil {
-		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
-		if err != nil {
-			return nil, errors.Errorf("grouper: %v", err)
-		}
-
-		res = grouped
-	}
-
 	if e.modulesProvider != nil {
-		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
+		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res, params.AdditionalProperties.ModuleParams, nil, params.ModuleParams)
 		if err != nil {
 			return nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
 
+	if params.GroupBy != nil {
+		groupedResults, err := e.groupSearchResults(ctx, res, params.GroupBy)
+		if err != nil {
+			return nil, err
+		}
+		return groupedResults, nil
+	}
 	return res, nil
 }
 
@@ -348,6 +347,7 @@ func (e *Explorer) getClassList(ctx context.Context,
 	}
 
 	if e.modulesProvider != nil {
+
 		res, err = e.modulesProvider.ListExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, params.ModuleParams)
 		if err != nil {
@@ -368,16 +368,22 @@ func (e *Explorer) searchResultsToGetResponse(ctx context.Context, input []searc
 	if err != nil {
 		return nil, err
 	}
-	for _, result := range results {
-		output = append(output, result.Schema)
+
+	if params.GroupBy != nil {
+		for _, result := range results {
+			wrapper := map[string]interface{}{}
+			wrapper["_additional"] = result.AdditionalProperties
+			output = append(output, wrapper)
+		}
+	} else {
+		for _, result := range results {
+			output = append(output, result.Schema)
+		}
 	}
 	return output, nil
 }
 
-func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context,
-	input []search.Result,
-	searchVector []float32, params dto.GetParams,
-) ([]search.Result, error) {
+func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input []search.Result, searchVector []float32, params dto.GetParams) ([]search.Result, error) {
 	var output []search.Result
 	replEnabled, err := e.replicationEnabled(params)
 	if err != nil {
@@ -685,6 +691,15 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 		return vector, targetVector, nil
 	}
 	return nil, "", errors.New("no modules defined")
+}
+
+func (e *Explorer) GetSchema() schema.Schema {
+	return e.schemaGetter.GetSchemaSkipAuth()
+}
+
+func (e *Explorer) GetClassByName(className string) *models.Class {
+	s := e.GetSchema()
+	return s.GetClass(string(schema.ClassName(className)))
 }
 
 func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {

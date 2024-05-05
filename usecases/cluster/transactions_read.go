@@ -59,7 +59,7 @@ func (c *TxManager) CloseReadTransaction(ctx context.Context,
 			c.logger.WithFields(logrus.Fields{
 				"action": "broadcast_abort_read_transaction",
 				"id":     tx.ID,
-			}).WithError(err).Errorf("broadcast tx (read-only) abort failed")
+			}).WithError(err).Error("broadcast tx (read-only) abort failed")
 		}
 
 		return errors.Wrap(err, "broadcast commit read transaction")

@@ -25,7 +25,7 @@ const (
 
 const (
 	DefaultApiEndpoint = "http://localhost:11434"
-	DefaultModelID     = "llama2"
+	DefaultModelID     = "llama3"
 )
 
 var availableOllamaModels = []string{
@@ -36,6 +36,10 @@ var availableOllamaModels = []string{
 	"neural-chat",
 	"starling-lm",
 	"codellama",
+	"llama3:8b",
+	"llama3:instruct",
+	"llama3:8b-instruct-q4_0",
+	"llama2",
 	"llama2-uncensored",
 	"llama2:13b",
 	"llama2:70b",
