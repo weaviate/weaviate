@@ -1033,8 +1033,7 @@ func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]
 					allSegments[segment] = propName
 				}
 			}
-			memtableSizes := bucket.active.Size() + bucket.flushing.Size()
-			if memtableSizes > 0 {
+			if (bucket.flushing != nil && bucket.flushing.Size() > 0) || (bucket.active != nil && bucket.active.Size() > 0) {
 				hasMemtableWithData = true
 			}
 		}
