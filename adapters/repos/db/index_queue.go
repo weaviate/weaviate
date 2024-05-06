@@ -127,7 +127,9 @@ func NewIndexQueue(
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
 	}
-	opts.Logger = opts.Logger.WithField("component", "index_queue")
+	opts.Logger = opts.Logger.
+		WithField("component", "index_queue").
+		WithField("shard_id", shardID)
 
 	if opts.BatchSize == 0 {
 		opts.BatchSize = 1000
@@ -195,6 +197,7 @@ func (q *IndexQueue) Close() error {
 	defer cancel()
 	q.queue.wait(ctx)
 
+	q.Logger.Info("index queue closed")
 	return nil
 }
 
@@ -359,9 +362,8 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		WithField("last_stored_id", maxDocID).
 		WithField("count", counter).
 		WithField("took", time.Since(start)).
-		WithField("shard_id", q.shardID).
 		WithField("target_vector", q.targetVector).
-		Debug("enqueued vectors from last indexed checkpoint")
+		Info("enqueued vectors from last indexed checkpoint")
 
 	return nil
 }
@@ -376,6 +378,8 @@ func (q *IndexQueue) Drop() error {
 	if q.checkpoints != nil {
 		return q.checkpoints.Delete(q.shardID, q.targetVector)
 	}
+
+	q.Logger.Info("index queue dropped")
 
 	return nil
 }
@@ -425,6 +429,14 @@ func (q *IndexQueue) indexer() {
 
 func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 	chunks := q.queue.borrowChunks(max)
+	if len(chunks) == 0 {
+		// if no chunk was borrowed, it means the queue is empty, not full and not stale.
+		// this can only happen if the queue size is less than the batch size.
+		if q.Size() >= int64(q.BatchSize) {
+			q.Logger.WithField("queue_size", q.Size()).Warn("chunk is full but no vectors were dequeued")
+		}
+		return
+	}
 	for i, c := range chunks {
 		select {
 		case <-q.ctx.Done():
@@ -446,6 +458,11 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 	if wait {
 		q.queue.wait(q.ctx)
 	}
+
+	q.Logger.
+		WithField("queue_size", q.Size()).
+		WithField("dequeued_chunks", len(chunks)).
+		Info("vectors sent to the indexing workers")
 }
 
 // SearchByVector performs the search through the index first, then uses brute force to
@@ -545,16 +562,16 @@ func (q *IndexQueue) checkCompressionSettings() {
 // pause indexing and wait for the workers to finish their current tasks
 // related to this queue.
 func (q *IndexQueue) pauseIndexing() {
-	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
+	q.Logger.Info("pausing indexing, waiting for the current tasks to finish")
 	q.paused.Store(true)
 	q.queue.wait(q.ctx)
-	q.Logger.Debug("indexing paused")
+	q.Logger.Info("indexing paused")
 }
 
 // resume indexing
 func (q *IndexQueue) resumeIndexing() {
 	q.paused.Store(false)
-	q.Logger.Debug("indexing resumed")
+	q.Logger.Info("indexing resumed")
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int,
