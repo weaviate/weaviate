@@ -17,16 +17,13 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"sort"
 	"strconv"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 var (
@@ -76,7 +73,7 @@ type Term struct {
 	Idf               float64
 	segment           segment
 	node              segmentindex.Node
-	IdPointer         uint64
+	idPointer         uint64
 	IdBytes           []byte
 	PosPointer        uint64
 	IsTombstone       bool
@@ -88,9 +85,9 @@ type Term struct {
 	TombstoneCount    uint64
 	FullTermCount     uint64
 	HasTombstone      bool
-	Data              docPointerWithScore
+	data              docPointerWithScore
 	Exhausted         bool
-	QueryTerm         string
+	queryTerm         string
 	PropertyBoost     float64
 	values            []value
 	ColSize           uint64
@@ -100,8 +97,8 @@ type Term struct {
 func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, node segmentindex.Node, key []byte, queryTerm string, propertyBoost float64, fullTermDocCount int64, filterDocIds helpers.AllowList) error {
 	t.segment = curSegment
 	t.node = node
-	t.QueryTerm = queryTerm
-	t.IdPointer = 0
+	t.queryTerm = queryTerm
+	t.idPointer = 0
 	t.IdBytes = make([]byte, 8)
 	t.PosPointer = 0
 	t.Exhausted = false
@@ -146,7 +143,7 @@ func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, n
 
 	if !t.Exhausted {
 		t.decode()
-		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.IdPointer)) {
+		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer)) {
 			t.advance()
 		}
 	}
@@ -155,7 +152,7 @@ func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, n
 }
 
 func (t *Term) ClearData() {
-	t.Data = docPointerWithScore{}
+	t.data = docPointerWithScore{}
 }
 
 func (t *Term) decode() error {
@@ -172,28 +169,28 @@ func (t *Term) decode() error {
 		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
 		// skip 2 extra bytes for fixed value length
 		if isTombstone {
-			t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+			t.idPointer = binary.BigEndian.Uint64(t.IdBytes)
 			return nil
 		}
 
 		freqOffsetStart := docIdOffsetStart + 10
 		// read two floats
-		t.Data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[freqOffsetStart : freqOffsetStart+4]))
+		t.data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[freqOffsetStart : freqOffsetStart+4]))
 		propLengthOffsetStart := freqOffsetStart + 4
-		t.Data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
+		t.data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
 	} else {
 		// read two floats
 		t.IdBytes = t.values[t.PosPointer].value[2:10]
 
 		if isTombstone {
-			t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+			t.idPointer = binary.BigEndian.Uint64(t.IdBytes)
 			return nil
 		}
 
-		t.Data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[12:16]))
-		t.Data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[16:20]))
+		t.data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[12:16]))
+		t.data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[16:20]))
 	}
-	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+	t.idPointer = binary.BigEndian.Uint64(t.IdBytes)
 	return nil
 }
 
@@ -219,7 +216,7 @@ func (t *Term) advance() {
 		t.Exhausted = true
 	} else {
 		t.decode()
-		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.IdPointer)) {
+		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer)) {
 			t.advance()
 		}
 	}
@@ -236,15 +233,15 @@ func (t *Term) advanceIdOnly() {
 		t.Exhausted = true
 	} else {
 		t.decodeIdOnly()
-		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.IdPointer)) {
+		if t.IsTombstone || (t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer)) {
 			t.advanceIdOnly()
 		}
 	}
 }
 
-func (t *Term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
-	id := t.IdPointer
-	pair := t.Data
+func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+	id := t.idPointer
+	pair := t.data
 	freq := float64(pair.Frequency)
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength)) * t.PropertyBoost
 
@@ -256,15 +253,15 @@ func (t *Term) scoreAndAdvance(averagePropLength float64, config schema.BM25Conf
 	return id, tf * t.Idf
 }
 
-func (t *Term) advanceAtLeast(minID uint64) {
+func (t *Term) AdvanceAtLeast(minID uint64) {
 	if t.Exhausted {
 		return
 	}
 	minIDBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(minIDBytes, minID)
 	for bytes.Compare(t.IdBytes, minIDBytes) < 0 {
-		diffVal := minID - t.IdPointer
-		if FORWARD_JUMP_ENABLED && minID > t.IdPointer && diffVal > FORWARD_JUMP_THRESHOLD && t.DocCount > FORWARD_JUMP_BUCKET_MINIMUM_SIZE {
+		diffVal := minID - t.idPointer
+		if FORWARD_JUMP_ENABLED && minID > t.idPointer && diffVal > FORWARD_JUMP_THRESHOLD && t.DocCount > FORWARD_JUMP_BUCKET_MINIMUM_SIZE {
 			// jump to the right
 			// fmt.Println("jumping", t.IdPointer, minID, diffVal, expectedJump, actualJump)
 			// expectedJump := uint64(float64(diffVal) * (float64(t.EstColSize) / float64(t.DocCount)) * FORWARD_JUMP_UNDERESTIMATE)
@@ -287,6 +284,26 @@ func (t *Term) advanceAtLeast(minID uint64) {
 			t.jumpAtLeastAligned(minID, t.offsetPointer, t.actualEnd)
 		}
 	*/
+}
+
+func (t *Term) IsExhausted() bool {
+	return t.Exhausted
+}
+
+func (t *Term) IdPointer() uint64 {
+	return t.idPointer
+}
+
+func (t *Term) IDF() float64 {
+	return t.Idf
+}
+
+func (t *Term) QueryTerm() string {
+	return t.queryTerm
+}
+
+func (t *Term) Data() []docPointerWithScore {
+	return []docPointerWithScore{t.data}
 }
 
 func (t *Term) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint64 {
@@ -336,7 +353,7 @@ func (t *Term) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint6
 	// fmt.Println("jumped to", posPointer, "f", binary.BigEndian.Uint64(docIdFoundBytes), "e", binary.BigEndian.Uint64(minIDBytes), "d", binary.BigEndian.Uint64(docIdFoundBytes)-binary.BigEndian.Uint64(minIDBytes))
 
 	t.IdBytes = docIdFoundBytes
-	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+	t.idPointer = binary.BigEndian.Uint64(t.IdBytes)
 	t.PosPointer = posPointer
 	t.offsetPointer = start + halfOffsetLen
 
@@ -364,7 +381,7 @@ func (t *Term) jumpAproximate2(minIDBytes []byte, start uint64, end uint64) uint
 	if start > end {
 		return 0
 	}
-	diffVal := binary.BigEndian.Uint64(minIDBytes) - t.IdPointer
+	diffVal := binary.BigEndian.Uint64(minIDBytes) - t.idPointer
 	expectedJump := uint64(float64(diffVal) * (float64(t.ColSize) / float64(t.DocCount)) * FORWARD_JUMP_UNDERESTIMATE)
 
 	if expectedJump > t.DocCount {
@@ -405,7 +422,7 @@ func (t *Term) jumpAproximate2(minIDBytes []byte, start uint64, end uint64) uint
 	// fmt.Println("jumped to", posPointer, "f", binary.BigEndian.Uint64(docIdFoundBytes), "e", binary.BigEndian.Uint64(minIDBytes), "d", binary.BigEndian.Uint64(docIdFoundBytes)-binary.BigEndian.Uint64(minIDBytes))
 
 	t.IdBytes = docIdFoundBytes
-	t.IdPointer = binary.BigEndian.Uint64(t.IdBytes)
+	t.idPointer = binary.BigEndian.Uint64(t.IdBytes)
 	t.PosPointer = posPointer
 	t.offsetPointer = start + halfOffsetLen
 
@@ -461,7 +478,7 @@ func (t *Term) jumpAtLeastAligned(minID uint64, start uint64, end uint64) uint64
 		return t.jumpAtLeastAligned(minID, start, end)
 	}
 	// if docIdFound is equal to docId, return offset
-	t.IdPointer = docIdFound
+	t.idPointer = docIdFound
 	t.PosPointer = posPointer
 	t.offsetPointer = start + halfOffsetLen
 	t.decode()
@@ -567,102 +584,9 @@ func (t *Term) jumpAtLeastUnaligned(minID uint64, start uint64, end uint64) { //
 	}
 
 	// if docIdFound is equal to docId, return offset
-	t.IdPointer = docIdFound
+	t.idPointer = docIdFound
 	t.offsetPointer = start + halfOffsetLen
 	t.decode()
-	return
-}
-
-type Terms []*Term
-
-func (t Terms) completelyExhausted() bool {
-	for i := range t {
-		if !t[i].Exhausted {
-			return false
-		}
-	}
-	return true
-}
-
-func (t Terms) pivot(minScore float64) bool {
-	minID, pivotPoint, abort := t.findMinID(minScore)
-	if abort {
-		return true
-	}
-	if pivotPoint == 0 {
-		return false
-	}
-
-	t.advanceAllAtLeast(minID)
-	sort.Sort(t)
-	return false
-}
-
-func (t Terms) advanceAllAtLeast(minID uint64) {
-	for i := range t {
-		t[i].advanceAtLeast(minID)
-	}
-}
-
-func (t Terms) findMinID(minScore float64) (uint64, int, bool) {
-	cumScore := float64(0)
-
-	for i, term := range t {
-		if term.Exhausted {
-			continue
-		}
-		cumScore += term.Idf
-		if cumScore >= minScore {
-			return term.IdPointer, i, false
-		}
-	}
-
-	return 0, 0, true
-}
-
-func (t Terms) findFirstNonExhausted() (int, bool) {
-	for i := range t {
-		if !t[i].Exhausted {
-			return i, true
-		}
-	}
-
-	return -1, false
-}
-
-func (t Terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
-	pos, ok := t.findFirstNonExhausted()
-	if !ok {
-		// done, nothing left to score
-		return 0, 0
-	}
-
-	id := t[pos].IdPointer
-	var cumScore float64
-	for i := pos; i < len(t); i++ {
-		if t[i].IdPointer != id || t[i].Exhausted {
-			continue
-		}
-		_, score := t[i].scoreAndAdvance(averagePropLength, config)
-		cumScore += score
-	}
-
-	sort.Sort(t) // pointer was advanced in scoreAndAdvance
-
-	return id, cumScore
-}
-
-// provide sort interface
-func (t Terms) Len() int {
-	return len(t)
-}
-
-func (t Terms) Less(i, j int) bool {
-	return t[i].IdPointer < t[j].IdPointer
-}
-
-func (t Terms) Swap(i, j int) {
-	t[i], t[j] = t[j], t[i]
 }
 
 func compareByteArrays(a, b []byte) bool {
@@ -869,92 +793,6 @@ func (s segment) jumpToDocIdUnaligned(node segmentindex.Node, key []byte, docId 
 
 	// if docIdFound is equal to docId, return offset
 	return &nodeOffset{offset.start + halfOffsetLen, offset.start + halfOffsetLen + 29}, jumps, nil
-}
-
-func GetTopKHeap(limit int, results Terms, averagePropLength float64, bmconfig schema.BM25Config) (*priorityqueue.Queue[any], map[uint64]struct{}) {
-	ids := make(map[uint64]struct{}, limit)
-	topKHeap := priorityqueue.NewMinScoreAndId[any](limit)
-	worstDist := float64(-10000) // tf score can be negative
-	sort.Sort(results)
-	for {
-		if results.completelyExhausted() || results.pivot(worstDist) {
-			return topKHeap, ids
-		}
-
-		id, score := results.scoreNext(averagePropLength, bmconfig)
-
-		if topKHeap.Len() < limit || topKHeap.Top().Dist < float32(score) {
-			ids[id] = struct{}{}
-			topKHeap.Insert(id, float32(score))
-			for topKHeap.Len() > limit {
-				item := topKHeap.Pop()
-				delete(ids, item.ID)
-			}
-			// only update the worst distance when the queue is full, otherwise results can be missing if the first
-			// entry that is checked already has a very high score
-			if topKHeap.Len() >= limit {
-				worstDist = float64(topKHeap.Top().Dist)
-			}
-		}
-	}
-}
-
-// the results are needed in the original order to be able to locate frequency/property length for the top-results
-// resultsOriginalOrder := make(terms, len(results))
-// copy(resultsOriginalOrder, results)
-// topKHeap := b.getTopKHeap(limit, results, averagePropLength)
-// return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
-
-func (b *Bucket) GetTopKObjects(topKHeap *priorityqueue.Queue[any],
-	results Terms, indices []map[uint64]int, additionalExplanations bool,
-) ([]*storobj.Object, []float32, error) {
-	objectsBucket := b
-	if objectsBucket == nil {
-		return nil, nil, errors.Errorf("objects bucket not found")
-	}
-
-	objects := make([]*storobj.Object, 0, topKHeap.Len())
-	scores := make([]float32, 0, topKHeap.Len())
-
-	buf := make([]byte, 8)
-	for topKHeap.Len() > 0 {
-		res := topKHeap.Pop()
-		binary.LittleEndian.PutUint64(buf, res.ID)
-		objectByte, err := objectsBucket.GetBySecondary(0, buf)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if len(objectByte) == 0 {
-			b.logger.Warnf("Skipping object in BM25: object with id %v has a length of 0 bytes.", res.ID)
-			continue
-		}
-
-		obj, err := storobj.FromBinary(objectByte)
-		if err != nil {
-			return nil, nil, err
-		}
-
-		if additionalExplanations {
-			// add score explanation
-			if obj.AdditionalProperties() == nil {
-				obj.Object.Additional = make(map[string]interface{})
-			}
-			/*
-				for j, result := range results {
-					if termIndice, ok := indices[j][res.ID]; ok {
-						queryTerm := result.queryTerm
-						obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndice].frequency
-						obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndice].propLength
-					}
-				}
-			*/
-		}
-		objects = append(objects, obj)
-		scores = append(scores, res.Dist)
-
-	}
-	return objects, scores, nil
 }
 
 func (b *Bucket) GetSegments() []*segment {
