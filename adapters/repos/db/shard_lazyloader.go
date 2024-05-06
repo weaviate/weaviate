@@ -418,12 +418,12 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	return l.shard.Shutdown(ctx)
 }
 
-func (l *LazyLoadShard) active() error {
+func (l *LazyLoadShard) activate() error {
 	if err := l.Load(context.Background()); err != nil {
-		return fmt.Errorf("LazyLoadShard::load: %w", err)
+		return fmt.Errorf("LazyLoadShard::activate: %w", err)
 	}
 
-	return l.shard.active()
+	return l.shard.activate()
 }
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
