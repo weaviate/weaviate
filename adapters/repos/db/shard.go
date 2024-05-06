@@ -110,6 +110,7 @@ type ShardLike interface {
 	Queues() map[string]*IndexQueue
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
+	active() error
 
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
@@ -215,11 +216,9 @@ type Shard struct {
 	activityTracker atomic.Int32
 
 	// indicates whether shard is shut down or dropped (or ongoing)
-	shut bool
+	shut atomic.Bool
 	// indicates whether shard in being used at the moment (e.g. write request)
 	inUseCounter atomic.Int64
-	// allows concurrent shut read/write
-	shutdownLock *sync.RWMutex
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -238,10 +237,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:  jobQueueCh,
 		indexCheckpoints: indexCheckpoints,
-
-		shut:         false,
-		shutdownLock: new(sync.RWMutex),
 	}
+
+	s.shut.Store(false)
 
 	s.activityTracker.Store(1) // initial state
 	s.initCycleCallbacks()
@@ -1054,11 +1052,15 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	return nil
 }
 
-func (s *Shard) preventShutdown() (release func(), err error) {
-	s.shutdownLock.RLock()
-	defer s.shutdownLock.RUnlock()
+// load makes sure the shut flag is false
+func (s *Shard) active() error {
+	s.shut.Store(false)
+	return nil
+}
 
-	if s.shut {
+func (s *Shard) preventShutdown() (release func(), err error) {
+	if s.shut.Load() {
+		s.index.logger.WithField("shard", s.Name()).Debug("was already shut or dropped")
 		return func() {}, errAlreadyShutdown
 	}
 
@@ -1073,9 +1075,7 @@ func (s *Shard) waitForShutdown(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	if eligible, err := s.checkEligibleForShutdown(); err != nil {
-		return err
-	} else if !eligible {
+	if !s.eligibleForShutdown() {
 		ticker := time.NewTicker(checkInterval)
 		defer ticker.Stop()
 
@@ -1084,9 +1084,7 @@ func (s *Shard) waitForShutdown(ctx context.Context) error {
 			case <-ctx.Done():
 				return fmt.Errorf("Shard::proceedWithShutdown: %w", ctx.Err())
 			case <-ticker.C:
-				if eligible, err := s.checkEligibleForShutdown(); err != nil {
-					return err
-				} else if eligible {
+				if s.eligibleForShutdown() {
 					return nil
 				}
 			}
@@ -1097,20 +1095,17 @@ func (s *Shard) waitForShutdown(ctx context.Context) error {
 
 // checks whether shutdown can be executed
 // (shard is not in use at the moment)
-func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
-	s.shutdownLock.Lock()
-	defer s.shutdownLock.Unlock()
-
-	if s.shut {
-		return false, errAlreadyShutdown
+func (s *Shard) eligibleForShutdown() bool {
+	if s.shut.Load() {
+		return false
 	}
 
 	if s.inUseCounter.Load() == 0 {
-		s.shut = true
-		return true, nil
+		s.shut.Store(true)
+		return true
 	}
 
-	return false, nil
+	return false
 }
 
 func (s *Shard) NotifyReady() {
