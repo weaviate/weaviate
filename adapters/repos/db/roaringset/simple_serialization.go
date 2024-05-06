@@ -70,7 +70,11 @@ func (sn *SegmentNodeSimple) Additions() []uint64 {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
-	return []uint64{binary.LittleEndian.Uint64(bData)}
+	results := make([]uint64, len(bData)/8)
+	for i := 0; i < len(bData); i += 8 {
+		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
+	}
+	return results
 }
 
 // AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
@@ -83,7 +87,11 @@ func (sn *SegmentNodeSimple) AdditionsWithCopy() []uint64 {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
-	return []uint64{binary.LittleEndian.Uint64(bData)}
+	results := make([]uint64, len(bData)/8)
+	for i := 0; i < len(bData); i += 8 {
+		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
+	}
+	return results
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
@@ -95,7 +103,11 @@ func (sn *SegmentNodeSimple) Deletions() []uint64 {
 	rw.MoveBufferToAbsolutePosition(8)
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
-	return []uint64{binary.LittleEndian.Uint64(bData)}
+	results := make([]uint64, len(bData)/8)
+	for i := 0; i < len(bData); i += 8 {
+		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
+	}
+	return results
 }
 
 // DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
@@ -109,7 +121,11 @@ func (sn *SegmentNodeSimple) DeletionsWithCopy() []uint64 {
 	rw.MoveBufferToAbsolutePosition(8)
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
-	return []uint64{binary.LittleEndian.Uint64(bData)}
+	results := make([]uint64, len(bData)/8)
+	for i := 0; i < len(bData); i += 8 {
+		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
+	}
+	return results
 }
 
 func (sn *SegmentNodeSimple) PrimaryKey() []byte {
