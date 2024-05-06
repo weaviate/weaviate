@@ -33,6 +33,7 @@ type DistributedBackupDescriptor struct {
 	Status        Status                     `json:"status"`  //
 	Version       string                     `json:"version"` //
 	ServerVersion string                     `json:"serverVersion"`
+	Leader        string                     `json:"leader"`
 	Error         string                     `json:"error"`
 }
 

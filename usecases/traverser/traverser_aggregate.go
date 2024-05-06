@@ -20,6 +20,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/modules"
 )
 
 // Aggregate resolves meta queries
@@ -40,7 +41,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	}
 	defer unlock()
 
-	inspector := newTypeInspector(t.schemaGetter)
+	inspector := newTypeInspector(t.schemaGetter.ReadOnlyClass)
 
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		className := params.ClassName.String()
@@ -64,7 +65,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		params.SearchVector = searchVector
 
 		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
-			params.NearObject, params.ModuleParams)
+			params.NearObject, params.ModuleParams, nil)
 
 		if certainty == 0 && params.ObjectLimit == nil {
 			return nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
@@ -77,26 +78,35 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if len(params.Hybrid.TargetVectors) == 1 {
 			targetVector = params.Hybrid.TargetVectors[0]
 		}
-		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
-			params.ClassName.String(), targetVector)
+		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(), params.ClassName.String(), targetVector)
 		if err != nil {
 			return nil, err
 		}
-		vec, err := t.nearParamsVector.modulesProvider.
-			VectorFromInput(ctx, params.ClassName.String(), params.Hybrid.Query, targetVector)
-		if err != nil {
-			return nil, err
+
+		params.TargetVector = targetVector
+
+		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
+			params.NearObject, params.ModuleParams, params.Hybrid)
+
+		if certainty == 0 && params.ObjectLimit == nil {
+			return nil, fmt.Errorf("must provide certainty or objectLimit with vector search")
 		}
-		params.Hybrid.Vector = vec
+
+		params.Certainty = certainty
 	}
 
 	if params.Filters != nil {
-		if err := filters.ValidateFilters(t.schemaGetter.GetSchemaSkipAuth(), params.Filters); err != nil {
+		if err := filters.ValidateFilters(t.schemaGetter.ReadOnlyClass, params.Filters); err != nil {
 			return nil, errors.Wrap(err, "invalid 'where' filter")
 		}
 	}
+	var mp *modules.Provider
 
-	res, err := t.vectorSearcher.Aggregate(ctx, *params)
+	if t.nearParamsVector.modulesProvider != nil {
+		mp = t.nearParamsVector.modulesProvider.(*modules.Provider)
+	}
+
+	res, err := t.vectorSearcher.Aggregate(ctx, *params, mp)
 	if err != nil || res == nil {
 		return nil, err
 	}

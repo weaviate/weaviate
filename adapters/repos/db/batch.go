@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -29,12 +30,13 @@ type batchQueue struct {
 }
 
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchObjects, error) {
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
 	if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
+		db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
 		return nil, fmt.Errorf("cannot process batch: %w", err)
 	}
 
@@ -86,7 +88,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
-		errs := index.putObjectBatch(ctx, queue.objects, repl)
+		errs := index.putObjectBatch(ctx, queue.objects, repl, schemaVersion)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -101,7 +103,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 }
 
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchReferences, error) {
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
 	indexByClass := make(map[schema.ClassName]*Index)
@@ -143,7 +145,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 
 	for class, index := range indexByClass {
 		queue := refByClass[class]
-		errs := index.AddReferencesBatch(ctx, queue, repl)
+		errs := index.AddReferencesBatch(ctx, queue, repl, schemaVersion)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -158,7 +160,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 }
 
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string,
+	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	className := params.ClassName
@@ -188,8 +190,14 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		}
 		matches += docIDsLength
 	}
+
+	if err := db.memMonitor.CheckAlloc(memwatch.EstimateObjectDeleteMemory() * matches); err != nil {
+		db.logger.WithError(err).Errorf("memory pressure: cannot process batch delete object")
+		return objects.BatchDeleteResult{}, fmt.Errorf("cannot process batch delete object: %w", err)
+	}
+
 	// delete the DocIDs in given shards
-	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl)
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl, schemaVersion)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
 	}
@@ -206,16 +214,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 func estimateBatchMemory(objs objects.BatchObjects) int64 {
 	var sum int64
 	for _, item := range objs {
-		// Note: This is very much oversimplified. It assumes that we always need
-		// the footprint of the full vector and it assumes a fixed overhead of 30B
-		// per vector. In reality this depends on the HNSW settings - and possibly
-		// in the future we might have completely different index types.
-		//
-		// However, in the meantime this should be a fairly reasonable estimate, as
-		// it's not meant to fail exactly on the last available byte, but rather
-		// prevent OOM crashes. Given the fuzziness and async style of the
-		// memtrackinga somewhat decent estimate should be good enough.
-		sum += int64(len(item.Object.Vector)*4 + 30)
+		sum += memwatch.EstimateObjectMemory(item.Object)
 	}
 
 	return sum

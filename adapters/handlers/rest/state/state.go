@@ -18,8 +18,10 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
@@ -28,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/locks"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -67,6 +70,10 @@ type State struct {
 	BatchManager       *objects.BatchManager
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelFunc
+	MemWatch           *memwatch.Monitor
+
+	ClusterService *rCluster.Service
+	TenantActivity *tenantactivity.Handler
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

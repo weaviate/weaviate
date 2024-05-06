@@ -140,3 +140,125 @@ func TestWritingAndReadingBufferOfDynamicLength(t *testing.T) {
 		assert.Equal(t, uint32(17), bo.ReadUint32())
 	})
 }
+
+func TestIntsToByteVector(t *testing.T) {
+	t.Run("empty array", func(t *testing.T) {
+		bytes := IntsToByteVector([]float64{})
+		assert.Equal(t, []byte{}, bytes)
+	})
+
+	t.Run("non-empty array of u8s", func(t *testing.T) {
+		bytes := IntsToByteVector([]float64{1, 2, 3})
+		assert.Equal(t, []byte{
+			0o1, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+			0o2, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+			0o3, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+		}, bytes)
+	})
+
+	t.Run("non-empty array of u64", func(t *testing.T) {
+		bytes := IntsToByteVector([]float64{
+			9007199254740992, // MaxFloat64
+			9007199254740991,
+			9007199254740990,
+		})
+		assert.Equal(t, []byte{
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00,
+			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x1f, 0x00,
+			0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0x1f, 0x00,
+		}, bytes)
+	})
+}
+
+func TestIntsFromByteVector(t *testing.T) {
+	t.Run("empty array", func(t *testing.T) {
+		ints := IntsFromByteVector([]byte{})
+		assert.Equal(t, []int64{}, ints)
+	})
+
+	t.Run("non-empty array of u8s", func(t *testing.T) {
+		ints := IntsFromByteVector([]byte{
+			0o1, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+			0o2, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+			0o3, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0, 0o0,
+		})
+		assert.Equal(t, []int64{1, 2, 3}, ints)
+	})
+
+	t.Run("non-empty array of u64", func(t *testing.T) {
+		ints := IntsFromByteVector([]byte{
+			0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00,
+			0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x1f, 0x00,
+			0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0x1f, 0x00,
+		})
+		assert.Equal(t, []int64{
+			9007199254740992, // MaxFloat64
+			9007199254740991,
+			9007199254740990,
+		}, ints)
+	})
+}
+
+func TestFloat32ToByteVector(t *testing.T) {
+	t.Run("empty array", func(t *testing.T) {
+		bytes := Float32ToByteVector([]float32{})
+		assert.Equal(t, []byte{}, bytes)
+	})
+
+	t.Run("non-empty array", func(t *testing.T) {
+		bytes := Float32ToByteVector([]float32{1.1, 2.2, 3.3})
+		assert.Equal(t, []byte{
+			0xcd, 0xcc, 0x8c, 0x3f,
+			0xcd, 0xcc, 0xc, 0x40,
+			0x33, 0x33, 0x53, 0x40,
+		}, bytes)
+	})
+}
+
+func TestFloat32FromByteVector(t *testing.T) {
+	t.Run("empty array", func(t *testing.T) {
+		floats := Float32FromByteVector([]byte{})
+		assert.Equal(t, []float32{}, floats)
+	})
+
+	t.Run("non-empty array", func(t *testing.T) {
+		floats := Float32FromByteVector([]byte{
+			0xcd, 0xcc, 0x8c, 0x3f,
+			0xcd, 0xcc, 0xc, 0x40,
+			0x33, 0x33, 0x53, 0x40,
+		})
+		assert.Equal(t, []float32{1.1, 2.2, 3.3}, floats)
+	})
+}
+
+func TestFloat64ToByteVector(t *testing.T) {
+	t.Run("empty array", func(t *testing.T) {
+		bytes := Float32ToByteVector([]float32{})
+		assert.Equal(t, []byte{}, bytes)
+	})
+
+	t.Run("non-empty array", func(t *testing.T) {
+		bytes := Float64ToByteVector([]float64{1.1, 2.2, 3.3})
+		assert.Equal(t, []byte{
+			0x9a, 0x99, 0x99, 0x99, 0x99, 0x99, 0xf1, 0x3f,
+			0x9a, 0x99, 0x99, 0x99, 0x99, 0x99, 0x1, 0x40,
+			0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0xa, 0x40,
+		}, bytes)
+	})
+}
+
+func TestFloat64FromByteVector(t *testing.T) {
+	t.Run("empty array", func(t *testing.T) {
+		floats := Float64FromByteVector([]byte{})
+		assert.Equal(t, []float64{}, floats)
+	})
+
+	t.Run("non-empty array", func(t *testing.T) {
+		floats := Float64FromByteVector([]byte{
+			0x9a, 0x99, 0x99, 0x99, 0x99, 0x99, 0xf1, 0x3f,
+			0x9a, 0x99, 0x99, 0x99, 0x99, 0x99, 0x1, 0x40,
+			0x66, 0x66, 0x66, 0x66, 0x66, 0x66, 0xa, 0x40,
+		})
+		assert.Equal(t, []float64{1.1, 2.2, 3.3}, floats)
+	})
+}

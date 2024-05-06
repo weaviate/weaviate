@@ -13,37 +13,71 @@ package schema
 
 import "github.com/weaviate/weaviate/entities/models"
 
-// merges nPropsExt with nPropsBase
-// returns new slice without changing input ones
-// and bool indicating whether there was changes done comparing to base slice
-func MergeRecursivelyNestedProperties(nPropsBase, nPropsExt []*models.NestedProperty,
+// Merges nestPropsNew with nestPropsOld
+// Returns new slice without changing input ones and
+// bool indicating whether merged slice is different than the old one
+func MergeRecursivelyNestedProperties(nestPropsOld, nestPropsNew []*models.NestedProperty,
 ) ([]*models.NestedProperty, bool) {
 	merged := false
-	nProps := make([]*models.NestedProperty, len(nPropsBase), len(nPropsBase)+len(nPropsExt))
-	copy(nProps, nPropsBase)
+	nestPropsMerged := make([]*models.NestedProperty, len(nestPropsOld), len(nestPropsOld)+len(nestPropsNew))
+	copy(nestPropsMerged, nestPropsOld)
 
 	existingIndexMap := map[string]int{}
-	for index := range nProps {
-		existingIndexMap[nProps[index].Name] = index
+	for i := range nestPropsMerged {
+		existingIndexMap[nestPropsMerged[i].Name] = i
 	}
 
-	for _, nProp := range nPropsExt {
-		index, exists := existingIndexMap[nProp.Name]
+	for _, nestPropNew := range nestPropsNew {
+		i, exists := existingIndexMap[nestPropNew.Name]
 		if !exists {
-			existingIndexMap[nProp.Name] = len(nProps)
-			nProps = append(nProps, nProp)
+			existingIndexMap[nestPropNew.Name] = len(nestPropsMerged)
+			nestPropsMerged = append(nestPropsMerged, nestPropNew)
 			merged = true
-		} else if _, isNested := AsNested(nProps[index].DataType); isNested {
-			if mergedProps, mergedNested := MergeRecursivelyNestedProperties(nProps[index].NestedProperties,
-				nProp.NestedProperties,
-			); mergedNested {
-				nPropCopy := *nProps[index]
-				nProps[index] = &nPropCopy
-				nProps[index].NestedProperties = mergedProps
+		} else if _, isNested := AsNested(nestPropsMerged[i].DataType); isNested {
+			if recurNestProps, recurMerged := MergeRecursivelyNestedProperties(
+				nestPropsMerged[i].NestedProperties,
+				nestPropNew.NestedProperties,
+			); recurMerged {
+				nestPropCopy := *nestPropsMerged[i]
+				nestPropCopy.NestedProperties = recurNestProps
+
+				nestPropsMerged[i] = &nestPropCopy
 				merged = true
 			}
 		}
 	}
 
-	return nProps, merged
+	return nestPropsMerged, merged
+}
+
+// Determines diff between nestPropsNew and nestPropsOld slices
+func DiffRecursivelyNestedProperties(nestPropsOld, nestPropsNew []*models.NestedProperty,
+) []*models.NestedProperty {
+	nestPropsDiff := make([]*models.NestedProperty, 0, len(nestPropsNew))
+
+	existingIndexMap := map[string]int{}
+	for i := range nestPropsOld {
+		existingIndexMap[nestPropsOld[i].Name] = i
+	}
+
+	for _, nestPropNew := range nestPropsNew {
+		i, exists := existingIndexMap[nestPropNew.Name]
+		if !exists {
+			existingIndexMap[nestPropNew.Name] = len(nestPropsDiff)
+			nestPropsDiff = append(nestPropsDiff, nestPropNew)
+		} else if _, isNested := AsNested(nestPropsOld[i].DataType); isNested {
+			if recurNestProps := DiffRecursivelyNestedProperties(
+				nestPropsOld[i].NestedProperties,
+				nestPropNew.NestedProperties,
+			); len(recurNestProps) > 0 {
+				nestPropCopy := *nestPropsOld[i]
+				nestPropCopy.NestedProperties = recurNestProps
+
+				existingIndexMap[nestPropCopy.Name] = len(nestPropsDiff)
+				nestPropsDiff = append(nestPropsDiff, &nestPropCopy)
+			}
+		}
+	}
+
+	return nestPropsDiff
 }

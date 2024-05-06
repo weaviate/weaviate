@@ -546,6 +546,21 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "hybrid ranked groupby",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				GroupBy:      &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				HybridSearch: &pb.Hybrid{Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "CapitalizedName"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
+			},
+			error: false,
+		},
+		{
 			name: "hybrid targetvectors",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
@@ -596,6 +611,22 @@ func TestGRPCRequest(t *testing.T) {
 				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
+		{
+			name: "bm25 groupby",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				Bm25Search: &pb.BM25{Query: "query", Properties: []string{"name", "CapitalizedName"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
 			},
 			error: false,
 		},
@@ -1451,7 +1482,7 @@ func TestGRPCRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchParamsFromProto(tt.req, scheme, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			out, err := searchParamsFromProto(tt.req, scheme.GetClass, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 			if tt.error {
 				require.NotNil(t, err)
 			} else {

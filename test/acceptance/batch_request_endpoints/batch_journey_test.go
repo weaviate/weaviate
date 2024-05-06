@@ -97,6 +97,7 @@ func batchJourney(t *testing.T) {
 		items := result.Get("Get", "BulkTestSource").AsSlice()
 		assert.Len(t, items, sourcesSize)
 		for _, obj := range items {
+			require.NotNil(t, obj)
 			refs := obj.(map[string]interface{})["ref"].([]interface{})
 			assert.Len(t, refs, targetsSize)
 		}

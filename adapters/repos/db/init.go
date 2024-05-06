@@ -19,6 +19,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/tenantactivity"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -97,7 +98,8 @@ func (db *DB) init(ctx context.Context) error {
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints)
+				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints,
+				db.memMonitor)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}
@@ -120,6 +122,10 @@ func (db *DB) init(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (db *DB) LocalTenantActivity() tenantactivity.ByCollection {
+	return db.metricsObserver.Usage()
 }
 
 func (db *DB) migrateFileStructureIfNecessary() error {

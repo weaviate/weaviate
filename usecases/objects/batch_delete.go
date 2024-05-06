@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,11 +35,15 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 		return nil, err
 	}
 
+	ctx = classcache.ContextWithClassCache(ctx)
+
 	unlock, err := b.locks.LockConnector()
 	if err != nil {
 		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
@@ -65,19 +70,23 @@ func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *mod
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant)
+	return b.vectorRepo.BatchDeleteObjects(ctx, params, repl, tenant, 0)
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
-	params, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
+	params, schemaVersion, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
-	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant)
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
+	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
 	}
@@ -103,38 +112,35 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 
 func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *models.Principal,
 	match *models.BatchDeleteMatch, dryRun *bool, output *string,
-) (*BatchDeleteParams, error) {
+) (*BatchDeleteParams, uint64, error) {
 	if match == nil {
-		return nil, errors.New("empty match clause")
+		return nil, 0, errors.New("empty match clause")
 	}
 
 	if len(match.Class) == 0 {
-		return nil, errors.New("empty match.class clause")
+		return nil, 0, errors.New("empty match.class clause")
 	}
 
 	if match.Where == nil {
-		return nil, errors.New("empty match.where clause")
+		return nil, 0, errors.New("empty match.where clause")
 	}
 
 	// Validate schema given in body with the weaviate schema
-	s, err := b.schemaManager.GetSchema(principal)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get schema: %s", err)
+	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
+	if err != nil || vclasses[match.Class].Class == nil {
+		return nil, 0, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
 	}
 
-	class := s.FindClassByName(schema.ClassName(match.Class))
-	if class == nil {
-		return nil, fmt.Errorf("class: %v doesn't exist", match.Class)
-	}
+	class := vclasses[match.Class].Class
 
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse where filter: %s", err)
+		return nil, 0, fmt.Errorf("failed to parse where filter: %s", err)
 	}
 
-	err = filters.ValidateFilters(s, filter)
+	err = filters.ValidateFilters(b.schemaManager.ReadOnlyClass, filter)
 	if err != nil {
-		return nil, fmt.Errorf("invalid where filter: %s", err)
+		return nil, 0, fmt.Errorf("invalid where filter: %s", err)
 	}
 
 	dryRunParam := false
@@ -144,7 +150,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 
 	outputParam, err := verbosity.ParseOutput(output)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	params := &BatchDeleteParams{
@@ -153,5 +159,5 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		DryRun:    dryRunParam,
 		Output:    outputParam,
 	}
-	return params, nil
+	return params, vclasses[match.Class].Version, nil
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -47,6 +48,7 @@ type Aggregator struct {
 	tenant                 string
 	nestedCrossRefLimit    int64
 	bitmapFactory          *roaringset.BitmapFactory
+	modules                *modules.Provider
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
@@ -57,6 +59,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
+	modules *modules.Provider,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,
@@ -72,6 +75,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
+		modules:                modules,
 	}
 }
 
@@ -94,8 +98,11 @@ func (a *Aggregator) Do(ctx context.Context) (*aggregation.Result, error) {
 func (a *Aggregator) aggTypeOfProperty(
 	name schema.PropertyName,
 ) (aggregation.PropertyType, schema.DataType, error) {
-	s := a.getSchema.GetSchemaSkipAuth()
-	schemaProp, err := s.GetProperty(a.params.ClassName, name)
+	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
+	if class == nil {
+		return "", "", fmt.Errorf("could not find class %s in schema", a.params.ClassName)
+	}
+	schemaProp, err := schema.GetPropertyByName(class, name.String())
 	if err != nil {
 		return "", "", errors.Wrapf(err, "property %s", name)
 	}
