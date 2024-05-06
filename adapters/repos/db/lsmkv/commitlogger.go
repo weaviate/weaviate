@@ -183,25 +183,7 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 	return cl.writeEntry(CommitTypeCollection, cl.bufNode.Bytes())
 }
 
-func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
-	if cl.paused {
-		return nil
-	}
-
-	cl.bufNode.Reset()
-
-	ki, err := node.KeyIndexAndWriteTo(cl.bufNode, 0)
-	if err != nil {
-		return err
-	}
-	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
-		return fmt.Errorf("unexpected error, node size mismatch")
-	}
-
-	return cl.writeEntry(CommitTypeRoaringSet, cl.bufNode.Bytes())
-}
-
-func (cl *commitLogger) addSimple(node *roaringset.SegmentNodeSimple) error {
+func (cl *commitLogger) add(node *roaringset.SegmentNodeSimple) error {
 	if cl.paused {
 		return nil
 	}
