@@ -52,6 +52,10 @@ func (p *commitloggerParser) doRoaringSet() error {
 			{
 				err = p.parseRoaringSetNodeV1()
 			}
+		case 2:
+			{
+				err = p.parseRoaringSetNodeV2()
+			}
 		default:
 			{
 				return fmt.Errorf("unsupported commit version %d", version)
@@ -94,6 +98,37 @@ func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
 	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
 	key := segment.PrimaryKey()
 	if err := p.memtable.roaringSetAddRemoveBitmaps(key, segment.Additions(), segment.Deletions()); err != nil {
+		return errors.Wrap(err, "add/remove bitmaps")
+	}
+
+	return nil
+}
+
+func (p *commitloggerParser) parseRoaringSetNodeV2() error {
+	reader, err := p.doRecord()
+	if err != nil {
+		return err
+	}
+
+	return p.parseRoaringSetNodeSimple(reader)
+}
+
+func (p *commitloggerParser) parseRoaringSetNodeSimple(reader io.Reader) error {
+	lenBuf := make([]byte, 8)
+	if _, err := io.ReadFull(reader, lenBuf); err != nil {
+		return errors.Wrap(err, "read segment len")
+	}
+	segmentLen := binary.LittleEndian.Uint64(lenBuf)
+
+	segBuf := make([]byte, segmentLen)
+	copy(segBuf, lenBuf)
+	if _, err := io.ReadFull(reader, segBuf[8:]); err != nil {
+		return errors.Wrap(err, "read segment contents")
+	}
+
+	segment := roaringset.NewSegmentNodeSimpleFromBuffer(segBuf)
+	key := segment.PrimaryKey()
+	if err := p.memtable.roaringSetAddRemoveSlices(key, segment.Additions(), segment.Deletions()); err != nil {
 		return errors.Wrap(err, "add/remove bitmaps")
 	}
 

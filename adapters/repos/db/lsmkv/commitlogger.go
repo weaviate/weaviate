@@ -52,7 +52,10 @@ type commitLogger struct {
 // | checksum (crc32 4bytes non-checksum fields so far) |
 // ------------------------------------------------------
 
-const CurrentVersion uint8 = 1
+const (
+	CurrentVersion           uint8 = 1
+	CurrentVersionRoaringSet uint8 = 2
+)
 
 type CommitType uint8
 
@@ -110,9 +113,16 @@ func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) erro
 		return err
 	}
 
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
-	if err != nil {
-		return err
+	if commitType == CommitTypeRoaringSet {
+		err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersionRoaringSet)
+		if err != nil {
+			return err
+		}
+	} else {
+		err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
+		if err != nil {
+			return err
+		}
 	}
 
 	err = binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(len(nodeBytes)))
