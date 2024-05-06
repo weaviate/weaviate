@@ -244,11 +244,10 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 }
 
 func (i *Index) IncomingCreateShard(ctx context.Context, className string, shardName string) error {
-	shard, err := i.getOrInitLocalShard(ctx, shardName)
-	if err != nil {
+	if _, err := i.getOrInitLocalShard(ctx, shardName); err != nil {
 		return fmt.Errorf("incoming create shard: %w", err)
 	}
-	return shard.activate()
+	return nil
 }
 
 func (i *Index) IncomingReinitShard(ctx context.Context,
