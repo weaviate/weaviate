@@ -28,28 +28,6 @@ const (
 	DefaultModelID     = "llama3"
 )
 
-var availableOllamaModels = []string{
-	DefaultModelID,
-	"mistral",
-	"dolphin-phi",
-	"phi",
-	"neural-chat",
-	"starling-lm",
-	"codellama",
-	"llama3:8b",
-	"llama3:instruct",
-	"llama3:8b-instruct-q4_0",
-	"llama2",
-	"llama2-uncensored",
-	"llama2:13b",
-	"llama2:70b",
-	"orca-mini",
-	"vicuna",
-	"llava",
-	"gemma:2b",
-	"gemma:7b",
-}
-
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
 	propertyValuesHelper basesettings.PropertyValuesHelper
@@ -68,8 +46,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("apiEndpoint cannot be empty")
 	}
 	model := ic.ModelID()
-	if model == "" || !contains(availableOllamaModels, model) {
-		return errors.Errorf("wrong Ollama model name, available model names are: %v", availableOllamaModels)
+	if model == "" {
+		return errors.New("modelId cannot be empty")
 	}
 	return nil
 }
@@ -84,13 +62,4 @@ func (ic *classSettings) ApiEndpoint() string {
 
 func (ic *classSettings) ModelID() string {
 	return ic.getStringProperty(modelIDProperty, DefaultModelID)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }

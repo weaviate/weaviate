@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -36,7 +35,6 @@ type Manager struct {
 	logger       logrus.FieldLogger
 	Authorizer   authorizer
 	config       config.Config
-	cluster      *cluster.TxManager
 	clusterState clusterState
 
 	sync.RWMutex
@@ -216,7 +214,6 @@ func NewManager(validator validator,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	txClient cluster.Client, txPersistence cluster.Persistence,
 	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	handler, err := NewHandler(
@@ -239,10 +236,6 @@ func NewManager(validator validator,
 	}
 
 	return m, nil
-}
-
-func (m *Manager) TxManager() *cluster.TxManager {
-	return m.cluster
 }
 
 type authorizer interface {

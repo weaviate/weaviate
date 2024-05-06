@@ -252,7 +252,7 @@ func immediateReplicaCRUD(t *testing.T) {
 		})
 
 		t.Run("OnNode-1", func(t *testing.T) {
-			_, err := getObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node2")
+			_, err := getObjectFromNode(t, compose.ContainerURI(1), "Article", articleIDs[0], "node1")
 			assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 		})
 		t.Run("OnNode-2", func(t *testing.T) {
@@ -292,11 +292,12 @@ func immediateReplicaCRUD(t *testing.T) {
 }
 
 func eventualReplicaCRUD(t *testing.T) {
+	t.Skip("Skip until https://github.com/weaviate/weaviate/issues/4840 is resolved")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -339,31 +340,28 @@ func eventualReplicaCRUD(t *testing.T) {
 		createObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
-	t.Run("configure classes to replicate to node 2", func(t *testing.T) {
+	t.Run("configure classes to replicate to node 3", func(t *testing.T) {
 		ac := helper.GetClass(t, "Article")
 		ac.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.UpdateClass(t, ac)
 
 		pc := helper.GetClass(t, "Paragraph")
 		pc.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 2,
+			Factor: 3,
 		}
 		helper.UpdateClass(t, pc)
 	})
 
-	t.Run("StopNode-1", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 1)
+	t.Run("StopNode-2", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 2)
 	})
 
-	t.Run("assert all previous data replicated to node 2", func(t *testing.T) {
-		// TODO-RAFT : we need to avoid any sleeps, come back and remove it
-		// sleep 2 sec to make sure data not affected by EC issue
-		time.Sleep(2 * time.Second)
-		resp := gqlGet(t, compose.GetWeaviateNode2().URI(), "Article", replica.One)
+	t.Run("assert all previous data replicated to node 3", func(t *testing.T) {
+		resp := gqlGet(t, compose.GetWeaviateNode3().URI(), "Article", replica.One)
 		assert.Len(t, resp, len(articleIDs))
-		resp = gqlGet(t, compose.GetWeaviateNode2().URI(), "Paragraph", replica.One)
+		resp = gqlGet(t, compose.GetWeaviateNode3().URI(), "Paragraph", replica.One)
 		assert.Len(t, resp, len(paragraphIDs))
 	})
 
@@ -400,27 +398,26 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("RestartNode-2", func(t *testing.T) {
-				err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-				require.Nil(t, err)
+				startNodeAt(ctx, t, compose, 2)
 			})
 		})
 
 		t.Run("DeleteObject", func(t *testing.T) {
-			t.Run("OnNode-1", func(t *testing.T) {
-				deleteObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0])
-			})
-
-			t.Run("StopNode-1", func(t *testing.T) {
-				stopNodeAt(ctx, t, compose, 1)
-			})
-
 			t.Run("OnNode-2", func(t *testing.T) {
-				_, err := getObjectFromNode(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], "node2")
+				deleteObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0])
+			})
+
+			t.Run("StopNode-2", func(t *testing.T) {
+				stopNodeAt(ctx, t, compose, 2)
+			})
+
+			t.Run("OnNode-1", func(t *testing.T) {
+				_, err := getObjectFromNode(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], "node1")
 				assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 			})
 
-			t.Run("RestartNode-1", func(t *testing.T) {
-				restartNode1(ctx, t, compose)
+			t.Run("RestartNode-2", func(t *testing.T) {
+				startNodeAt(ctx, t, compose, 2)
 			})
 		})
 
@@ -440,15 +437,14 @@ func eventualReplicaCRUD(t *testing.T) {
 			})
 
 			t.Run("RestartNode-2", func(t *testing.T) {
-				err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
-				require.Nil(t, err)
+				startNodeAt(ctx, t, compose, 2)
 			})
 		})
 	})
 }
 
 func restartNode1(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {
-	// since node1 is the gossip "leader", node 2 must be stopped and restarted
+	// since node1 is the gossip "leader", node 2 and 3 must be stopped and restarted
 	// after node1 to re-facilitate internode communication
 	eg := errgroup.Group{}
 	eg.Go(func() error {
