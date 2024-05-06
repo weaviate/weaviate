@@ -3994,28 +3994,6 @@
         "x-available-in-websocket": false
       }
     },
-    "/schema/cluster-status": {
-      "get": {
-        "operationId": "schema.cluster.status",
-        "tags": [
-          "schema"
-        ],
-        "responses": {
-          "200": {
-            "description": "The schema in the cluster is in sync.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          },
-          "500": {
-            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          }
-        }
-      }
-    },
     "/schema": {
       "get": {
         "summary": "Dump the current the database schema.",
