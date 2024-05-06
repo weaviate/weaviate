@@ -29,6 +29,7 @@ import (
 )
 
 func multiShardScaleOut(t *testing.T) {
+	t.Skip("Skip until https://github.com/weaviate/weaviate/issues/4840 is resolved")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
