@@ -1,8 +1,5 @@
 module github.com/weaviate/weaviate
 
-// we pin github.com/tailor-inc/graphql => github.com/tailor-inc/graphql v0.2.1 because we encountered some issue with later versions
-replace github.com/tailor-inc/graphql => github.com/tailor-inc/graphql v0.2.1
-
 require (
 	cloud.google.com/go/storage v1.41.0
 	github.com/bmatcuk/doublestar v1.1.3
@@ -64,7 +61,7 @@ require (
 	github.com/hashicorp/raft-boltdb/v2 v2.2.2
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/peak/s5cmd/v2 v2.2.3-0.20231012072719-c1c7ee35acfc
-	github.com/tailor-inc/graphql v0.2.1
+	github.com/tailor-inc/graphql v0.4.1
 	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
