@@ -670,8 +670,8 @@ func TestIndexQueue(t *testing.T) {
 
 		release := make(chan int)
 		idx.onCompressionTurnedOn = func(callback func()) error {
-			release <- 1
 			idx.compressed.Store(true)
+			close(release)
 			return nil
 		}
 
@@ -687,7 +687,6 @@ func TestIndexQueue(t *testing.T) {
 		}
 
 		<-release
-		close(release)
 		require.True(t, idx.compressed.Load())
 	})
 
