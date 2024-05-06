@@ -222,23 +222,21 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return err
 		}
 
-		// TODO: fix PushShard issues before enabling scale out
-		//       https://github.com/weaviate/weaviate/issues/4840
-		//initialRF := initial.ReplicationConfig.Factor
-		//updatedRF := updated.ReplicationConfig.Factor
-		//
-		//if initialRF != updatedRF {
-		//	ss, _, err := h.metaWriter.QueryShardingState(className)
-		//	if err != nil {
-		//		return fmt.Errorf("query sharding state for %q: %w", className, err)
-		//	}
-		//	shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-		//	if err != nil {
-		//		return fmt.Errorf(
-		//			"scale %q from %d replicas to %d: %w",
-		//			className, initialRF, updatedRF, err)
-		//	}
-		//}
+		initialRF := initial.ReplicationConfig.Factor
+		updatedRF := updated.ReplicationConfig.Factor
+
+		if initialRF != updatedRF {
+			ss, _, err := h.metaWriter.QueryShardingState(className)
+			if err != nil {
+				return fmt.Errorf("query sharding state for %q: %w", className, err)
+			}
+			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
+			if err != nil {
+				return fmt.Errorf(
+					"scale %q from %d replicas to %d: %w",
+					className, initialRF, updatedRF, err)
+			}
+		}
 
 		if err := validateImmutableFields(initial, updated); err != nil {
 			return err

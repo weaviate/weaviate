@@ -113,7 +113,9 @@ func (m *shardMap) Load(name string) ShardLike {
 	if !ok {
 		return nil
 	}
-	return v.(ShardLike)
+	s := v.(ShardLike)
+	s.active()
+	return s
 }
 
 // Store sets a shard giving its name and value
@@ -1726,10 +1728,18 @@ func (i *Index) getOrInitLocalShardNoShutdown(ctx context.Context, shardName str
 		return nil, func() {}, err
 	}
 
+	if shard != nil {
+		// we mark the shard is active and not shut
+		// we need later to call preventShutdown to be
+		// able to use the release()
+		shard.active()
+	}
+
 	release, err := shard.preventShutdown()
 	if err != nil {
 		return nil, func() {}, err
 	}
+
 	return shard, release, nil
 }
 
