@@ -117,9 +117,11 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		// meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.ClassVersion = cmd.Version
-		if req.State != nil {
-			meta.Sharding = *req.State
-		}
+		// TODO: fix PushShard issues before enabling scale out
+		//       https://github.com/weaviate/weaviate/issues/4840
+		// if req.State != nil {
+		// 	meta.Sharding = *req.State
+		// }
 		return nil
 	}
 
