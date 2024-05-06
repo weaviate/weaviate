@@ -244,10 +244,11 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 }
 
 func (i *Index) IncomingCreateShard(ctx context.Context, className string, shardName string) error {
-	if _, err := i.getOrInitLocalShard(ctx, shardName); err != nil {
+	shard, err := i.getOrInitLocalShard(ctx, shardName)
+	if err != nil {
 		return fmt.Errorf("incoming create shard: %w", err)
 	}
-	return nil
+	return shard.activate()
 }
 
 func (i *Index) IncomingReinitShard(ctx context.Context,
@@ -298,7 +299,7 @@ func (s *Shard) reinit(ctx context.Context) error {
 			return fmt.Errorf("reinit vector: %w", err)
 		}
 	}
-
+	s.activate()
 	s.initCycleCallbacks()
 	s.initDimensionTracking()
 
