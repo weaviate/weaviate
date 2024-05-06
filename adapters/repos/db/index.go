@@ -113,7 +113,6 @@ func (m *shardMap) Load(name string) ShardLike {
 	if !ok {
 		return nil
 	}
-
 	return v.(ShardLike)
 }
 
@@ -1731,7 +1730,6 @@ func (i *Index) getOrInitLocalShardNoShutdown(ctx context.Context, shardName str
 	if err != nil {
 		return nil, func() {}, err
 	}
-
 	return shard, release, nil
 }
 
