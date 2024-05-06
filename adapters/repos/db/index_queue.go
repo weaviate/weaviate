@@ -127,7 +127,9 @@ func NewIndexQueue(
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
 	}
-	opts.Logger = opts.Logger.WithField("component", "index_queue")
+	opts.Logger = opts.Logger.
+		WithField("component", "index_queue").
+		WithField("shard_id", shardID)
 
 	if opts.BatchSize == 0 {
 		opts.BatchSize = 1000
@@ -194,6 +196,8 @@ func (q *IndexQueue) Close() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	q.queue.wait(ctx)
+
+	q.Logger.Info("index queue closed")
 
 	return nil
 }
@@ -361,7 +365,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		WithField("took", time.Since(start)).
 		WithField("shard_id", q.shardID).
 		WithField("target_vector", q.targetVector).
-		Debug("enqueued vectors from last indexed checkpoint")
+		Info("enqueued vectors from last indexed checkpoint")
 
 	return nil
 }
@@ -376,6 +380,8 @@ func (q *IndexQueue) Drop() error {
 	if q.checkpoints != nil {
 		return q.checkpoints.Delete(q.shardID, q.targetVector)
 	}
+
+	q.Logger.Info("index queue dropped")
 
 	return nil
 }
@@ -577,16 +583,16 @@ func (q *IndexQueue) checkCompressionSettings() {
 // pause indexing and wait for the workers to finish their current tasks
 // related to this queue.
 func (q *IndexQueue) pauseIndexing() {
-	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
+	q.Logger.Info("pausing indexing, waiting for the current tasks to finish")
 	q.paused.Store(true)
 	q.queue.wait(q.ctx)
-	q.Logger.Debug("indexing paused")
+	q.Logger.Info("indexing paused")
 }
 
 // resume indexing
 func (q *IndexQueue) resumeIndexing() {
 	q.paused.Store(false)
-	q.Logger.Debug("indexing resumed")
+	q.Logger.Info("indexing resumed")
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int,
