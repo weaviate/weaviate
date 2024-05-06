@@ -17,6 +17,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,24 +38,13 @@ func New() *AwsModule {
 }
 
 type AwsModule struct {
-	vectorizer                   textVectorizer
-	metaProvider                 metaProvider
+	vectorizer                   text2vecbase.TextVectorizer
+	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
 	nearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
-}
-
-type textVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
-	Texts(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) ([]float32, error)
-}
-
-type metaProvider interface {
-	MetaInfo() (map[string]interface{}, error)
 }
 
 func (m *AwsModule) Name() string {
@@ -134,9 +127,13 @@ func (m *AwsModule) RootHandler() http.Handler {
 }
 
 func (m *AwsModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, comp, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *AwsModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
 }
 
 func (m *AwsModule) MetaInfo() (map[string]interface{}, error) {
@@ -145,6 +142,10 @@ func (m *AwsModule) MetaInfo() (map[string]interface{}, error) {
 
 func (m *AwsModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
+}
+
+func (m *AwsModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	return true, nil, nil
 }
 
 func (m *AwsModule) VectorizeInput(ctx context.Context,

@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testCreateSchemaWithNoneVectorizer(t *testing.T, host string) func(t *testing.T) {
+func testCreateSchemaWithNoneVectorizer(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
@@ -214,6 +214,22 @@ func testCreateSchemaWithNoneVectorizer(t *testing.T, host string) func(t *testi
 						assert.NotEmpty(t, resultVectors[targetVector])
 					}
 				}
+			})
+
+			t.Run("update without vector", func(t *testing.T) {
+				beforeUpdateVectors := getVectors(t, client, className, id1, none1)
+
+				err := client.Data().Updater().
+					WithMerge().
+					WithClassName(className).
+					WithID(id1).
+					WithProperties(map[string]interface{}{
+						"text": "No vectorizer => Update should reuse old vector",
+					}).
+					Do(ctx)
+				require.NoError(t, err)
+				afterUpdateVectors := getVectors(t, client, className, id1, none1)
+				assert.Equal(t, beforeUpdateVectors[none1], afterUpdateVectors[none1])
 			})
 		})
 	}

@@ -11,13 +11,16 @@
 
 package replication
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestReplication(t *testing.T) {
-	t.Run("immediate replica CRUD", immediateReplicaCRUD)
-	t.Run("eventual replica CRUD", eventualReplicaCRUD)
-	t.Run("multishard scale out", multiShardScaleOut)
-	t.Run("read repair", readRepair)
-	t.Run("graphql search", graphqlSearch)
-	t.Run("multi-tenancy enabled", multiTenancyEnabled)
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	t.Run("SyncReplication", immediateReplicaCRUD)
+	t.Run("EventualConsistency", eventualReplicaCRUD)
+	t.Run("ScaleOut", multiShardScaleOut)
+	t.Run("ReadRepair", readRepair)
+	t.Run("GraphqlSearch", graphqlSearch)
+	t.Run("MultiTenancy", multiTenancyEnabled)
 }

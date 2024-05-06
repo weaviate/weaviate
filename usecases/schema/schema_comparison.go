@@ -205,6 +205,8 @@ func (ccc *classConfigComparison) diff() []string {
 		ccc.right.VectorIndexType, "vector index type")
 	ccc.compare(ccc.left.Vectorizer,
 		ccc.right.Vectorizer, "vectorizer")
+	ccc.compare(ccc.left.VectorConfig,
+		ccc.right.VectorConfig, "vector config")
 	return ccc.msgs
 }
 

@@ -27,7 +27,8 @@ func TestNamedVectors_SingleNode(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", allTests(t, endpoint))
+	t.Run("tests", allTests(endpoint))
+	t.Run("legacy tests", allLegacyTests(endpoint))
 }
 
 func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
@@ -38,7 +39,8 @@ func TestNamedVectors_SingleNode_AsyncIndexing(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", allTests(t, endpoint))
+	t.Run("tests", allTests(endpoint))
+	t.Run("legacy tests", allLegacyTests(endpoint))
 }
 
 func TestNamedVectors_Cluster(t *testing.T) {
@@ -49,7 +51,8 @@ func TestNamedVectors_Cluster(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", allTests(t, endpoint))
+	t.Run("tests", allTests(endpoint))
+	t.Run("legacy tests", allLegacyTests(endpoint))
 }
 
 func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
@@ -60,20 +63,26 @@ func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
-	t.Run("tests", allTests(t, endpoint))
+	t.Run("tests", allTests(endpoint))
+	t.Run("legacy tests", allLegacyTests(endpoint))
 }
 
-func allTests(t *testing.T, endpoint string) func(t *testing.T) {
+func allTests(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
-		t.Run("schema", testCreateSchema(t, endpoint))
-		t.Run("schema with none vectorizer", testCreateSchemaWithNoneVectorizer(t, endpoint))
-		t.Run("object", testCreateObject(t, endpoint))
-		t.Run("batch", testBatchObject(t, endpoint))
-		t.Run("none vectorizer", testCreateSchemaWithNoneVectorizer(t, endpoint))
-		t.Run("mixed objects with none and vectorizer", testCreateSchemaWithMixedVectorizers(t, endpoint))
-		t.Run("classes with properties setting", testCreateWithModulePropertiesObject(t, endpoint))
-		t.Run("validation", testSchemaValidation(t, endpoint))
-		t.Run("cross references", testReferenceProperties(t, endpoint))
+		t.Run("hybrid", testHybrid(endpoint))
+		t.Run("schema", testCreateSchema(endpoint))
+		t.Run("schema with none vectorizer", testCreateSchemaWithNoneVectorizer(endpoint))
+		t.Run("object", testCreateObject(endpoint))
+		t.Run("batch", testBatchObject(endpoint))
+		t.Run("none vectorizer", testCreateSchemaWithNoneVectorizer(endpoint))
+		t.Run("mixed objects with none and vectorizer", testCreateSchemaWithMixedVectorizers(endpoint))
+		t.Run("classes with properties setting", testCreateWithModulePropertiesObject(endpoint))
+		t.Run("validation", testSchemaValidation(endpoint))
+		t.Run("cross references", testReferenceProperties(endpoint))
+		t.Run("objects with vectorizer and objects", testCreateSchemaWithVectorizerAndBYOV(endpoint))
+		t.Run("hybrid", testHybrid(endpoint))
+		t.Run("generative modules", testNamedVectorsWithGenerativeModules(endpoint))
+		t.Run("aggregate", testAggregate(endpoint))
 	}
 }
 

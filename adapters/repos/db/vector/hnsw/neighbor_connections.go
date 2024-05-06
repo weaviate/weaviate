@@ -119,6 +119,10 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		return nil
 	}
 	n.graph.nodes[from].Lock()
+	if level >= len(n.graph.nodes[from].connections) {
+		n.graph.nodes[from].Unlock()
+		return nil
+	}
 	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
 	copy(connections, n.graph.nodes[from].connections[level])
 	n.graph.nodes[from].Unlock()
@@ -167,6 +171,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	var results *priorityqueue.Queue[any]
 	var extraIDs []uint64 = nil
 	var total int = 0
+	var maxConnections int = n.graph.maximumConnections
+
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
@@ -204,6 +210,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
 		}
+		// use dynamic max connections only during tombstone cleanup
+		maxConnections = n.maximumConnections(level)
 	} else {
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
@@ -222,8 +230,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		before = time.Now()
 	}
 
-	max := n.maximumConnections(level)
-	if err := n.graph.selectNeighborsHeuristic(results, max-total, n.denyList); err != nil {
+	if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
 		return errors.Wrap(err, "heuristic")
 	}
 
@@ -244,7 +251,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	// set all outgoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)
-	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors); err != nil {
+		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
+	}
 
 	for _, neighborID := range neighbors {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
@@ -410,8 +419,11 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		localDeny.Insert(candidate)
 		// now find a new one
 
-		alternative, _ := n.graph.findNewLocalEntrypoint(localDeny,
+		alternative, _, err := n.graph.findNewLocalEntrypoint(localDeny,
 			n.graph.currentMaximumLayer, candidate)
+		if err != nil {
+			return err
+		}
 		candidate = alternative
 	}
 }

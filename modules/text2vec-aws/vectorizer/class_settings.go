@@ -67,7 +67,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	var errorMessages []string
 
-	if err := ic.BaseClassSettings.Validate(); err != nil {
+	if err := ic.BaseClassSettings.ValidateClassSettings(); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
 
@@ -124,19 +124,7 @@ func (ic *classSettings) validatAvailableAWSSetting(value string, availableValue
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := ic.cfg.ClassByModuleName("text2vec-aws")[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return asString
-		}
-	}
-	return defaultValue
+	return ic.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
 func (cv *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {

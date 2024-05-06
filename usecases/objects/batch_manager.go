@@ -41,11 +41,11 @@ type BatchVectorRepo interface {
 
 type batchRepoNew interface {
 	BatchPutObjects(ctx context.Context, objects BatchObjects,
-		repl *additional.ReplicationProperties) (BatchObjects, error)
+		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchObjects, error)
 	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-		repl *additional.ReplicationProperties, tenant string) (BatchDeleteResult, error)
+		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) (BatchDeleteResult, error)
 	AddBatchReferences(ctx context.Context, references BatchReferences,
-		repl *additional.ReplicationProperties) (BatchReferences, error)
+		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchReferences, error)
 }
 
 // NewBatchManager creates a new manager

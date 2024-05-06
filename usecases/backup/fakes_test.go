@@ -34,7 +34,7 @@ func init() {
 	}
 
 	chunks = map[string][]byte{
-		chunkKey("DemoClass", 1): data,
+		chunkKey("Article", 1): data,
 	}
 }
 

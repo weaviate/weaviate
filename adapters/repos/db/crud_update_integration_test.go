@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -30,6 +29,7 @@ import (
 	libschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // Updates are non trivial, because vector indices are built under the
@@ -47,11 +47,11 @@ func TestUpdateJourney(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -72,7 +72,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("import some objects", func(t *testing.T) {
 		for _, res := range updateTestData() {
-			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil)
+			err := repo.PutObject(context.Background(), res.Object(), res.Vector, nil, nil, 0)
 			require.Nil(t, err)
 		}
 
@@ -156,7 +156,7 @@ func TestUpdateJourney(t *testing.T) {
 			old, err := repo.ObjectByID(context.Background(), id, search.SelectProperties{}, additional.Properties{}, "")
 			require.Nil(t, err)
 
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil, 0)
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")
@@ -219,7 +219,7 @@ func TestUpdateJourney(t *testing.T) {
 			require.Nil(t, err)
 
 			old.Schema.(map[string]interface{})["intProp"] = int64(21)
-			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil)
+			err = repo.PutObject(context.Background(), old.Object(), updatedVec, nil, nil, 0)
 			require.Nil(t, err)
 
 			tracker := getTracker(repo, "UpdateTestClass")

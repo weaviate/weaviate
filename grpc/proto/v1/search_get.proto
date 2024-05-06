@@ -49,6 +49,7 @@ message SearchRequest {
   optional Rerank rerank = 61;
 
   bool uses_123_api = 100 [deprecated = true];
+  bool uses_125_api = 101;
 }
 
 message GroupBy {
@@ -97,7 +98,7 @@ message PropertiesRequest {
 
 message ObjectPropertiesRequest {
   string prop_name = 1;
-  repeated string primitive_properties = 2; 
+  repeated string primitive_properties = 2;
   repeated ObjectPropertiesRequest object_properties = 3;
 }
 
@@ -115,6 +116,8 @@ message Hybrid {
   FusionType fusion_type = 5;
   bytes vector_bytes = 6;
   repeated string target_vectors = 7;
+  NearTextSearch near_text = 8;
+  NearVector near_vector = 9;
 }
 
 message NearTextSearch {

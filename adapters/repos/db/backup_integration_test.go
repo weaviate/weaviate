@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -31,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestBackup_DBLevel(t *testing.T) {
@@ -54,7 +54,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil, nil))
+			}, []float32{1, 2, 3}, nil, nil, 0))
 		})
 
 		expectedNodeName := "node1"
@@ -155,7 +155,7 @@ func TestBackup_DBLevel(t *testing.T) {
 				LastUpdateTimeUnix: now.UnixNano(),
 				Vector:             []float32{1, 2, 3},
 				VectorWeights:      nil,
-			}, []float32{1, 2, 3}, nil, nil))
+			}, []float32{1, 2, 3}, nil, nil, 9))
 		})
 
 		t.Run("fail with expired context", func(t *testing.T) {
@@ -182,17 +182,17 @@ func TestBackup_BucketLevel(t *testing.T) {
 	shard, _ := testShard(t, ctx, className)
 
 	t.Run("insert data", func(t *testing.T) {
-		err := shard.PutObject(ctx, &storobj.Object{
-			MarshallerVersion: 1,
-			Object: models.Object{
-				ID:    "8c29da7a-600a-43dc-85fb-83ab2b08c294",
-				Class: className,
-				Properties: map[string]interface{}{
-					"stringField": "somevalue",
+		err := shard.PutObject(ctx,
+			&storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:    "8c29da7a-600a-43dc-85fb-83ab2b08c294",
+					Class: className,
+					Properties: map[string]interface{}{
+						"stringField": "somevalue",
+					},
 				},
-			},
-		},
-		)
+			})
 		require.Nil(t, err)
 	})
 
@@ -261,11 +261,11 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		shardState: singleShardState(),
 	}
 	db, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))

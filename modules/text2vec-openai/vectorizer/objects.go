@@ -13,31 +13,57 @@ package vectorizer
 
 import (
 	"context"
+	"time"
 
+	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/modules/text2vec-openai/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
+	"github.com/sirupsen/logrus"
 )
 
-type Vectorizer struct {
-	client           Client
-	objectVectorizer *objectsvectorizer.ObjectVectorizer
-}
+const (
+	MaxObjectsPerBatch = 2000 // https://platform.openai.com/docs/api-reference/embeddings/create
+	// time per token goes down up to a certain batch size and then flattens - however the times vary a lot so we
+	// don't want to get too close to the maximum of 50s
+	OpenAIMaxTimePerBatch = float64(10)
+)
 
-func New(client Client) *Vectorizer {
-	return &Vectorizer{
-		client:           client,
-		objectVectorizer: objectsvectorizer.New(),
+func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
+	batchTokenizer := func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
+		texts := make([]string, len(objects))
+		tokenCounts := make([]int, len(objects))
+		icheck := ent.NewClassSettings(cfg)
+
+		tke, err := tiktoken.EncodingForModel(icheck.Model())
+		if err != nil { // fail all objects as they all have the same model
+			return nil, nil, false, err
+		}
+
+		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
+		skipAll := true
+		for i := range texts {
+			if skipObject[i] {
+				continue
+			}
+			skipAll = false
+			text := objectVectorizer.Texts(ctx, objects[i], icheck)
+			texts[i] = text
+			tokenCounts[i] = clients.GetTokensCount(icheck.Model(), text, tke)
+		}
+		return texts, tokenCounts, skipAll, nil
 	}
-}
 
-type Client interface {
-	Vectorize(ctx context.Context, input string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
-	VectorizeQuery(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	// there does not seem to be a limit
+	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
+
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -51,46 +77,6 @@ type ClassSettings interface {
 	ResourceName() string
 	DeploymentID() string
 	BaseURL() string
+	ApiVersion() string
 	IsAzure() bool
-}
-
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.Class, comp, cfg)
-	return vec, nil, err
-}
-
-func (v *Vectorizer) object(ctx context.Context, className string,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, NewClassSettings(cfg), cfg.TargetVector())
-	if vector != nil {
-		// dont' re-vectorize
-		return vector, nil
-	}
-	// vectorize text
-	res, err := v.client.Vectorize(ctx, text, v.getVectorizationConfig(cfg))
-	if err != nil {
-		return nil, err
-	}
-
-	if len(res.Vector) > 1 {
-		return libvectorizer.CombineVectors(res.Vector), nil
-	}
-	return res.Vector[0], nil
-}
-
-func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
-	settings := NewClassSettings(cfg)
-	return ent.VectorizationConfig{
-		Type:         settings.Type(),
-		Model:        settings.Model(),
-		ModelVersion: settings.ModelVersion(),
-		ResourceName: settings.ResourceName(),
-		DeploymentID: settings.DeploymentID(),
-		BaseURL:      settings.BaseURL(),
-		IsAzure:      settings.IsAzure(),
-		Dimensions:   settings.Dimensions(),
-	}
 }

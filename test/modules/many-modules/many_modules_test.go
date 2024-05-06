@@ -13,6 +13,7 @@ package test
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -63,15 +64,17 @@ func composeModules() (composeModules *docker.Compose) {
 		WithText2VecTransformers().
 		WithText2VecOpenAI().
 		WithText2VecCohere().
-		WithText2VecPaLM().
+		WithText2VecVoyageAI().
+		WithText2VecPaLM(os.Getenv("PALM_APIKEY")).
 		WithText2VecHuggingFace().
 		WithText2VecAWS().
 		WithGenerativeOpenAI().
 		WithGenerativeCohere().
-		WithGenerativePaLM().
+		WithGenerativePaLM(os.Getenv("PALM_APIKEY")).
 		WithGenerativeAWS().
 		WithGenerativeAnyscale().
 		WithQnAOpenAI().
-		WithRerankerCohere()
+		WithRerankerCohere().
+		WithRerankerVoyageAI()
 	return
 }

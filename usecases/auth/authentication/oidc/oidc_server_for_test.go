@@ -18,8 +18,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	jose "github.com/go-jose/go-jose/v3"
 	"github.com/golang-jwt/jwt/v4"
-	jose "github.com/square/go-jose"
 )
 
 func newOIDCServer(t *testing.T) *httptest.Server {

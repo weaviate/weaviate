@@ -41,7 +41,7 @@ func NewDistributeRepo(remoteClient cluster.Client,
 	memberLister cluster.MemberLister, localRepo localRepo,
 	logger logrus.FieldLogger,
 ) *DistributedRepo {
-	broadcaster := cluster.NewTxBroadcaster(memberLister, remoteClient)
+	broadcaster := cluster.NewTxBroadcaster(memberLister, remoteClient, logger)
 	txRemote := cluster.NewTxManager(broadcaster, &dummyTxPersistence{}, logger)
 	txRemote.StartAcceptIncoming()
 	repo := &DistributedRepo{

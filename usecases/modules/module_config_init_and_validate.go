@@ -13,6 +13,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,46 +24,53 @@ import (
 // SetClassDefaults sets the module-specific defaults for the class itself, but
 // also for each prop
 func (p *Provider) SetClassDefaults(class *models.Class) {
-	if class.Vectorizer == "none" {
-		// the class does not use a vectorizer, nothing to do for us
+	if !hasTargetVectors(class) {
+		p.setClassDefaults(class, class.Vectorizer, "", func(vectorizerConfig map[string]interface{}) {
+			if class.ModuleConfig == nil {
+				class.ModuleConfig = map[string]interface{}{}
+			}
+			class.ModuleConfig.(map[string]interface{})[class.Vectorizer] = vectorizerConfig
+		})
 		return
 	}
 
-	mod := p.GetByName(class.Vectorizer)
-	cc, ok := mod.(modulecapabilities.ClassConfigurator)
-	if !ok {
-		// the module exists, but is not a class configurator, nothing to do for us
-		return
+	for targetVector, vectorConfig := range class.VectorConfig {
+		if moduleConfig, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(moduleConfig) == 1 {
+			for vectorizer := range moduleConfig {
+				p.setClassDefaults(class, vectorizer, targetVector, func(vectorizerConfig map[string]interface{}) {
+					moduleConfig[vectorizer] = vectorizerConfig
+				})
+			}
+		}
 	}
-
-	cfg := NewClassBasedModuleConfig(class, class.Vectorizer, "", "")
-
-	p.setPerClassConfigDefaults(class, cfg, cc)
-	p.setPerPropertyConfigDefaults(class, cfg, cc)
 }
 
-// SetSinglePropertyDefaults can be used when a property is added later, e.g.
-// as part of merging in a ref prop after a class has already been created
-func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
-	prop *models.Property,
+func (p *Provider) setClassDefaults(class *models.Class, vectorizer string,
+	targetVector string, storeFn func(vectorizerConfig map[string]interface{}),
 ) {
-	if class.Vectorizer == "none" {
+	if vectorizer == "none" {
 		// the class does not use a vectorizer, nothing to do for us
 		return
 	}
 
-	mod := p.GetByName(class.Vectorizer)
+	mod := p.GetByName(vectorizer)
 	cc, ok := mod.(modulecapabilities.ClassConfigurator)
 	if !ok {
 		// the module exists, but is not a class configurator, nothing to do for us
 		return
 	}
 
-	p.setSinglePropertyConfigDefaults(class, prop, cc)
+	cfg := NewClassBasedModuleConfig(class, vectorizer, "", targetVector)
+
+	p.setPerClassConfigDefaults(cfg, cc, storeFn)
+	for _, prop := range class.Properties {
+		p.setSinglePropertyConfigDefaults(prop, vectorizer, cc)
+	}
 }
 
-func (p *Provider) setPerClassConfigDefaults(class *models.Class,
-	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator,
+func (p *Provider) setPerClassConfigDefaults(cfg *ClassBasedModuleConfig,
+	cc modulecapabilities.ClassConfigurator,
+	storeFn func(vectorizerConfig map[string]interface{}),
 ) {
 	modDefaults := cc.ClassConfigDefaults()
 	userSpecified := cfg.Class()
@@ -75,31 +83,62 @@ func (p *Provider) setPerClassConfigDefaults(class *models.Class,
 		mergedConfig[key] = value
 	}
 
-	if class.ModuleConfig == nil {
-		class.ModuleConfig = map[string]interface{}{}
+	if len(mergedConfig) > 0 {
+		storeFn(mergedConfig)
 	}
-
-	class.ModuleConfig.(map[string]interface{})[class.Vectorizer] = mergedConfig
 }
 
-func (p *Provider) setPerPropertyConfigDefaults(class *models.Class,
-	cfg *ClassBasedModuleConfig, cc modulecapabilities.ClassConfigurator,
+// SetSinglePropertyDefaults can be used when a property is added later, e.g.
+// as part of merging in a ref prop after a class has already been created
+func (p *Provider) SetSinglePropertyDefaults(class *models.Class,
+	props ...*models.Property,
 ) {
-	for _, prop := range class.Properties {
-		p.setSinglePropertyConfigDefaults(class, prop, cc)
+	for _, prop := range props {
+		if !hasTargetVectors(class) {
+			p.setSinglePropertyDefaults(prop, class.Vectorizer)
+			continue
+		}
+
+		for _, vectorConfig := range class.VectorConfig {
+			if moduleConfig, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok && len(moduleConfig) == 1 {
+				for vectorizer := range moduleConfig {
+					p.setSinglePropertyDefaults(prop, vectorizer)
+				}
+			}
+		}
 	}
 }
 
-func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
-	prop *models.Property, cc modulecapabilities.ClassConfigurator,
+func (p *Provider) setSinglePropertyDefaults(prop *models.Property, vectorizer string) {
+	if vectorizer == "none" {
+		// the class does not use a vectorizer, nothing to do for us
+		return
+	}
+
+	mod := p.GetByName(vectorizer)
+	cc, ok := mod.(modulecapabilities.ClassConfigurator)
+	if !ok {
+		// the module exists, but is not a class configurator, nothing to do for us
+		return
+	}
+
+	p.setSinglePropertyConfigDefaults(prop, vectorizer, cc)
+}
+
+func (p *Provider) setSinglePropertyConfigDefaults(prop *models.Property,
+	vectorizer string, cc modulecapabilities.ClassConfigurator,
 ) {
 	dt, _ := schema.GetValueDataTypeFromString(prop.DataType[0])
 	modDefaults := cc.PropertyConfigDefaults(dt)
+	userSpecified := map[string]interface{}{}
 	mergedConfig := map[string]interface{}{}
-	userSpecified := make(map[string]interface{})
 
 	if prop.ModuleConfig != nil {
-		userSpecified = prop.ModuleConfig.(map[string]interface{})[class.Vectorizer].(map[string]interface{})
+		if vectorizerConfig, ok := prop.ModuleConfig.(map[string]interface{})[vectorizer]; ok {
+			if mcvm, ok := vectorizerConfig.(map[string]interface{}); ok {
+				userSpecified = mcvm
+			}
+		}
 	}
 
 	for key, value := range modDefaults {
@@ -109,11 +148,12 @@ func (p *Provider) setSinglePropertyConfigDefaults(class *models.Class,
 		mergedConfig[key] = value
 	}
 
-	if prop.ModuleConfig == nil {
-		prop.ModuleConfig = map[string]interface{}{}
+	if len(mergedConfig) > 0 {
+		if prop.ModuleConfig == nil {
+			prop.ModuleConfig = map[string]interface{}{}
+		}
+		prop.ModuleConfig.(map[string]interface{})[vectorizer] = mergedConfig
 	}
-
-	prop.ModuleConfig.(map[string]interface{})[class.Vectorizer] = mergedConfig
 }
 
 func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error {
@@ -124,7 +164,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 			// the class does not use a vectorizer, nothing to do for us
 			return nil
 		}
-		if err := p.validateClassesModuleConfig(ctx, class, "", class.ModuleConfig); err != nil {
+		if err := p.validateClassesModuleConfig(ctx, class, class.ModuleConfig); err != nil {
 			return err
 		}
 		return nil
@@ -151,7 +191,7 @@ func (p *Provider) ValidateClass(ctx context.Context, class *models.Class) error
 			for modName := range vectorizer {
 				if modName == "none" {
 					// the class does not use a vectorizer, nothing to do for us
-					return nil
+					continue
 				}
 				if mod := p.GetByName(modName); mod == nil {
 					return errors.Errorf("class.VectorConfig.Vectorizer module with name %s doesn't exist", modName)
@@ -178,6 +218,9 @@ func (p *Provider) validateClassesModuleConfigNoneVectorizers(ctx context.Contex
 	}
 	for modName := range modConfig {
 		mod := p.GetByName(modName)
+		if mod == nil {
+			return errors.Errorf("module with name %s doesn't exist", modName)
+		}
 		if !p.isVectorizerModule(mod.Type()) {
 			if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
 				return err
@@ -188,16 +231,24 @@ func (p *Provider) validateClassesModuleConfigNoneVectorizers(ctx context.Contex
 }
 
 func (p *Provider) validateClassesModuleConfig(ctx context.Context,
-	class *models.Class, targetVector string, moduleConfig interface{},
+	class *models.Class, moduleConfig interface{},
 ) error {
 	modConfig, ok := moduleConfig.(map[string]interface{})
 	if !ok {
 		return nil
 	}
+	configuredVectorizers := make([]string, 0, len(modConfig))
 	for modName := range modConfig {
 		if err := p.validateClassModuleConfig(ctx, class, modName, ""); err != nil {
 			return err
 		}
+		if err := p.ValidateVectorizer(modName); err == nil {
+			configuredVectorizers = append(configuredVectorizers, modName)
+		}
+	}
+	if len(configuredVectorizers) > 1 {
+		return fmt.Errorf("multiple vectorizers configured in class's moduleConfig: %v. class.vectorizer is set to %q",
+			configuredVectorizers, class.Vectorizer)
 	}
 	return nil
 }
@@ -217,5 +268,31 @@ func (p *Provider) validateClassModuleConfig(ctx context.Context,
 	if err != nil {
 		return errors.Wrapf(err, "module '%s'", moduleName)
 	}
+
+	p.validateVectorConfig(class, moduleName, targetVector)
+
 	return nil
+}
+
+func (p *Provider) validateVectorConfig(class *models.Class, moduleName string, targetVector string) {
+	mod := p.GetByName(moduleName)
+
+	_, okVec := mod.(modulecapabilities.Vectorizer)
+	if class.VectorConfig == nil || !okVec {
+		return
+	}
+
+	// named vector props need to be a string array
+	props, ok := class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"]
+	if ok {
+		propsTyped := make([]string, len(props.([]interface{})))
+		for i, v := range props.([]interface{}) {
+			propsTyped[i] = v.(string) // was validated by the module
+		}
+		class.VectorConfig[targetVector].Vectorizer.(map[string]interface{})[moduleName].(map[string]interface{})["properties"] = propsTyped
+	}
+}
+
+func hasTargetVectors(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
 }

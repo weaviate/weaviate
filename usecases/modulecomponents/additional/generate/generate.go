@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -33,10 +35,11 @@ type generativeClient interface {
 type GenerateProvider struct {
 	client                    generativeClient
 	maximumNumberOfGoroutines int
+	logger                    logrus.FieldLogger
 }
 
-func New(client generativeClient) *GenerateProvider {
-	return &GenerateProvider{client, maximumNumberOfGoroutines}
+func New(client generativeClient, logger logrus.FieldLogger) *GenerateProvider {
+	return &GenerateProvider{client, maximumNumberOfGoroutines, logger}
 }
 
 func (p *GenerateProvider) AdditionalPropertyDefaultValue() interface{} {

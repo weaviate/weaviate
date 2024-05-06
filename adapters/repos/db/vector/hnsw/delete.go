@@ -21,13 +21,14 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"golang.org/x/sync/errgroup"
 )
 
 type breakCleanUpTombstonedNodesFunc func() bool
@@ -212,6 +213,8 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	h.compressActionLock.RLock()
+	defer h.compressActionLock.RUnlock()
 	defer func() {
 		err := recover()
 		if err != nil {
@@ -237,12 +240,15 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return executed, nil
 	}
 
+	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
+
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
 	} else if !ok {
 		return executed, nil
 	}
+	h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -310,7 +316,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 
-	g, ctx := errgroup.WithContext(h.shutdownCtx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
 	ch := make(chan uint64)
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
@@ -329,7 +335,9 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 						continue
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
-					h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+					if h.getEntrypoint() != deletedID {
+						h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+					}
 				}
 			}
 		})
@@ -340,6 +348,9 @@ LOOP:
 		select {
 		case ch <- uint64(i):
 		case <-ctx.Done():
+			// before https://github.com/weaviate/weaviate/issues/4615 the context
+			// would not be canceled if a routine panicked. However, with the fix, it is
+			// now valid to wait for a cancelation – even if a panic occurs.
 			break LOOP
 		}
 	}
@@ -364,6 +375,8 @@ func (h *hnsw) reassignNeighbor(
 		return false, nil
 	}
 
+	h.metrics.TombstoneReassignNeighbor()
+
 	h.RLock()
 	h.shardedNodeLocks.RLock(neighbor)
 	neighborNode := h.nodes[neighbor]
@@ -379,7 +392,7 @@ func (h *hnsw) reassignNeighbor(
 	var neighborVec []float32
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		compressorDistancer = h.compressor.NewDistancerFromID(neighbor)
+		compressorDistancer, err = h.compressor.NewDistancerFromID(neighbor)
 	} else {
 		neighborVec, err = h.cache.Get(context.Background(), neighbor)
 	}
@@ -430,8 +443,12 @@ func (h *hnsw) reassignNeighbor(
 		tmpDenyList := deleteList.DeepCopy()
 		tmpDenyList.Insert(entryPointID)
 
-		alternative, level := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
+		alternative, level, err := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
 			entryPointID)
+		if err != nil {
+			return false, errors.Wrap(err, "find new local entrypoint")
+		}
+
 		if level > neighborLevel {
 			neighborNode.Lock()
 			// reset connections according to level
@@ -506,6 +523,8 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		return 0, 0, false
 	}
 
+	h.metrics.TombstoneFindGlobalEntrypoint()
+
 	for l := targetLevel; l >= 0; l-- {
 		// ideally we can find a new entrypoint at the same level of the
 		// to-be-deleted node. However, there is a chance it was the only node on
@@ -549,6 +568,14 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 		}
 	}
 
+	if h.isEmpty() {
+		return 0, 0, false
+	}
+
+	if h.isOnlyNode(&vertex{id: oldEntrypoint}, denyList) {
+		return 0, 0, false
+	}
+
 	// we made it through the entire graph and didn't find a new entrypoint all
 	// the way down to level 0. This can only mean the graph is empty, which is
 	// unexpected. This situation should have been prevented by the deleteLock.
@@ -560,14 +587,18 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 // returns entryPointID, level and whether a change occurred
 func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel int,
 	oldEntrypoint uint64,
-) (uint64, int) {
+) (uint64, int, error) {
 	if h.getEntrypoint() != oldEntrypoint {
 		// the current global entrypoint is different from our local entrypoint, so
 		// we can just use the global one, as the global one is guaranteed to be
 		// present on every level, i.e. it is always chosen from the highest
 		// currently available level
-		return h.getEntrypoint(), h.currentMaximumLayer
+		h.RLock()
+		defer h.RUnlock()
+		return h.entryPointID, h.currentMaximumLayer, nil
 	}
+
+	h.metrics.TombstoneFindLocalEntrypoint()
 
 	h.RLock()
 	maxNodes := len(h.nodes)
@@ -601,13 +632,19 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 			}
 
 			// we have a node that matches
-			return uint64(i), l
+			return uint64(i), l, nil
 		}
 	}
 
-	panic(fmt.Sprintf(
-		"class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph",
-		h.className, h.shardName))
+	if h.isEmpty() {
+		return 0, 0, nil
+	}
+
+	if h.isOnlyNode(&vertex{id: oldEntrypoint}, denyList) {
+		return 0, 0, nil
+	}
+
+	return 0, 0, fmt.Errorf("class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph", h.className, h.shardName)
 }
 
 func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
@@ -621,7 +658,7 @@ func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
 
 func (h *hnsw) isOnlyNodeUnlocked(needle *vertex, denyList helpers.AllowList) bool {
 	for _, node := range h.nodes {
-		if node == nil || node.id == needle.id || denyList.Contains(node.id) {
+		if node == nil || node.id == needle.id || denyList.Contains(node.id) || len(node.connections) == 0 {
 			continue
 		}
 		return false

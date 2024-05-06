@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func BM25FinvertedConfig(k1, b float32, stopWordPreset string) *models.InvertedIndexConfig {
@@ -145,7 +146,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 		obj := &models.Object{Class: "MyClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
 		require.Nil(t, err)
 	}
 }
@@ -197,7 +198,7 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 
 		obj := &models.Object{Class: "FilterClass", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
 		require.Nil(t, err)
 	}
 }
@@ -211,11 +212,11 @@ func TestBM25FJourney(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -436,15 +437,15 @@ func TestBM25FJourney(t *testing.T) {
 
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-		require.EqualValues(t, 0.5868752, noautocutscores[0])
-		require.EqualValues(t, 0.5450892, noautocutscores[1]) // <= autocut last element
-		require.EqualValues(t, 0.34149727, noautocutscores[2])
-		require.EqualValues(t, 0.3049518, noautocutscores[3])
-		require.EqualValues(t, 0.27547202, noautocutscores[4])
+		require.EqualValues(t, float32(0.5868752), noautocutscores[0])
+		require.EqualValues(t, float32(0.5450892), noautocutscores[1]) // <= autocut last element
+		require.EqualValues(t, float32(0.34149727), noautocutscores[2])
+		require.EqualValues(t, float32(0.3049518), noautocutscores[3])
+		require.EqualValues(t, float32(0.27547202), noautocutscores[4])
 
 		require.Len(t, resAutoCut, 2)
-		require.EqualValues(t, 0.5868752, autocutscores[0])
-		require.EqualValues(t, 0.5450892, autocutscores[1])
+		require.EqualValues(t, float32(0.5868752), autocutscores[0])
+		require.EqualValues(t, float32(0.5450892), autocutscores[1])
 	})
 }
 
@@ -457,11 +458,11 @@ func TestBM25FSingleProp(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -499,11 +500,11 @@ func TestBM25FWithFilters(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -562,11 +563,11 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -621,11 +622,11 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -689,11 +690,11 @@ func TestBM25FCompare(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -787,23 +788,20 @@ func Test_propertyHasSearchableIndex(t *testing.T) {
 		},
 	}
 
-	ClassSchema := &models.Schema{
-		Classes: []*models.Class{class},
-	}
 	t.Run("Property index", func(t *testing.T) {
-		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "description"); got != true {
+		if got := inverted.PropertyHasSearchableIndex(class, "description"); got != true {
 			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 
-		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "description^2"); got != true {
+		if got := inverted.PropertyHasSearchableIndex(class, "description^2"); got != true {
 			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 
-		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "textField"); got != false {
+		if got := inverted.PropertyHasSearchableIndex(class, "textField"); got != false {
 			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, false)
 		}
 
-		if got := inverted.PropertyHasSearchableIndex(ClassSchema, "MyClass", "title"); got != true {
+		if got := inverted.PropertyHasSearchableIndex(class, "title"); got != true {
 			t.Errorf("PropertyHasSearchableIndex() = %v, want %v", got, true)
 		}
 	})
@@ -851,7 +849,7 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
 		//{title: "Our journey to BM25F", description: " This is how we get to BM25F"}}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
 		require.Nil(t, err)
 	}
 	return className
@@ -871,11 +869,11 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		},
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -989,7 +987,7 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 
 		obj := &models.Object{Class: className, ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 		vector := []float32{1, 3, 5, 0.4}
-		err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+		err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
 		require.Nil(t, err)
 	}
 	return className
@@ -1010,11 +1008,11 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 		},
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))

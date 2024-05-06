@@ -54,7 +54,7 @@ func TestEnvironmentImportGoroutineFactor(t *testing.T) {
 	}
 }
 
-func TestEnvironmentSetFlushAfter_BackwardCompatibility(t *testing.T) {
+func TestEnvironmentSetFlushAfter_AllNames(t *testing.T) {
 	factors := []struct {
 		name        string
 		flushAfter  []string
@@ -62,69 +62,53 @@ func TestEnvironmentSetFlushAfter_BackwardCompatibility(t *testing.T) {
 		expectedErr bool
 	}{
 		{"Valid", []string{"1"}, 1, false},
-		{"not given", []string{}, DefaultPersistenceFlushIdleMemtablesAfter, false},
+		{"not given", []string{}, DefaultPersistenceMemtablesFlushDirtyAfter, false},
 		{"invalid factor", []string{"-1"}, -1, true},
 		{"zero factor", []string{"0"}, -1, true},
 		{"not parsable", []string{"I'm not a number"}, -1, true},
 	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.flushAfter) == 1 {
-				t.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", tt.flushAfter[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
-
-			if tt.expectedErr {
-				require.NotNil(t, err)
-			} else {
-				require.Equal(t, tt.expected, conf.Persistence.FlushIdleMemtablesAfter)
-			}
-		})
-	}
-}
-
-func TestEnvironmentSetFlushAfter_NewName(t *testing.T) {
-	factors := []struct {
-		name        string
-		flushAfter  []string
-		expected    int
-		expectedErr bool
+	envNames := []struct {
+		name    string
+		envName string
 	}{
-		{"Valid", []string{"1"}, 1, false},
-		{"not given", []string{}, DefaultPersistenceFlushIdleMemtablesAfter, false},
-		{"invalid factor", []string{"-1"}, -1, true},
-		{"zero factor", []string{"0"}, -1, true},
-		{"not parsable", []string{"I'm not a number"}, -1, true},
+		{name: "fallback idle (1st)", envName: "PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER"},
+		{name: "fallback idle (2nd)", envName: "PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS"},
+		{name: "dirty", envName: "PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS"},
 	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.flushAfter) == 1 {
-				t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", tt.flushAfter[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
 
-			if tt.expectedErr {
-				require.NotNil(t, err)
-			} else {
-				require.Equal(t, tt.expected, conf.Persistence.FlushIdleMemtablesAfter)
+	for _, n := range envNames {
+		t.Run(n.name, func(t *testing.T) {
+			for _, tt := range factors {
+				t.Run(tt.name, func(t *testing.T) {
+					if len(tt.flushAfter) == 1 {
+						t.Setenv(n.envName, tt.flushAfter[0])
+					}
+					conf := Config{}
+					err := FromEnv(&conf)
+
+					if tt.expectedErr {
+						require.NotNil(t, err)
+					} else {
+						require.Equal(t, tt.expected, conf.Persistence.MemtablesFlushDirtyAfter)
+					}
+				})
 			}
 		})
 	}
 }
 
 func TestEnvironmentFlushConflictingValues(t *testing.T) {
-	// if both the old and new variable names are used the new variable name
+	// if all 3 variable names are used, the newest variable name
 	// should be taken into consideration
 	os.Clearenv()
 	t.Setenv("PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER", "16")
 	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS", "17")
+	t.Setenv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "18")
 	conf := Config{}
 	err := FromEnv(&conf)
 	require.Nil(t, err)
 
-	assert.Equal(t, 17, conf.Persistence.FlushIdleMemtablesAfter)
+	assert.Equal(t, 18, conf.Persistence.MemtablesFlushDirtyAfter)
 }
 
 func TestEnvironmentPersistence_dataPath(t *testing.T) {
@@ -271,6 +255,7 @@ func TestEnvironmentMemtable_MaxDuration(t *testing.T) {
 }
 
 func TestEnvironmentParseClusterConfig(t *testing.T) {
+	hostname, _ := os.Hostname()
 	tests := []struct {
 		name           string
 		envVars        map[string]string
@@ -278,21 +263,28 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 		expectedErr    error
 	}{
 		{
-			name: "valid cluster config - both ports provided",
+			name: "valid cluster config - ports and advertiseaddr provided",
 			envVars: map[string]string{
 				"CLUSTER_GOSSIP_BIND_PORT": "7100",
 				"CLUSTER_DATA_BIND_PORT":   "7101",
+				"CLUSTER_ADVERTISE_ADDR":   "193.0.0.1",
+				"CLUSTER_ADVERTISE_PORT":   "9999",
 			},
 			expectedResult: cluster.Config{
+				Hostname:       hostname,
 				GossipBindPort: 7100,
 				DataBindPort:   7101,
+				AdvertiseAddr:  "193.0.0.1",
+				AdvertisePort:  9999,
 			},
 		},
 		{
-			name: "valid cluster config - no ports provided",
+			name: "valid cluster config - no ports and advertiseaddr provided",
 			expectedResult: cluster.Config{
+				Hostname:       hostname,
 				GossipBindPort: DefaultGossipBindPort,
 				DataBindPort:   DefaultGossipBindPort + 1,
+				AdvertiseAddr:  "",
 			},
 		},
 		{
@@ -301,6 +293,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_GOSSIP_BIND_PORT": "7777",
 			},
 			expectedResult: cluster.Config{
+				Hostname:       hostname,
 				GossipBindPort: 7777,
 				DataBindPort:   7778,
 			},
@@ -328,6 +321,7 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 				"CLUSTER_IGNORE_SCHEMA_SYNC": "true",
 			},
 			expectedResult: cluster.Config{
+				Hostname:                hostname,
 				GossipBindPort:          7946,
 				DataBindPort:            7947,
 				IgnoreStartupSchemaSync: true,

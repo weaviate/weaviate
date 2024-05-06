@@ -31,7 +31,7 @@ type schemaHandlers struct {
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
+	_, _, err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
 		switch err.(type) {
@@ -76,7 +76,7 @@ func (s *schemaHandlers) updateClass(params schema.SchemaObjectsUpdateParams,
 func (s *schemaHandlers) getClass(params schema.SchemaObjectsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	class, err := s.manager.GetClass(params.HTTPRequest.Context(), principal, params.ClassName)
+	class, _, err := s.manager.GetConsistentClass(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -118,7 +118,7 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesAddParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
+	_, _, err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, s.manager.ReadOnlyClass(params.ClassName), false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -136,7 +136,7 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 }
 
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
-	dbSchema, err := s.manager.GetSchema(principal)
+	dbSchema, err := s.manager.GetConsistentSchema(principal, *params.Consistency)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -174,7 +174,8 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 	} else {
 		tenant = *params.Tenant
 	}
-	status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
+
+	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -196,7 +197,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.UpdateShardStatus(
+	_, err := s.manager.UpdateShardStatus(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.ShardName, params.Body.Status)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
@@ -219,7 +220,7 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	created, err := s.manager.AddTenants(
+	_, err := s.manager.AddTenants(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
@@ -234,7 +235,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsCreateOK().WithPayload(created)
+	return schema.NewTenantsCreateOK().WithPayload(params.Body)
 }
 
 func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
@@ -284,7 +285,7 @@ func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,
 func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	tenants, err := s.manager.GetTenants(params.HTTPRequest.Context(), principal, params.ClassName)
+	tenants, err := s.manager.GetConsistentTenants(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, nil)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -302,7 +303,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 }
 
 func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
-	if err := s.manager.TenantExists(params.HTTPRequest.Context(), principal, params.ClassName, params.TenantName); err != nil {
+	if err := s.manager.ConsistentTenantExists(params.HTTPRequest.Context(), principal, params.ClassName, *params.Consistency, params.TenantName); err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		if err == schemaUC.ErrNotFound {
 			return schema.NewTenantExistsNotFound()

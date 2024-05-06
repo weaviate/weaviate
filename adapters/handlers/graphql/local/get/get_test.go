@@ -785,6 +785,45 @@ func TestNearCustomTextRanker(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
+	t.Run("for actions with targetvec", func(t *testing.T) {
+		query := `{ Get { SomeAction(nearCustomText: {
+								concepts: ["c1", "c2", "c3"],
+								moveTo: {
+									concepts:["positive"],
+									force: 0.5
+								}
+								moveAwayFrom: {
+									concepts:["epic"]
+									force: 0.25
+								}
+								targetVectors: ["epic"]
+							}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			ModuleParams: map[string]interface{}{
+				"nearCustomText": extractNearTextParam(map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"moveTo": map[string]interface{}{
+						"concepts": []interface{}{"positive"},
+						"force":    float64(0.5),
+					},
+					"moveAwayFrom": map[string]interface{}{
+						"concepts": []interface{}{"epic"},
+						"force":    float64(0.25),
+					},
+					"targetVectors": []interface{}{"epic"},
+				}),
+			},
+		}
+
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
 	t.Run("for a class that does not have a text2vec module", func(t *testing.T) {
 		query := `{ Get { CustomVectorClass(nearCustomText: {
 							concepts: ["c1", "c2", "c3"],

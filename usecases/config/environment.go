@@ -19,21 +19,31 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/configbase"
+
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
+)
+
+const (
+	DefaultRaftPort             = 8300
+	DefaultRaftInternalPort     = 8301
+	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
+	DefaultRaftBootstrapTimeout = 90
+	DefaultRaftBootstrapExpect  = 1
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
 func FromEnv(config *Config) error {
-	if Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
+	if configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_ENABLED")) {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
 
-		if Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
-			Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
+		if configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
+			configbase.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
 			// The variable was renamed with v1.20. Prior to v1.20 the recommended
 			// way to do MT was using classes. This lead to a lot of metrics which
 			// could be grouped with this variable. With v1.20 we introduced native
@@ -45,30 +55,30 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
+	if configbase.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true
 	}
 
-	if Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
 		if config.TrackVectorDimensions {
 			config.ReindexVectorDimensionsAtStartup = true
 		}
 	}
 
-	if Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
+	if configbase.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
 		config.DisableLazyLoadShards = true
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
-	if Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
 	}
 
-	if Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("REINDEX_SET_TO_ROARINGSET_AT_STARTUP")) {
 		config.ReindexSetToRoaringsetAtStartup = true
 	}
 
-	if Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
+	if configbase.Enabled(os.Getenv("INDEX_MISSING_TEXT_FILTERABLE_AT_STARTUP")) {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
@@ -90,14 +100,14 @@ func FromEnv(config *Config) error {
 		config.Profiling.Port = asInt
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
 		config.Authentication.AnonymousAccess.Enabled = true
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
 
-		if Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
+		if configbase.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
 			config.Authentication.OIDC.SkipClientIDCheck = true
 		}
 
@@ -122,7 +132,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
 		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
@@ -136,7 +146,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	if Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
+	if configbase.Enabled(os.Getenv("AUTHORIZATION_ADMINLIST_ENABLED")) {
 		config.Authorization.AdminList.Enabled = true
 
 		usersString, ok := os.LookupEnv("AUTHORIZATION_ADMINLIST_USERS")
@@ -342,7 +352,11 @@ func FromEnv(config *Config) error {
 		config.GRPC.KeyFile = v
 	}
 
-	config.DisableGraphQL = Enabled(os.Getenv("DISABLE_GRAPHQL"))
+	config.DisableGraphQL = configbase.Enabled(os.Getenv("DISABLE_GRAPHQL"))
+
+	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
+		return fmt.Errorf("parse raft config: %w", err)
+	}
 
 	if err := parsePositiveInt(
 		"REPLICATION_MINIMUM_FACTOR",
@@ -353,11 +367,107 @@ func FromEnv(config *Config) error {
 	}
 
 	config.DisableTelemetry = false
-	if Enabled(os.Getenv("DISABLE_TELEMETRY")) {
+	if configbase.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
 	}
 
 	return nil
+}
+
+func parseRAFTConfig(hostname string) (Raft, error) {
+	// flag.IntVar()
+	cfg := Raft{
+		MetadataOnlyVoters: configbase.Enabled(os.Getenv("RAFT_METADATA_ONLY_VOTERS")),
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_PORT",
+		func(val int) { cfg.Port = val },
+		DefaultRaftPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_INTERNAL_RPC_PORT",
+		func(val int) { cfg.InternalRPCPort = val },
+		DefaultRaftInternalPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_GRPC_MESSAGE_MAX_SIZE",
+		func(val int) { cfg.RPCMessageMaxSize = val },
+		DefaultRaftGRPCMaxSize,
+	); err != nil {
+		return cfg, err
+	}
+
+	parseStringList(
+		"RAFT_JOIN",
+		func(val []string) { cfg.Join = val },
+		// Default RAFT_JOIN must be the configured node name and the configured raft port. This allows us to have a one-node raft cluster
+		// able to bootstrap itself if the user doesn't pass any raft parameter.
+		[]string{fmt.Sprintf("%s:%d", hostname, cfg.InternalRPCPort)},
+	)
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_TIMEOUT",
+		func(val int) { cfg.BootstrapTimeout = time.Second * time.Duration(val) },
+		DefaultRaftBootstrapTimeout,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_EXPECT",
+		func(val int) { cfg.BootstrapExpect = val },
+		DefaultRaftBootstrapExpect,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_HEARTBEAT_TIMEOUT",
+		func(val int) { cfg.HeartbeatTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_RECOVERY_TIMEOUT",
+		func(val int) { cfg.RecoveryTimeout = time.Second * time.Duration(val) },
+		3,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_ELECTION_TIMEOUT",
+		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_SNAPSHOT_INTERVAL",
+		func(val int) { cfg.SnapshotInterval = time.Second * time.Duration(val) },
+		120, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_SNAPSHOT_THRESHOLD",
+		func(val int) { cfg.SnapshotThreshold = uint64(val) },
+		8192, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	return cfg, nil
 }
 
 func (c *Config) parseCORSConfig() error {
@@ -383,20 +493,27 @@ func (c *Config) parseCORSConfig() error {
 }
 
 func (c *Config) parseMemtableConfig() error {
-	// first parse old name for flush value
+	// first parse old idle name for flush value
 	if err := parsePositiveInt(
 		"PERSISTENCE_FLUSH_IDLE_MEMTABLES_AFTER",
-		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
-		DefaultPersistenceFlushIdleMemtablesAfter,
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		DefaultPersistenceMemtablesFlushDirtyAfter,
 	); err != nil {
 		return err
 	}
-
-	// then parse with new name and use previous value in case it's not set
+	// then parse with new idle name and use previous value in case it's not set
 	if err := parsePositiveInt(
 		"PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS",
-		func(val int) { c.Persistence.FlushIdleMemtablesAfter = val },
-		c.Persistence.FlushIdleMemtablesAfter,
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		c.Persistence.MemtablesFlushDirtyAfter,
+	); err != nil {
+		return err
+	}
+	// then parse with dirty name and use idle value as fallback
+	if err := parsePositiveInt(
+		"PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS",
+		func(val int) { c.Persistence.MemtablesFlushDirtyAfter = val },
+		c.Persistence.MemtablesFlushDirtyAfter,
 	); err != nil {
 		return err
 	}
@@ -451,13 +568,13 @@ const (
 )
 
 const (
-	DefaultPersistenceFlushIdleMemtablesAfter = 60
-	DefaultPersistenceMemtablesMaxSize        = 200
-	DefaultPersistenceMemtablesMinDuration    = 15
-	DefaultPersistenceMemtablesMaxDuration    = 45
-	DefaultMaxConcurrentGetRequests           = 0
-	DefaultGRPCPort                           = 50051
-	DefaultMinimumReplicationFactor           = 1
+	DefaultPersistenceMemtablesFlushDirtyAfter = 60
+	DefaultPersistenceMemtablesMaxSize         = 200
+	DefaultPersistenceMemtablesMinDuration     = 15
+	DefaultPersistenceMemtablesMaxDuration     = 45
+	DefaultMaxConcurrentGetRequests            = 0
+	DefaultGRPCPort                            = 50051
+	DefaultMinimumReplicationFactor            = 1
 )
 
 const VectorizerModuleNone = "none"
@@ -469,19 +586,12 @@ const DefaultGossipBindPort = 7946
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
 
-func Enabled(value string) bool {
-	if value == "" {
-		return false
+func parseStringList(varName string, cb func(val []string), defaultValue []string) {
+	if v := os.Getenv(varName); v != "" {
+		cb(strings.Split(v, ","))
+	} else {
+		cb(defaultValue)
 	}
-
-	if value == "on" ||
-		value == "enabled" ||
-		value == "1" ||
-		value == "true" {
-		return true
-	}
-
-	return false
 }
 
 func parseResourceUsageEnvVars() (ResourceUsage, error) {
@@ -533,11 +643,34 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 func parseClusterConfig() (cluster.Config, error) {
 	cfg := cluster.Config{}
 
+	// by default memberlist assigns hostname to os.Hostname() incase hostname is empty
+	// ref: https://github.com/hashicorp/memberlist/blob/3f82dc10a89f82efe300228752f7077d0d9f87e4/config.go#L303
+	// it's handled at parseClusterConfig step to be consistent from the config start point and conveyed to all
+	// underlying functions see parseRAFTConfig(..) for example
 	cfg.Hostname = os.Getenv("CLUSTER_HOSTNAME")
+	if cfg.Hostname == "" {
+		cfg.Hostname, _ = os.Hostname()
+	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
+	advertiseAddr, advertiseAddrSet := os.LookupEnv("CLUSTER_ADVERTISE_ADDR")
+	advertisePort, advertisePortSet := os.LookupEnv("CLUSTER_ADVERTISE_PORT")
+
+	cfg.Localhost = configbase.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
+
+	if advertiseAddrSet {
+		cfg.AdvertiseAddr = advertiseAddr
+	}
+
+	if advertisePortSet {
+		asInt, err := strconv.Atoi(advertisePort)
+		if err != nil {
+			return cfg, fmt.Errorf("parse CLUSTER_ADVERTISE_PORT as int: %w", err)
+		}
+		cfg.AdvertisePort = asInt
+	}
 
 	if gossipBindSet {
 		asInt, err := strconv.Atoi(gossipBind)
@@ -566,9 +699,9 @@ func parseClusterConfig() (cluster.Config, error) {
 			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
-	cfg.IgnoreStartupSchemaSync = Enabled(
+	cfg.IgnoreStartupSchemaSync = configbase.Enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
-	cfg.SkipSchemaSyncRepair = Enabled(
+	cfg.SkipSchemaSyncRepair = configbase.Enabled(
 		os.Getenv("CLUSTER_SKIP_SCHEMA_REPAIR"))
 
 	basicAuthUsername := os.Getenv("CLUSTER_BASIC_AUTH_USERNAME")

@@ -21,7 +21,7 @@ import (
 )
 
 func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
-	req, err := http.NewRequestWithContext(context.Background(), "GET", v.url("/meta"), nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", v.url("/meta", ""), nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "create GET meta request")
 	}

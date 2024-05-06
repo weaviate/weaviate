@@ -12,11 +12,12 @@
 package named_vectors_tests
 
 import (
-	acceptance_with_go_client "acceptance_tests_with_client"
 	"context"
 	"fmt"
 	"strings"
 	"testing"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -149,7 +150,6 @@ func createNamedVectorsClass(t *testing.T, client *wvt.Client) {
 				VectorIndexConfig: bqFlatIndexConfig(),
 			},
 		},
-		Vectorizer: text2vecContextionary,
 	}
 
 	err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
@@ -206,19 +206,40 @@ func bqFlatIndexConfig() map[string]interface{} {
 func getVectorsWithNearText(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
 ) map[string][]float32 {
-	return getVectorsWithNearArgs(t, client, className, id, nearText, nil, targetVectors...)
+	return getVectorsWithNearArgs(t, client, className, id, nearText, nil, nil, nil, false, targetVectors...)
+}
+
+func getVectorsWithNearTextWithCertainty(t *testing.T, client *wvt.Client,
+	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
+) map[string][]float32 {
+	return getVectorsWithNearArgs(t, client, className, id, nearText, nil, nil, nil, true, targetVectors...)
 }
 
 func getVectorsWithNearVector(t *testing.T, client *wvt.Client,
 	className, id string, nearVector *graphql.NearVectorArgumentBuilder, targetVectors ...string,
 ) map[string][]float32 {
-	return getVectorsWithNearArgs(t, client, className, id, nil, nearVector, targetVectors...)
+	return getVectorsWithNearArgs(t, client, className, id, nil, nearVector, nil, nil, false, targetVectors...)
+}
+
+func getVectorsWithNearVectorWithCertainty(t *testing.T, client *wvt.Client,
+	className, id string, nearVector *graphql.NearVectorArgumentBuilder, targetVectors ...string,
+) map[string][]float32 {
+	return getVectorsWithNearArgs(t, client, className, id, nil, nearVector, nil, nil, true, targetVectors...)
+}
+
+func getVectorsWithNearObjectWithCertainty(t *testing.T, client *wvt.Client,
+	className, id string, nearObject *graphql.NearObjectArgumentBuilder, targetVectors ...string,
+) map[string][]float32 {
+	return getVectorsWithNearArgs(t, client, className, id, nil, nil, nearObject, nil, true, targetVectors...)
 }
 
 func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	className, id string,
 	nearText *graphql.NearTextArgumentBuilder,
 	nearVector *graphql.NearVectorArgumentBuilder,
+	nearObject *graphql.NearObjectArgumentBuilder,
+	hybrid *graphql.HybridArgumentBuilder,
+	withCertainty bool,
 	targetVectors ...string,
 ) map[string][]float32 {
 	where := filters.Where().
@@ -232,6 +253,9 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 			{Name: fmt.Sprintf("vectors{%s}", strings.Join(targetVectors, " "))},
 		},
 	}
+	if withCertainty {
+		field.Fields = append(field.Fields, graphql.Field{Name: "certainty"})
+	}
 	get := client.GraphQL().Get().
 		WithClassName(className).
 		WithWhere(where).
@@ -241,9 +265,14 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	if nearText != nil {
 		get = get.WithNearText(nearText)
 	}
-
 	if nearVector != nil {
 		get = get.WithNearVector(nearVector)
+	}
+	if nearObject != nil {
+		get = get.WithNearObject(nearObject)
+	}
+	if hybrid != nil {
+		get = get.WithHybrid(hybrid)
 	}
 
 	resp, err := get.Do(context.Background())
@@ -252,7 +281,7 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	ids := acceptance_with_go_client.GetIds(t, resp, className)
 	require.ElementsMatch(t, ids, []string{id})
 
-	return acceptance_with_go_client.GetVectors(t, resp, className, targetVectors...)
+	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }
 
 func getVectors(t *testing.T, client *wvt.Client,

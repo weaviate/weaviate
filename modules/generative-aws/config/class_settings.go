@@ -12,13 +12,13 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -72,11 +72,12 @@ var availableBedrockModels = []string{
 }
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg                  moduletools.ClassConfig
+	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-aws")}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -158,79 +159,16 @@ func (ic *classSettings) validateAWSSetting(value string, availableValues []stri
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := ic.cfg.ClassByModuleName("generative-aws")[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return asString
-		}
-	}
-	return defaultValue
+	return ic.propertyValuesHelper.GetPropertyAsString(ic.cfg, name, defaultValue)
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-aws")[name]
-	if ok {
-		asFloat, ok := val.(float64)
-		if ok {
-			return &asFloat
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			return &asFloat
-		}
-		asInt, ok := val.(int)
-		if ok {
-			asFloat := float64(asInt)
-			return &asFloat
-		}
-	}
-
-	return defaultValue
+	return ic.propertyValuesHelper.GetPropertyAsFloat64(ic.cfg, name, defaultValue)
 }
 
 func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
-	if ok {
-		asInt, ok := val.(int)
-		if ok {
-			return &asInt
-		}
-		asFloat, ok := val.(float64)
-		if ok {
-			asInt := int(asFloat)
-			return &asInt
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			asInt := int(asFloat)
-			return &asInt
-		}
-		wrongVal := -1
-		return &wrongVal
-	}
-
-	if defaultValue != nil {
-		return defaultValue
-	}
-	return nil
+	var wrongVal int = -1
+	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
 func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {

@@ -77,7 +77,7 @@ func bucket_WasDeleted_KeepTombstones(ctx context.Context, t *testing.T, opts []
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	t.Cleanup(func() {
@@ -122,7 +122,7 @@ func bucket_WasDeleted_CleanupTombstones(ctx context.Context, t *testing.T, opts
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, tmpDir, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, tmpDir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -167,7 +167,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -185,7 +185,7 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	_, ok = findFileWithExt(files, "secondary.0.bloom")
 	assert.True(t, ok)
 
-	b2, err := NewBucket(ctx, b.dir, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, b.dir, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)

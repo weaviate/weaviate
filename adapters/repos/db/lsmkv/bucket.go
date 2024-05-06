@@ -30,7 +30,17 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+const FlushAfterDirtyDefault = 60 * time.Second
+
+type BucketCreator interface {
+	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+		opts ...BucketOption,
+	) (*Bucket, error)
+}
 
 type Bucket struct {
 	dir      string
@@ -46,7 +56,7 @@ type Bucket struct {
 	haltedFlushTimer *interval.BackoffTimer
 
 	walThreshold      uint64
-	flushAfterIdle    time.Duration
+	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
@@ -104,7 +114,13 @@ type Bucket struct {
 	calcCountNetAdditions bool
 
 	forceCompaction bool
+
+	// optionally supplied to prevent starting memory-intensive
+	// processes when memory pressure is high
+	allocChecker memwatch.AllocChecker
 }
+
+func NewBucketCreator() *Bucket { return &Bucket{} }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
 // it exists, or initializes new state.
@@ -112,14 +128,14 @@ type Bucket struct {
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
-	defaultFlushAfterIdle := 60 * time.Second
+	defaultFlushAfterDirty := FlushAfterDirtyDefault
 	defaultStrategy := StrategyReplace
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -131,7 +147,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		rootDir:               rootDir,
 		memtableThreshold:     defaultMemTableThreshold,
 		walThreshold:          defaultWalThreshold,
-		flushAfterIdle:        defaultFlushAfterIdle,
+		flushDirtyAfter:       defaultFlushAfterDirty,
 		strategy:              defaultStrategy,
 		mmapContents:          true,
 		logger:                logger,
@@ -162,7 +178,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 			forceCompaction:       b.forceCompaction,
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
-		})
+		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
@@ -244,10 +260,6 @@ func (b *Bucket) GetMemtableThreshold() uint64 {
 
 func (b *Bucket) GetWalThreshold() uint64 {
 	return b.walThreshold
-}
-
-func (b *Bucket) GetFlushAfterIdle() time.Duration {
-	return b.flushAfterIdle
 }
 
 func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
@@ -893,9 +905,8 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
-	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
-		b.active.IdleDuration() >= b.flushAfterIdle
-	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
+	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
+	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the

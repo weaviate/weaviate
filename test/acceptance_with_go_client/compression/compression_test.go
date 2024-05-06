@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,20 +28,41 @@ import (
 )
 
 func TestCompression_AdaptSegments(t *testing.T) {
-	type testCase struct {
-		dimensions int
+	type dimensionTestCase struct {
+		vectors [][]float32
 	}
-
-	testCases := []testCase{
-		{dimensions: 768},
-		{dimensions: 125},
-		{dimensions: 4},
+	type vectorTypeTestCase struct {
+		name          string
+		createClassFn func(t *testing.T, client *wvt.Client, className string) *models.Class
+		populateFn    func(t *testing.T, client *wvt.Client, className string, vectors [][]float32)
+		compressFn    func(t *testing.T, client *wvt.Client, class *models.Class)
 	}
 
 	ctx := context.Background()
 	className := "Compressed"
+	vectorsCount := 1000
+
+	dimensionTestCases := []dimensionTestCase{
+		{vectors: randomVecs(vectorsCount, 768)},
+		{vectors: randomVecs(vectorsCount, 4)},
+	}
 
 	t.Run("async indexing", func(t *testing.T) {
+		vectorTypeTestCases := []vectorTypeTestCase{
+			{
+				name:          "legacy vector",
+				createClassFn: createClassLegacyVector,
+				populateFn:    populateLegacyVector,
+				compressFn:    compressLegacyVectorAsync,
+			},
+			{
+				name:          "target vectors",
+				createClassFn: createClassTargetVectors,
+				populateFn:    populateTargetVectors,
+				compressFn:    compressTargetVectorsAsync,
+			},
+		}
+
 		compose, err := docker.New().
 			WithWeaviate().
 			WithWeaviateEnv("ASYNC_INDEXING", "true").
@@ -57,40 +79,51 @@ func TestCompression_AdaptSegments(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		for _, tc := range testCases {
-			t.Run(fmt.Sprintf("dimensions %d", tc.dimensions), func(t *testing.T) {
-				defer cleanup()
+		for _, dtc := range dimensionTestCases {
+			t.Run(fmt.Sprintf("dimensions %d", len(dtc.vectors[0])), func(t *testing.T) {
+				for _, vttc := range vectorTypeTestCases {
+					t.Run(vttc.name, func(t *testing.T) {
+						defer cleanup()
 
-				var class *models.Class
+						var class *models.Class
 
-				t.Run("create class", func(t *testing.T) {
-					class = createClass(t, client, className)
-				})
+						t.Run("create class", func(t *testing.T) {
+							class = vttc.createClassFn(t, client, className)
+						})
 
-				t.Run("compress", func(t *testing.T) {
-					pq := class.VectorIndexConfig.(map[string]interface{})["pq"].(map[string]interface{})
-					pq["segments"] = 0
-					pq["centroids"] = 256
-					pq["trainingLimit"] = 999
+						t.Run("compress", func(t *testing.T) {
+							vttc.compressFn(t, client, class)
+						})
 
-					err = client.Schema().ClassUpdater().
-						WithClass(class).
-						Do(ctx)
-					require.NoError(t, err)
-				})
+						t.Run("populate", func(t *testing.T) {
+							vttc.populateFn(t, client, className, dtc.vectors)
+						})
 
-				t.Run("populate", func(t *testing.T) {
-					populate(t, client, className, tc.dimensions)
-				})
-
-				t.Run("check eventually compressed", func(t *testing.T) {
-					checkEventuallyCompressed(t, client, className)
-				})
+						t.Run("check eventually compressed", func(t *testing.T) {
+							checkEventuallyCompressed(t, client, className)
+						})
+					})
+				}
 			})
 		}
 	})
 
 	t.Run("sync indexing", func(t *testing.T) {
+		vectorTypeTestCases := []vectorTypeTestCase{
+			{
+				name:          "legacy vector",
+				createClassFn: createClassLegacyVector,
+				populateFn:    populateLegacyVector,
+				compressFn:    compressLegacyVectorSync,
+			},
+			{
+				name:          "target vectors",
+				createClassFn: createClassTargetVectors,
+				populateFn:    populateTargetVectors,
+				compressFn:    compressTargetVectorsSync,
+			},
+		}
+
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
 		require.NoError(t, err)
 		cleanup := func() {
@@ -98,83 +131,115 @@ func TestCompression_AdaptSegments(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		for _, tc := range testCases {
-			t.Run(fmt.Sprintf("dimensions %d", tc.dimensions), func(t *testing.T) {
-				defer cleanup()
+		for _, dtc := range dimensionTestCases {
+			t.Run(fmt.Sprintf("dimensions %d", len(dtc.vectors[0])), func(t *testing.T) {
+				for _, vttc := range vectorTypeTestCases {
+					t.Run(vttc.name, func(t *testing.T) {
+						defer cleanup()
 
-				var class *models.Class
+						var class *models.Class
 
-				t.Run("create class", func(t *testing.T) {
-					class = createClass(t, client, className)
-				})
+						t.Run("create class", func(t *testing.T) {
+							class = vttc.createClassFn(t, client, className)
+						})
 
-				t.Run("populate", func(t *testing.T) {
-					populate(t, client, className, tc.dimensions)
-				})
+						t.Run("populate", func(t *testing.T) {
+							vttc.populateFn(t, client, className, dtc.vectors)
+						})
 
-				t.Run("compress", func(t *testing.T) {
-					pq := class.VectorIndexConfig.(map[string]interface{})["pq"].(map[string]interface{})
-					pq["segments"] = 0
-					pq["centroids"] = 256
+						t.Run("compress", func(t *testing.T) {
+							vttc.compressFn(t, client, class)
+						})
 
-					err = client.Schema().ClassUpdater().
-						WithClass(class).
-						Do(ctx)
-					require.NoError(t, err)
-				})
-
-				t.Run("check eventually compressed", func(t *testing.T) {
-					checkEventuallyCompressed(t, client, className)
-				})
+						t.Run("check eventually compressed", func(t *testing.T) {
+							checkEventuallyCompressed(t, client, className)
+						})
+					})
+				}
 			})
 		}
 	})
 }
 
-func createClass(t *testing.T, client *wvt.Client, className string) *models.Class {
-	ctx := context.Background()
-	efConstruction := 64
-	ef := 32
-	maxNeighbors := 32
-	vectorCacheMaxObjects := 10e12
-
+func createClassLegacyVector(t *testing.T, client *wvt.Client, className string) *models.Class {
 	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{{
 			Name:     "int",
 			DataType: schema.DataTypeInt.PropString(),
 		}},
-		Vectorizer: "none",
-		VectorIndexConfig: map[string]interface{}{
-			"maxConnections":        maxNeighbors,
-			"efConstruction":        efConstruction,
-			"ef":                    ef,
-			"vectorCacheMaxObjects": vectorCacheMaxObjects,
-			"distance":              "l2-squared",
-			"pq": map[string]interface{}{
-				"enabled": true,
-				"encoder": map[string]interface{}{
-					"distribution": hnsw.PQEncoderDistributionNormal,
-					"type":         hnsw.PQEncoderTypeKMeans,
+		Vectorizer:        "none",
+		VectorIndexConfig: hnswCompressVectorIndexConfig(),
+	}
+
+	createClass(t, client, class)
+	return class
+}
+
+func createClassTargetVectors(t *testing.T, client *wvt.Client, className string) *models.Class {
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{{
+			Name:     "int",
+			DataType: schema.DataTypeInt.PropString(),
+		}},
+		VectorConfig: map[string]models.VectorConfig{
+			"vectorFlat": {
+				VectorIndexType: "flat",
+				Vectorizer: map[string]interface{}{
+					"none": struct{}{},
 				},
+			},
+			"vectorHnswCompress": {
+				VectorIndexType: "hnsw",
+				Vectorizer: map[string]interface{}{
+					"none": struct{}{},
+				},
+				VectorIndexConfig: hnswCompressVectorIndexConfig(),
 			},
 		},
 	}
 
 	err := client.Schema().ClassCreator().
 		WithClass(class).
-		Do(ctx)
-	require.NoError(t, err)
+		Do(context.Background())
+
+	// TODO shall be removed with the DB is idempotent
+	// delete class before trying to create in case it was existing.
+	if err != nil && !strings.Contains(err.Error(), "exists") {
+		require.NoError(t, err)
+	}
 
 	return class
 }
 
-func populate(t *testing.T, client *wvt.Client, className string, dimensions int) {
-	ctx := context.Background()
-	vectorsCount := 1000
+func createClass(t *testing.T, client *wvt.Client, class *models.Class) {
+	err := client.Schema().ClassCreator().
+		WithClass(class).
+		Do(context.Background())
+	require.NoError(t, err)
+}
 
-	objects := make([]*models.Object, vectorsCount)
-	for i, vector := range randomVecs(vectorsCount, dimensions) {
+func hnswCompressVectorIndexConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"maxConnections":        32,
+		"efConstruction":        64,
+		"ef":                    32,
+		"vectorCacheMaxObjects": 10e12,
+		"distance":              "l2-squared",
+		"pq": map[string]interface{}{
+			"enabled": true,
+			"encoder": map[string]interface{}{
+				"distribution": hnsw.PQEncoderDistributionNormal,
+				"type":         hnsw.PQEncoderTypeKMeans,
+			},
+		},
+	}
+}
+
+func populateLegacyVector(t *testing.T, client *wvt.Client, className string, vectors [][]float32) {
+	objects := make([]*models.Object, len(vectors))
+	for i, vector := range vectors {
 		objects[i] = &models.Object{
 			Class: className,
 			Properties: map[string]interface{}{
@@ -183,15 +248,78 @@ func populate(t *testing.T, client *wvt.Client, className string, dimensions int
 			Vector: vector,
 		}
 	}
+
+	populate(t, client, objects)
+}
+
+func populateTargetVectors(t *testing.T, client *wvt.Client, className string, vectors [][]float32) {
+	objects := make([]*models.Object, len(vectors))
+	for i, vector := range vectors {
+		objects[i] = &models.Object{
+			Class: className,
+			Properties: map[string]interface{}{
+				"int": i,
+			},
+			Vectors: models.Vectors{
+				"vectorFlat":         vector,
+				"vectorHnswCompress": vector,
+			},
+		}
+	}
+
+	populate(t, client, objects)
+}
+
+func populate(t *testing.T, client *wvt.Client, objects []*models.Object) {
 	resps, err := client.Batch().ObjectsBatcher().
 		WithObjects(objects...).
-		Do(ctx)
+		Do(context.Background())
 	require.NoError(t, err)
-	require.Len(t, resps, vectorsCount)
+	require.Len(t, resps, len(objects))
 	for _, resp := range resps {
 		require.NotNil(t, resp.Result.Status)
 		require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *resp.Result.Status)
 	}
+}
+
+func compressLegacyVectorAsync(t *testing.T, client *wvt.Client, class *models.Class) {
+	updateConfigAsync(class.VectorIndexConfig.(map[string]interface{})["pq"].(map[string]interface{}))
+	compress(t, client, class)
+}
+
+func compressLegacyVectorSync(t *testing.T, client *wvt.Client, class *models.Class) {
+	updateConfigSync(class.VectorIndexConfig.(map[string]interface{})["pq"].(map[string]interface{}))
+	compress(t, client, class)
+}
+
+func compressTargetVectorsAsync(t *testing.T, client *wvt.Client, class *models.Class) {
+	updateConfigAsync(class.VectorConfig["vectorHnswCompress"].
+		VectorIndexConfig.(map[string]interface{})["pq"].(map[string]interface{}))
+	compress(t, client, class)
+}
+
+func compressTargetVectorsSync(t *testing.T, client *wvt.Client, class *models.Class) {
+	updateConfigSync(class.VectorConfig["vectorHnswCompress"].
+		VectorIndexConfig.(map[string]interface{})["pq"].(map[string]interface{}))
+	compress(t, client, class)
+}
+
+func updateConfigAsync(pq map[string]interface{}) {
+	pq["segments"] = 0
+	pq["centroids"] = 256
+	pq["trainingLimit"] = 999
+}
+
+func updateConfigSync(pq map[string]interface{}) {
+	pq["segments"] = 0
+	pq["centroids"] = 256
+}
+
+func compress(t *testing.T, client *wvt.Client, class *models.Class) {
+	err := client.Schema().ClassUpdater().
+		WithClass(class).
+		Do(context.Background())
+	require.NoError(t, err)
 }
 
 func checkEventuallyCompressed(t *testing.T, client *wvt.Client, className string) {
@@ -212,6 +340,7 @@ func checkEventuallyCompressed(t *testing.T, client *wvt.Client, className strin
 		require.Len(t, resp.Nodes[0].Shards, 1)
 
 		compressed = resp.Nodes[0].Shards[0].Compressed
+		fmt.Printf("  ==> compressed %v\n", compressed)
 		if compressed {
 			break
 		}
@@ -221,9 +350,9 @@ func checkEventuallyCompressed(t *testing.T, client *wvt.Client, className strin
 	require.True(t, compressed)
 }
 
-func randomVecs(size int, dimensions int) [][]float32 {
+func randomVecs(count int, dimensions int) [][]float32 {
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	vectors := make([][]float32, size)
+	vectors := make([][]float32, count)
 	for i := range vectors {
 		vectors[i] = genVector(r, dimensions)
 	}

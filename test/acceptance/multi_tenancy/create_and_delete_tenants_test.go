@@ -79,6 +79,10 @@ func TestCreateTenants(t *testing.T) {
 		var foundTenants []string
 		for _, found := range resp.Payload.Nodes[0].Shards {
 			assert.Equal(t, testClass.Class, found.Class)
+			// Creating a tenant alone should not result in a loaded shard.
+			// This check also ensures that the nods api did not cause a
+			// force load.
+			assert.False(t, found.Loaded)
 			foundTenants = append(foundTenants, found.Name)
 		}
 		assert.ElementsMatch(t, expectedTenants, foundTenants)
@@ -123,12 +127,13 @@ func TestDeleteTenants(t *testing.T) {
 	}()
 	helper.CreateClass(t, &testClass)
 
-	tenants := []string{"tenant1", "tenant2", "tenant3", "tenant4"}
-	var tenantsObject []*models.Tenant
-	for _, tenant := range tenants {
-		tenantsObject = append(tenantsObject, &models.Tenant{Name: tenant})
+	tenants := []*models.Tenant{
+		{Name: "tenant1"},
+		{Name: "tenant2"},
+		{Name: "tenant3"},
+		{Name: "tenant4"},
 	}
-	helper.CreateTenants(t, testClass.Class, tenantsObject)
+	helper.CreateTenants(t, testClass.Class, tenants)
 
 	t.Run("Delete same tenant multiple times", func(t *testing.T) {
 		err := helper.DeleteTenants(t, testClass.Class, []string{"tenant4"})
@@ -141,6 +146,10 @@ func TestDeleteTenants(t *testing.T) {
 		require.NotNil(t, resp.Payload.Nodes)
 		require.Len(t, resp.Payload.Nodes, 1)
 		for _, shard := range resp.Payload.Nodes[0].Shards {
+			// Creating a tenant alone should not result in a loaded shard.
+			// This check also ensures that the nods api did not cause a
+			// force load.
+			assert.False(t, shard.Loaded)
 			assert.NotEqual(t, "tenant4", shard.Name)
 		}
 		respExist, errExist := helper.TenantExists(t, testClass.Class, "tenant4")

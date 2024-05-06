@@ -34,6 +34,9 @@ type NodeShardStatus struct {
 	// The status of vector compression/quantization.
 	Compressed bool `json:"compressed"`
 
+	// The load status of the shard.
+	Loaded bool `json:"loaded"`
+
 	// The name of the shard.
 	Name string `json:"name"`
 

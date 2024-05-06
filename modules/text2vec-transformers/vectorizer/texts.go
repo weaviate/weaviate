@@ -25,9 +25,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 ) ([]float32, error) {
 	vectors := make([][]float32, len(inputs))
 	for i := range inputs {
-		res, err := v.client.VectorizeQuery(ctx, inputs[i], ent.VectorizationConfig{
-			PoolingStrategy: NewClassSettings(cfg).PoolingStrategy(),
-		})
+		res, err := v.client.VectorizeQuery(ctx, inputs[i], v.getVectorizationConfig(cfg))
 		if err != nil {
 			return nil, errors.Wrap(err, "remote client vectorize")
 		}
@@ -35,4 +33,14 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	}
 
 	return libvectorizer.CombineVectors(vectors), nil
+}
+
+func (v *Vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
+	settings := NewClassSettings(cfg)
+	return ent.VectorizationConfig{
+		PoolingStrategy:     settings.PoolingStrategy(),
+		InferenceURL:        settings.InferenceURL(),
+		PassageInferenceURL: settings.PassageInferenceURL(),
+		QueryInferenceURL:   settings.QueryInferenceURL(),
+	}
 }

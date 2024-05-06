@@ -13,16 +13,23 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type restorer struct {
@@ -30,7 +37,6 @@ type restorer struct {
 	logger   logrus.FieldLogger
 	sourcer  Sourcer
 	backends BackupBackendProvider
-	schema   schemaManger
 	shardSyncChan
 
 	// TODO: keeping status in memory after restore has been done
@@ -43,19 +49,17 @@ type restorer struct {
 func newRestorer(node string, logger logrus.FieldLogger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
-	schema schemaManger,
 ) *restorer {
 	return &restorer{
 		node:          node,
 		logger:        logger,
 		sourcer:       sourcer,
 		backends:      backends,
-		schema:        schema,
 		shardSyncChan: shardSyncChan{coordChan: make(chan interface{}, 5)},
 	}
 }
 
-func (r *restorer) restore(ctx context.Context,
+func (r *restorer) restore(
 	req *Request,
 	desc *backup.BackupDescriptor,
 	store nodeStore,
@@ -79,7 +83,7 @@ func (r *restorer) restore(ctx context.Context,
 	}
 	r.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 
-	go func() {
+	f := func() {
 		var err error
 		status := Status{
 			Path:      destPath,
@@ -105,23 +109,29 @@ func (r *restorer) restore(ctx context.Context,
 			return
 		}
 
-		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, req.NodeMapping)
+		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store)
+		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
 		if err != nil {
-			r.logger.WithField("action", "restore").WithField("backup_id", desc.ID).Error(err)
+			r.logger.WithFields(logFields).Error(err)
+		} else {
+			r.logger.WithFields(logFields).Info("backup restored successfully")
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, r.logger)
 
 	return ret, nil
 }
 
+// restoreAll restores classes in temporary directories on the filesystem.
+// The final backup restoration is orchestrated by the raft store.
 func (r *restorer) restoreAll(ctx context.Context,
 	desc *backup.BackupDescriptor, cpuPercentage int,
-	store nodeStore, nodeMapping map[string]string,
+	store nodeStore,
 ) (err error) {
 	compressed := desc.Version > version1
 	r.lastOp.set(backup.Transferring)
 	for _, cdesc := range desc.Classes {
-		if err := r.restoreOne(ctx, desc.ID, &cdesc, compressed, cpuPercentage, store, nodeMapping); err != nil {
+		if err := r.restoreOne(ctx, &cdesc, desc.ServerVersion, compressed, cpuPercentage, store); err != nil {
 			return fmt.Errorf("restore class %s: %w", cdesc.Name, err)
 		}
 		r.logger.WithField("action", "restore").
@@ -140,31 +150,35 @@ func getType(myvar interface{}) string {
 }
 
 func (r *restorer) restoreOne(ctx context.Context,
-	backupID string, desc *backup.ClassDescriptor,
-	compressed bool, cpuPercentage int, store nodeStore, nodeMapping map[string]string,
+	desc *backup.ClassDescriptor, serverVersion string,
+	compressed bool, cpuPercentage int, store nodeStore,
 ) (err error) {
-	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), desc.Name)
+	classLabel := desc.Name
+	if monitoring.GetMetrics().Group {
+		classLabel = "n/a"
+	}
+	metric, err := monitoring.GetMetrics().BackupRestoreDurations.GetMetricWithLabelValues(getType(store.b), classLabel)
 	if err != nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
 
-	if r.sourcer.ClassExists(desc.Name) {
-		return fmt.Errorf("already exists")
-	}
-	fw := newFileWriter(r.sourcer, store, backupID, compressed).
+	fw := newFileWriter(r.sourcer, store, compressed, r.logger).
 		WithPoolPercentage(cpuPercentage)
 
-	rollback, err := fw.Write(ctx, desc)
-	if err != nil {
+	// Pre-v1.23 versions store files in a flat format
+	if serverVersion < "1.23" {
+		f, err := hfsMigrator(desc, r.node, serverVersion)
+		if err != nil {
+			return fmt.Errorf("migrate to pre 1.23: %w", err)
+		}
+		fw.setMigrator(f)
+	}
+
+	if err := fw.Write(ctx, desc); err != nil {
 		return fmt.Errorf("write files: %w", err)
 	}
-	if err := r.schema.RestoreClass(ctx, desc, nodeMapping); err != nil {
-		if rerr := rollback(); rerr != nil {
-			r.logger.WithField("className", desc.Name).WithField("action", "rollback").Error(rerr)
-		}
-		return fmt.Errorf("restore schema: %w", err)
-	}
+
 	return nil
 }
 
@@ -217,4 +231,48 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 		meta.Include(req.Classes)
 	}
 	return meta, cs, nil
+}
+
+// oneClassSchema allows for creating schema with one class
+// This is required when migrating to hierarchical file structure from pre-v1.23
+type oneClassSchema struct {
+	cls *models.Class
+	ss  *sharding.State
+}
+
+func (s oneClassSchema) CopyShardingState(class string) *sharding.State {
+	return s.ss
+}
+
+func (s oneClassSchema) GetSchemaSkipAuth() schema.Schema {
+	return schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{s.cls},
+		},
+	}
+}
+
+// hfsMigrator builds and return a class migrator ready for use
+func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion string) (func(classDir string) error, error) {
+	if serverVersion >= "1.23" {
+		return func(string) error { return nil }, nil
+	}
+	var ss sharding.State
+	if desc.ShardingState != nil {
+		err := json.Unmarshal(desc.ShardingState, &ss)
+		if err != nil {
+			return nil, fmt.Errorf("marshal sharding state: %w", err)
+		}
+	}
+	ss.SetLocalName(nodeName)
+
+	// get schema and sharding state
+	class := &models.Class{}
+	if err := json.Unmarshal(desc.Schema, &class); err != nil {
+		return nil, fmt.Errorf("marshal class schema: %w", err)
+	}
+
+	return func(classDir string) error {
+		return migratefs.MigrateToHierarchicalFS(classDir, oneClassSchema{class, &ss})
+	}, nil
 }

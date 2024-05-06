@@ -15,14 +15,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/store"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/config"
-	"golang.org/x/sync/errgroup"
 )
 
 // Op is the kind of a backup operation
@@ -34,7 +37,6 @@ const (
 )
 
 var (
-	errNoShardFound = errors.New("no shard found")
 	errCannotCommit = errors.New("cannot commit")
 	errMetaNotFound = errors.New("metadata not found")
 	errUnknownOp    = errors.New("unknown backup operation")
@@ -89,6 +91,7 @@ type coordinator struct {
 	// dependencies
 	selector     selector
 	client       client
+	schema       schemaManger
 	log          logrus.FieldLogger
 	nodeResolver nodeResolver
 
@@ -108,12 +111,14 @@ type coordinator struct {
 func newCoordinator(
 	selector selector,
 	client client,
+	schema schemaManger,
 	log logrus.FieldLogger,
 	nodeResolver nodeResolver,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
 		client:             client,
+		schema:             schema,
 		log:                log,
 		nodeResolver:       nodeResolver,
 		Participants:       make(map[string]participantStatus, 16),
@@ -125,14 +130,18 @@ func newCoordinator(
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request) error {
+func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
-	groups, err := c.groupByShard(ctx, req.Classes)
+	leader := c.nodeResolver.LeaderID()
+	if leader == "" {
+		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, store.ErrLeaderNotFound)
+	}
+	groups, err := c.groupByShard(ctx, req.Classes, leader)
 	if err != nil {
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, store.HomeDir()); prevID != "" {
+	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir()); prevID != "" {
 		return fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -143,6 +152,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		Nodes:         groups,
 		Version:       Version,
 		ServerVersion: config.ServerVersion,
+		Leader:        leader,
 	}
 
 	for key := range c.Participants {
@@ -155,7 +165,7 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		return err
 	}
 
-	if err := store.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
 		c.lastOp.reset()
 		return fmt.Errorf("cannot init meta file: %w", err)
 	}
@@ -166,15 +176,21 @@ func (c *coordinator) Backup(ctx context.Context, store coordStore, req *Request
 		Backend: req.Backend,
 	}
 
-	go func() {
+	f := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, false)
-		if err := store.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
-			c.log.WithField("action", OpCreate).
-				WithField("backup_id", req.ID).Errorf("put_meta: %v", err)
+		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor); err != nil {
+			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
-	}()
+		if c.descriptor.Status == backup.Success {
+			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
+		} else {
+			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
+		}
+	}
+	enterrors.GoWrapper(f, c.log)
 
 	return nil
 }
@@ -185,6 +201,7 @@ func (c *coordinator) Restore(
 	store coordStore,
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
+	schema []backup.ClassDescriptor,
 ) error {
 	req.Method = OpRestore
 	// make sure there is no active backup
@@ -212,16 +229,54 @@ func (c *coordinator) Restore(
 	}
 
 	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
-	go func() {
+	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
 		c.commit(ctx, &statusReq, nodes, true)
+		c.restoreClasses(ctx, schema, req)
+		logFields := logrus.Fields{"action": OpRestore, "backup_id": desc.ID}
 		if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor); err != nil {
-			c.log.WithField("action", OpRestore).WithField("backup_id", desc.ID).Errorf("put_meta: %v", err)
+			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
 		}
-	}()
+		if c.descriptor.Status == backup.Success {
+			c.log.WithFields(logFields).Info("coordinator: backup restored successfully")
+		} else {
+			c.log.WithFields(logFields).Errorf("coordinator: %v", c.descriptor.Error)
+		}
+	}
+	enterrors.GoWrapper(g, c.log)
 
 	return nil
+}
+
+// restoreClasses attempts to restore all classes.
+// It continues attempting to restore other classes even if some restoration attempts fail.
+// The failure of one class restoration does not necessarily indicate failure for all classes;
+// other classes might be successfully restored.
+
+func (c *coordinator) restoreClasses(
+	ctx context.Context,
+	schema []backup.ClassDescriptor,
+	req *Request,
+) {
+	if c.descriptor.Status != backup.Success {
+		return
+	}
+	errors := make([]string, 0, 5)
+	hasReqClasses := len(req.Classes) > 0
+	for _, cls := range schema {
+		if hasReqClasses && !slices.Contains(req.Classes, cls.Name) {
+			continue
+		}
+		if err := c.schema.RestoreClass(ctx, &cls, req.NodeMapping); err != nil {
+			c.descriptor.Error = fmt.Sprintf("restore class %q: %v", cls.Name, err)
+			errors = append(errors, fmt.Sprintf("%q: %v", cls.Name, err))
+		}
+	}
+	if len(errors) > 0 {
+		c.descriptor.Status = backup.Failed
+		c.descriptor.Error = fmt.Sprintf("could not restore classes: %v", errors)
+	}
 }
 
 func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (*Status, error) {
@@ -269,7 +324,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	nodeMapping := c.descriptor.NodeMapping
 	groups := c.descriptor.Nodes
 
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	reqChan := make(chan pair)
 	g.Go(func() error {
@@ -381,7 +436,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	defer cancel()
 
 	rs := make([]partialStatus, len(nodes))
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	i := 0
 	for node, hostname := range nodes {
@@ -410,7 +465,7 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 		} else if now.Sub(st.LastTime) > c.timeoutNodeDown {
 			n++
 			st.Status = backup.Failed
-			st.Reason = "might be down:" + r.err.Error()
+			st.Reason = fmt.Sprintf("node %q might be down: %v", r.node, r.err.Error())
 			delete(nodes, r.node)
 		}
 		c.Participants[r.node] = st
@@ -427,7 +482,7 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 	}
 	errChan := make(chan pair)
 	aCounter := int64(len(nodes))
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	for node, hostname := range nodes {
 		node, hostname := node, hostname
@@ -472,14 +527,20 @@ func (c *coordinator) abortAll(ctx context.Context, req *AbortRequest, nodes map
 }
 
 // groupByShard returns classes group by nodes
-func (c *coordinator) groupByShard(ctx context.Context, classes []string) (nodeMap, error) {
-	m := make(nodeMap, 32)
+func (c *coordinator) groupByShard(ctx context.Context, classes []string, leader string) (nodeMap, error) {
+	nodes := c.nodeResolver.AllNames()
+	m := make(nodeMap, len(nodes))
+
+	// start by collecting nodes which have content
 	for _, cls := range classes {
 		nodes, err := c.selector.Shards(ctx, cls)
 		if err != nil {
-			return nil, fmt.Errorf("class %q: %w", cls, errNoShardFound)
+			continue
 		}
 		for _, node := range nodes {
+			if node == leader {
+				continue
+			}
 			nd, ok := m[node]
 			if !ok {
 				nd = &backup.NodeDescriptor{Classes: make([]string, 0, 5)}
@@ -488,6 +549,9 @@ func (c *coordinator) groupByShard(ctx context.Context, classes []string) (nodeM
 			m[node] = nd
 		}
 	}
+
+	// leader ensure all backup all classes regardless if they have content or not
+	m[leader] = &backup.NodeDescriptor{Classes: slices.Clone(classes)}
 	return m, nil
 }
 

@@ -12,10 +12,11 @@
 package named_vectors_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *testing.T) {
+func testCreateWithModulePropertiesObject(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
@@ -86,7 +87,7 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 						},
 						description: {
 							Vectorizer: map[string]interface{}{
-								text2vecTransformers: map[string]interface{}{
+								text2vecContextionary: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"description"},
 								},
@@ -96,7 +97,7 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 						},
 						genre: {
 							Vectorizer: map[string]interface{}{
-								text2vecTransformers: map[string]interface{}{
+								text2vecContextionary: map[string]interface{}{
 									"vectorizeClassName": false,
 									"properties":         []interface{}{"genre"},
 								},
@@ -105,7 +106,6 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 							VectorIndexConfig: bqFlatIndexConfig(),
 						},
 					},
-					Vectorizer: text2vecContextionary,
 				}
 
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
@@ -183,6 +183,19 @@ func testCreateWithModulePropertiesObject(t *testing.T, host string) func(t *tes
 				}
 			})
 
+			t.Run("GraphQL hybrid check", func(t *testing.T) {
+				for _, book := range fixtures.Books() {
+					raw := client.GraphQL().Raw()
+					res, err := raw.WithQuery(fmt.Sprintf(""+
+						"{Get {%s (hybrid: {query: %q targetVectors: %q}){title _additional{id}}}}", className, book.Title, "title")).Do(ctx)
+					require.Nil(t, err)
+					require.NotNil(t, res)
+					require.Nil(t, res.Errors)
+					require.NotNil(t, res.Data)
+					titleHybrid := res.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["title"].(string)
+					require.Equal(t, titleHybrid, book.Title)
+				}
+			})
 			t.Run("merge object and check if vectors changed", func(t *testing.T) {
 				for id, book := range fixtures.Books() {
 					beforeUpdateVectors := getVectors(t, client, className, id, targetVectorsWithProperties...)

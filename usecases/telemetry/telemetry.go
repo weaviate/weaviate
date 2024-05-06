@@ -24,6 +24,8 @@ import (
 	"strings"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -33,8 +35,8 @@ import (
 )
 
 const (
-	defaultConsumer = "aHR0cHM6Ly91cy1jZW50cmFsMS1zZW1pLXByb2R1Y3Rpb24uY2x" +
-		"vdWRmdW5jdGlvbnMubmV0L3dlYXZpYXRlLXRlbGVtZXRyeQ=="
+	defaultConsumer = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
+		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
 	defaultPushInterval = 24 * time.Hour
 )
 
@@ -54,7 +56,7 @@ type Telemeter struct {
 	logger            logrus.FieldLogger
 	shutdown          chan struct{}
 	failedToStart     bool
-	consumerURL       string
+	consumer          string
 	pushInterval      time.Duration
 }
 
@@ -68,7 +70,7 @@ func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
 		modulesProvider:   modulesProvider,
 		logger:            logger,
 		shutdown:          make(chan struct{}),
-		consumerURL:       defaultConsumer,
+		consumer:          defaultConsumer,
 		pushInterval:      defaultPushInterval,
 	}
 	return tel
@@ -81,7 +83,7 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 		tel.failedToStart = true
 		return fmt.Errorf("push: %w", err)
 	}
-	go func() {
+	f := func() {
 		t := time.NewTicker(tel.pushInterval)
 		defer t.Stop()
 		for {
@@ -104,7 +106,8 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 					Info("telemetry update")
 			}
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, tel.logger)
 
 	tel.logger.
 		WithField("action", "telemetry_push").
@@ -151,7 +154,7 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	url, err := base64.StdEncoding.DecodeString(tel.consumerURL)
+	url, err := base64.StdEncoding.DecodeString(tel.consumer)
 	if err != nil {
 		return nil, fmt.Errorf("decode url: %w", err)
 	}
@@ -173,10 +176,18 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 	if err != nil {
 		return nil, fmt.Errorf("get enabled modules: %w", err)
 	}
-	objs, err := tel.getObjectCount(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get object count: %w", err)
+
+	var objs int64
+	// The first payload should not include object count,
+	// because all the shards may not be loaded yet. We
+	// don't want to force load for telemetry alone
+	if payloadType != PayloadType.Init {
+		objs, err = tel.getObjectCount(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get object count: %w", err)
+		}
 	}
+
 	return &Payload{
 		MachineID:  tel.machineID,
 		Type:       payloadType,

@@ -56,7 +56,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input string,
-	config ent.VectorizationConfig, url func(string) string,
+	config ent.VectorizationConfig, url func(string, ent.VectorizationConfig) string,
 ) (*ent.VectorizationResult, error) {
 	body, err := json.Marshal(vecRequest{
 		Text: input,
@@ -68,7 +68,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url("/vectors"),
+	req, err := http.NewRequestWithContext(ctx, "POST", url("/vectors", config),
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
@@ -102,12 +102,26 @@ func (v *vectorizer) vectorize(ctx context.Context, input string,
 	}, nil
 }
 
-func (v *vectorizer) urlPassage(path string) string {
-	return fmt.Sprintf("%s%s", v.originPassage, path)
+func (v *vectorizer) urlPassage(path string, config ent.VectorizationConfig) string {
+	baseURL := v.originPassage
+	if config.PassageInferenceURL != "" {
+		baseURL = config.PassageInferenceURL
+	}
+	if config.InferenceURL != "" {
+		baseURL = config.InferenceURL
+	}
+	return fmt.Sprintf("%s%s", baseURL, path)
 }
 
-func (v *vectorizer) urlQuery(path string) string {
-	return fmt.Sprintf("%s%s", v.originQuery, path)
+func (v *vectorizer) urlQuery(path string, config ent.VectorizationConfig) string {
+	baseURL := v.originQuery
+	if config.QueryInferenceURL != "" {
+		baseURL = config.QueryInferenceURL
+	}
+	if config.InferenceURL != "" {
+		baseURL = config.InferenceURL
+	}
+	return fmt.Sprintf("%s%s", baseURL, path)
 }
 
 type vecRequest struct {

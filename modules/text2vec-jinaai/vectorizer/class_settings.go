@@ -13,7 +13,6 @@ package vectorizer
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/pkg/errors"
 
@@ -55,7 +54,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	if err := cs.BaseClassSettings.Validate(); err != nil {
+	if err := cs.BaseClassSettings.ValidateClassSettings(); err != nil {
 		return err
 	}
 
@@ -68,20 +67,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 }
 
 func (cs *classSettings) getProperty(name, defaultValue string) string {
-	if cs.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	model, ok := cs.cfg.Class()[name]
-	if ok {
-		asString, ok := model.(string)
-		if ok {
-			return strings.ToLower(asString)
-		}
-	}
-
-	return defaultValue
+	return cs.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
 func (cs *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {

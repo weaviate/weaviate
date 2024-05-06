@@ -97,7 +97,7 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
-		assert.EqualError(t, err, "connection to Google PaLM failed with status: 500 error: nope, not gonna happen")
+		assert.EqualError(t, err, "connection to Google failed with status: 500 error: nope, not gonna happen")
 	})
 
 	t.Run("when Palm key is passed using X-Palm-Api-Key header", func(t *testing.T) {
@@ -142,9 +142,9 @@ func TestClient(t *testing.T) {
 		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+
-			"neither in request header: X-Palm-Api-Key "+
-			"nor in environment variable under PALM_APIKEY")
+		assert.Equal(t, err.Error(), "Google API Key: no api key found "+
+			"neither in request header: X-Palm-Api-Key or X-Google-Api-Key "+
+			"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 	})
 
 	t.Run("when X-Palm-Api-Key header is passed but empty", func(t *testing.T) {
@@ -162,9 +162,9 @@ func TestClient(t *testing.T) {
 		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+
-			"neither in request header: X-Palm-Api-Key "+
-			"nor in environment variable under PALM_APIKEY")
+		assert.Equal(t, err.Error(), "Google API Key: no api key found "+
+			"neither in request header: X-Palm-Api-Key or X-Google-Api-Key "+
+			"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 	})
 }
 

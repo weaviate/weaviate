@@ -77,7 +77,7 @@ func (f fakeClassConfig) TargetVector() string {
 type fakeClient struct{}
 
 func (c *fakeClient) Vectorize(ctx context.Context,
-	texts, images []string,
+	texts, images []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	result := &ent.VectorizationResult{
 		TextVectors:  [][]float32{{1.0, 2.0, 3.0, 4.0, 5.0}},

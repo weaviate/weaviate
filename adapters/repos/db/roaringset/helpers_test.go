@@ -15,9 +15,13 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/sroar"
 )
+
+var logger, _ = test.NewNullLogger()
 
 func TestBitmap_Condense(t *testing.T) {
 	t.Run("And with itself (internal array)", func(t *testing.T) {
@@ -143,7 +147,7 @@ func TestBitmap_Prefill(t *testing.T) {
 		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
 			for _, routinesLimit := range []int{2, 3, 4, 5, 6, 7, 8} {
 				t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
-					bm := newBitmapPrefillParallel(maxVal, routinesLimit)
+					bm := newBitmapPrefillParallel(maxVal, routinesLimit, logger)
 
 					// +1, due to 0 included
 					assert.Equal(t, int(maxVal)+1, bm.GetCardinality())
@@ -161,7 +165,7 @@ func TestBitmap_Prefill(t *testing.T) {
 	t.Run("conditional - sequential or parallel", func(t *testing.T) {
 		for _, maxVal := range []uint64{1_000, 10_000, 100_000, 1_000_000, uint64(prefillBufferSize)} {
 			t.Run(fmt.Sprint(maxVal), func(t *testing.T) {
-				bm := NewBitmapPrefill(maxVal)
+				bm := NewBitmapPrefill(maxVal, logger)
 
 				// +1, due to 0 included
 				assert.Equal(t, int(maxVal)+1, bm.GetCardinality())
@@ -215,7 +219,7 @@ func TestBitmap_Inverted(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			source := sroar.NewBitmap()
 			source.SetMany(test.source)
-			out := NewInvertedBitmap(source, test.maxVal)
+			out := NewInvertedBitmap(source, test.maxVal, logger)
 			outSlice := out.ToArray()
 			assert.Equal(t, test.shouldContain, outSlice)
 		})
@@ -225,7 +229,7 @@ func TestBitmap_Inverted(t *testing.T) {
 func TestBitmapFactory(t *testing.T) {
 	maxVal := uint64(10)
 	maxValGetter := func() uint64 { return maxVal }
-	bmf := NewBitmapFactory(maxValGetter)
+	bmf := NewBitmapFactory(maxValGetter, logger)
 	t.Logf("card: %d", bmf.bitmap.GetCardinality())
 
 	currMax := bmf.currentMaxVal

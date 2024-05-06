@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -28,6 +30,7 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
+	s.activityTracker.Add(1)
 	if s.isReadOnly() {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
@@ -73,15 +76,18 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 
 	wg := &sync.WaitGroup{}
 	for j, docID := range batch {
+		index := j
+		docID := docID
 		wg.Add(1)
-		go func(index int, uuid strfmt.UUID, dryRun bool) {
+		f := func() {
 			defer wg.Done()
 			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, uuid, dryRun)
+			obj := b.deleteObjectOfBatchInLSM(ctx, docID, dryRun)
 			objLock.Lock()
 			result[index] = obj
 			objLock.Unlock()
-		}(j, docID, dryRun)
+		}
+		enterrors.GoWrapper(f, b.shard.Index().logger)
 	}
 	wg.Wait()
 
@@ -139,7 +145,7 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 }
 
 func (s *Shard) findDocIDs(ctx context.Context, filters *filters.LocalFilter) ([]uint64, error) {
-	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.GetSchemaSkipAuth(),
+	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		nil, s.index.classSearcher, s.index.stopwords, s.versioner.version, s.isFallbackToSearchable,
 		s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)

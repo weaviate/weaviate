@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package inverted
 
@@ -82,9 +81,9 @@ func Test_Filters_String(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
 
-	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
@@ -351,9 +350,9 @@ func Test_Filters_Int(t *testing.T) {
 		require.Nil(t, bucket.FlushAndSwitch())
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID))
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(maxDocID), logger)
 
-	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
@@ -537,9 +536,9 @@ func Test_Filters_String_DuplicateEntriesInAnd(t *testing.T) {
 		require.Nil(t, bWithFrequency.FlushAndSwitch())
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200))
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(200), logger)
 
-	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
@@ -653,11 +652,11 @@ func idsToBinaryMapValues(ids []uint64) []lsmkv.MapPair {
 	return out
 }
 
-func createSchema() schema.Schema {
+func createSchema() *schema.Schema {
 	vFalse := false
 	vTrue := true
 
-	return schema.Schema{
+	return &schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{

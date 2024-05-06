@@ -19,24 +19,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
-
-type schemaManager interface {
-	GetSchema(principal *models.Principal) (schema.Schema, error)
-	AddClass(ctx context.Context, principal *models.Principal,
-		class *models.Class) error
-	GetClass(ctx context.Context, principal *models.Principal,
-		name string,
-	) (*models.Class, error)
-	AddClassProperty(ctx context.Context, principal *models.Principal,
-		class string, property *models.Property) error
-	MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
-		class string, property *models.Property) error
-}
 
 // AddObject Class Instance to the connected DB.
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
@@ -56,6 +43,12 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
 
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(object)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process add object")
+		return nil, fmt.Errorf("cannot process add object: %w", err)
+	}
+
+	ctx = classcache.ContextWithClassCache(ctx)
 	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
 }
 
@@ -102,7 +95,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	}
 	object.ID = id
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, object, true)
+	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, true, object)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
@@ -118,19 +111,21 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 	if object.Properties == nil {
 		object.Properties = map[string]interface{}{}
 	}
-	class, err := m.schemaManager.GetClass(ctx, principal, object.Class)
+
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
 	if err != nil {
 		return nil, err
 	}
-	compFactory := func() (moduletools.VectorizablePropsComparator, error) {
-		return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, object.Properties), nil
-	}
-	err = m.modulesProvider.UpdateVector(ctx, object, class, compFactory, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, vclasses[object.Class].Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}
 
-	err = m.vectorRepo.PutObject(ctx, object, object.Vector, object.Vectors, repl)
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
+	err = m.vectorRepo.PutObject(ctx, object, object.Vector, object.Vectors, repl, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}
@@ -159,14 +154,14 @@ func (m *Manager) validateSchema(ctx context.Context,
 		return nil, err
 	}
 
-	class, err := m.schemaManager.GetClass(ctx, principal, obj.Class)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, obj.Class)
 	if err != nil {
 		return nil, err
 	}
 
-	if class == nil {
+	if len(vclasses) == 0 || vclasses[obj.Class].Class == nil {
 		return nil, fmt.Errorf("class %q not found in schema", obj.Class)
 	}
 
-	return class, nil
+	return vclasses[obj.Class].Class, nil
 }

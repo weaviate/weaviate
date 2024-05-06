@@ -20,16 +20,16 @@ import (
 	"path"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
-	ucschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/schema"
-	"golang.org/x/sync/errgroup"
 )
 
 type filterableToSearchableMigrator struct {
@@ -67,17 +67,16 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 
 	migrationStateUpdated := false
 	updateLock := new(sync.Mutex)
-	sch := m.schemaGetter.GetSchemaSkipAuth().Objects
 
 	m.log().Debug("starting migration")
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	for _, index := range m.indexes {
 		index := index
 
 		eg.Go(func() error {
-			migratedProps, err := m.migrateClass(ctx, index, sch)
+			migratedProps, err := m.migrateClass(ctx, index, m.schemaGetter.ReadOnlyClass)
 			if err != nil {
 				m.logIndex(index).WithError(err).Error("failed migrating class")
 				return errors.Wrap(err, "failed migrating class")
@@ -92,7 +91,7 @@ func (m *filterableToSearchableMigrator) migrate(ctx context.Context) error {
 			migrationState.MissingFilterableClass2Props[index.Config.ClassName.String()] = migratedProps
 			migrationStateUpdated = true
 			return nil
-		})
+		}, index.ID())
 	}
 
 	err = eg.Wait()
@@ -151,15 +150,13 @@ func (m *filterableToSearchableMigrator) switchShardsToFallbackMode(ctx context.
 	return nil
 }
 
-func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index *Index,
-	sch *models.Schema,
-) (map[string]struct{}, error) {
+func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index *Index, getClass func(string) *models.Class) (map[string]struct{}, error) {
 	m.logIndex(index).Debug("started migration of index")
 
 	className := index.Config.ClassName.String()
-	class, err := ucschema.GetClassByName(sch, className)
-	if err != nil {
-		return nil, err
+	class := getClass(className)
+	if class == nil {
+		return nil, fmt.Errorf("could not find class %s in schema", className)
 	}
 
 	shard2PropsToFix := map[string]map[string]struct{}{}
@@ -194,7 +191,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 		return nil, nil
 	}
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU)
 	for shardName, props := range shard2PropsToFix {
 		shard := index.shards.Load(shardName)
@@ -206,7 +203,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 				return errors.Wrap(err, "failed migrating shard")
 			}
 			return nil
-		})
+		}, "shard:", shard, "props:", props)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err

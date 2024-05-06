@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/refcache"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -28,19 +30,20 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func (db *DB) Aggregate(ctx context.Context,
-	params aggregation.Params,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	return idx.aggregate(ctx, params)
+	return idx.aggregate(ctx, params, modules)
 }
 
 func (db *DB) GetQueryMaximumResults() int {
@@ -74,14 +77,14 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 		tenant = ""
 	}
 
-	res, dist, err := idx.objectSearch(ctx, totalLimit,
+	res, scores, err := idx.objectSearch(ctx, totalLimit,
 		params.Filters, params.KeywordRanking, params.Sort, params.Cursor,
 		params.AdditionalProperties, params.ReplicationProperties, tenant, params.Pagination.Autocut)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "object search at index %s", idx.ID())
 	}
 
-	return res, dist, nil
+	return res, scores, nil
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
@@ -89,13 +92,14 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
 
-	res, _, err := db.SparseObjectSearch(ctx, params)
+	res, scores, err := db.SparseObjectSearch(ctx, params)
 	if err != nil {
 		return nil, err
 	}
 
+	res, scores = db.getStoreObjectsWithScores(res, scores, params.Pagination)
 	return db.ResolveReferences(ctx,
-		storobj.SearchResults(db.getStoreObjects(res, params.Pagination), params.AdditionalProperties, params.Tenant),
+		storobj.SearchResultsWithScore(res, scores, params.AdditionalProperties, params.Tenant),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
@@ -183,7 +187,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 	db.indexLock.RLock()
 	for _, index := range db.indices {
 		wg.Add(1)
-		go func(index *Index, wg *sync.WaitGroup) {
+		index := index
+		f := func() {
 			defer wg.Done()
 
 			objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector,
@@ -198,7 +203,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 			mutex.Lock()
 			found = append(found, storobj.SearchResultsWithDists(objs, additional.Properties{}, dist)...)
 			mutex.Unlock()
-		}(index, wg)
+		}
+		enterrors.GoWrapper(f, index.logger)
 	}
 	db.indexLock.RUnlock()
 
@@ -210,7 +216,8 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 			if i != 0 {
 				msg.WriteString(", ")
 			}
-			msg.WriteString(err.Error())
+			errorMessage := fmt.Sprintf("%v", err)
+			msg.WriteString(errorMessage)
 		}
 		return nil, errors.New(msg.String())
 	}
@@ -231,8 +238,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		return nil, nil
 	}
 	if len(q.Sort) > 0 {
-		scheme := db.schemaGetter.GetSchemaSkipAuth()
-		if err := filters.ValidateSort(scheme, schema.ClassName(q.Class), q.Sort); err != nil {
+		if err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, schema.ClassName(q.Class), q.Sort); err != nil {
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
@@ -356,12 +362,9 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 func (db *DB) validateSort(sort []filters.Sort) error {
 	if len(sort) > 0 {
 		var errorMsgs []string
-		// needs to happen before the index lock as they might deadlock each other
-		schema := db.schemaGetter.GetSchemaSkipAuth()
 		db.indexLock.RLock()
 		for _, index := range db.indices {
-			err := filters.ValidateSort(schema,
-				index.Config.ClassName, sort)
+			err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, index.Config.ClassName, sort)
 			if err != nil {
 				errorMsg := errors.Wrapf(err, "search index %s", index.ID()).Error()
 				errorMsgs = append(errorMsgs, errorMsg)
@@ -404,6 +407,14 @@ func (db *DB) getStoreObjects(res []*storobj.Object, pagination *filters.Paginat
 		return nil
 	}
 	return res[offset:limit]
+}
+
+func (db *DB) getStoreObjectsWithScores(res []*storobj.Object, scores []float32, pagination *filters.Pagination) ([]*storobj.Object, []float32) {
+	offset, limit := db.getOffsetLimit(len(res), pagination.Offset, pagination.Limit)
+	if offset == 0 && limit == 0 {
+		return nil, nil
+	}
+	return res[offset:limit], scores[offset:limit]
 }
 
 func (db *DB) getDists(dists []float32, pagination *filters.Pagination) []float32 {

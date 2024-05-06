@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -34,13 +36,12 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
-	"golang.org/x/sync/errgroup"
 )
 
 type Searcher struct {
 	logger                 logrus.FieldLogger
 	store                  *lsmkv.Store
-	schema                 schema.Schema
+	getClass               func(string) *models.Class
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
 	stopwords              stopwords.StopwordDetector
@@ -53,7 +54,7 @@ type Searcher struct {
 }
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
-	schema schema.Schema, propIndices propertyspecific.Indices,
+	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
@@ -61,7 +62,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	return &Searcher{
 		logger:                 logger,
 		store:                  store,
-		schema:                 schema,
+		getClass:               getClass,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
 		stopwords:              stopwords,
@@ -100,7 +101,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 	docIDs helpers.AllowList, className schema.ClassName,
 ) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.schema, className)
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.getClass, className)
 	if err != nil {
 		return nil, err
 	}
@@ -205,11 +206,11 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	className schema.ClassName,
 ) (*propValuePair, error) {
-	class := s.schema.FindClassByName(schema.ClassName(className))
+	class := s.getClass(className.String())
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
-	out, err := newPropValuePair(class)
+	out, err := newPropValuePair(class, s.logger)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
@@ -237,14 +238,22 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	}
 
 	if extractedPropName, ok := schema.IsPropertyLength(propName, 0); ok {
-		property, err := s.schema.GetProperty(className, schema.PropertyName(extractedPropName))
+		class := s.getClass(schema.ClassName(className).String())
+		if class == nil {
+			return nil, fmt.Errorf("could not find class %s in schema", className)
+		}
+
+		property, err := schema.GetPropertyByName(class, extractedPropName)
 		if err != nil {
 			return nil, err
 		}
 		return s.extractPropertyLength(property, filter.Value.Type, filter.Value.Value, filter.Operator, class)
 	}
 
-	property, err := s.schema.GetProperty(className, schema.PropertyName(propName))
+	property, err := schema.GetPropertyByName(class, propName)
+	if err != nil {
+		return nil, err
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -280,7 +289,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 
 func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className schema.ClassName) ([]*propValuePair, error) {
 	children := make([]*propValuePair, len(operands))
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(s.logger)
 	// prevent unbounded concurrency, see
 	// https://github.com/weaviate/weaviate/issues/3179 for details
 	eg.SetLimit(2 * _NUMCPU)
@@ -295,7 +304,7 @@ func (s *Searcher) extractPropValuePairs(operands []filters.Clause, className sc
 			children[i] = child
 
 			return nil
-		})
+		}, clause)
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, fmt.Errorf("nested query: %w", err)
@@ -674,7 +683,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	if err != nil {
 		return nil, err
 	}
-	out, err := newPropValuePair(class)
+	out, err := newPropValuePair(class, s.logger)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}

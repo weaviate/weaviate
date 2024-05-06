@@ -26,6 +26,9 @@ var (
 func GetIds(t *testing.T, resp *models.GraphQLResponse, className string) []string {
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Data)
+	for _, err := range resp.Errors {
+		t.Logf("GetIds error: %v", err)
+	}
 	require.Empty(t, resp.Errors)
 
 	classMap, ok := resp.Data["Get"].(map[string]interface{})
@@ -48,7 +51,12 @@ func GetIds(t *testing.T, resp *models.GraphQLResponse, className string) []stri
 	return ids
 }
 
-func GetVectors(t *testing.T, resp *models.GraphQLResponse, className string, targetVectors ...string) map[string][]float32 {
+func GetVectors(t *testing.T,
+	resp *models.GraphQLResponse,
+	className string,
+	withCertainty bool,
+	targetVectors ...string,
+) map[string][]float32 {
 	require.NotNil(t, resp)
 	require.NotNil(t, resp.Data)
 	require.Empty(t, resp.Errors)
@@ -66,6 +74,12 @@ func GetVectors(t *testing.T, resp *models.GraphQLResponse, className string, ta
 
 		additional, ok := resultMap["_additional"].(map[string]interface{})
 		require.True(t, ok)
+
+		if withCertainty {
+			certainty, ok := additional["certainty"].(float64)
+			require.True(t, ok)
+			require.True(t, certainty >= 0)
+		}
 
 		vectors, ok := additional["vectors"].(map[string]interface{})
 		require.True(t, ok)

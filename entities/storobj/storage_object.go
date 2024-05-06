@@ -446,6 +446,12 @@ func (ko *Object) SearchResultWithScore(addl additional.Properties, score float3
 	return *res
 }
 
+func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, score float32, tenant string) search.Result {
+	res := ko.SearchResult(addl, tenant)
+	res.Score = score
+	return *res
+}
+
 func (ko *Object) Valid() bool {
 	return ko.ID() != "" &&
 		ko.Class().String() != ""
@@ -456,6 +462,17 @@ func SearchResults(in []*Object, additional additional.Properties, tenant string
 
 	for i, elem := range in {
 		out[i] = *(elem.SearchResult(additional, tenant))
+	}
+
+	return out
+}
+
+func SearchResultsWithScore(in []*Object, scores []float32, additional additional.Properties, tenant string) search.Results {
+	out := make(search.Results, len(in))
+
+	for i, elem := range in {
+		score := scores[i]
+		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, tenant)
 	}
 
 	return out

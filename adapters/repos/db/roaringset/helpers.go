@@ -15,6 +15,9 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/sroar"
 )
 
@@ -55,8 +58,8 @@ func Condense(bm *sroar.Bitmap) *sroar.Bitmap {
 // Then the source bitmap is subtracted (AndNot) from the all-ids bitmap,
 // resulting in a bitmap containing all ids from 0 to maxVal except the ones
 // that were set on the source.
-func NewInvertedBitmap(source *sroar.Bitmap, maxVal uint64) *sroar.Bitmap {
-	bm := NewBitmapPrefill(maxVal)
+func NewInvertedBitmap(source *sroar.Bitmap, maxVal uint64, logger logrus.FieldLogger) *sroar.Bitmap {
+	bm := NewBitmapPrefill(maxVal, logger)
 	bm.AndNot(source)
 	return bm
 }
@@ -70,7 +73,7 @@ func NewInvertedBitmap(source *sroar.Bitmap, maxVal uint64) *sroar.Bitmap {
 // and ORs them together to get final bitmap.
 // For maxVal > prefillBufferSize (65_536) and multiple CPUs available task is performed
 // by up to prefillMaxRoutines (4) goroutines.
-func NewBitmapPrefill(maxVal uint64) *sroar.Bitmap {
+func NewBitmapPrefill(maxVal uint64, logger logrus.FieldLogger) *sroar.Bitmap {
 	routinesLimit := prefillMaxRoutines
 	if _NUMCPU < routinesLimit {
 		routinesLimit = _NUMCPU
@@ -78,7 +81,7 @@ func NewBitmapPrefill(maxVal uint64) *sroar.Bitmap {
 	if routinesLimit == 1 || maxVal <= uint64(prefillBufferSize) {
 		return newBitmapPrefillSequential(maxVal)
 	}
-	return newBitmapPrefillParallel(maxVal, routinesLimit)
+	return newBitmapPrefillParallel(maxVal, routinesLimit, logger)
 }
 
 func newBitmapPrefillSequential(maxVal uint64) *sroar.Bitmap {
@@ -96,7 +99,7 @@ func newBitmapPrefillSequential(maxVal uint64) *sroar.Bitmap {
 	return finalBM
 }
 
-func newBitmapPrefillParallel(maxVal uint64, routinesLimit int) *sroar.Bitmap {
+func newBitmapPrefillParallel(maxVal uint64, routinesLimit int, logger logrus.FieldLogger) *sroar.Bitmap {
 	inc := uint64(prefillBufferSize / routinesLimit)
 	lock := new(sync.Mutex)
 	ch := make(chan uint64, routinesLimit)
@@ -105,7 +108,7 @@ func newBitmapPrefillParallel(maxVal uint64, routinesLimit int) *sroar.Bitmap {
 	finalBM := sroar.NewBitmap()
 
 	for r := 0; r < routinesLimit; r++ {
-		go func() {
+		f := func() {
 			buf := make([]uint64, inc)
 
 			for i := range ch {
@@ -120,7 +123,8 @@ func newBitmapPrefillParallel(maxVal uint64, routinesLimit int) *sroar.Bitmap {
 				lock.Unlock()
 			}
 			wg.Done()
-		}()
+		}
+		enterrors.GoWrapper(f, logger)
 	}
 
 	for i := uint64(0); i <= maxVal; i += inc {
@@ -148,10 +152,10 @@ type BitmapFactory struct {
 	lock          sync.RWMutex
 }
 
-func NewBitmapFactory(maxValGetter MaxValGetterFunc) *BitmapFactory {
+func NewBitmapFactory(maxValGetter MaxValGetterFunc, logger logrus.FieldLogger) *BitmapFactory {
 	maxVal := maxValGetter() + DefaultBufferIncrement
 	return &BitmapFactory{
-		bitmap:        NewBitmapPrefill(maxVal),
+		bitmap:        NewBitmapPrefill(maxVal, logger),
 		maxValGetter:  maxValGetter,
 		currentMaxVal: maxVal,
 	}

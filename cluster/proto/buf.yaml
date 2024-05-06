@@ -1,0 +1,27 @@
+ #                          _       _
+ #__      _____  __ ___   ___  __ _| |_ ___
+ #\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+ # \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+ #  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+ #
+ # Copyright © 2016 - 2023 Weaviate B.V. All rights reserved.
+ #
+ # CONTACT: hello@weaviate.io
+ #
+
+version: v1
+
+lint:
+  use:
+    - DEFAULT
+  allow_comment_ignores: true
+  except:
+    - PACKAGE_DIRECTORY_MATCH
+
+    - PACKAGE_VERSION_SUFFIX
+
+  service_suffix: ""
+  rpc_allow_google_protobuf_empty_responses: true
+breaking:
+  use:
+    - FILE

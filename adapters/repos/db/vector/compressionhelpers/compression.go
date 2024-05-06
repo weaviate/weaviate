@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type CompressorDistancer interface {
@@ -46,7 +47,7 @@ type VectorCompressor interface {
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
 	DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, x uint64, y []float32) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
-	NewDistancerFromID(id uint64) CompressorDistancer
+	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
 
 	ExposeFields() PQData
@@ -56,6 +57,8 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	cache           cache.Cache[T]
 	compressedStore *lsmkv.Store
 	quantizer       quantizer[T]
+	storeId         func([]byte, uint64)
+	loadId          func([]byte) uint64
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
@@ -78,14 +81,14 @@ func (compressor *quantizedVectorsCompressor[T]) GetCacheMaxSize() int64 {
 func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id uint64) {
 	compressor.cache.Delete(ctx, id)
 	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
+	compressor.storeId(idBytes, id)
 	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []float32) {
 	compressedVector := compressor.quantizer.Encode(vector)
 	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
+	compressor.storeId(idBytes, id)
 	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Put(idBytes, compressor.quantizer.CompressedBytes(compressedVector))
 	compressor.cache.Grow(id)
 	compressor.cache.Preload(id, compressedVector)
@@ -141,7 +144,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUnc
 
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
+	compressor.storeId(idBytes, id)
 	compressedVector, err := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Get(idBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "Getting vector for id")
@@ -163,13 +166,21 @@ func (compressor *quantizedVectorsCompressor[T]) NewDistancer(vector []float32) 
 	}
 }
 
-func (compressor *quantizedVectorsCompressor[T]) NewDistancerFromID(id uint64) CompressorDistancer {
-	compressedVector, _ := compressor.compressedVectorFromID(context.Background(), id)
+func (compressor *quantizedVectorsCompressor[T]) NewDistancerFromID(id uint64) (CompressorDistancer, error) {
+	compressedVector, err := compressor.compressedVectorFromID(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	if compressedVector == nil {
+		return nil, storobj.ErrNotFound{
+			DocID: id,
+		}
+	}
 	d := &quantizedCompressorDistancer[T]{
 		compressor: compressor,
 		distancer:  compressor.quantizer.NewCompressedQuantizerDistancer(compressedVector),
 	}
-	return d
+	return d, nil
 }
 
 func (compressor *quantizedVectorsCompressor[T]) returnDistancer(distancer CompressorDistancer) {
@@ -198,7 +209,7 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	cursor := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		id := binary.BigEndian.Uint64(k)
+		id := compressor.loadId(k)
 		compressor.cache.Grow(id)
 
 		vc := make([]byte, len(v))
@@ -212,7 +223,7 @@ func (compressor *quantizedVectorsCompressor[T]) ExposeFields() PQData {
 	return compressor.quantizer.ExposeFields()
 }
 
-func NewPQCompressor(
+func NewHNSWPQCompressor(
 	cfg hnsw.PQConfig,
 	distance distancer.Provider,
 	dimensions int,
@@ -220,23 +231,31 @@ func NewPQCompressor(
 	logger logrus.FieldLogger,
 	data [][]float32,
 	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-	quantizer, err := NewProductQuantizer(cfg, distance, dimensions)
+	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {
 		return nil, err
 	}
 	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
 		quantizer:       quantizer,
 		compressedStore: store,
+		storeId:         binary.LittleEndian.PutUint64,
+		loadId:          binary.LittleEndian.Uint64,
 	}
 	pqVectorsCompressor.initCompressedStore()
-	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		0, allocChecker)
 	pqVectorsCompressor.cache.Grow(uint64(len(data)))
-	quantizer.Fit(data)
+	err = quantizer.Fit(data)
+	if err != nil {
+		return nil, err
+	}
 	return pqVectorsCompressor, nil
 }
 
-func RestorePQCompressor(
+func RestoreHNSWPQCompressor(
 	cfg hnsw.PQConfig,
 	distance distancer.Provider,
 	dimensions int,
@@ -244,17 +263,22 @@ func RestorePQCompressor(
 	logger logrus.FieldLogger,
 	encoders []PQEncoder,
 	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders)
+	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
 	if err != nil {
 		return nil, err
 	}
 	pqVectorsCompressor := &quantizedVectorsCompressor[byte]{
 		quantizer:       quantizer,
 		compressedStore: store,
+		storeId:         binary.LittleEndian.PutUint64,
+		loadId:          binary.LittleEndian.Uint64,
 	}
 	pqVectorsCompressor.initCompressedStore()
-	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		pqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		allocChecker)
 	return pqVectorsCompressor, nil
 }
 
@@ -263,14 +287,19 @@ func NewBQCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
 	quantizer := NewBinaryQuantizer(distance)
 	bqVectorsCompressor := &quantizedVectorsCompressor[uint64]{
 		quantizer:       &quantizer,
 		compressedStore: store,
+		storeId:         binary.BigEndian.PutUint64,
+		loadId:          binary.BigEndian.Uint64,
 	}
 	bqVectorsCompressor.initCompressedStore()
-	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0)
+	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
+		bqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger, 0,
+		allocChecker)
 	return bqVectorsCompressor, nil
 }
 
@@ -283,6 +312,10 @@ func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (flo
 	compressedVector, err := distancer.compressor.cache.Get(context.Background(), id)
 	if err != nil {
 		return 0, false, err
+	}
+	if len(compressedVector) == 0 {
+		return 0, false, fmt.Errorf(
+			"got a nil or zero-length vector at docID %d", id)
 	}
 	return distancer.distancer.Distance(compressedVector)
 }

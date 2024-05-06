@@ -21,6 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -100,13 +102,13 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
+	AlreadyIndexed() uint64
 }
 
-type compressedIndexer interface {
-	Compressed() bool
-	AlreadyIndexed() uint64
-	TurnOnCompression(callback func()) error
-	ShouldCompress() (bool, int)
+type upgradableIndexer interface {
+	Upgraded() bool
+	Upgrade(callback func()) error
+	ShouldUpgrade() (bool, int)
 }
 
 type shardStatusUpdater interface {
@@ -163,11 +165,12 @@ func NewIndexQueue(
 	}
 
 	q.wg.Add(1)
-	go func() {
+	f := func() {
 		defer q.wg.Done()
 
 		q.indexer()
-	}()
+	}
+	enterrors.GoWrapper(f, q.Logger)
 
 	return &q, nil
 }
@@ -387,6 +390,7 @@ func (q *IndexQueue) indexer() {
 		case <-t.C:
 			if q.Size() == 0 {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+				q.checkCompressionSettings()
 				continue
 			}
 			if q.paused.Load() {
@@ -520,21 +524,21 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 }
 
 func (q *IndexQueue) checkCompressionSettings() {
-	ci, ok := q.Index.(compressedIndexer)
+	ci, ok := q.Index.(upgradableIndexer)
 	if !ok {
 		return
 	}
 
-	shouldCompress, shouldCompressAt := ci.ShouldCompress()
-	if !shouldCompress || ci.Compressed() {
+	shouldUpgrade, shouldUpgradeAt := ci.ShouldUpgrade()
+	if !shouldUpgrade || ci.Upgraded() {
 		return
 	}
 
-	if ci.AlreadyIndexed() > uint64(shouldCompressAt) {
+	if q.Index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		q.pauseIndexing()
-		err := ci.TurnOnCompression(q.resumeIndexing)
+		err := ci.Upgrade(q.resumeIndexing)
 		if err != nil {
-			q.Logger.WithError(err).Error("failed to turn on compression")
+			q.Logger.WithError(err).Error("failed to upgrade")
 		}
 	}
 }

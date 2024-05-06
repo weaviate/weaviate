@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestFilters(t *testing.T) {
@@ -40,11 +41,11 @@ func TestFilters(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -71,11 +72,11 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -124,7 +125,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, 0))
 			})
 		}
 	}
@@ -147,7 +148,7 @@ func prepareCarTestSchemaAndDataNoLength(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, 0))
 			})
 		}
 	}
@@ -1032,11 +1033,11 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1088,7 +1089,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 							Longitude: &coordinates[i][1],
 						},
 					},
-				}, []float32{0.5}, nil, nil)
+				}, []float32{0.5}, nil, nil, 0)
 			}
 		}
 	}
@@ -1140,11 +1141,11 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1232,7 +1233,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
 			})
 		}
 	})
@@ -1543,11 +1544,11 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -1603,7 +1604,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
 			})
 		}
 	})
@@ -1633,7 +1634,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("Delete object and filter again", func(t *testing.T) {
-		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, nil, "")
+		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, nil, "", 0)
 
 		filterNil := buildFilter("other", true, null, dtBool)
 		paramsNil := dto.GetParams{

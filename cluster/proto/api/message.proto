@@ -1,0 +1,102 @@
+syntax = "proto3";
+
+package weaviate.internal.cluster;
+
+service ClusterService {
+  rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {}
+  rpc JoinPeer(JoinPeerRequest) returns (JoinPeerResponse) {}
+  rpc NotifyPeer(NotifyPeerRequest) returns (NotifyPeerResponse) {}
+  rpc Apply(ApplyRequest) returns (ApplyResponse) {}
+  rpc Query(QueryRequest) returns (QueryResponse) {}
+}
+
+message JoinPeerRequest {
+  string id = 1;
+  string address = 2;
+  bool voter = 3;
+}
+
+message JoinPeerResponse {
+  string leader = 1;
+}
+
+message RemovePeerRequest {
+  string id = 1;
+}
+
+message RemovePeerResponse {
+  string leader = 1;
+}
+
+message NotifyPeerRequest {
+  string id = 1;
+  string address = 2;
+}
+
+message NotifyPeerResponse {
+}
+
+message ApplyRequest {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_ADD_CLASS = 1;
+    TYPE_UPDATE_CLASS = 2;
+    TYPE_DELETE_CLASS = 3;
+    TYPE_RESTORE_CLASS = 4;
+    TYPE_ADD_PROPERTY = 5;
+
+    TYPE_UPDATE_SHARD_STATUS = 10;
+
+    TYPE_ADD_TENANT = 16;
+    TYPE_UPDATE_TENANT = 17;
+    TYPE_DELETE_TENANT = 18;
+
+    TYPE_STORE_SCHEMA_V1 = 99;
+  }
+  Type type = 1;
+  string class = 2;
+  uint64 version = 3;
+  bytes sub_command = 4;
+}
+
+message ApplyResponse {
+  uint64 version = 1;
+  string leader = 2;
+}
+
+message QueryRequest {
+  enum Type {
+    TYPE_UNSPECIFIED = 0;
+    TYPE_GET_CLASSES = 1;
+    TYPE_GET_SCHEMA = 2;
+    TYPE_GET_TENANTS = 3;
+    TYPE_GET_SHARD_OWNER = 4;
+    TYPE_GET_TENANTS_SHARDS = 5;
+    TYPE_GET_SHARDING_STATE = 6;
+  }
+
+  Type type = 1;
+  bytes sub_command = 2;
+}
+
+message QueryResponse {
+  bytes payload = 1;
+}
+
+message AddTenantsRequest {
+  repeated string cluster_nodes = 1;
+  repeated Tenant tenants = 2;
+}
+
+message UpdateTenantsRequest {
+  repeated Tenant tenants = 1;
+}
+
+message DeleteTenantsRequest {
+  repeated string tenants = 1;
+}
+
+message Tenant {
+  string name = 1;
+  string status = 2;
+}

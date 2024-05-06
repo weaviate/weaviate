@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -58,7 +60,7 @@ func (db *DB) ListBackupable() []string {
 func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []string,
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
-	go func() {
+	f := func() {
 		for _, c := range classes {
 			desc := backup.ClassDescriptor{Name: c}
 			idx := db.GetIndex(schema.ClassName(c))
@@ -66,17 +68,15 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				desc.Error = fmt.Errorf("class %v doesn't exist any more", c)
 			} else if err := idx.descriptor(ctx, bakid, &desc); err != nil {
 				desc.Error = fmt.Errorf("backup class %v descriptor: %w", c, err)
-			} else {
-				desc.Error = ctx.Err()
 			}
-
 			ds <- desc
 			if desc.Error != nil {
 				break
 			}
 		}
 		close(ds)
-	}()
+	}
+	enterrors.GoWrapper(f, db.logger)
 	return ds
 }
 
@@ -95,7 +95,7 @@ func (db *DB) ShardsBackup(
 
 	defer func() {
 		if err != nil {
-			go idx.ReleaseBackup(ctx, bakID)
+			enterrors.GoWrapper(func() { idx.ReleaseBackup(ctx, bakID) }, db.logger)
 		}
 	}()
 
@@ -205,13 +205,11 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if err := i.initBackup(backupID); err != nil {
 		return err
 	}
-
 	defer func() {
 		if err != nil {
-			go i.ReleaseBackup(ctx, backupID)
+			enterrors.GoWrapper(func() { i.ReleaseBackup(ctx, backupID) }, i.logger)
 		}
 	}()
-
 	// prevent writing into the index during collection of metadata
 	i.backupMutex.Lock()
 	defer i.backupMutex.Unlock()
@@ -237,13 +235,14 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 	if desc.Schema, err = i.marshalSchema(); err != nil {
 		return fmt.Errorf("marshal schema %w", err)
 	}
-	return nil
+	return ctx.Err()
 }
 
 // ReleaseBackup marks the specified backup as inactive and restarts all
 // async background and maintenance processes. It errors if the backup does not exist
 // or is already inactive.
 func (i *Index) ReleaseBackup(ctx context.Context, id string) error {
+	i.logger.WithField("backup_id", id).WithField("class", i.Config.ClassName).Info("release backup")
 	defer i.resetBackupState()
 	if err := i.resumeMaintenanceCycles(ctx); err != nil {
 		return err
@@ -296,9 +295,7 @@ func (i *Index) marshalShardingState() ([]byte, error) {
 }
 
 func (i *Index) marshalSchema() ([]byte, error) {
-	schema := i.getSchema.GetSchemaSkipAuth()
-
-	b, err := schema.GetClass(i.Config.ClassName).MarshalBinary()
+	b, err := i.getSchema.ReadOnlyClass(i.Config.ClassName.String()).MarshalBinary()
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal schema")
 	}

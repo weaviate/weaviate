@@ -12,13 +12,13 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -43,9 +43,18 @@ var (
 	DefaulGenerativeAIModelID     = "chat-bison-001"
 )
 
+var supportedVertexAIModels = []string{
+	DefaultPaLMModel,
+	"chat-bison-32k",
+	"chat-bison@002",
+	"chat-bison-32k@002",
+	"chat-bison@001",
+}
+
 var supportedGenerativeAIModels = []string{
 	DefaulGenerativeAIModelID,
 	"gemini-pro",
+	"gemini-pro-vision",
 	"gemini-ultra",
 }
 
@@ -69,11 +78,12 @@ type ClassSettings interface {
 }
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg                  moduletools.ClassConfig
+	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) ClassSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-palm")}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -106,9 +116,10 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", topPProperty))
 	}
 	// Google MakerSuite
+	availableModels := append(supportedGenerativeAIModels, supportedVertexAIModels...)
 	model := ic.ModelID()
-	if apiEndpoint == DefaulGenerativeAIApiEndpoint && !contains[string](supportedGenerativeAIModels, model) {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s is not supported available models are: %+v", model, supportedGenerativeAIModels))
+	if apiEndpoint == DefaulGenerativeAIApiEndpoint && !contains(availableModels, model) {
+		errorMessages = append(errorMessages, fmt.Sprintf("%s is not supported available models are: %+v", model, availableModels))
 	}
 
 	if len(errorMessages) > 0 {
@@ -119,72 +130,17 @@ func (ic *classSettings) Validate(class *models.Class) error {
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := ic.cfg.ClassByModuleName("generative-palm")[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return asString
-		}
-	}
-	return defaultValue
+	return ic.propertyValuesHelper.GetPropertyAsString(ic.cfg, name, defaultValue)
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue float64) float64 {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-palm")[name]
-	if ok {
-		asFloat, ok := val.(float64)
-		if ok {
-			return asFloat
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			return asFloat
-		}
-		asInt, ok := val.(int)
-		if ok {
-			asFloat := float64(asInt)
-			return asFloat
-		}
-	}
-
-	return defaultValue
+	asFloat64 := ic.propertyValuesHelper.GetPropertyAsFloat64(ic.cfg, name, &defaultValue)
+	return *asFloat64
 }
 
 func (ic *classSettings) getIntProperty(name string, defaultValue int) int {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-palm")[name]
-	if ok {
-		asFloat, ok := val.(float64)
-		if ok {
-			return int(asFloat)
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asInt64, _ := asNumber.Int64()
-			return int(asInt64)
-		}
-		asInt, ok := val.(int)
-		if ok {
-			return asInt
-		}
-	}
-
-	return defaultValue
+	asInt := ic.propertyValuesHelper.GetPropertyAsInt(ic.cfg, name, &defaultValue)
+	return *asInt
 }
 
 func (ic *classSettings) getDefaultModel(apiEndpoint string) string {

@@ -18,12 +18,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
 func (m *Manager) updateRefVector(ctx context.Context, principal *models.Principal,
-	className string, id strfmt.UUID, tenant string,
+	className string, id strfmt.UUID, tenant string, class *models.Class, schemaVersion uint64,
 ) error {
 	if m.modulesProvider.UsingRef2Vec(className) {
 		parent, err := m.vectorRepo.Object(ctx, className, id,
@@ -39,16 +38,14 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 		if err != nil {
 			return err
 		}
-		compFactory := func() (moduletools.VectorizablePropsComparator, error) {
-			return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, obj.Properties), nil
-		}
+
 		if err := m.modulesProvider.UpdateVector(
-			ctx, obj, class, compFactory, m.findObject, m.logger); err != nil {
+			ctx, obj, class, m.findObject, m.logger); err != nil {
 			return fmt.Errorf("calculate ref vector for '%s/%s': %w",
 				className, id, err)
 		}
 
-		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, obj.Vectors, nil); err != nil {
+		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, obj.Vectors, nil, schemaVersion); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}
 

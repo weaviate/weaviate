@@ -16,6 +16,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
+	"github.com/weaviate/weaviate/usecases/config"
+
 	"github.com/weaviate/weaviate/usecases/objects"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -34,11 +39,13 @@ type Service struct {
 	allowAnonymousAccess bool
 	schemaManager        *schemaManager.Manager
 	batchManager         *objects.BatchManager
+	config               *config.Config
+	logger               logrus.FieldLogger
 }
 
 func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 	allowAnonymousAccess bool, schemaManager *schemaManager.Manager,
-	batchManager *objects.BatchManager,
+	batchManager *objects.BatchManager, config *config.Config, logger logrus.FieldLogger,
 ) *Service {
 	return &Service{
 		traverser:            traverser,
@@ -46,19 +53,53 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 		allowAnonymousAccess: allowAnonymousAccess,
 		schemaManager:        schemaManager,
 		batchManager:         batchManager,
+		config:               config,
+		logger:               logger,
 	}
 }
 
+func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
+	before := time.Now()
+
+	principal, err := s.principalFromContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("extract auth: %w", err)
+	}
+
+	retTenants, err := s.tenantsGet(ctx, principal, req)
+	if err != nil {
+		return nil, fmt.Errorf("get tenants: %w", err)
+	}
+
+	result := &pb.TenantsGetReply{
+		Took:    float32(time.Since(before).Seconds()),
+		Tenants: retTenants,
+	}
+	return result, nil
+}
+
 func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+	var result *pb.BatchDeleteReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.batchDelete(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
 	before := time.Now()
 	principal, err := s.principalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
-	scheme := s.schemaManager.GetSchemaSkipAuth()
 
-	params, err := batchDeleteParamsFromProto(req, scheme)
+	params, err := batchDeleteParamsFromProto(req, s.schemaManager.ReadOnlyClass)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -83,14 +124,25 @@ func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 }
 
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	var result *pb.BatchObjectsReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.batchObjects(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	before := time.Now()
 	principal, err := s.principalFromContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	scheme := s.schemaManager.GetSchemaSkipAuth()
-
-	objs, objOriginalIndex, objectParsingErrors := batchFromProto(req, scheme)
+	objs, objOriginalIndex, objectParsingErrors := batchFromProto(req, s.schemaManager.ReadOnlyClass)
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
@@ -119,6 +171,19 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	var result *pb.SearchReply
+	var errInner error
+
+	if err := enterrors.GoWrapperWithBlock(func() {
+		result, errInner = s.search(ctx, req)
+	}, s.logger); err != nil {
+		return nil, err
+	}
+
+	return result, errInner
+}
+
+func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
@@ -127,61 +192,29 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 
 	scheme := s.schemaManager.GetSchemaSkipAuth()
+	replier := NewReplier(req.Uses_123Api, req.Uses_125Api)
 
-	type reply struct {
-		Result *pb.SearchReply
-		Error  error
+	searchParams, err := searchParamsFromProto(req, s.schemaManager.ReadOnlyClass, s.config)
+	if err != nil {
+		return nil, err
 	}
 
-	c := make(chan reply, 1)
-	go func() {
-		defer func() {
-			if err := recover(); err != nil {
-				c <- reply{
-					Result: nil,
-					Error:  fmt.Errorf("panic occurred: %v", err),
-				}
-			}
-		}()
+	if err := s.validateClassAndProperty(searchParams); err != nil {
+		return nil, err
+	}
 
-		searchParams, err := searchParamsFromProto(req, scheme)
-		if err != nil {
-			c <- reply{
-				Result: nil,
-				Error:  fmt.Errorf("extract params: %w", err),
-			}
-		}
+	res, err := s.traverser.GetClass(ctx, principal, searchParams)
+	if err != nil {
+		return nil, err
+	}
 
-		if err := s.validateClassAndProperty(searchParams); err != nil {
-			c <- reply{
-				Result: nil,
-				Error:  err,
-			}
-		}
-
-		res, err := s.traverser.GetClass(ctx, principal, searchParams)
-		if err != nil {
-			c <- reply{
-				Result: nil,
-				Error:  err,
-			}
-		}
-
-		proto, err := searchResultsToProto(res, before, searchParams, scheme, req.Uses_123Api)
-		c <- reply{
-			Result: proto,
-			Error:  err,
-		}
-	}()
-	res := <-c
-	return res.Result, res.Error
+	return replier.Search(res, before, searchParams, scheme)
 }
 
 func (s *Service) validateClassAndProperty(searchParams dto.GetParams) error {
-	scheme := s.schemaManager.GetSchemaSkipAuth()
-	class, err := schema.GetClassByName(scheme.Objects, searchParams.ClassName)
-	if err != nil {
-		return err
+	class := s.schemaManager.ReadOnlyClass(searchParams.ClassName)
+	if class == nil {
+		return fmt.Errorf("could not find class %s in schema", searchParams.ClassName)
 	}
 
 	for _, prop := range searchParams.Properties {

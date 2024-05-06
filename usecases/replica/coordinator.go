@@ -15,6 +15,9 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
 )
@@ -70,26 +73,28 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 	// prepare tells replicas to be ready
 	prepare := func() <-chan _Result[string] {
 		resChan := make(chan _Result[string], len(replicas))
-		go func() { // broadcast
+		f := func() { // broadcast
 			defer close(resChan)
 			var wg sync.WaitGroup
 			wg.Add(len(replicas))
 			for _, replica := range replicas {
-				go func(replica string, candidateCh chan<- _Result[string]) error {
+				replica := replica
+				g := func() {
 					defer wg.Done()
 					err := op(ctx, replica, c.TxID)
-					candidateCh <- _Result[string]{replica, err}
-					return err
-				}(replica, resChan)
+					resChan <- _Result[string]{replica, err}
+				}
+				enterrors.GoWrapper(g, c.log)
 			}
 			wg.Wait()
-		}()
+		}
+		enterrors.GoWrapper(f, c.log)
 		return resChan
 	}
 
 	// handle responses to prepare requests
 	replicaCh := make(chan string, len(replicas))
-	go func(level int) {
+	f := func() {
 		defer close(replicaCh)
 		actives := make([]string, 0, level) // cache for active replicas
 		for r := range prepare() {
@@ -117,7 +122,8 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				c.Abort(ctx, node, c.Class, c.Shard, c.TxID)
 			}
 		}
-	}(level)
+	}
+	enterrors.GoWrapper(f, c.log)
 	return replicaCh
 }
 
@@ -128,19 +134,22 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 	op commitOp[T],
 ) <-chan _Result[T] {
 	replyCh := make(chan _Result[T], cap(replicaCh))
-	go func() { // tells active replicas to commit
+	f := func() { // tells active replicas to commit
 		wg := sync.WaitGroup{}
 		for replica := range replicaCh {
 			wg.Add(1)
-			go func(replica string) {
+			replica := replica
+			g := func() {
 				defer wg.Done()
 				resp, err := op(ctx, replica, c.TxID)
 				replyCh <- _Result[T]{resp, err}
-			}(replica)
+			}
+			enterrors.GoWrapper(g, c.log)
 		}
 		wg.Wait()
 		close(replyCh)
-	}()
+	}
+	enterrors.GoWrapper(f, c.log)
 
 	return replyCh
 }
@@ -156,7 +165,9 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := state.Level
-	nodeCh := c.broadcast(ctx, state.Hosts, ask, level)
+	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
+	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	nodeCh := c.broadcast(ctxWithTimeout, state.Hosts, ask, level)
 	return c.commitAll(context.Background(), nodeCh, com), level, nil
 }
 
@@ -181,11 +192,12 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		candidatePool <- replica
 	}
 	close(candidatePool) // pool is ready
-	go func() {
+	f := func() {
 		wg := sync.WaitGroup{}
 		wg.Add(len(candidates))
 		for i := range candidates { // Ask direct candidate first
-			go func(idx int) {
+			idx := i
+			f := func() {
 				defer wg.Done()
 				resp, err := op(ctx, candidates[idx], idx == 0)
 
@@ -198,11 +210,13 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					}
 				}
 				replyCh <- _Result[T]{resp, err}
-			}(i)
+			}
+			enterrors.GoWrapper(f, c.log)
 		}
 		wg.Wait()
 		close(replyCh)
-	}()
+	}
+	enterrors.GoWrapper(f, c.log)
 
 	return replyCh, state, nil
 }

@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -53,7 +55,7 @@ func (b *backupper) Backup(ctx context.Context,
 		ID:      id,
 		Classes: classes,
 	}
-	if _, err := b.backup(ctx, store, &req); err != nil {
+	if _, err := b.backup(store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
@@ -122,9 +124,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 // Moreover it starts a goroutine in the background which waits for the
 // next instruction from the coordinator (second phase).
 // It will start the backup as soon as it receives an ack, or abort otherwise
-func (b *backupper) backup(ctx context.Context,
-	store nodeStore, req *Request,
-) (CanCommitResponse, error) {
+func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {
@@ -141,7 +141,7 @@ func (b *backupper) backup(ctx context.Context,
 	}
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()
 	// waits for ack from coordinator in order to processed with the backup
-	go func() {
+	f := func() {
 		defer b.lastOp.reset()
 		if err := b.waitForCoordinator(expiration, id); err != nil {
 			b.logger.WithField("action", "create_backup").
@@ -163,17 +163,20 @@ func (b *backupper) backup(ctx context.Context,
 
 		// the coordinator might want to abort the backup
 		done := make(chan struct{})
-		ctx := b.withCancellation(context.Background(), id, done)
+		ctx := b.withCancellation(context.Background(), id, done, b.logger)
 		defer close(done)
 
+		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}
 		if err := provider.all(ctx, req.Classes, &result); err != nil {
-			b.logger.WithField("action", "create_backup").
-				Error(err)
+			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 
+		} else {
+			b.logger.WithFields(logFields).Info("backup completed successfully")
 		}
 		result.CompletedAt = time.Now().UTC()
-	}()
+	}
+	enterrors.GoWrapper(f, b.logger)
 
 	return ret, nil
 }

@@ -16,12 +16,14 @@ import (
 	"fmt"
 	"runtime"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/sync/errgroup"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 // TODOs: Performance
@@ -97,7 +99,7 @@ func (s *Scaler) SetSchemaManager(sm SchemaManager) {
 // make sure to broadcast that state to all nodes as part of the "update"
 // transaction.
 func (s *Scaler) Scale(ctx context.Context, className string,
-	updated sharding.Config, prevReplFactor, newReplFactor int64,
+	updated config.Config, prevReplFactor, newReplFactor int64,
 ) (*sharding.State, error) {
 	// First identify what the sharding state was before this change. This is
 	// mainly to be able to compare the diff later, so we know where we need to
@@ -123,7 +125,7 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 // * It pushes locally existing shards to new replicas
 // * It delegates replication of remote shards to owner nodes
 func (s *Scaler) scaleOut(ctx context.Context, className string, ssBefore *sharding.State,
-	updated sharding.Config, replFactor int64,
+	updated config.Config, replFactor int64,
 ) (*sharding.State, error) {
 	// Create a deep copy of the old sharding state, so we can start building the
 	// updated state. Because this is a deep copy we don't risk leaking our
@@ -141,7 +143,7 @@ func (s *Scaler) scaleOut(ctx context.Context, className string, ssBefore *shard
 		ssAfter.Physical[name] = shard
 	}
 	lDist, nodeDist := distributions(ssBefore, &ssAfter)
-	g, ctx := errgroup.WithContext(ctx)
+	g, ctx := enterrors.NewErrorGroupWithContextWrapper(s.logger, ctx)
 	// resolve hosts beforehand
 	nodes := nodeDist.nodes()
 	hosts, err := hosts(nodes, s.cluster)
@@ -210,11 +212,11 @@ func (s *Scaler) LocalScaleOut(ctx context.Context,
 		}
 	}()
 	rsync := newRSync(s.client, s.cluster, s.persistenceRoot)
-	return rsync.Push(ctx, bak.Shards, dist, className)
+	return rsync.Push(ctx, bak.Shards, dist, className, s.logger)
 }
 
 func (s *Scaler) scaleIn(ctx context.Context, className string,
-	updated sharding.Config,
+	updated config.Config,
 ) (*sharding.State, error) {
 	return nil, errors.Errorf("scaling in not supported yet")
 }

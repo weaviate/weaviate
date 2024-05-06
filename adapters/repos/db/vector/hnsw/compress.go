@@ -80,19 +80,22 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		}
 
 		var err error
-		h.compressor, err = compressionhelpers.NewPQCompressor(cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store)
+		h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
+			cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
+			h.allocChecker)
 		if err != nil {
 			return fmt.Errorf("Compressing vectors: %w", err)
 		}
 		h.commitLog.AddPQ(h.compressor.ExposeFields())
 	} else {
 		var err error
-		h.compressor, err = compressionhelpers.NewBQCompressor(h.distancerProvider, 1e12, h.logger, h.store)
+		h.compressor, err = compressionhelpers.NewBQCompressor(
+			h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker)
 		if err != nil {
 			return err
 		}
 	}
-	compressionhelpers.Concurrently(uint64(len(data)),
+	compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 		func(index uint64) {
 			if data[index] == nil {
 				return

@@ -25,9 +25,9 @@ import (
 )
 
 const (
-	Weaviate      = "weaviate"
-	WeaviateNode2 = "weaviate2"
-
+	Weaviate1      = "weaviate"
+	Weaviate2      = "weaviate2"
+	Weaviate3      = "weaviate3"
 	SecondWeaviate = "second-weaviate"
 )
 
@@ -69,7 +69,7 @@ func startWeaviate(ctx context.Context,
 			KeepImage:     false,
 		}
 	}
-	containerName := Weaviate
+	containerName := Weaviate1
 	if hostname != "" {
 		containerName = hostname
 	}
@@ -108,15 +108,32 @@ func startWeaviate(ctx context.Context,
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},
 		},
-		Name:         containerName,
 		ExposedPorts: exposedPorts,
 		Env:          env,
-		WaitingFor:   wait.ForAll(waitStrategies...).WithStartupTimeoutDefault(120 * time.Second),
+		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
+			{
+				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,
+				// which survives stop/start commands
+				PostStarts: []testcontainers.ContainerHook{
+					func(ctx context.Context, container testcontainers.Container) error {
+						for _, waitStrategy := range waitStrategies {
+							ctx, cancel := context.WithTimeout(ctx, 180*time.Second)
+							defer cancel()
+
+							if err := waitStrategy.WaitUntilReady(ctx, container); err != nil {
+								return err
+							}
+						}
+						return nil
+					},
+				},
+			},
+		},
 	}
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: req,
 		Started:          true,
-		Reuse:            true,
+		Reuse:            false,
 	})
 	if err != nil {
 		return nil, err
@@ -134,5 +151,10 @@ func startWeaviate(ctx context.Context,
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
 	}
-	return &DockerContainer{containerName, endpoints, c, nil}, nil
+	return &DockerContainer{
+		name:        containerName,
+		endpoints:   endpoints,
+		container:   c,
+		envSettings: nil,
+	}, nil
 }

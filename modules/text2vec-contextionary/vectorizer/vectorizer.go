@@ -72,15 +72,14 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 }
 
 // Object object to vector
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	var overrides map[string]string
 	if object.VectorWeights != nil {
 		overrides = object.VectorWeights.(map[string]string)
 	}
 
-	vec, sources, err := v.object(ctx, object.Class, comp, overrides, cfg)
+	vec, sources, err := v.object(ctx, object, overrides, cfg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -93,18 +92,12 @@ func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
 	return vec, additional, nil
 }
 
-func (v *Vectorizer) object(ctx context.Context, className string,
-	comp moduletools.VectorizablePropsComparator, overrides map[string]string,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, overrides map[string]string,
 	cfg moduletools.ClassConfig,
 ) ([]float32, []txt2vecmodels.InterpretationSource, error) {
 	icheck := NewIndexChecker(cfg)
-	corpi, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, icheck, cfg.TargetVector())
-	// no property was changed, old vector can be used
-	if vector != nil {
-		// dont' re-vectorize
-		return vector, []txt2vecmodels.InterpretationSource{}, nil
-	}
-	// vectorize text
+	corpi := v.objectVectorizer.Texts(ctx, object, icheck)
+
 	vector, ie, err := v.client.VectorForCorpi(ctx, []string{corpi}, overrides)
 	if err != nil {
 		switch err.(type) {

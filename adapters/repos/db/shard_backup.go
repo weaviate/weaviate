@@ -17,8 +17,9 @@ import (
 	"os"
 	"path/filepath"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/backup"
-	"golang.org/x/sync/errgroup"
 )
 
 // BeginBackup stops compaction, and flushing memtable and commit log to begin with the backup
@@ -88,7 +89,7 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
-	var g errgroup.Group
+	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)

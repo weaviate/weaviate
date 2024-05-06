@@ -16,11 +16,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -35,13 +36,12 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"golang.org/x/sync/errgroup"
 )
 
 type BM25Searcher struct {
 	config         schema.BM25Config
 	store          *lsmkv.Store
-	schema         schema.Schema
+	getClass       func(string) *models.Class
 	classSearcher  ClassSearcher // to allow recursive searches on ref-props
 	propIndices    propertyspecific.Indices
 	propLenTracker propLengthRetriever
@@ -54,14 +54,14 @@ type propLengthRetriever interface {
 }
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
-	schema schema.Schema, propIndices propertyspecific.Indices,
+	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:         config,
 		store:          store,
-		schema:         schema,
+		getClass:       getClass,
 		propIndices:    propIndices,
 		classSearcher:  classSearcher,
 		propLenTracker: propLenTracker,
@@ -75,13 +75,13 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 ) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
-		if !PropertyHasSearchableIndex(b.schema.Objects, string(className), property) {
+		if !PropertyHasSearchableIndex(b.getClass(className.String()), property) {
 			return nil, nil, inverted.NewMissingSearchableIndexError(property)
 		}
 	}
-	class, err := schema.GetClassByName(b.schema.Objects, string(className))
-	if err != nil {
-		return nil, nil, err
+	class := b.getClass(className.String())
+	if class == nil {
+		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
 	}
 
 	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit)
@@ -176,7 +176,7 @@ func (b *BM25Searcher) wand(
 	results := make(terms, 0, 100)
 	indices := make([]map[uint64]int, 0, 100)
 
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
 	var resultsLock sync.Mutex
@@ -196,19 +196,6 @@ func (b *BM25Searcher) wand(
 				j := i
 
 				eg.Go(func() (err error) {
-					defer func() {
-						p := recover()
-						if p != nil {
-							b.logger.
-								WithField("query_term", queryTerms[j]).
-								WithField("prop_names", propNames).
-								WithField("has_filter", filterDocIds != nil).
-								Errorf("panic: %v", p)
-							debug.PrintStack()
-							err = fmt.Errorf("an internal error occurred during BM25 search")
-						}
-					}()
-
 					termResult, docIndices, termErr := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
 						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
 					if termErr != nil {
@@ -220,7 +207,7 @@ func (b *BM25Searcher) wand(
 					indices = append(indices, docIndices)
 					resultsLock.Unlock()
 					return
-				})
+				}, "query_term", queryTerms[j], "prop_names", propNames, "has_filter", filterDocIds != nil)
 			}
 		}
 	}
@@ -661,13 +648,13 @@ func (m AllMapPairsAndPropName) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 
-func PropertyHasSearchableIndex(schemaDefinition *models.Schema, className, tentativePropertyName string) bool {
-	propertyName := strings.Split(tentativePropertyName, "^")[0]
-	c, err := schema.GetClassByName(schemaDefinition, string(className))
-	if err != nil {
+func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName string) bool {
+	if class == nil {
 		return false
 	}
-	p, err := schema.GetPropertyByName(c, propertyName)
+
+	propertyName := strings.Split(tentativePropertyName, "^")[0]
+	p, err := schema.GetPropertyByName(class, propertyName)
 	if err != nil {
 		return false
 	}

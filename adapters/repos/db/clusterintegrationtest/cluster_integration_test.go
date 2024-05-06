@@ -102,7 +102,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node := nodes[rnd.Intn(len(nodes))]
 
 			batchObjs := dataAsBatch(data)
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil, 0)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -114,7 +114,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node := nodes[rnd.Intn(len(nodes))]
 
 			batchObjs := dataAsBatchWithProps(refData, []string{"description"})
-			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil)
+			res, err := node.repo.BatchPutObjects(context.Background(), batchObjs, nil, 0)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -126,7 +126,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node := nodes[rnd.Intn(len(nodes))]
 
 			batch := refsAsBatch(refData, "toFirst")
-			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil)
+			res, err := node.repo.AddBatchReferences(context.Background(), batch, nil, 0)
 			require.Nil(t, err)
 			for _, ind := range res {
 				require.Nil(t, ind.Err)
@@ -137,7 +137,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			for _, obj := range data {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0)
 				require.Nil(t, err)
 			}
 		})
@@ -145,7 +145,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			for _, obj := range refData {
 				node := nodes[rnd.Intn(len(nodes))]
 
-				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil)
+				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0)
 				require.Nil(t, err)
 
 			}
@@ -350,7 +350,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		}
 
 		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params)
+		res, err := node.repo.Aggregate(context.Background(), params, nil)
 		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{
@@ -374,7 +374,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			PrimitiveSchema: map[string]interface{}{
 				"other_property": "a-value-inserted-through-merge",
 			},
-		}, nil, "")
+		}, nil, "", 0)
 
 		require.Nil(t, err)
 	})
@@ -598,7 +598,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			}
 
 			node := nodes[rnd.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil, "")
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil, "", 0)
 			require.Nil(t, err)
 		}
 	})
@@ -650,7 +650,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		beforeDelete := len(res)
 		require.True(t, beforeDelete > 0)
 		// dryRun == false, perform actual delete
-		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil, "")
+		batchDeleteRes, err := node.repo.BatchDeleteObjects(context.Background(), getParams(distributedClass, false), nil, "", 0)
 		require.Nil(t, err)
 		require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 		require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))

@@ -21,6 +21,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+const (
+	UUID1 = "10523cdd-15a2-42f4-81fa-267fe92f7cd6"
+	UUID2 = "5b6a08ba-1d46-43aa-89cc-8b070790c6f2"
+)
+
 func TestBatchReferenceCreateNoObjects(t *testing.T) {
 	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
 	require.Nil(t, err)
@@ -50,9 +55,68 @@ func TestBatchReferenceCreateNoObjects(t *testing.T) {
 	rpb := client.Batch().ReferencePayloadBuilder().
 		WithFromClassName(classNameFrom).
 		WithFromRefProp("ref").
-		WithFromID("5b6a08ba-1d46-43aa-89cc-8b070790c6f2"). // uuids dont matter as we havent added any objects
+		WithFromID(UUID1). // uuids dont matter as we havent added any objects
 		WithToClassName(classNameTo).
-		WithToID("10523cdd-15a2-42f4-81fa-267fe92f7cd6")
+		WithToID(UUID2)
+	references := []*models.BatchReference{rpb.Payload()}
+
+	resp, err := client.Batch().ReferencesBatcher().
+		WithReferences(references...).
+		Do(context.Background())
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	assert.Len(t, resp, len(references))
+	for i := range resp {
+		require.NotNil(t, resp[i].Result)
+		require.NotNil(t, resp[i].Result.Status)
+		assert.Equal(t, "FAILED", *resp[i].Result.Status)
+		assert.NotNil(t, resp[i].Result.Errors)
+	}
+}
+
+func TestBatchReferenceTargetIsMT(t *testing.T) {
+	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: "localhost:8080"})
+	require.Nil(t, err)
+
+	classNameFrom := "RedTeddyFlowerFrom"
+	classNameTo := "RedTeddyFlowerTo"
+
+	// delete class if exists and cleanup after test
+	client.Schema().ClassDeleter().WithClassName(classNameFrom).Do(ctx)
+	defer client.Schema().ClassDeleter().WithClassName(classNameFrom).Do(ctx)
+	client.Schema().ClassDeleter().WithClassName(classNameTo).Do(ctx)
+	defer client.Schema().ClassDeleter().WithClassName(classNameTo).Do(ctx)
+
+	classTo := &models.Class{Class: classNameTo, Vectorizer: "none", MultiTenancyConfig: &models.MultiTenancyConfig{
+		Enabled: true,
+	}}
+	require.Nil(t, client.Schema().ClassCreator().WithClass(classTo).Do(ctx))
+	require.Nil(t, client.Schema().TenantsCreator().
+		WithClassName(classNameTo).
+		WithTenants(models.Tenant{Name: "Tenant"}).
+		Do(context.Background()))
+
+	require.Nil(t, err)
+	classFrom := &models.Class{
+		Class: classNameFrom,
+		Properties: []*models.Property{
+			{Name: "ref", DataType: []string{classNameTo}},
+		},
+		Vectorizer: "none",
+	}
+	require.Nil(t, client.Schema().ClassCreator().WithClass(classFrom).Do(ctx))
+
+	// add object to target and source class
+	_, err = client.Data().Creator().WithClassName(classNameTo).WithID(UUID1).WithTenant("Tenant").WithProperties(map[string]interface{}{}).Do(ctx)
+	require.Nil(t, err)
+	_, err = client.Data().Creator().WithClassName(classNameFrom).WithID(UUID2).WithProperties(map[string]interface{}{}).Do(ctx)
+	require.Nil(t, err)
+
+	rpb := client.Batch().ReferencePayloadBuilder().
+		WithFromClassName(classNameFrom).
+		WithFromRefProp("ref").
+		WithFromID(UUID2).
+		WithToID(UUID1) // no to class supplied, will be auto-detected
 	references := []*models.BatchReference{rpb.Payload()}
 
 	resp, err := client.Batch().ReferencesBatcher().

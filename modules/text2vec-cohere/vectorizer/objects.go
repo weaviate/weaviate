@@ -13,32 +13,46 @@ package vectorizer
 
 import (
 	"context"
-	"fmt"
+	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
-type Vectorizer struct {
-	client           Client
-	objectVectorizer *objectsvectorizer.ObjectVectorizer
-}
+const (
+	MaxObjectsPerBatch = 96 // https://docs.cohere.com/reference/embed
+	MaxTimePerBatch    = float64(10)
+)
 
-func New(client Client) *Vectorizer {
-	return &Vectorizer{
-		client:           client,
-		objectVectorizer: objectsvectorizer.New(),
+func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
+	batchTokenizer := func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
+		texts := make([]string, len(objects))
+		tokenCounts := make([]int, len(objects))
+		icheck := ent.NewClassSettings(cfg)
+
+		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
+		skipAll := true
+		for i := range texts {
+			if skipObject[i] {
+				continue
+			}
+			skipAll = false
+			text := objectVectorizer.Texts(ctx, objects[i], icheck)
+			texts[i] = text
+			tokenCounts[i] = 0
+		}
+		return texts, tokenCounts, skipAll, nil
 	}
-}
-
-type Client interface {
-	Vectorize(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
-	VectorizeQuery(ctx context.Context, input []string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
+	// there does not seem to be a limit
+	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -49,38 +63,4 @@ type ClassSettings interface {
 	Model() string
 	Truncate() string
 	BaseURL() string
-}
-
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.Class, comp, cfg)
-	return vec, nil, err
-}
-
-func (v *Vectorizer) object(ctx context.Context, className string,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	text, vector := v.objectVectorizer.TextsOrVector(ctx, className, comp, NewClassSettings(cfg), cfg.TargetVector())
-	if vector != nil {
-		// dont' re-vectorize
-		return vector, nil
-	}
-	// vectorize text
-	icheck := NewClassSettings(cfg)
-	res, err := v.client.Vectorize(ctx, []string{text}, ent.VectorizationConfig{
-		Model:   icheck.Model(),
-		BaseURL: icheck.BaseURL(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(res.Vectors) == 0 {
-		return nil, fmt.Errorf("no vectors generated")
-	}
-
-	if len(res.Vectors) > 1 {
-		return libvectorizer.CombineVectors(res.Vectors), nil
-	}
-	return res.Vectors[0], nil
 }

@@ -19,18 +19,21 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/configbase"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	s.activityTracker.Add(1)
 	if s.isReadOnly() {
 		return []error{storagestate.ErrStatusReadOnly}
 	}
@@ -41,7 +44,7 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 // asyncEnabled is a quick and dirty way to create a feature flag for async
 // indexing.
 func asyncEnabled() bool {
-	return config.Enabled(os.Getenv("ASYNC_INDEXING"))
+	return configbase.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
@@ -156,7 +159,9 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 
 	for j, object := range batch {
 		wg.Add(1)
-		go func(index int, object *storobj.Object) {
+		object := object
+		index := j
+		f := func() {
 			defer wg.Done()
 
 			// Acquire a semaphore to control the concurrency. Otherwise we would
@@ -175,7 +180,9 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 				errs[index] = err
 				errLock.Unlock()
 			}
-		}(j, object)
+		}
+		enterrors.GoWrapper(f, ob.shard.Index().logger)
+
 	}
 	wg.Wait()
 

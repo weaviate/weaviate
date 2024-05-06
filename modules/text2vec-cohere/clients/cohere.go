@@ -14,17 +14,25 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/moduletools"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
+)
+
+const (
+	DefaultRPM = 10000    // from https://docs.cohere.com/docs/going-live#production-key-specifications default for production keys
+	DefaultTPM = 10000000 // no token limit used by cohere
 )
 
 type embeddingsRequest struct {
@@ -34,9 +42,22 @@ type embeddingsRequest struct {
 	InputType inputType `json:"input_type,omitempty"`
 }
 
+type billedUnits struct {
+	InputTokens    int `json:"input_tokens,omitempty"`
+	OutputTokens   int `json:"output_tokens,omitempty"`
+	SearchUnits    int `json:"search_units,omitempty"`
+	Classificatons int `json:"classifications,omitempty"`
+}
+
+type meta struct {
+	BilledUnits billedUnits `json:"billed_units,omitempty"`
+	Warnings    []string    `json:"warnings,omitempty"`
+}
+
 type embeddingsResponse struct {
 	Embeddings [][]float32 `json:"embeddings,omitempty"`
 	Message    string      `json:"message,omitempty"`
+	Meta       meta        `json:"meta,omitempty"`
 }
 
 type vectorizer struct {
@@ -65,20 +86,32 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 }
 
 func (v *vectorizer) Vectorize(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	config := v.getVectorizationConfig(cfg)
+	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchDocument)
+	return res, nil, err
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
+	config := v.getVectorizationConfig(cfg)
 	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
+}
+
+func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
+	icheck := ent.NewClassSettings(cfg)
+	return ent.VectorizationConfig{
+		Model:    icheck.Model(),
+		BaseURL:  icheck.BaseURL(),
+		Truncate: icheck.Truncate(),
+	}
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	model, truncate, baseURL string, inputType inputType,
-) (*ent.VectorizationResult, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	body, err := json.Marshal(embeddingsRequest{
 		Texts:     input,
 		Model:     model,
@@ -101,6 +134,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Request-Source", "unspecified:weaviate")
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
@@ -128,19 +162,56 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Text:       input,
 		Dimensions: len(resBody.Embeddings[0]),
-		Vectors:    resBody.Embeddings,
+		Vector:     resBody.Embeddings,
 	}, nil
 }
 
 func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
+}
+
+func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+	key, err := v.getApiKey(ctx)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
+}
+
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "Cohere", DefaultRPM, 0)
+
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
+		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
+		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
+			if deductRequest {
+				limits.RemainingRequests -= 1
+			}
+			return
+		}
+
+		limits.RemainingRequests = rpm
+		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
+		limits.LimitRequests = rpm
+		limits.LastOverwrite = time.Now()
+
+		// high dummy values
+		limits.RemainingTokens = DefaultTPM
+		limits.LimitTokens = DefaultTPM
+		limits.ResetTokens = time.Now().Add(time.Duration(1) * time.Second)
+	}
+
+	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
+	initialRL.ResetAfterRequestFunction(0) // set initial values
+
+	return initialRL
 }
 
 func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) string {
@@ -150,21 +221,8 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
-func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {

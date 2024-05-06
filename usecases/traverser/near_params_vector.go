@@ -77,7 +77,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 
 	// either nearObject or nearVector or module search param has to be set,
 	// so if we land here, something has gone very wrong
-	panic("vectorFromParams was called without any known params present")
+	return []float32{}, "", errors.Errorf("vectorFromParams was called without any known params present")
 }
 
 func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,
@@ -270,7 +270,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
-	nearObject *searchparams.NearObject, moduleParams map[string]interface{},
+	nearObject *searchparams.NearObject, moduleParams map[string]interface{}, hybrid *searchparams.HybridSearch,
 ) float64 {
 	if nearVector != nil {
 		if nearVector.Certainty != 0 {
@@ -285,6 +285,23 @@ func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 			return nearObject.Certainty
 		} else if nearObject.WithDistance {
 			return additional.DistToCertainty(nearObject.Distance)
+		}
+	}
+
+	if hybrid != nil {
+		if hybrid.NearVectorParams != nil {
+			if hybrid.NearVectorParams.Certainty != 0 {
+				return hybrid.NearVectorParams.Certainty
+			} else if hybrid.NearVectorParams.WithDistance {
+				return additional.DistToCertainty(hybrid.NearVectorParams.Distance)
+			}
+		}
+		if hybrid.NearTextParams != nil {
+			if hybrid.NearTextParams.Certainty != 0 {
+				return hybrid.NearTextParams.Certainty
+			} else if hybrid.NearTextParams.WithDistance {
+				return additional.DistToCertainty(hybrid.NearTextParams.Distance)
+			}
 		}
 	}
 

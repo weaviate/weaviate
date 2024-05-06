@@ -21,13 +21,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"golang.org/x/sync/errgroup"
 )
 
 // GetNodeStatus returns the status of all Weaviate nodes.
 func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity string) ([]*models.NodeStatus, error) {
 	nodeStatuses := make([]*models.NodeStatus, len(db.schemaGetter.Nodes()))
-	eg := errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
 	for i, nodeName := range db.schemaGetter.Nodes() {
 		i, nodeName := i, nodeName
@@ -43,7 +42,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 			nodeStatuses[i] = status
 
 			return nil
-		})
+		}, nodeName)
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -169,6 +168,22 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+
+		// Don't force load a lazy shard to get nodes status
+		if lazy, ok := shard.(*LazyLoadShard); ok {
+			if !lazy.isLoaded() {
+				shardStatus := &models.NodeShardStatus{
+					Name:                 name,
+					Class:                shard.Index().Config.ClassName.String(),
+					VectorIndexingStatus: shard.GetStatus().String(),
+					Loaded:               false,
+				}
+				*status = append(*status, shardStatus)
+				shardCount++
+				return nil
+			}
+		}
+
 		objectCount := int64(shard.ObjectCountAsync())
 		totalCount += objectCount
 
@@ -197,10 +212,114 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			VectorIndexingStatus: shard.GetStatus().String(),
 			VectorQueueLength:    queueLen,
 			Compressed:           compressed,
+			Loaded:               true,
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
 		return nil
 	})
 	return
+}
+
+func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {
+	nodeStatistics := make([]*models.Statistics, len(db.schemaGetter.Nodes()))
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
+	eg.SetLimit(_NUMCPU)
+	for i, nodeName := range db.schemaGetter.Nodes() {
+		i, nodeName := i, nodeName
+		eg.Go(func() error {
+			statistics, err := db.getNodeStatistics(ctx, nodeName)
+			if err != nil {
+				return fmt.Errorf("node: %v: %w", nodeName, err)
+			}
+			nodeStatistics[i] = statistics
+
+			return nil
+		}, nodeName)
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	sort.Slice(nodeStatistics, func(i, j int) bool {
+		return nodeStatistics[i].Name < nodeStatistics[j].Name
+	})
+	return nodeStatistics, nil
+}
+
+func (db *DB) IncomingGetNodeStatistics() (*models.Statistics, error) {
+	return db.localNodeStatistics()
+}
+
+func (db *DB) localNodeStatistics() (*models.Statistics, error) {
+	stats := db.schemaGetter.Statistics()
+	var raft *models.RaftStatistics
+	raftStats, ok := stats["raft"].(map[string]string)
+	if ok {
+		raft = &models.RaftStatistics{
+			AppliedIndex:             raftStats["applied_index"],
+			CommitIndex:              raftStats["commit_index"],
+			FsmPending:               raftStats["fsm_pending"],
+			LastContact:              raftStats["last_contact"],
+			LastLogIndex:             raftStats["last_log_index"],
+			LastLogTerm:              raftStats["last_log_term"],
+			LastSnapshotIndex:        raftStats["last_snapshot_index"],
+			LastSnapshotTerm:         raftStats["last_snapshot_term"],
+			LatestConfiguration:      stats["raft_latest_configuration_servers"],
+			LatestConfigurationIndex: raftStats["latest_configuration_index"],
+			NumPeers:                 raftStats["num_peers"],
+			ProtocolVersion:          raftStats["protocol_version"],
+			ProtocolVersionMax:       raftStats["protocol_version_max"],
+			ProtocolVersionMin:       raftStats["protocol_version_min"],
+			SnapshotVersionMax:       raftStats["snapshot_version_max"],
+			SnapshotVersionMin:       raftStats["snapshot_version_min"],
+			State:                    raftStats["state"],
+			Term:                     raftStats["term"],
+		}
+	}
+	status := models.StatisticsStatusHEALTHY
+	if db.schemaGetter.ClusterHealthScore() > 0 {
+		status = models.StatisticsStatusUNHEALTHY
+	}
+	statistics := &models.Statistics{
+		Status:                  &status,
+		Name:                    stats["id"].(string),
+		LeaderAddress:           stats["leader_address"],
+		LeaderID:                stats["leader_id"],
+		Ready:                   stats["ready"].(bool),
+		IsVoter:                 stats["is_voter"].(bool),
+		Open:                    stats["open"].(bool),
+		Bootstrapped:            stats["bootstrapped"].(bool),
+		InitialLastAppliedIndex: stats["initial_last_applied_index"].(uint64),
+		DbLoaded:                stats["db_loaded"].(bool),
+		Candidates:              stats["candidates"],
+		Raft:                    raft,
+	}
+	return statistics, nil
+}
+
+func (db *DB) getNodeStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {
+	if db.schemaGetter.NodeName() == nodeName {
+		return db.localNodeStatistics()
+	}
+	statistics, err := db.remoteNode.GetStatistics(ctx, nodeName)
+	if err != nil {
+		switch typed := err.(type) {
+		case enterrors.ErrSendHttpRequest:
+			if errors.Is(typed.Unwrap(), context.DeadlineExceeded) {
+				nodeTimeout := models.StatisticsStatusTIMEOUT
+				return &models.Statistics{Name: nodeName, Status: &nodeTimeout}, nil
+			}
+
+			nodeUnavailable := models.StatisticsStatusUNAVAILABLE
+			return &models.Statistics{Name: nodeName, Status: &nodeUnavailable}, nil
+		case enterrors.ErrOpenHttpRequest:
+			nodeUnavailable := models.StatisticsStatusUNAVAILABLE
+			return &models.Statistics{Name: nodeName, Status: &nodeUnavailable}, nil
+		default:
+			return nil, err
+		}
+	}
+	return statistics, nil
 }

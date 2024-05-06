@@ -33,14 +33,16 @@ type WeightedSearchResult struct {
 }
 
 type HybridSearch struct {
-	SubSearches     interface{} `json:"subSearches"`
-	Type            string      `json:"type"`
-	Alpha           float64     `json:"alpha"`
-	Query           string      `json:"query"`
-	Vector          []float32   `json:"vector"`
-	Properties      []string    `json:"properties"`
-	TargetVectors   []string    `json:"targetVectors"`
-	FusionAlgorithm int         `json:"fusionalgorithm"`
+	SubSearches      interface{} `json:"subSearches"`
+	Type             string      `json:"type"`
+	Alpha            float64     `json:"alpha"`
+	Query            string      `json:"query"`
+	Vector           []float32   `json:"vector"`
+	Properties       []string    `json:"properties"`
+	TargetVectors    []string    `json:"targetVectors"`
+	FusionAlgorithm  int         `json:"fusionalgorithm"`
+	NearTextParams   *NearTextParams
+	NearVectorParams *NearVector
 }
 
 type NearObject struct {
@@ -65,15 +67,16 @@ type ExploreMove struct {
 }
 
 type NearTextParams struct {
-	Values       []string
-	Limit        int
-	MoveTo       ExploreMove
-	MoveAwayFrom ExploreMove
-	Certainty    float64
-	Distance     float64
-	WithDistance bool
-	Network      bool
-	Autocorrect  bool
+	Values        []string
+	Limit         int
+	MoveTo        ExploreMove
+	MoveAwayFrom  ExploreMove
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	Network       bool
+	Autocorrect   bool
+	TargetVectors []string
 }
 
 type GroupBy struct {
