@@ -402,18 +402,20 @@ func (q *IndexQueue) indexer() {
 			}
 
 			lastPushed := q.lastPushed.Load()
+			var chunksSent int
 			if lastPushed == nil || time.Since(*lastPushed) > time.Second {
 				// send at most 2 times the number of workers in one go,
 				// then wait for the next tick in case more vectors
 				// are added to the queue
-				q.pushToWorkers(2*workerNb, false)
+				chunksSent = q.pushToWorkers(2*workerNb, false)
 			} else {
 				// send only one batch at a time and wait for it to be indexed
 				// to avoid competing for resources with the Push() method.
 				// This ensures the resources are used for queueing vectors in priority,
 				// then for indexing them.
-				q.pushToWorkers(1, true)
+				chunksSent = q.pushToWorkers(1, true)
 			}
+			q.logStats(chunksSent)
 			q.checkCompressionSettings()
 		case <-q.ctx.Done():
 			// stop the ticker
@@ -423,8 +425,12 @@ func (q *IndexQueue) indexer() {
 	}
 }
 
-func (q *IndexQueue) pushToWorkers(max int, wait bool) {
+func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
 	chunks := q.queue.borrowChunks(max)
+	if len(chunks) == 0 {
+		return 0
+	}
+
 	for i, c := range chunks {
 		select {
 		case <-q.ctx.Done():
@@ -433,7 +439,7 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 				q.queue.releaseChunk(c)
 			}
 
-			return
+			return i
 		case q.indexCh <- job{
 			chunk:   c,
 			indexer: q.Index,
@@ -446,6 +452,32 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) {
 	if wait {
 		q.queue.wait(q.ctx)
 	}
+
+	return len(chunks)
+}
+
+func (q *IndexQueue) logStats(chunksSent int) {
+	var ready, indexing int
+	q.queue.fullChunks.Lock()
+	e := q.queue.fullChunks.list.Front()
+	for e != nil {
+		c := e.Value.(*chunk)
+		if !c.borrowed {
+			ready++
+		} else {
+			indexing++
+		}
+		e = e.Next()
+	}
+	q.queue.fullChunks.Unlock()
+
+	qSize := q.Size()
+	q.Logger.
+		WithField("queue_size", qSize).
+		WithField("chunks_sent", chunksSent).
+		WithField("chunks_ready", ready).
+		WithField("chunks_indexing", indexing).
+		Info("queue stats")
 }
 
 // SearchByVector performs the search through the index first, then uses brute force to
