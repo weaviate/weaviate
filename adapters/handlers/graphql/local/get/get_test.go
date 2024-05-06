@@ -502,7 +502,7 @@ func TestExtractAdditionalFields(t *testing.T) {
 			expectedResult: map[string]interface{}{
 				"_additional": map[string]interface{}{
 					"classification": map[string]interface{}{
-						"id":               "12345",
+						"id":               strfmt.UUID("12345"),
 						"basedOn":          []interface{}{"primitiveProp"},
 						"scope":            []interface{}{"refprop1", "refprop2", "refprop3"},
 						"classifiedFields": []interface{}{"refprop3"},
