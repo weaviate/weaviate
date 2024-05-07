@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -27,7 +26,8 @@ type RemoteIncomingRepo interface {
 }
 
 type RemoteIncomingSchema interface {
-	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
+	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
+	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 }
 
 type RemoteIndexIncomingRepo interface {
@@ -190,11 +190,8 @@ func (rri *RemoteReplicaIncoming) indexForIncomingRead(ctx context.Context, inde
 func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, indexName string,
 	schemaVersion uint64,
 ) (RemoteIndexIncomingRepo, *SimpleResponse) {
-	// TODO-RAFT: We can change the wait here to simply wait for a given update to apply, we are only using
-	// `ReadOnlyClassWithVersion` as a utility to wait
-	// wait for schema and store to reach version >= schemaVersion
-	if _, err := rri.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
-		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("could not find class %q in schema: %w", indexName, err)}}}
+	if err := rri.schema.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("error waiting for schema version %d: %w", schemaVersion, err)}}}
 	}
 	index := rri.repo.GetIndexForIncomingReplica(schema.ClassName(indexName))
 	if index == nil {
