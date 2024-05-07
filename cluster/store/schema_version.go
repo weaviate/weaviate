@@ -14,7 +14,9 @@ package store
 import (
 	"context"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -31,6 +33,11 @@ func (s versionedSchema) ClassInfo(ctx context.Context,
 	class string,
 	v uint64,
 ) (ClassInfo, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"ClassInfo"))
+	defer t.ObserveDuration()
+
 	err := s.WaitForUpdate(ctx, v)
 	return s.schema.ClassInfo(class), err
 }
@@ -39,7 +46,11 @@ func (s versionedSchema) MultiTenancy(ctx context.Context,
 	class string,
 	v uint64,
 ) (models.MultiTenancyConfig, error) {
-	// MT is immutable
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"MultiTenancy"))
+	defer t.ObserveDuration()
+
 	if info := s.schema.ClassInfo(class); info.Exists {
 		return info.MultiTenancy, nil
 	}
@@ -53,6 +64,11 @@ func (s versionedSchema) Read(ctx context.Context,
 	reader func(*models.Class,
 		*sharding.State) error,
 ) error {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"Read"))
+	defer t.ObserveDuration()
+
 	if err := s.WaitForUpdate(ctx, v); err != nil {
 		return err
 	}
@@ -66,6 +82,11 @@ func (s versionedSchema) ReadOnlyClass(ctx context.Context,
 	class string,
 	v uint64,
 ) (*models.Class, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"ReadOnlyClass"))
+	defer t.ObserveDuration()
+
 	err := s.WaitForUpdate(ctx, v)
 	cls, _ := s.schema.ReadOnlyClass(class)
 	return cls, err
@@ -76,6 +97,11 @@ func (s versionedSchema) ShardOwner(ctx context.Context,
 	class, shard string,
 	v uint64,
 ) (string, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"ShardOwner"))
+	defer t.ObserveDuration()
+
 	err := s.WaitForUpdate(ctx, v)
 	owner, _, sErr := s.schema.ShardOwner(class, shard)
 	if sErr != nil && err == nil {
@@ -88,6 +114,11 @@ func (s versionedSchema) ShardOwner(ctx context.Context,
 func (s versionedSchema) ShardFromUUID(ctx context.Context,
 	class string, uuid []byte, v uint64,
 ) (string, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"ShardFromUUID"))
+	defer t.ObserveDuration()
+
 	err := s.WaitForUpdate(ctx, v)
 	shard, _ := s.schema.ShardFromUUID(class, uuid)
 	return shard, err
@@ -98,6 +129,11 @@ func (s versionedSchema) ShardReplicas(
 	ctx context.Context, class, shard string,
 	v uint64,
 ) ([]string, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"ShardReplicas"))
+	defer t.ObserveDuration()
+
 	err := s.WaitForUpdate(ctx, v)
 	nodes, _, sErr := s.schema.ShardReplicas(class, shard)
 	if sErr != nil && err == nil {
@@ -110,6 +146,11 @@ func (s versionedSchema) ShardReplicas(
 func (s versionedSchema) TenantsShards(ctx context.Context,
 	v uint64, class string, tenants ...string,
 ) (map[string]string, uint64, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"TenantsShards"))
+	defer t.ObserveDuration()
+
 	err := s.WaitForUpdate(ctx, v)
 	status, version := s.schema.TenantsShards(class, tenants...)
 	return status, version, err
@@ -118,6 +159,11 @@ func (s versionedSchema) TenantsShards(ctx context.Context,
 func (s versionedSchema) CopyShardingState(ctx context.Context,
 	class string, v uint64,
 ) (*sharding.State, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
+			"CopyShardingState"))
+	defer t.ObserveDuration()
+
 	err := s.WaitForUpdate(ctx, v)
 	ss, _ := s.schema.CopyShardingState(class)
 	return ss, err

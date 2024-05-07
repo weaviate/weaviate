@@ -19,10 +19,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/protobuf/proto"
 )
@@ -232,6 +234,12 @@ func (s *Service) StoreSchemaV1() error {
 }
 
 func (s *Service) Execute(req *cmd.ApplyRequest) (uint64, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWrites.WithLabelValues(
+			req.Type.String(),
+		))
+	defer t.ObserveDuration()
+
 	if s.store.IsLeader() {
 		return s.store.Execute(req)
 	}
@@ -485,6 +493,12 @@ func (s *Service) QueryShardingState(class string) (*sharding.State, uint64, err
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
 // If any error happens it returns it
 func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaReadsLeader.WithLabelValues(
+			req.Type.String(),
+		))
+	defer t.ObserveDuration()
+
 	if s.store.IsLeader() {
 		return s.store.Query(req)
 	}
