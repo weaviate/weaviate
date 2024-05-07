@@ -145,7 +145,7 @@ func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNul
 }
 
 func (s *Shard) deleteFromPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
 		docIDBytes := make([]byte, 8)

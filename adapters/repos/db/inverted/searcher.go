@@ -260,9 +260,6 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause, className schema
 	if err != nil {
 		return nil, err
 	}
-	if err != nil {
-		return nil, err
-	}
 
 	if s.onRefProp(property) && len(props) != 1 {
 		return s.extractReferenceFilter(property, filter, class)
@@ -585,8 +582,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 	if len(propValuePairs) == 1 {
 		return propValuePairs[0], nil
 	}
-	return nil, fmt.Errorf("invalid search term, only stopwords provided. " +
-		"Stopwords can be configured in class.invertedIndexConfig.stopwords")
+	return nil, fmt.Errorf("invalid search term, only stopwords provided. Stopwords can be configured in class.invertedIndexConfig.stopwords")
 }
 
 func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.DataType, value interface{}, operator filters.Operator, class *models.Class) (*propValuePair, error) {

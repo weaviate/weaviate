@@ -112,7 +112,7 @@ func TestObjects(t *testing.T) {
 
 	t.Run("run tests", func(t *testing.T) {
 		t.Run("NotEqual", func(t *testing.T) {
-			t.Parallel()
+			//t.Parallel()
 			for _, test := range tests {
 				filter := &filters.LocalFilter{Root: &filters.Clause{
 					Operator: filters.OperatorNotEqual,
