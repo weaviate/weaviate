@@ -38,7 +38,7 @@ func NewParser(cs clusterState, vCfg VectorConfigParser, v validator) *Parser {
 }
 
 func (m *Parser) ParseClass(class *models.Class) error {
-	if class == nil { // TODO-RAFT this might not be needed
+	if class == nil {
 		return fmt.Errorf("class cannot be nil")
 	}
 
