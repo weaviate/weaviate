@@ -29,52 +29,52 @@ func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
 		name                  string
 		input                 []string
-		expectedWcsEmbedModel string
-		wcsEmbedModel         string
+		expectedWeaviateEmbedModel string
+		weaviateEmbedModel         string
 	}
 
 	tests := []testCase{
 		{
 			name:                  "single word",
 			input:                 []string{"hello"},
-			wcsEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
-			expectedWcsEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
+			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
+			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
 			name:                  "multiple words",
 			input:                 []string{"hello world, this is me!"},
-			wcsEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
-			expectedWcsEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
+			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
+			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
 			name:                  "multiple sentences (joined with a dot)",
 			input:                 []string{"this is sentence 1", "and here's number 2"},
-			wcsEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
-			expectedWcsEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
+			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
+			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
 			name:                  "multiple sentences already containing a dot",
 			input:                 []string{"this is sentence 1.", "and here's number 2"},
-			wcsEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
-			expectedWcsEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
+			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
+			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
 			name:                  "multiple sentences already containing a question mark",
 			input:                 []string{"this is sentence 1?", "and here's number 2"},
-			wcsEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
-			expectedWcsEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
+			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
+			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
 			name:                  "multiple sentences already containing an exclamation mark",
 			input:                 []string{"this is sentence 1!", "and here's number 2"},
-			wcsEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
-			expectedWcsEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
+			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
+			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
 			name:                  "multiple sentences already containing comma",
 			input:                 []string{"this is sentence 1,", "and here's number 2"},
-			wcsEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
-			expectedWcsEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
+			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
+			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 	}
 
@@ -85,7 +85,7 @@ func TestVectorizingTexts(t *testing.T) {
 			v := New(client, logger)
 
 			settings := &fakeClassConfig{
-				wcsEmbedModel: test.wcsEmbedModel,
+				weaviateEmbedModel: test.weaviateEmbedModel,
 			}
 			vec, err := v.Texts(context.Background(), test.input, settings)
 
@@ -94,7 +94,7 @@ func TestVectorizingTexts(t *testing.T) {
 			assert.Equal(t, test.input, client.lastInput)
 			conf := ent.NewClassSettings(client.lastConfig)
 
-			assert.Equal(t, test.expectedWcsEmbedModel, conf.Model())
+			assert.Equal(t, test.expectedWeaviateEmbedModel, conf.Model())
 		})
 	}
 }

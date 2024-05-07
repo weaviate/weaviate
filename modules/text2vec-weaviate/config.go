@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modwcsembed
+package modweaviateembed
 
 import (
 	"context"
@@ -22,13 +22,13 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (m *WCSEmbedModule) ClassConfigDefaults() map[string]interface{} {
+func (m *WeaviateEmbedModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
 	}
 }
 
-func (m *WCSEmbedModule) PropertyConfigDefaults(
+func (m *WeaviateEmbedModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{
@@ -37,7 +37,7 @@ func (m *WCSEmbedModule) PropertyConfigDefaults(
 	}
 }
 
-func (m *WCSEmbedModule) ValidateClass(ctx context.Context,
+func (m *WeaviateEmbedModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	settings := ent.NewClassSettings(cfg)

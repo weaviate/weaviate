@@ -13,20 +13,20 @@ package clients
 
 import "fmt"
 
-type wcsEmbedUrlBuilder struct {
+type weaviateEmbedUrlBuilder struct {
 	origin   string
 	pathMask string
 }
 
-func newWCSEmbedUrlBuilder() *wcsEmbedUrlBuilder {
-	return &wcsEmbedUrlBuilder{
+func newWeaviateEmbedUrlBuilder() *weaviateEmbedUrlBuilder {
+	return &weaviateEmbedUrlBuilder{
 		// TODO: replace with https://inference.weaviate.cloud
 		origin:   "https://some.path.to.weaviate.inference",
 		pathMask: "/v1/embeddings/embed",
 	}
 }
 
-func (c *wcsEmbedUrlBuilder) url(baseURL string) string {
+func (c *weaviateEmbedUrlBuilder) url(baseURL string) string {
 	if baseURL != "" {
 		return fmt.Sprintf("%s%s", baseURL, c.pathMask)
 	}

@@ -9,24 +9,24 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modwcsembed
+package modweaviateembed
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
-func (m *WCSEmbedModule) initNearText() error {
+func (m *WeaviateEmbedModule) initNearText() error {
 	m.searcher = nearText.NewSearcher(m.vectorizer)
 	m.graphqlProvider = nearText.New(m.nearTextTransformer)
 	return nil
 }
 
-func (m *WCSEmbedModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+func (m *WeaviateEmbedModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *WCSEmbedModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *WeaviateEmbedModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	return m.searcher.VectorSearches()
 }
 

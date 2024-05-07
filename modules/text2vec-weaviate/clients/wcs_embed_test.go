@@ -36,7 +36,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &wcsEmbedUrlBuilder{
+			urlBuilder: &weaviateEmbedUrlBuilder{
 				origin:   server.URL,
 				pathMask: "/v1/embeddings/embed",
 			},
@@ -59,7 +59,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &wcsEmbedUrlBuilder{
+			urlBuilder: &weaviateEmbedUrlBuilder{
 				origin:   server.URL,
 				pathMask: "/v1/embeddings/embed",
 			},
@@ -83,7 +83,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "apiKey",
 			httpClient: &http.Client{},
-			urlBuilder: &wcsEmbedUrlBuilder{
+			urlBuilder: &weaviateEmbedUrlBuilder{
 				origin:   server.URL,
 				pathMask: "/v1/embeddings/embed",
 			},
@@ -92,7 +92,7 @@ func TestClient(t *testing.T) {
 		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "WCS embed API error: 500 ")
+		assert.Equal(t, err.Error(), "Weaviate embed API error: 500 ")
 	})
 
 	t.Run("when Weaviate Inference key is passed using X-Weaviate-Inference-Key header", func(t *testing.T) {
@@ -101,7 +101,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &wcsEmbedUrlBuilder{
+			urlBuilder: &weaviateEmbedUrlBuilder{
 				origin:   server.URL,
 				pathMask: "/v1/embeddings/embed",
 			},
@@ -127,7 +127,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &wcsEmbedUrlBuilder{
+			urlBuilder: &weaviateEmbedUrlBuilder{
 				origin:   server.URL,
 				pathMask: "/v1/embeddings/embed",
 			},
@@ -150,7 +150,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &wcsEmbedUrlBuilder{
+			urlBuilder: &weaviateEmbedUrlBuilder{
 				origin:   server.URL,
 				pathMask: "/v1/embeddings/embed",
 			},
@@ -167,13 +167,13 @@ func TestClient(t *testing.T) {
 			"nor in environment variable under WEAVIATE_INFERENCE_KEY")
 	})
 
-	t.Run("when X-WCS-BaseURL header is passed", func(t *testing.T) {
+	t.Run("when X-Weaviate-Baseurl header is passed", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &wcsEmbedUrlBuilder{
+			urlBuilder: &weaviateEmbedUrlBuilder{
 				origin:   server.URL,
 				pathMask: "/v1/embeddings/embed",
 			},
@@ -182,12 +182,12 @@ func TestClient(t *testing.T) {
 
 		baseURL := "http://default-url.com"
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-WCS-Baseurl", []string{"http://base-url-passed-in-header.com"})
+			"X-Weaviate-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL := c.getWcsEmbedURL(ctxWithValue, baseURL)
+		buildURL := c.getWeaviateEmbedURL(ctxWithValue, baseURL)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/embeddings/embed", buildURL)
 
-		buildURL = c.getWcsEmbedURL(context.TODO(), baseURL)
+		buildURL = c.getWeaviateEmbedURL(context.TODO(), baseURL)
 		assert.Equal(t, "http://default-url.com/v1/embeddings/embed", buildURL)
 	})
 
@@ -197,7 +197,7 @@ func TestClient(t *testing.T) {
 		c := &vectorizer{
 			apiKey:     "",
 			httpClient: &http.Client{},
-			urlBuilder: &wcsEmbedUrlBuilder{
+			urlBuilder: &weaviateEmbedUrlBuilder{
 				origin:   server.URL,
 				pathMask: "/v1/embeddings/embed",
 			},
@@ -205,7 +205,7 @@ func TestClient(t *testing.T) {
 		}
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-WCS-Ratelimit-RequestPM-Embedding", []string{"50"})
+			"X-Weaviate-Ratelimit-RequestPM-Embedding", []string{"50"})
 
 		rl := c.GetVectorizerRateLimit(ctxWithValue)
 		assert.Equal(t, 50, rl.LimitRequests)

@@ -127,7 +127,7 @@ type fakeClassConfig struct {
 	skippedProperty       string
 	excludedProperty      string
 	// module specific settings
-	wcsEmbedModel string
+	weaviateEmbedModel string
 	truncateType  string
 	baseURL       string
 }
@@ -135,7 +135,7 @@ type fakeClassConfig struct {
 func (f fakeClassConfig) Class() map[string]interface{} {
 	classSettings := map[string]interface{}{
 		"vectorizeClassName": f.vectorizeClassName,
-		"model":              f.wcsEmbedModel,
+		"model":              f.weaviateEmbedModel,
 		"truncate":           f.truncateType,
 		"baseURL":            f.baseURL,
 	}

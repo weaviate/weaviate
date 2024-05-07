@@ -41,7 +41,7 @@ import (
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
-	modwcsembed "github.com/weaviate/weaviate/modules/text2vec-wcs"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -252,8 +252,8 @@ func (d *Compose) WithText2VecHuggingFace() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecWCS() *Compose {
-	d.enableModules = append(d.enableModules, modwcsembed.Name)
+func (d *Compose) WithText2VecWeaviate() *Compose {
+	d.enableModules = append(d.enableModules, modweaviateembed.Name)
 	return d
 }
 

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modwcsembed
+package modweaviateembed
 
 import (
 	"context"
@@ -33,7 +33,7 @@ import (
 
 const Name = "text2vec-weaviate"
 
-type WCSEmbedModule struct {
+type WeaviateEmbedModule struct {
 	vectorizer                   text2vecbase.TextVectorizerBatch
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -43,19 +43,19 @@ type WCSEmbedModule struct {
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
-func New() *WCSEmbedModule {
-	return &WCSEmbedModule{}
+func New() *WeaviateEmbedModule {
+	return &WeaviateEmbedModule{}
 }
 
-func (m *WCSEmbedModule) Name() string {
+func (m *WeaviateEmbedModule) Name() string {
 	return Name
 }
 
-func (m *WCSEmbedModule) Type() modulecapabilities.ModuleType {
+func (m *WeaviateEmbedModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2MultiVec
 }
 
-func (m *WCSEmbedModule) Init(ctx context.Context,
+func (m *WeaviateEmbedModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
@@ -71,7 +71,7 @@ func (m *WCSEmbedModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *WCSEmbedModule) InitExtension(modules []modulecapabilities.Module) error {
+func (m *WeaviateEmbedModule) InitExtension(modules []modulecapabilities.Module) error {
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
@@ -89,7 +89,7 @@ func (m *WCSEmbedModule) InitExtension(modules []modulecapabilities.Module) erro
 	return nil
 }
 
-func (m *WCSEmbedModule) initVectorizer(ctx context.Context, timeout time.Duration,
+func (m *WeaviateEmbedModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("WEAVIATE_INFERENCE_KEY")
@@ -101,43 +101,43 @@ func (m *WCSEmbedModule) initVectorizer(ctx context.Context, timeout time.Durati
 	return nil
 }
 
-func (m *WCSEmbedModule) initAdditionalPropertiesProvider() error {
+func (m *WeaviateEmbedModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
-func (m *WCSEmbedModule) RootHandler() http.Handler {
+func (m *WeaviateEmbedModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *WCSEmbedModule) VectorizeObject(ctx context.Context,
+func (m *WeaviateEmbedModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
-func (m *WCSEmbedModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+func (m *WeaviateEmbedModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
 
 	return vecs, nil, errs
 }
 
-func (m *WCSEmbedModule) MetaInfo() (map[string]interface{}, error) {
+func (m *WeaviateEmbedModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
 
-func (m *WCSEmbedModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *WeaviateEmbedModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 
-func (m *WCSEmbedModule) VectorizeInput(ctx context.Context,
+func (m *WeaviateEmbedModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
-func (m *WCSEmbedModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *WeaviateEmbedModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 

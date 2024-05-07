@@ -22,7 +22,7 @@ import (
 const (
 	// TODO: replace docker internal host with actual host
 	DefaultBaseURL               = "http://host.docker.internal:8000" 
-	DefaultWCSModel              = "mixedbread-ai/mxbai-embed-large-v1"
+	DefaultWeaviateModel              = "mixedbread-ai/mxbai-embed-large-v1"
 	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
@@ -30,7 +30,7 @@ const (
 )
 
 var (
-	availableWCSModels = []string{
+	availableWeaviateModels = []string{
 		"mixedbread-ai/mxbai-embed-large-v1",
 		"intfloat/multilingual-e5-large-instruct",
 		"Snowflake/snowflake-arctic-embed-s",
@@ -48,7 +48,7 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 }
 
 func (cs *classSettings) Model() string {
-	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultWCSModel)
+	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultWeaviateModel)
 }
 
 func (cs *classSettings) Truncate() string {
@@ -65,8 +65,8 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	model := cs.Model()
-	if !basesettings.ValidateSetting[string](model, availableWCSModels) {
-		return errors.Errorf("wrong WCS model name, available model names are: %v", availableWCSModels)
+	if !basesettings.ValidateSetting[string](model, availableWeaviateModels) {
+		return errors.Errorf("wrong Weaviate model name, available model names are: %v", availableWeaviateModels)
 	}
 	truncate := cs.Truncate()
 	if !basesettings.ValidateSetting[string](truncate, availableTruncates) {

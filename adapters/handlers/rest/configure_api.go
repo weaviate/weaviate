@@ -86,7 +86,7 @@ import (
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
-	modwcs "github.com/weaviate/weaviate/modules/text2vec-wcs"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/classification"
@@ -982,11 +982,11 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modwcs.Name]; ok {
-		appState.Modules.Register(modwcs.New())
+	if _, ok := enabledModules[modweaviateembed.Name]; ok {
+		appState.Modules.Register(modweaviateembed.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modwcs.Name).
+			WithField("module", modweaviateembed.Name).
 			Debug("enabled module")
 
 	}

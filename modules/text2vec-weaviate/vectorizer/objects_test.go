@@ -32,11 +32,11 @@ func TestVectorizingObjects(t *testing.T) {
 		name                  string
 		input                 *models.Object
 		expectedClientCall    string
-		expectedWcsEmbedModel string
+		expectedWeaviateEmbedModel string
 		noindex               string
 		excludedProperty      string // to simulate a schema where property names aren't vectorized
 		excludedClass         string // to simulate a schema where class names aren't vectorized
-		wcsEmbedModel         string
+		weaviateEmbedModel         string
 	}
 
 	tests := []testCase{
@@ -45,8 +45,8 @@ func TestVectorizingObjects(t *testing.T) {
 			input: &models.Object{
 				Class: "Car",
 			},
-			wcsEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
-			expectedWcsEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
+			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
+			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 			expectedClientCall:    "car",
 		},
 		{
@@ -184,7 +184,7 @@ func TestVectorizingObjects(t *testing.T) {
 				excludedProperty:      test.excludedProperty,
 				skippedProperty:       test.noindex,
 				vectorizeClassName:    test.excludedClass != "Car",
-				wcsEmbedModel:         test.wcsEmbedModel,
+				weaviateEmbedModel:         test.weaviateEmbedModel,
 				vectorizePropertyName: true,
 			}
 
@@ -197,7 +197,7 @@ func TestVectorizingObjects(t *testing.T) {
 			assert.Equal(t, expected, actual)
 			conf := ent.NewClassSettings(client.lastConfig)
 
-			assert.Equal(t, test.expectedWcsEmbedModel, conf.Model())
+			assert.Equal(t, test.expectedWeaviateEmbedModel, conf.Model())
 		})
 	}
 }

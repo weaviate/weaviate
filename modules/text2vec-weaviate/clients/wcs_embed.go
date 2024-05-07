@@ -58,7 +58,7 @@ type metadata struct {
 type vectorizer struct {
 	apiKey     string
 	httpClient *http.Client
-	urlBuilder *wcsEmbedUrlBuilder
+	urlBuilder *weaviateEmbedUrlBuilder
 	logger     logrus.FieldLogger
 }
 
@@ -68,7 +68,7 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vecto
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		urlBuilder: newWCSEmbedUrlBuilder(),
+		urlBuilder: newWeaviateEmbedUrlBuilder(),
 		logger:     logger,
 	}
 }
@@ -108,7 +108,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	url := v.getWcsEmbedURL(ctx, baseURL)
+	url := v.getWeaviateEmbedURL(ctx, baseURL)
 	req, err := http.NewRequestWithContext(ctx, "POST", url,
 		bytes.NewReader(body))
 	if err != nil {
@@ -116,7 +116,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "WCS embed API key")
+		return nil, errors.Wrap(err, "Weaviate embed API key")
 	}
 
 	req.Header.Set("Authorization", fmt.Sprintf(apiKey))
@@ -134,7 +134,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}
 
 	if res.StatusCode > 200 {
-		errorMessage := getErrorMessage(res.StatusCode, string(bodyBytes), "WCS embed API error: %d %s")
+		errorMessage := getErrorMessage(res.StatusCode, string(bodyBytes), "Weaviate embed API error: %d %s")
 		return nil, errors.Errorf(errorMessage)
 	}
 
@@ -154,9 +154,9 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}, nil
 }
 
-func (v *vectorizer) getWcsEmbedURL(ctx context.Context, baseURL string) string {
+func (v *vectorizer) getWeaviateEmbedURL(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-WCS-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
@@ -171,7 +171,7 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.Class
 }
 
 func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
-	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "WCS", DefaultRPM, 0)
+	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "Weaviate", DefaultRPM, 0)
 
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
