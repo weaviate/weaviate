@@ -40,7 +40,8 @@ case $CONFIG in
 
   local-single-node)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
+      PERSISTENCE_DATA_PATH="./data-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \ 
       ENABLE_MODULES="backup-filesystem" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -57,8 +58,9 @@ case $CONFIG in
   local-development)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      PERSISTENCE_DATA_PATH="./data-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
