@@ -291,15 +291,16 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port              int
-	InternalRPCPort   int
-	RPCMessageMaxSize int
-	Join              []string
-	SnapshotThreshold uint64
-	HeartbeatTimeout  time.Duration
-	RecoveryTimeout   time.Duration
-	ElectionTimeout   time.Duration
-	SnapshotInterval  time.Duration
+	Port                   int
+	InternalRPCPort        int
+	RPCMessageMaxSize      int
+	Join                   []string
+	SnapshotThreshold      uint64
+	HeartbeatTimeout       time.Duration
+	RecoveryTimeout        time.Duration
+	ElectionTimeout        time.Duration
+	SnapshotInterval       time.Duration
+	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
@@ -350,6 +351,18 @@ func (r *Raft) Validate() error {
 
 	if r.BootstrapExpect > len(r.Join) {
 		return fmt.Errorf("raft.bootstrap.expect must be less than or equal to the length of raft.join")
+	}
+
+	if r.SnapshotInterval <= 0 {
+		return fmt.Errorf("raft.bootstrap.snapshot_interval must be more than 0")
+	}
+
+	if r.SnapshotThreshold <= 0 {
+		return fmt.Errorf("raft.bootstrap.snapshot_threshold must be more than 0")
+	}
+
+	if r.ConsistencyWaitTimeout <= 0 {
+		return fmt.Errorf("raft.bootstrap.consistency_wait_timeout must be more than 0")
 	}
 	return nil
 }
