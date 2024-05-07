@@ -624,3 +624,79 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 		})
 	}
 }
+
+func TestVectorFromBinary(t *testing.T) {
+	vector1 := []float32{1, 2, 3}
+	vector2 := []float32{4, 5, 6}
+	vector3 := []float32{7, 8, 9}
+	before := FromObject(
+		&models.Object{
+			Class:              "MyFavoriteClass",
+			CreationTimeUnix:   123456,
+			LastUpdateTimeUnix: 56789,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Additional: models.AdditionalProperties{
+				"classification": &additional.Classification{
+					BasedOn: []string{"some", "fields"},
+				},
+				"interpretation": map[string]interface{}{
+					"Source": []interface{}{
+						map[string]interface{}{
+							"concept":    "foo",
+							"occurrence": float64(7),
+							"weight":     float64(3),
+						},
+					},
+				},
+				"group": &additional.Group{
+					ID: 100,
+					GroupedBy: &additional.GroupedBy{
+						Value: "group-by-some-property",
+						Path:  []string{"property-path"},
+					},
+					MaxDistance: 0.1,
+					MinDistance: 0.2,
+					Count:       200,
+					Hits: []map[string]interface{}{
+						{
+							"property1": "value1",
+							"_additional": &additional.GroupHitAdditional{
+								ID:       "2c76ca18-2073-4c48-aa52-7f444d2f5b80",
+								Distance: 0.24,
+							},
+						},
+						{
+							"property1": "value2",
+						},
+					},
+				},
+			},
+			Properties: map[string]interface{}{
+				"name": "MyName",
+				"foo":  float64(17),
+			},
+		},
+		[]float32{1, 2, 0.7},
+		models.Vectors{
+			"vector1": vector1,
+			"vector2": vector2,
+			"vector3": vector3,
+		},
+	)
+	before.DocID = 7
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(t, err)
+
+	outVector1, err := VectorFromBinary(asBinary, nil, "vector1")
+	require.Nil(t, err)
+	assert.Equal(t, vector1, outVector1)
+
+	outVector2, err := VectorFromBinary(asBinary, nil, "vector2")
+	require.Nil(t, err)
+	assert.Equal(t, vector2, outVector2)
+
+	outVector3, err := VectorFromBinary(asBinary, nil, "vector3")
+	require.Nil(t, err)
+	assert.Equal(t, vector3, outVector3)
+}

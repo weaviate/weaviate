@@ -2438,28 +2438,6 @@ func init() {
         ]
       }
     },
-    "/schema/cluster-status": {
-      "get": {
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.cluster.status",
-        "responses": {
-          "200": {
-            "description": "The schema in the cluster is in sync.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          },
-          "500": {
-            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          }
-        }
-      }
-    },
     "/schema/{className}": {
       "get": {
         "tags": [
@@ -7826,28 +7804,6 @@ func init() {
         "x-serviceIds": [
           "weaviate.local.add.meta"
         ]
-      }
-    },
-    "/schema/cluster-status": {
-      "get": {
-        "tags": [
-          "schema"
-        ],
-        "operationId": "schema.cluster.status",
-        "responses": {
-          "200": {
-            "description": "The schema in the cluster is in sync.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          },
-          "500": {
-            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          }
-        }
       }
     },
     "/schema/{className}": {
