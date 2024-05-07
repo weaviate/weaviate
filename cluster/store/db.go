@@ -58,6 +58,7 @@ func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly
 			updateSchema:          func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
 			updateStore:           func() error { return db.store.AddClass(req) },
 			schemaOnly:            schemaOnly,
+			applyDbUpdateFirst:    true,
 			triggerSchemaCallback: true,
 		},
 	)
@@ -87,6 +88,7 @@ func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schema
 			op:                    cmd.GetType().String(),
 			updateSchema:          func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
 			updateStore:           func() error { return db.store.AddClass(req) },
+			applyDbUpdateFirst:    true,
 			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
