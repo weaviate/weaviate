@@ -228,7 +228,7 @@ func TestBuildBedrockUrl(t *testing.T) {
 	t.Run("When using an AWS model", func(t *testing.T) {
 		model := "amazon.titan-e1t-medium"
 
-		expected := "https://bedrock.us-east-1.amazonaws.com/model/amazon.titan-e1t-medium/invoke"
+		expected := "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.titan-e1t-medium/invoke"
 		result := buildBedrockUrl(service, region, model)
 
 		if result != expected {
