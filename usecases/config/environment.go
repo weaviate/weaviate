@@ -467,6 +467,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	if err := parsePositiveInt(
+		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
+		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
+		10,
+	); err != nil {
+		return cfg, err
+	}
+
 	return cfg, nil
 }
 
