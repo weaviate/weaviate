@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/test/docker"
@@ -339,7 +340,7 @@ func eventualReplicaCRUD(t *testing.T) {
 		createObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
-	t.Run("configure classes to replicate to node 3", func(t *testing.T) {
+	t.Run("configure classes to replicate to node 2 and 3", func(t *testing.T) {
 		ac := helper.GetClass(t, "Article")
 		ac.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 3,
@@ -471,6 +472,23 @@ func eventualReplicaCRUD(t *testing.T) {
 
 			t.Run("RestartNode-2", func(t *testing.T) {
 				startNodeAt(ctx, t, compose, 2)
+			})
+		})
+
+		t.Run("configure classes to decrease replication factor should fail", func(t *testing.T) {
+			ac := helper.GetClass(t, "Article")
+			ac.ReplicationConfig = &models.ReplicationConfig{
+				Factor: 2,
+			}
+
+			params := schema.NewSchemaObjectsUpdateParams().
+				WithObjectClass(ac).WithClassName(ac.Class)
+			resp, err := helper.Client(t).Schema.SchemaObjectsUpdate(params, nil)
+			assert.NotNil(t, err)
+			helper.AssertRequestFail(t, resp, err, func() {
+				errResponse, ok := err.(*schema.SchemaObjectsUpdateUnprocessableEntity)
+				assert.True(t, ok)
+				assert.Equal(t, fmt.Sprintf("scale \"%s\" from 3 replicas to 2: scaling in not supported yet", ac.Class), errResponse.Payload.Error[0].Message)
 			})
 		})
 	})
