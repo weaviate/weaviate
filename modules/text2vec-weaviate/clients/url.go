@@ -20,7 +20,8 @@ type wcsEmbedUrlBuilder struct {
 
 func newWCSEmbedUrlBuilder() *wcsEmbedUrlBuilder {
 	return &wcsEmbedUrlBuilder{
-		origin:   "https://some.path.to.wcs.embed",
+		// TODO: replace with https://inference.weaviate.cloud
+		origin:   "https://some.path.to.weaviate.inference",
 		pathMask: "/v1/embeddings/embed",
 	}
 }

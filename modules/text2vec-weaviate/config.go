@@ -14,7 +14,7 @@ package modwcsembed
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/text2vec-wcs/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"

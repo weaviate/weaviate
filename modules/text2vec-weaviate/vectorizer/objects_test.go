@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/modules/text2vec-wcs/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
 )
 
 // These are mostly copy/pasted (with minimal additions) from the

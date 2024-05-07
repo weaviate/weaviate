@@ -27,7 +27,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-wcs/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
 )
 
 const (
@@ -208,13 +208,13 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-WCS-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Inference-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-WCS-Api-Key " +
-		"nor in environment variable under WCS_APIKEY")
+		"neither in request header: X-Weaviate-Inference-Key " +
+		"nor in environment variable under WEAVIATE_INFERENCE_KEY")
 }

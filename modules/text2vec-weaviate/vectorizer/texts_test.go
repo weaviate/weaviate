@@ -16,7 +16,7 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/weaviate/weaviate/modules/text2vec-wcs/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

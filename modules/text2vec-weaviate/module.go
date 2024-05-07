@@ -17,7 +17,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/modules/text2vec-wcs/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-weaviate/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
@@ -26,12 +26,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-wcs/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-wcs/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-weaviate/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-weaviate/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
-const Name = "text2vec-wcs"
+const Name = "text2vec-weaviate"
 
 type WCSEmbedModule struct {
 	vectorizer                   text2vecbase.TextVectorizerBatch
@@ -92,7 +92,7 @@ func (m *WCSEmbedModule) InitExtension(modules []modulecapabilities.Module) erro
 func (m *WCSEmbedModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("WCS_APIKEY")
+	apiKey := os.Getenv("WEAVIATE_INFERENCE_KEY")
 	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client, m.logger)
