@@ -239,7 +239,7 @@ func asTimeStamp(in string) (int64, error) {
 	return strconv.ParseInt(strings.TrimSuffix(in, ".condensed"), 10, 64)
 }
 
-type condensor interface {
+type Condensor interface {
 	Do(filename string) error
 }
 
@@ -250,7 +250,7 @@ type hnswCommitLogger struct {
 
 	rootPath          string
 	id                string
-	condensor         condensor
+	condensor         Condensor
 	logger            logrus.FieldLogger
 	maxSizeIndividual int64
 	maxSizeCombining  int64
@@ -534,9 +534,9 @@ func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
 					"size":   s.Size(),
 				}).WithError(err).
 					Warnf("skipping hnsw condensing due to memory pressure")
+				return false, nil
 			}
 
-			return false, nil
 		}
 
 		return true, l.condensor.Do(candidate)
