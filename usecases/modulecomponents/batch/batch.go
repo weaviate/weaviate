@@ -179,9 +179,13 @@ func (b *Batch) batchWorker() {
 			timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
 			numRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
 			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
+				b.concurrentBatches.Add(1)
 				jobCopy := job.copy()
 				rateLimit.ReservedRequests += numRequests
 				rateLimit.ReservedTokens += job.tokenSum
+
+				// necessary, because the outer loop can modify these values through b.updateState while the goroutine
+				// is accessing them => race
 				timePerToken := timePerToken
 				numRequests := numRequests
 				enterrors.GoWrapper(func() {
@@ -189,13 +193,13 @@ func (b *Batch) batchWorker() {
 				}, b.logger)
 				break
 			} else if b.concurrentBatches.Load() < 1 {
+				b.concurrentBatches.Add(1)
 				// block so no concurrent batch can be sent
 				b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
 				break
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
-		b.concurrentBatches.Add(1)
 	}
 }
 
