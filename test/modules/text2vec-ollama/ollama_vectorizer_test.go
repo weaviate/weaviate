@@ -49,6 +49,7 @@ func testText2VecOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
 							"properties":         []interface{}{"description"},
 							"vectorizeClassName": false,
 							"apiEndpoint":        ollamaApiEndpoint,
+							"model":              "nomic-embed-text",
 						},
 					},
 					VectorIndexType: "flat",
