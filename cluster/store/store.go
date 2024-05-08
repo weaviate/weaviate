@@ -173,10 +173,8 @@ type Store struct {
 	mutex      sync.Mutex
 	candidates map[string]string
 
-	// initialLastAppliedIndex represents the index of the last applied command when the store is opened.
-	initialLastAppliedIndex uint64
-
-	// lastIndex        atomic.Uint64
+	// lastAppliedIndexOnStart represents the index of the last applied command when the store is opened.
+	lastAppliedIndexOnStart uint64
 
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
@@ -239,7 +237,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 
 	rLog := rLog{st.logStore}
-	st.initialLastAppliedIndex, err = rLog.LastAppliedCommand()
+	st.lastAppliedIndexOnStart, err = rLog.LastAppliedCommand()
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
@@ -252,7 +250,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
-	if st.initialLastAppliedIndex <= st.raft.LastIndex() {
+	if st.lastAppliedIndexOnStart <= st.raft.LastIndex() {
 		// this should include empty and non empty node
 		st.openDatabase(ctx)
 	}
@@ -260,11 +258,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
-		"raft_applied_index":              st.raft.AppliedIndex(),
-		"raft_last_index":                 st.raft.LastIndex(),
-		"initial_store_log_applied_index": st.initialLastAppliedIndex,
-		"last_store_applied_index":        st.lastAppliedIndex.Load(),
-		"last_snapshot_index":             snapshotIndex(st.snapshotStore),
+		"raft_applied_index":           st.raft.AppliedIndex(),
+		"raft_last_index":              st.raft.LastIndex(),
+		"last_store_log_applied_index": st.lastAppliedIndexOnStart,
+		"last_store_applied_index":     st.lastAppliedIndex.Load(),
+		"last_snapshot_index":          snapshotIndex(st.snapshotStore),
 	}).Info("raft node constructed")
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
@@ -540,7 +538,7 @@ func (st *Store) Stats() map[string]any {
 	stats["open"] = st.open.Load()
 	stats["bootstrapped"] = st.bootstrapped.Load()
 	stats["candidates"] = st.candidates
-	stats["initial_last_applied_index"] = st.initialLastAppliedIndex
+	stats["last_store_log_applied_index"] = st.lastAppliedIndexOnStart
 	stats["last_applied_index"] = st.lastAppliedIndex.Load()
 	stats["db_loaded"] = st.dbLoaded.Load()
 
@@ -639,7 +637,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		panic("error proto un-marshalling log data")
 	}
 
-	schemaOnly := l.Index <= st.initialLastAppliedIndex
 	defer func() {
 		st.lastAppliedIndex.Store(l.Index)
 		if ret.Error != nil {
@@ -654,31 +651,31 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	switch cmd.Type {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
-		ret.Error = st.db.AddClass(&cmd, st.nodeID, schemaOnly)
+		ret.Error = st.db.AddClass(&cmd, st.nodeID)
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
-		ret.Error = st.db.RestoreClass(&cmd, st.nodeID, schemaOnly)
+		ret.Error = st.db.RestoreClass(&cmd, st.nodeID)
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
-		ret.Error = st.db.UpdateClass(&cmd, st.nodeID, schemaOnly)
+		ret.Error = st.db.UpdateClass(&cmd, st.nodeID)
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
-		ret.Error = st.db.DeleteClass(&cmd, schemaOnly)
+		ret.Error = st.db.DeleteClass(&cmd)
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
-		ret.Error = st.db.AddProperty(&cmd, schemaOnly)
+		ret.Error = st.db.AddProperty(&cmd)
 
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
-		ret.Error = st.db.UpdateShardStatus(&cmd, schemaOnly)
+		ret.Error = st.db.UpdateShardStatus(&cmd)
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
-		ret.Error = st.db.AddTenants(&cmd, schemaOnly)
+		ret.Error = st.db.AddTenants(&cmd)
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
-		ret.Data, ret.Error = st.db.UpdateTenants(&cmd, schemaOnly)
+		ret.Data, ret.Error = st.db.UpdateTenants(&cmd)
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
-		ret.Error = st.db.DeleteTenants(&cmd, schemaOnly)
+		ret.Error = st.db.DeleteTenants(&cmd)
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		ret.Error = st.StoreSchemaV1()
@@ -874,11 +871,11 @@ func (st *Store) reloadDBFromSnapshot() bool {
 		// the snapshot already includes the state from the raft log
 		snapIndex := snapshotIndex(st.snapshotStore)
 		st.log.WithFields(logrus.Fields{
-			"last_applied_index":         st.lastAppliedIndex.Load(),
-			"initial_last_applied_index": st.initialLastAppliedIndex,
-			"last_snapshot_index":        snapIndex,
+			"last_applied_index":           st.lastAppliedIndex.Load(),
+			"last_store_log_applied_index": st.lastAppliedIndexOnStart,
+			"last_snapshot_index":          snapIndex,
 		}).Info("load local db from snapshot")
-		if st.initialLastAppliedIndex <= snapIndex {
+		if st.lastAppliedIndexOnStart <= snapIndex {
 			st.openDatabase(ctx)
 			return true
 		}
@@ -895,7 +892,7 @@ func (st *Store) reloadDBFromSnapshot() bool {
 	st.db.store.ReloadLocalDB(context.Background(), cs)
 
 	st.dbLoaded.Store(true)
-	st.initialLastAppliedIndex = 0
+	st.lastAppliedIndexOnStart = 0
 	return true
 }
 
