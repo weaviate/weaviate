@@ -244,10 +244,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("read log last command: %w", err)
 	}
 
-	if st.initialLastAppliedIndex == 0 { // empty node
-		st.openDatabase(ctx)
-	}
-
 	st.log.WithFields(logrus.Fields{
 		"name":                 st.nodeID,
 		"metadata_only_voters": st.metadataOnlyVoters,
@@ -256,7 +252,13 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
+	if st.lastAppliedIndex.Load() <= st.raft.AppliedIndex() {
+		// this should include empty and non empty node
+		st.openDatabase(ctx)
+	}
+
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":              st.raft.AppliedIndex(),
 		"raft_last_index":                 st.raft.LastIndex(),
@@ -640,12 +642,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	schemaOnly := l.Index <= st.initialLastAppliedIndex
 	defer func() {
 		st.lastAppliedIndex.Store(l.Index)
-		// If the local db has not been loaded, wait until we reach the state
-		// from the local raft log before loading the db.
-		// This is necessary because the database operations are not idempotent
-		if !st.dbLoaded.Load() && l.Index >= st.initialLastAppliedIndex {
-			st.openDatabase(context.Background())
-		}
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
 				"type":  l.Type,
@@ -868,7 +864,6 @@ func (st *Store) openDatabase(ctx context.Context) {
 // reloadDBFromSnapshot reloads the node's local db. If the db is already loaded, it will be reloaded.
 // If a snapshot exists and its is up to date with the log, it will be loaded.
 // Otherwise, the database will be loaded when the node synchronizes its state with the leader.
-// For more details, see apply() -> loadDatabase().
 //
 // In specific scenarios where the follower's state is too far behind the leader's log,
 // the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
