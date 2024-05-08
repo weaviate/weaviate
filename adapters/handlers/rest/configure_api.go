@@ -266,7 +266,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	rConfig := rStore.Config{
-		WorkDir:                filepath.Join(dataPath, "raft"),
+		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                 nodeName,
 		Host:                   addrs[0],
 		RaftPort:               appState.ServerConfig.Config.Raft.Port,
