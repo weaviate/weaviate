@@ -19,7 +19,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/models"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -105,24 +104,18 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		req.State.SetLocalName(nodeID)
 	}
 
-	var oldClass *models.Class
-	if meta := db.Schema.metaClass(req.Class.Class); meta != nil {
-		oldClass = &meta.Class
-	}
-
-	updatedClass, err := db.parser.ParseClassUpdate(oldClass, req.Class)
-	if err != nil {
-		return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
-	}
-
 	update := func(meta *metaClass) error {
-		meta.Class.VectorIndexConfig = updatedClass.VectorIndexConfig
-		meta.Class.InvertedIndexConfig = updatedClass.InvertedIndexConfig
-		meta.Class.VectorConfig = updatedClass.VectorConfig
+		u, err := db.parser.ParseClassUpdate(&meta.Class, req.Class)
+		if err != nil {
+			return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
+		}
+		meta.Class.VectorIndexConfig = u.VectorIndexConfig
+		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
+		meta.Class.VectorConfig = u.VectorConfig
 		// TODO: fix PushShard issues before enabling scale out
 		//       https://github.com/weaviate/weaviate/issues/4840
 		// meta.Class.ReplicationConfig = u.ReplicationConfig
-		meta.Class.MultiTenancyConfig = updatedClass.MultiTenancyConfig
+		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.ClassVersion = cmd.Version
 		// TODO: fix PushShard issues before enabling scale out
 		//       https://github.com/weaviate/weaviate/issues/4840
@@ -282,10 +275,8 @@ func (db *localDB) apply(op applyOp) error {
 		return fmt.Errorf("%w: %s: %w", errSchema, op.op, err)
 	}
 
-	if !op.schemaOnly {
-		if err := op.updateStore(); err != nil {
-			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
-		}
+	if err := op.updateStore(); err != nil {
+		return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 	}
 
 	// Always trigger the schema callback last
