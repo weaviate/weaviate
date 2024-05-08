@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -104,18 +105,24 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		req.State.SetLocalName(nodeID)
 	}
 
+	var oldClass *models.Class
+	if meta := db.Schema.metaClass(req.Class.Class); meta != nil {
+		oldClass = &meta.Class
+	}
+
+	updatedClass, err := db.parser.ParseClassUpdate(oldClass, req.Class)
+	if err != nil {
+		return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
+	}
+
 	update := func(meta *metaClass) error {
-		u, err := db.parser.ParseClassUpdate(&meta.Class, req.Class)
-		if err != nil {
-			return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
-		}
-		meta.Class.VectorIndexConfig = u.VectorIndexConfig
-		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
-		meta.Class.VectorConfig = u.VectorConfig
+		meta.Class.VectorIndexConfig = updatedClass.VectorIndexConfig
+		meta.Class.InvertedIndexConfig = updatedClass.InvertedIndexConfig
+		meta.Class.VectorConfig = updatedClass.VectorConfig
 		// TODO: fix PushShard issues before enabling scale out
 		//       https://github.com/weaviate/weaviate/issues/4840
 		// meta.Class.ReplicationConfig = u.ReplicationConfig
-		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
+		meta.Class.MultiTenancyConfig = updatedClass.MultiTenancyConfig
 		meta.ClassVersion = cmd.Version
 		// TODO: fix PushShard issues before enabling scale out
 		//       https://github.com/weaviate/weaviate/issues/4840
