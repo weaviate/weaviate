@@ -78,6 +78,22 @@ func Test_AddClass(t *testing.T) {
 		class := models.Class{Class: config.DefaultRaftDir}
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "rAFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "rAfT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "RaFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "RAFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 	})
 
 	t.Run("with default params", func(t *testing.T) {
