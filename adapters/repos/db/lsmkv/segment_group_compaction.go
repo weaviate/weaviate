@@ -483,28 +483,6 @@ func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
 		return true
 	}
 
-	stat, err := os.Stat(left.path)
-	if err != nil {
-		sg.logger.WithField("action", "lsm_compaction_check_size_before_compaction").
-			WithField("path", sg.dir).
-			WithError(err).
-			Error("stat left segment")
-		return false
-	}
-
-	totalSize := stat.Size()
-	stat, err = os.Stat(right.path)
-	if err != nil {
-		sg.logger.WithField("action", "lsm_compaction_check_size_before_compaction").
-			WithField("path", sg.dir).
-			WithError(err).
-			Error("stat left segment")
-		return false
-	}
-
-	totalSize += stat.Size()
-
-	fmt.Printf("estimated compaction size in GB: %f\n", float64(totalSize)/1024/1024/1024)
-
+	totalSize := left.size + right.size
 	return totalSize <= sg.maxSegmentSize
 }
