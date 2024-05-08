@@ -552,41 +552,69 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if len(ko.Vector) > math.MaxUint16 {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(ko.Vector), math.MaxUint16)
+	}
 	vectorLength := uint32(len(ko.Vector))
+
 	className := []byte(ko.Class())
+	if len(className) > math.MaxUint16 {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), math.MaxUint16)
+	}
 	classNameLength := uint32(len(className))
+
 	schema, err := json.Marshal(ko.Properties())
 	if err != nil {
 		return nil, err
 	}
+	if len(schema) > math.MaxUint32 {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), math.MaxUint32)
+	}
 	schemaLength := uint32(len(schema))
+
 	meta, err := json.Marshal(ko.AdditionalProperties())
 	if err != nil {
 		return nil, err
 	}
+	if len(meta) > math.MaxUint32 {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "meta", len(meta), math.MaxUint32)
+	}
 	metaLength := uint32(len(meta))
+
 	vectorWeights, err := json.Marshal(ko.VectorWeights())
 	if err != nil {
 		return nil, err
 	}
+	if len(vectorWeights) > math.MaxUint32 {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vectorWeights", len(vectorWeights), math.MaxUint32)
+	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
 	var targetVectorsOffsets []byte
-	targetVectorsOffsetsLength := uint32(0)
-	targetVectorsSegmentLength := uint32(0)
+	var targetVectorsOffsetsLength uint32
+	var targetVectorsSegmentLength int
 
 	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
 	if len(ko.Vectors) > 0 {
 		offsetsMap := map[string]uint32{}
 		for name, vec := range ko.Vectors {
-			offsetsMap[name] = targetVectorsSegmentLength
-			targetVectorsSegmentLength += 2 + 4*uint32(len(vec)) // 2 for vec length + vec bytes
+			offsetsMap[name] = uint32(targetVectorsSegmentLength)
+			targetVectorsSegmentLength += 2 + 4*len(vec) // 2 for vec length + vec bytes
+
+			if targetVectorsSegmentLength > math.MaxUint32 {
+				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsSegmentLength", targetVectorsSegmentLength, math.MaxUint32)
+			}
+
 			targetVectorsOffsetOrder = append(targetVectorsOffsetOrder, name)
 		}
 
 		targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
 		if err != nil {
-			return nil, fmt.Errorf("Could not marshal target vectors offsets: %w", err)
+			return nil, fmt.Errorf("could not marshal target vectors offsets: %w", err)
+		}
+		if len(targetVectorsOffsets) > math.MaxUint32 {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsOffsets", len(targetVectorsOffsets), math.MaxUint32)
 		}
 		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 	}
@@ -598,7 +626,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		4 + metaLength +
 		4 + vectorWeightsLength +
 		4 + targetVectorsOffsetsLength +
-		4 + targetVectorsSegmentLength
+		4 + uint32(targetVectorsSegmentLength)
 
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
@@ -648,7 +676,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		}
 	}
 
-	rw.WriteUint32(targetVectorsSegmentLength)
+	rw.WriteUint32(uint32(targetVectorsSegmentLength))
 	for _, name := range targetVectorsOffsetOrder {
 		vec := ko.Vectors[name]
 		vecLen := len(vec)
