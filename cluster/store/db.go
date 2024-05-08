@@ -248,19 +248,6 @@ func (db *localDB) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-// Reload updates an already opened local database with the newest schema.
-// It updates existing indexes and adds new ones as necessary
-func (db *localDB) Reload() error {
-	cs := make([]command.UpdateClassRequest, len(db.Schema.Classes))
-	i := 0
-	for _, v := range db.Schema.Classes {
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
-		i++
-	}
-	db.store.ReloadLocalDB(context.Background(), cs)
-	return nil
-}
-
 func (db *localDB) Close(ctx context.Context) (err error) {
 	return db.store.Close(ctx)
 }
