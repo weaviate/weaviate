@@ -767,7 +767,6 @@ func (st *Store) Remove(id string) error {
 // Notify signals this Store that a node is ready for bootstrapping at the specified address.
 // Bootstrapping will be initiated once the number of known nodes reaches the expected level,
 // which includes this node.
-
 func (st *Store) Notify(id, addr string) (err error) {
 	if !st.open.Load() {
 		return ErrNotOpen
@@ -783,9 +782,10 @@ func (st *Store) Notify(id, addr string) (err error) {
 	st.candidates[id] = addr
 	if len(st.candidates) < st.bootstrapExpect {
 		st.log.WithFields(logrus.Fields{
+			"action": "bootstrap",
 			"expect": st.bootstrapExpect,
 			"got":    st.candidates,
-		}).Debug("number of candidates")
+		}).Debug("number of candidates lower than bootstrap expect param, stopping notify")
 		return nil
 	}
 	candidates := make([]raft.Server, 0, len(st.candidates))
@@ -800,11 +800,14 @@ func (st *Store) Notify(id, addr string) (err error) {
 		i++
 	}
 
-	st.log.WithField("candidates", candidates).Info("starting cluster bootstrapping")
+	st.log.WithFields(logrus.Fields{
+		"action":     "bootstrap",
+		"candidates": candidates,
+	}).Info("starting cluster bootstrapping")
 
 	fut := st.raft.BootstrapCluster(raft.Configuration{Servers: candidates})
 	if err := fut.Error(); err != nil {
-		st.log.WithError(err).Error("bootstrapping cluster")
+		st.log.WithField("action", "bootstrap").WithError(err).Error("could not bootstrapping cluster")
 		if !errors.Is(err, raft.ErrCantBootstrap) {
 			return err
 		}

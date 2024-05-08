@@ -32,6 +32,7 @@ func TestBootStrapper(t *testing.T) {
 		voter    bool
 		servers  map[string]int
 		doBefore func(*MockJoiner)
+		isReady  func() bool
 		success  bool
 	}{
 		{
@@ -41,6 +42,7 @@ func TestBootStrapper(t *testing.T) {
 			doBefore: func(m *MockJoiner) {
 				m.On("Join", anything, anything, anything).Return(&cmd.JoinPeerResponse{}, nil)
 			},
+			isReady: func() bool { return false },
 			success: false,
 		},
 		{
@@ -50,6 +52,7 @@ func TestBootStrapper(t *testing.T) {
 			doBefore: func(m *MockJoiner) {
 				m.On("Join", anything, anything, anything).Return(&cmd.JoinPeerResponse{}, nil)
 			},
+			isReady: func() bool { return false },
 			success: true,
 		},
 		{
@@ -63,6 +66,7 @@ func TestBootStrapper(t *testing.T) {
 				m.On("Notify", anything, "S1:1", anything).Return(&cmd.NotifyPeerResponse{}, nil)
 				m.On("Notify", anything, "S2:2", anything).Return(&cmd.NotifyPeerResponse{}, errAny)
 			},
+			isReady: func() bool { return false },
 			success: false,
 		},
 		{
@@ -75,23 +79,35 @@ func TestBootStrapper(t *testing.T) {
 				m.On("Join", anything, "S2:2", anything).Return(&cmd.JoinPeerResponse{Leader: "S3"}, err)
 				m.On("Join", anything, "S3", anything).Return(&cmd.JoinPeerResponse{}, nil)
 			},
+			isReady: func() bool { return false },
 			success: true,
+		},
+		{
+			name:     "exit early on cluster ready",
+			voter:    true,
+			servers:  servers,
+			doBefore: func(m *MockJoiner) {},
+			isReady:  func() bool { return true },
+			success:  true,
 		},
 	}
 	for _, test := range tests {
-		m := &MockJoiner{}
-		b := NewBootstrapper(m, "RID", "ADDR", &MockAddressResolver{func(id string) string { return id }})
-		b.retryPeriod = time.Millisecond
-		b.jitter = time.Millisecond
-		test.doBefore(m)
-		ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
-		err := b.Do(ctx, test.servers, NewMockLogger(t).Logger, test.voter, make(chan struct{}))
-		cancel()
-		if test.success && err != nil {
-			t.Errorf("%s: %v", test.name, err)
-		} else if !test.success && err == nil {
-			t.Errorf("%s: test must fail", test.name)
-		}
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			m := &MockJoiner{}
+			b := NewBootstrapper(m, "RID", "ADDR", &MockAddressResolver{func(id string) string { return id }}, test.isReady)
+			b.retryPeriod = time.Millisecond
+			b.jitter = time.Millisecond
+			test.doBefore(m)
+			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
+			err := b.Do(ctx, test.servers, NewMockLogger(t).Logger, test.voter, make(chan struct{}))
+			cancel()
+			if test.success && err != nil {
+				t.Errorf("%s: %v", test.name, err)
+			} else if !test.success && err == nil {
+				t.Errorf("%s: test must fail", test.name)
+			}
+		})
 	}
 }
 
