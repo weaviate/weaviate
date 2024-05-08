@@ -31,6 +31,7 @@ const (
 	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
 	DefaultRaftBootstrapTimeout = 90
 	DefaultRaftBootstrapExpect  = 1
+	DefaultRaftDir              = "raft"
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
