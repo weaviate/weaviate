@@ -14,6 +14,7 @@ package schema
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -43,7 +44,7 @@ func (m *Parser) ParseClass(class *models.Class) error {
 		return fmt.Errorf("class cannot be nil")
 	}
 
-	if schema.UppercaseClassName(class.Class) == schema.UppercaseClassName(config.DefaultRaftDir) {
+	if strings.EqualFold(class.Class, config.DefaultRaftDir) {
 		return fmt.Errorf("parse class name: %w", fmt.Errorf("class name `raft` is reserved"))
 	}
 
