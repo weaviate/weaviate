@@ -153,7 +153,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.serverError != nil {
-		resp := embeddingsResponse{Message: &errorResponse{Message: "nope, not gonna happen"}}
+		resp := embeddingsResponse{Message: "nope, not gonna happen"}
 		outBytes, err := json.Marshal(resp)
 		require.Nil(f.t, err)
 
