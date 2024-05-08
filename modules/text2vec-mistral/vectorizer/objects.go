@@ -28,7 +28,8 @@ import (
 )
 
 const (
-	MaxObjectsPerBatch = 50 // dummy value
+	MaxObjectsPerBatch = 1000000 // dummy value, there is only a token limit
+	MaxTokensPerBatch  = 16384   // from devs
 	MaxTimePerBatch    = float64(10)
 )
 
@@ -61,7 +62,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 	}
 
 	// there does not seem to be a limit
-	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 16384 }
+	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return MaxTokensPerBatch }
 
 	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger), batchTokenizer)
 }
