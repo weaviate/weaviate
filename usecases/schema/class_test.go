@@ -73,6 +73,29 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "'' is not a valid class name")
 	})
 
+	t.Run("with reserved class name", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		class := models.Class{Class: config.DefaultRaftDir}
+		_, _, err := handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "rAFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "rAfT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "RaFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "RAFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+	})
+
 	t.Run("with default params", func(t *testing.T) {
 		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 		class := models.Class{

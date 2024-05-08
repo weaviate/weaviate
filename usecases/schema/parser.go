@@ -14,12 +14,14 @@ package schema
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/usecases/config"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -40,6 +42,10 @@ func NewParser(cs clusterState, vCfg VectorConfigParser, v validator) *Parser {
 func (m *Parser) ParseClass(class *models.Class) error {
 	if class == nil {
 		return fmt.Errorf("class cannot be nil")
+	}
+
+	if strings.EqualFold(class.Class, config.DefaultRaftDir) {
+		return fmt.Errorf("parse class name: %w", fmt.Errorf("class name `raft` is reserved"))
 	}
 
 	if err := m.parseShardingConfig(class); err != nil {
