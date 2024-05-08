@@ -252,7 +252,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
-	if st.lastAppliedIndex.Load() <= st.raft.AppliedIndex() {
+	if st.initialLastAppliedIndex <= st.raft.LastIndex() {
 		// this should include empty and non empty node
 		st.openDatabase(ctx)
 	}
