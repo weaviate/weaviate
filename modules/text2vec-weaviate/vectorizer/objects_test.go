@@ -29,13 +29,13 @@ func TestVectorizingObjects(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	type testCase struct {
-		name                  string
-		input                 *models.Object
-		expectedClientCall    string
+		name                       string
+		input                      *models.Object
+		expectedClientCall         string
 		expectedWeaviateEmbedModel string
-		noindex               string
-		excludedProperty      string // to simulate a schema where property names aren't vectorized
-		excludedClass         string // to simulate a schema where class names aren't vectorized
+		noindex                    string
+		excludedProperty           string // to simulate a schema where property names aren't vectorized
+		excludedClass              string // to simulate a schema where class names aren't vectorized
 		weaviateEmbedModel         string
 	}
 
@@ -47,7 +47,7 @@ func TestVectorizingObjects(t *testing.T) {
 			},
 			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
 			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
-			expectedClientCall:    "car",
+			expectedClientCall:         "car",
 		},
 		{
 			name: "object with one string prop",
@@ -184,7 +184,7 @@ func TestVectorizingObjects(t *testing.T) {
 				excludedProperty:      test.excludedProperty,
 				skippedProperty:       test.noindex,
 				vectorizeClassName:    test.excludedClass != "Car",
-				weaviateEmbedModel:         test.weaviateEmbedModel,
+				weaviateEmbedModel:    test.weaviateEmbedModel,
 				vectorizePropertyName: true,
 			}
 

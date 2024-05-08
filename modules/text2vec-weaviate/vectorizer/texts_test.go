@@ -27,52 +27,52 @@ func TestVectorizingTexts(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	type testCase struct {
-		name                  string
-		input                 []string
+		name                       string
+		input                      []string
 		expectedWeaviateEmbedModel string
 		weaviateEmbedModel         string
 	}
 
 	tests := []testCase{
 		{
-			name:                  "single word",
-			input:                 []string{"hello"},
+			name:                       "single word",
+			input:                      []string{"hello"},
 			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
 			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
-			name:                  "multiple words",
-			input:                 []string{"hello world, this is me!"},
+			name:                       "multiple words",
+			input:                      []string{"hello world, this is me!"},
 			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
 			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
-			name:                  "multiple sentences (joined with a dot)",
-			input:                 []string{"this is sentence 1", "and here's number 2"},
+			name:                       "multiple sentences (joined with a dot)",
+			input:                      []string{"this is sentence 1", "and here's number 2"},
 			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
 			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
-			name:                  "multiple sentences already containing a dot",
-			input:                 []string{"this is sentence 1.", "and here's number 2"},
+			name:                       "multiple sentences already containing a dot",
+			input:                      []string{"this is sentence 1.", "and here's number 2"},
 			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
 			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
-			name:                  "multiple sentences already containing a question mark",
-			input:                 []string{"this is sentence 1?", "and here's number 2"},
+			name:                       "multiple sentences already containing a question mark",
+			input:                      []string{"this is sentence 1?", "and here's number 2"},
 			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
 			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
-			name:                  "multiple sentences already containing an exclamation mark",
-			input:                 []string{"this is sentence 1!", "and here's number 2"},
+			name:                       "multiple sentences already containing an exclamation mark",
+			input:                      []string{"this is sentence 1!", "and here's number 2"},
 			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
 			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},
 		{
-			name:                  "multiple sentences already containing comma",
-			input:                 []string{"this is sentence 1,", "and here's number 2"},
+			name:                       "multiple sentences already containing comma",
+			input:                      []string{"this is sentence 1,", "and here's number 2"},
 			weaviateEmbedModel:         "mixedbread-ai/mxbai-embed-large-v1",
 			expectedWeaviateEmbedModel: "mixedbread-ai/mxbai-embed-large-v1",
 		},

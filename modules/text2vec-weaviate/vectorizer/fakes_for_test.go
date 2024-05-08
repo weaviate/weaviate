@@ -128,8 +128,8 @@ type fakeClassConfig struct {
 	excludedProperty      string
 	// module specific settings
 	weaviateEmbedModel string
-	truncateType  string
-	baseURL       string
+	truncateType       string
+	baseURL            string
 }
 
 func (f fakeClassConfig) Class() map[string]interface{} {

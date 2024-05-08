@@ -21,8 +21,8 @@ import (
 
 const (
 	// TODO: replace docker internal host with actual host
-	DefaultBaseURL               = "http://host.docker.internal:8000" 
-	DefaultWeaviateModel              = "mixedbread-ai/mxbai-embed-large-v1"
+	DefaultBaseURL               = "http://host.docker.internal:8000"
+	DefaultWeaviateModel         = "mixedbread-ai/mxbai-embed-large-v1"
 	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
