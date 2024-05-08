@@ -49,13 +49,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
-			name: "unsupported model",
+			name: "empty model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"modelId": "MarcinLLM",
+					"modelId": "",
 				},
 			},
-			wantErr: errors.New("wrong Ollama model name, available model names are: [llama3 mistral dolphin-phi phi neural-chat starling-lm codellama llama3:8b llama3:instruct llama3:8b-instruct-q4_0 llama2 llama2-uncensored llama2:13b llama2:70b orca-mini vicuna llava gemma:2b gemma:7b]"),
+			wantErr: errors.New("modelId cannot be empty"),
 		},
 	}
 	for _, tt := range tests {

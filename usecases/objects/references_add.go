@@ -117,6 +117,14 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		}
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &Error{
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Code: StatusInternalServerError,
+			Err:  err,
+		}
+	}
 	if err := m.vectorRepo.AddReference(ctx, source, target, repl, tenant, schemaVersion); err != nil {
 		return &Error{"add reference to repo", StatusInternalServerError, err}
 	}
@@ -158,11 +166,13 @@ func (req *AddReferenceInput) validate(
 		return nil, nil, 0, err
 	}
 
-	class, schemaVersion, err := sm.GetCachedClass(ctx, principal, req.Class)
+	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, nil, 0, err
 	}
-	return ref, class, schemaVersion, validateReferenceSchema(sm, class, req.Property)
+
+	vclass := vclasses[req.Class]
+	return ref, vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 
 func (req *AddReferenceInput) validateExistence(

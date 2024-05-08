@@ -25,8 +25,8 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	var payload []byte
 	var err error
 	switch req.Type {
-	case cmd.QueryRequest_TYPE_GET_CLASS:
-		payload, err = st.QueryReadOnlyClass(req)
+	case cmd.QueryRequest_TYPE_GET_CLASSES:
+		payload, err = st.QueryReadOnlyClasses(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get read only class: %w", err)
 		}
@@ -50,6 +50,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenant shard: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_SHARDING_STATE:
+		payload, err = st.QueryShardingState(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get sharding state: %w", err)
+		}
 
 	default:
 		// This could occur when a new command has been introduced in a later app version
@@ -64,23 +69,22 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	return &cmd.QueryResponse{Payload: payload}, nil
 }
 
-func (st *Store) QueryReadOnlyClass(req *cmd.QueryRequest) ([]byte, error) {
+func (st *Store) QueryReadOnlyClasses(req *cmd.QueryRequest) ([]byte, error) {
 	// Validate that the subcommand is the correct type
-	subCommand := cmd.QueryReadOnlyClassRequest{}
+	subCommand := cmd.QueryReadOnlyClassesRequest{}
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
 	}
 
 	// Read the meta class to get both the class and sharding information
-	class, version := st.db.Schema.ReadOnlyClass(subCommand.Class)
-	if class == nil {
+	vclasses := st.db.Schema.ReadOnlyClasses(subCommand.Classes...)
+	if len(vclasses) == 0 {
 		return []byte{}, nil
 	}
 
 	// Build the response, marshal and return
 	response := cmd.QueryReadOnlyClassResponse{
-		ClassVersion: version,
-		Class:        class,
+		Classes: vclasses,
 	}
 	payload, err := json.Marshal(&response)
 	if err != nil {
@@ -154,6 +158,23 @@ func (st *Store) QueryTenantsShards(req *cmd.QueryRequest) ([]byte, error) {
 	tenants, version := st.db.Schema.TenantsShards(subCommand.Class, subCommand.Tenants...)
 	// Build the response, marshal and return
 	response := cmd.QueryTenantsShardsResponse{TenantsActivityStatus: tenants, SchemaVersion: version}
+	payload, err := json.Marshal(&response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
+func (st *Store) QueryShardingState(req *cmd.QueryRequest) ([]byte, error) {
+	// Validate that the subcommand is the correct type
+	subCommand := cmd.QueryShardingStateRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", errBadRequest, err)
+	}
+
+	state, version := st.db.Schema.CopyShardingState(subCommand.Class)
+	// Build the response, marshal and return
+	response := cmd.QueryShardingStateResponse{State: state, Version: version}
 	payload, err := json.Marshal(&response)
 	if err != nil {
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)

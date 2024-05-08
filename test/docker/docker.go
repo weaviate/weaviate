@@ -71,15 +71,15 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 }
 
 func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
-	if nodeIndex > len(d.containers) {
-		return fmt.Errorf("container at index %d does not exit", nodeIndex)
+	if nodeIndex >= len(d.containers) {
+		return nil
 	}
 	return d.containers[nodeIndex].container.Stop(ctx, timeout)
 }
 
 func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
-	if nodeIndex > len(d.containers) {
-		return fmt.Errorf("container at index %d does not exit", nodeIndex)
+	if nodeIndex >= len(d.containers) {
+		return nil
 	}
 
 	c := d.containers[nodeIndex]
@@ -132,6 +132,10 @@ func (d *DockerCompose) GetSecondWeaviate() *DockerContainer {
 
 func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
 	return d.getContainerByName(Weaviate2)
+}
+
+func (d *DockerCompose) GetWeaviateNode3() *DockerContainer {
+	return d.getContainerByName(Weaviate3)
 }
 
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {

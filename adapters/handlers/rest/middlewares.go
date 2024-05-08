@@ -72,6 +72,8 @@ func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.
 	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.URL.Path == "/v1/cluster/statistics":
+			next.ServeHTTP(w, r)
 		case clusterv1Regexp.MatchString(r.URL.Path):
 			raftRouter.ServeHTTP(w, r)
 		default:

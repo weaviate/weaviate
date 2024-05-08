@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -344,20 +346,29 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		for _, name := range updatesCold {
 			name := name
 			eg.Go(func() error {
-				idx.shardCreateLocks.Lock(name)
-				defer idx.shardCreateLocks.Unlock(name)
+				shard := func() ShardLike {
+					idx.shardInUseLocks.Lock(name)
+					defer idx.shardInUseLocks.Unlock(name)
 
-				shard, ok := idx.shards.Swap(name, nil) // swap shard for nil
-				idx.shards.LoadAndDelete(name)          // then remove entry
+					return idx.shards.Load(name)
+				}()
 
-				if !ok || shard == nil {
+				if shard == nil {
 					return nil // shard already does not exist or inactive
 				}
 
+				idx.shardCreateLocks.Lock(name)
+				defer idx.shardCreateLocks.Unlock(name)
+
+				idx.shards.LoadAndDelete(name)
+
 				if err := shard.Shutdown(ctx); err != nil {
-					ec.Add(err)
-					idx.logger.WithField("action", "shutdown_shard").
-						WithField("shard", shard.ID()).Error(err)
+					if !errors.Is(err, errAlreadyShutdown) {
+						ec.Add(err)
+						idx.logger.WithField("action", "shutdown_shard").
+							WithField("shard", shard.ID()).Error(err)
+					}
+					m.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
 				}
 				return nil
 			})
@@ -405,10 +416,12 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	// to check, we can always use that an hnsw-specific validation should be
 	// used for now.
 	switch old.IndexType() {
-	case "hnsw":
+	case vectorindex.VectorIndexTypeHNSW:
 		return hnsw.ValidateUserConfigUpdate(old, updated)
-	case "flat":
+	case vectorindex.VectorIndexTypeFLAT:
 		return flat.ValidateUserConfigUpdate(old, updated)
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		return dynamic.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
@@ -740,6 +753,11 @@ func (m *Migrator) WaitForStartup(ctx context.Context) error {
 	return m.db.WaitForStartup(ctx)
 }
 
+// Shutdown no-op if db was never loaded
 func (m *Migrator) Shutdown(ctx context.Context) error {
+	if !m.db.StartupComplete() {
+		return nil
+	}
+	m.logger.Info("closing loaded database ...")
 	return m.db.Shutdown(ctx)
 }

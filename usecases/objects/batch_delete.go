@@ -82,6 +82,10 @@ func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Prin
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
 	result, err := b.vectorRepo.BatchDeleteObjects(ctx, *params, repl, tenant, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete objects: %w", err)
@@ -122,10 +126,12 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 
 	// Validate schema given in body with the weaviate schema
-	class, schemaVersion, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
-	if err != nil || class == nil {
+	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
+	if err != nil || vclasses[match.Class].Class == nil {
 		return nil, 0, fmt.Errorf("failed to get class: %s, with err=%v", match.Class, err)
 	}
+
+	class := vclasses[match.Class].Class
 
 	filter, err := filterext.Parse(match.Where, class.Class)
 	if err != nil {
@@ -153,5 +159,5 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		DryRun:    dryRunParam,
 		Output:    outputParam,
 	}
-	return params, schemaVersion, nil
+	return params, vclasses[match.Class].Version, nil
 }

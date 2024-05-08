@@ -15,12 +15,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"google.golang.org/protobuf/proto"
 )
@@ -230,6 +234,12 @@ func (s *Service) StoreSchemaV1() error {
 }
 
 func (s *Service) Execute(req *cmd.ApplyRequest) (uint64, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaWrites.WithLabelValues(
+			req.Type.String(),
+		))
+	defer t.ObserveDuration()
+
 	if s.store.IsLeader() {
 		return s.store.Execute(req)
 	}
@@ -293,46 +303,57 @@ func (s *Service) LeaderWithID() (string, string) {
 	return string(addr), string(id)
 }
 
-func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration) error {
-	return s.store.WaitToRestoreDB(ctx, period)
+func (s *Service) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
+	return s.store.WaitToRestoreDB(ctx, period, close)
 }
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
-func (s *Service) QueryReadOnlyClass(class string) (*models.Class, uint64, error) {
-	if class == "" {
-		return &models.Class{}, 0, fmt.Errorf("empty class name: %w", errBadRequest)
+func (s *Service) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	if len(classes) == 0 {
+		return nil, fmt.Errorf("empty classes names: %w", errBadRequest)
+	}
+
+	// remove dedup and empty
+	slices.Sort(classes)
+	classes = slices.Compact(classes)
+	if len(classes) == 0 {
+		return map[string]versioned.Class{}, fmt.Errorf("empty classes names: %w", errBadRequest)
+	}
+
+	if len(classes) > 1 && classes[0] == "" {
+		classes = classes[1:]
 	}
 
 	// Build the query and execute it
-	req := cmd.QueryReadOnlyClassRequest{Class: class}
+	req := cmd.QueryReadOnlyClassesRequest{Classes: classes}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return &models.Class{}, 0, fmt.Errorf("marshal request: %w", err)
+		return map[string]versioned.Class{}, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
-		Type:       cmd.QueryRequest_TYPE_GET_CLASS,
+		Type:       cmd.QueryRequest_TYPE_GET_CLASSES,
 		SubCommand: subCommand,
 	}
 	queryResp, err := s.Query(context.Background(), command)
 	if err != nil {
-		return &models.Class{}, 0, fmt.Errorf("failed to execute query: %w", err)
+		return map[string]versioned.Class{}, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Empty payload doesn't unmarshal to an empty struct and will instead result in an error.
 	// We have an empty payload when the requested class if not present in the schema.
 	// In that case return a nil pointer and no error.
 	if len(queryResp.Payload) == 0 {
-		return nil, 0, nil
+		return nil, nil
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryReadOnlyClassResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return &models.Class{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return map[string]versioned.Class{}, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
-	return resp.Class, resp.ClassVersion, nil
+	return resp.Classes, nil
 }
 
 // QuerySchema build a Query to read the schema that will be directed to the leader to ensure we will read the class
@@ -411,7 +432,7 @@ func (s *Service) QueryShardOwner(class, shard string) (string, uint64, error) {
 	return resp.Owner, resp.ShardVersion, nil
 }
 
-// QueryShardOwner build a Query to read the tenant and activity status  of a given class and tenant pair.
+// QueryTenantsShards build a Query to read the tenants and their activity status of a given class.
 // The request will be directed to the leader to ensure we  will read the tenant with strong consistency and return the
 // shard owner node
 func (s *Service) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
@@ -440,9 +461,44 @@ func (s *Service) QueryTenantsShards(class string, tenants ...string) (map[strin
 	return resp.TenantsActivityStatus, resp.SchemaVersion, nil
 }
 
+// QueryShardingState build a Query to read the sharding state of a given class.
+// The request will be directed to the leader to ensure we  will read the shard state with strong consistency and return the
+// state and it's version.
+func (s *Service) QueryShardingState(class string) (*sharding.State, uint64, error) {
+	// Build the query and execute it
+	req := cmd.QueryShardingStateRequest{Class: class}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_SHARDING_STATE,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	// Unmarshal the response
+	resp := cmd.QueryShardingStateResponse{}
+	err = json.Unmarshal(queryResp.Payload, &resp)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return resp.State, resp.Version, nil
+}
+
 // Query receives a QueryRequest and ensure it is executed on the leader and returns the related QueryResponse
 // If any error happens it returns it
 func (s *Service) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+	t := prometheus.NewTimer(
+		monitoring.GetMetrics().SchemaReadsLeader.WithLabelValues(
+			req.Type.String(),
+		))
+	defer t.ObserveDuration()
+
 	if s.store.IsLeader() {
 		return s.store.Query(req)
 	}

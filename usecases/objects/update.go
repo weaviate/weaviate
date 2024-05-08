@@ -96,12 +96,13 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}
 
-	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
+	vclass := vclasses[className]
+	err = m.modulesProvider.UpdateVector(ctx, updates, vclass.Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}

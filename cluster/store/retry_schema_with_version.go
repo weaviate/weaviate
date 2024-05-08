@@ -18,6 +18,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+func (rs retrySchema) WaitForUpdate(ctx context.Context, version uint64) error {
+	if version > 0 {
+		return rs.versionedSchema.WaitForUpdate(ctx, version)
+	}
+	return nil
+}
+
 func (rs retrySchema) ClassInfoWithVersion(ctx context.Context, class string, version uint64) (ci ClassInfo, err error) {
 	if version > 0 {
 		return rs.versionedSchema.ClassInfo(ctx, class, version)

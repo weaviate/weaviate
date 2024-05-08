@@ -28,6 +28,7 @@ import (
 const (
 	DefaultRaftPort             = 8300
 	DefaultRaftInternalPort     = 8301
+	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
 	DefaultRaftBootstrapTimeout = 90
 	DefaultRaftBootstrapExpect  = 1
 )
@@ -168,6 +169,8 @@ func FromEnv(config *Config) error {
 			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
 		}
 	}
+
+	config.Profiling.Disabled = configbase.Enabled(os.Getenv("DISABLE_GO_PROFILING"))
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -391,6 +394,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_INTERNAL_RPC_PORT",
 		func(val int) { cfg.InternalRPCPort = val },
 		DefaultRaftInternalPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_GRPC_MESSAGE_MAX_SIZE",
+		func(val int) { cfg.RPCMessageMaxSize = val },
+		DefaultRaftGRPCMaxSize,
 	); err != nil {
 		return cfg, err
 	}

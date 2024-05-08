@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -36,7 +35,6 @@ type Manager struct {
 	logger       logrus.FieldLogger
 	Authorizer   authorizer
 	config       config.Config
-	cluster      *cluster.TxManager
 	clusterState clusterState
 
 	sync.RWMutex
@@ -59,10 +57,12 @@ type SchemaGetter interface {
 	NodeName() string
 	ClusterHealthScore() int
 	ResolveParentNodes(string, string) (map[string]string, error)
+	Statistics() map[string]any
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
 	TenantsShards(class string, tenants ...string) (map[string]string, error)
+	OptimisticTenantStatus(class string, tenants string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }
@@ -214,7 +214,6 @@ func NewManager(validator validator,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	txClient cluster.Client, txPersistence cluster.Persistence,
 	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	handler, err := NewHandler(
@@ -237,10 +236,6 @@ func NewManager(validator validator,
 	}
 
 	return m, nil
-}
-
-func (m *Manager) TxManager() *cluster.TxManager {
-	return m.cluster
 }
 
 type authorizer interface {
@@ -357,6 +352,58 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 	tenants = slices.Compact(tenants)
 	status, _, err := m.metaWriter.QueryTenantsShards(class, tenants...)
 	return status, err
+}
+
+// OptimisticTenantStatus tries to query the local state first. It is
+// optimistic that the state has already propagated correctly. If the state is
+// unexpected, i.e. either the tenant is not found at all or the status is
+// COLD, it will double-check with the leader.
+//
+// This way we accept false positives (for HOT tenants), but guarantee that there will never be
+// false negatives (i.e. tenants labelled as COLD that the leader thinks should
+// be HOT).
+//
+// This means:
+//
+//   - If a tenant is HOT locally (true positive), we proceed normally
+//   - If a tenant is HOT locally, but should be COLD (false positive), we still
+//     proceed. This is a conscious decision to keep the happy path free from
+//     (expensive) leader lookups.
+//   - If a tenant is not found locally, we assume it was recently created, but
+//     the state hasn't propagated yet. To verify, we check with the leader.
+//   - If a tenant is found locally, but is marked as COLD, we assume it was
+//     recently turned HOT, but the state hasn't propagated yet. To verify, we
+//     check with the leader
+//
+// Overall, we keep the (very common) happy path, free from expensive
+// leader-lookups and only fall back to the leader if the local result implies
+// an unhappy path.
+func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	var foundTenant bool
+	var status string
+	err := m.metaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
+		t, ok := ss.Physical[tenant]
+		if !ok {
+			return nil
+		}
+
+		foundTenant = true
+		status = t.Status
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if !foundTenant || status != models.TenantActivityStatusHOT {
+		// either no state at all or state does not imply happy path -> delegate to
+		// leader
+		return m.TenantsShards(class, tenant)
+	}
+
+	return map[string]string{
+		tenant: status,
+	}, nil
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {

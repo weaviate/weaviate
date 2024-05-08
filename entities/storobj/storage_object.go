@@ -851,7 +851,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 	return nil, nil
 }
 
-func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
+func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float32, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -859,6 +859,36 @@ func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
 	version := in[0]
 	if version != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", version)
+	}
+
+	if targetVector != "" {
+		startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
+		rw := byteops.NewReadWriter(in, byteops.WithPosition(startPos))
+
+		vectorLength := uint64(rw.ReadUint16())
+		rw.MoveBufferPositionForward(vectorLength * 4)
+
+		classnameLength := uint64(rw.ReadUint16())
+		rw.MoveBufferPositionForward(classnameLength)
+
+		schemaLength := uint64(rw.ReadUint32())
+		rw.MoveBufferPositionForward(schemaLength)
+
+		metaLength := uint64(rw.ReadUint32())
+		rw.MoveBufferPositionForward(metaLength)
+
+		vectorWeightsLength := uint64(rw.ReadUint32())
+		rw.MoveBufferPositionForward(vectorWeightsLength)
+
+		targetVectors, err := unmarshalTargetVectors(&rw)
+		if err != nil {
+			return nil, errors.Errorf("unable to unmarshal vector for target vector: %s", targetVector)
+		}
+		vector, ok := targetVectors[targetVector]
+		if !ok {
+			return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
+		}
+		return vector, nil
 	}
 
 	// since we know the version and know that the blob is not len(0), we can

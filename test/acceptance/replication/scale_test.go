@@ -28,17 +28,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// Note: Scaling out feature disabled
-// Reason: The current implementation of scaling out is experimental and deemed unreliable.
-// It has been disabled to prevent potential issues and ensure system stability.
-// Re-enable this feature only after addressing its reliability concerns and implementing a more robust solution.
 func multiShardScaleOut(t *testing.T) {
-	t.Skip("Re-enable this feature only after addressing its reliability concerns and implementing a more robust solution.")
+	t.Skip("Skip until https://github.com/weaviate/weaviate/issues/4840 is resolved")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)

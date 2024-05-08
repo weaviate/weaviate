@@ -38,20 +38,22 @@ type executor interface {
 }
 
 type Service struct {
-	members    members
-	executor   executor
-	address    string
-	ln         net.Listener
-	grpcServer *grpc.Server
-	log        *logrus.Logger
+	members            members
+	executor           executor
+	address            string
+	ln                 net.Listener
+	grpcServer         *grpc.Server
+	grpcMessageMaxSize int
+	log                *logrus.Logger
 }
 
-func New(ms members, ex executor, address string, l *logrus.Logger) *Service {
+func New(ms members, ex executor, address string, l *logrus.Logger, grpcMessageMaxSize int) *Service {
 	return &Service{
-		members:  ms,
-		executor: ex,
-		address:  address,
-		log:      l,
+		members:            ms,
+		executor:           ex,
+		address:            address,
+		log:                l,
+		grpcMessageMaxSize: grpcMessageMaxSize,
 	}
 }
 
@@ -108,7 +110,9 @@ func (s *Service) Open() error {
 	}
 
 	s.ln = ln
-	s.grpcServer = grpc.NewServer()
+	s.grpcServer = grpc.NewServer(
+		grpc.MaxRecvMsgSize(s.grpcMessageMaxSize),
+	)
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
 	go func() {
 		if err := s.grpcServer.Serve(s.ln); err != nil {

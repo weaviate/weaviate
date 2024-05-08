@@ -74,7 +74,7 @@ func TestServiceEndpoints(t *testing.T) {
 	func() {
 		ctx, cancel := context.WithTimeout(ctx, time.Millisecond*30)
 		defer cancel()
-		assert.ErrorIs(t, srv.WaitUntilDBRestored(ctx, 5*time.Millisecond), context.DeadlineExceeded)
+		assert.ErrorIs(t, srv.WaitUntilDBRestored(ctx, 5*time.Millisecond, make(chan struct{})), context.DeadlineExceeded)
 	}()
 
 	// Open
@@ -88,7 +88,7 @@ func TestServiceEndpoints(t *testing.T) {
 	// Connect
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 
-	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	assert.True(t, srv.store.IsLeader())
@@ -119,16 +119,16 @@ func TestServiceEndpoints(t *testing.T) {
 	assert.ErrorIs(t, err, errClassExists)
 
 	// QueryReadOnlyClass
-	readOnlyClass, _, err := srv.QueryReadOnlyClass(cls.Class)
+	readOnlyVClass, err := srv.QueryReadOnlyClasses(cls.Class)
 	assert.NoError(t, err)
-	assert.NotNil(t, readOnlyClass)
-	assert.Equal(t, cls, readOnlyClass)
+	assert.NotNil(t, readOnlyVClass[cls.Class].Class)
+	assert.Equal(t, cls, readOnlyVClass[cls.Class].Class)
 
 	// QuerySchema
 	getSchema, err := srv.QuerySchema()
 	assert.NoError(t, err)
 	assert.NotNil(t, getSchema)
-	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyClass}}, getSchema)
+	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyVClass[cls.Class].Class}}, getSchema)
 
 	// QueryTenants all
 	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
@@ -172,6 +172,12 @@ func TestServiceEndpoints(t *testing.T) {
 	getShardOwner, _, err := srv.QueryShardOwner(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
+
+	// QueryShardingState
+	mc.Sharding = sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}}
+	getShardingState, _, err := srv.QueryShardingState(cls.Class)
+	assert.Nil(t, err)
+	assert.Equal(t, &mc.Sharding, getShardingState)
 
 	// UpdateClass
 	info := ClassInfo{
@@ -232,7 +238,8 @@ func TestServiceEndpoints(t *testing.T) {
 	_, err = srv.AddTenants("", &command.AddTenantsRequest{})
 	assert.ErrorIs(t, err, errBadRequest)
 	version, err = srv.AddTenants("C", &command.AddTenantsRequest{
-		Tenants: []*command.Tenant{nil, {Name: "T2", Status: "S1"}, nil},
+		ClusterNodes: []string{"Node-1"},
+		Tenants:      []*command.Tenant{nil, {Name: "T2", Status: "S1"}, nil},
 	})
 	assert.Nil(t, err)
 	info.ShardVersion = version
@@ -295,7 +302,7 @@ func TestServiceEndpoints(t *testing.T) {
 	srv = NewService(m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
-	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1))
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	tryNTimesWithWait(20, time.Millisecond*100, srv.store.IsLeader)
 	clInfo := srv.store.db.Schema.ClassInfo("C")
@@ -342,6 +349,27 @@ func TestServiceStoreInit(t *testing.T) {
 	assert.Nil(t, store.Notify("A", "localhost:123"))
 }
 
+func TestServiceClose(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
+	s := New(m.cfg)
+	m.store = &s
+	srv := NewService(m.store, nil)
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	assert.Nil(t, srv.Open(ctx, m.indexer))
+	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
+	close := make(chan struct{})
+	go func() {
+		time.Sleep(time.Second)
+		close <- struct{}{}
+	}()
+	now := time.Now()
+	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*10, close))
+	after := time.Now()
+	assert.Less(t, after.Sub(now), 2*time.Second)
+}
+
 func TestServicePanics(t *testing.T) {
 	m := NewMockStore(t, "Node-1", 9091)
 
@@ -369,7 +397,7 @@ func TestStoreApply(t *testing.T) {
 		m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	}
 
-	cls := &models.Class{Class: "C1"}
+	cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
 	ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
 		Name:           "T1",
 		BelongsToNodes: []string{"THIS"},
@@ -626,7 +654,8 @@ func TestStoreApply(t *testing.T) {
 		{
 			name: "AddTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_TENANT, nil, &cmd.AddTenantsRequest{
-				Tenants: []*command.Tenant{nil, {Name: "T1"}, nil},
+				ClusterNodes: []string{"THIS"},
+				Tenants:      []*command.Tenant{nil, {Name: "T1"}, nil},
 			})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
@@ -659,7 +688,7 @@ func TestStoreApply(t *testing.T) {
 			name: "UpdateTenant/NoFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 				}})},
 			resp: Response{Error: errSchema},
 			doBefore: func(m *MockStore) {
@@ -672,9 +701,9 @@ func TestStoreApply(t *testing.T) {
 			name: "UpdateTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*command.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
-					{Name: "T2", Status: models.TenantActivityStatusCOLD, Nodes: []string{"THIS"}},
-					{Name: "T3", Status: models.TenantActivityStatusCOLD, Nodes: []string{"NODE-2"}},
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
+					{Name: "T2", Status: models.TenantActivityStatusCOLD},
+					{Name: "T3", Status: models.TenantActivityStatusCOLD},
 				}})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {

@@ -44,8 +44,6 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 	}
 	defer unlock()
 
-	ctx = classcache.ContextWithClassCache(ctx)
-
 	b.metrics.BatchRefInc()
 	defer b.metrics.BatchRefDec()
 
@@ -82,6 +80,10 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 		}
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := b.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+	}
 	if res, err := b.vectorRepo.AddBatchReferences(ctx, batchReferences, repl, schemaVersion); err != nil {
 		return nil, NewErrInternal("could not add batch request to connector: %v", err)
 	} else {
@@ -248,15 +250,19 @@ func getReferenceClasses(ctx context.Context,
 		return
 	}
 
-	sourceClass, schemaVersion, err = schemaManager.GetCachedClass(ctx, principal, classFrom)
+	vclasses, err := schemaManager.GetCachedClass(ctx, principal, classFrom)
 	if err != nil {
 		err = fmt.Errorf("get source class %q: %w", classFrom, err)
 		return
 	}
-	if sourceClass == nil {
+	if vclasses[classFrom].Class == nil {
 		err = fmt.Errorf("source class %q not found in schema", classFrom)
 		return
 	}
+
+	sourceClass = vclasses[classFrom].Class
+	schemaVersion = vclasses[classFrom].Version
+
 	// we can auto-detect the to class from the schema if it is a single target reference
 	if classTo == "" {
 		refProp, err2 := schema.GetPropertyByName(sourceClass, fromProperty)

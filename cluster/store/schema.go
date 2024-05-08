@@ -20,6 +20,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -103,6 +104,28 @@ func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
 		return nil, 0
 	}
 	return meta.CloneClass(), meta.ClassVersion
+}
+
+// ReadOnlyClass returns a shallow copy of a class.
+// The copy is read-only and should not be modified.
+func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
+	if len(classes) == 0 {
+		return nil
+	}
+
+	vclasses := make(map[string]versioned.Class, len(classes))
+	s.RLock()
+	defer s.RUnlock()
+
+	for _, class := range classes {
+		meta := s.Classes[class]
+		if meta == nil {
+			continue
+		}
+		vclasses[class] = versioned.Class{Class: meta.CloneClass(), Version: meta.ClassVersion}
+	}
+
+	return vclasses
 }
 
 // ReadOnlySchema returns a read only schema
@@ -200,6 +223,20 @@ func (s *schema) len() int {
 	return len(s.Classes)
 }
 
+func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo, error) {
+	s.Lock()
+	defer s.Unlock()
+	meta := s.Classes[class]
+	info := s.Classes[class].ClassInfo()
+	if meta == nil {
+		return false, nil, ClassInfo{}, errClassNotFound
+	}
+	if !info.MultiTenancy.Enabled {
+		return false, nil, ClassInfo{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+	return true, meta, info, nil
+}
+
 func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error {
 	s.Lock()
 	defer s.Unlock()
@@ -243,56 +280,34 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
-	s.Lock()
-	defer s.Unlock()
 
-	meta := s.Classes[class]
-	if meta == nil {
-		return errClassNotFound
+	if ok, meta, info, err := s.multiTenancyEnabled(class); !ok {
+		return err
+	} else {
+		return meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
 	}
-
-	return meta.AddTenants(s.nodeID, req, v)
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
-	s.Lock()
-	defer s.Unlock()
-
-	meta := s.Classes[class]
-	if meta == nil {
-		return errClassNotFound
+	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+		return err
+	} else {
+		return meta.DeleteTenants(req, v)
 	}
-
-	return meta.DeleteTenants(req, v)
 }
 
 func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) (n int, err error) {
-	s.Lock()
-	defer s.Unlock()
-
-	meta := s.Classes[class]
-	if meta == nil {
-		return 0, errClassNotFound
+	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+		return 0, err
+	} else {
+		return meta.UpdateTenants(s.nodeID, req, v)
 	}
-
-	return meta.UpdateTenants(s.nodeID, req, v)
 }
 
 func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
-	s.RLock()
-	// To avoid races between checking that multi tenancy is enabled and reading from the class itself,
-	// ensure we fetch both using the same lock.
-	// We will then read the tenants from the class using the more specific meta lock
-	info := s.Classes[class].ClassInfo()
-	meta := s.Classes[class]
-	s.RUnlock()
-
-	// Check that the class exists, and that multi tenancy is enabled
-	if meta == nil {
-		return []*models.Tenant{}, errClassNotFound
-	}
-	if !info.MultiTenancy.Enabled {
-		return []*models.Tenant{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
+		return nil, err
 	}
 
 	// Read tenants using the meta lock guard

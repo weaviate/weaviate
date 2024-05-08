@@ -125,6 +125,14 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 		mergeDoc.AdditionalProperties = objWithVec.Additional
 	}
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &Error{
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Code: StatusInternalServerError,
+			Err:  err,
+		}
+	}
 	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, schemaVersion); err != nil {
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
@@ -150,10 +158,12 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	principal *models.Principal, prevVec, nextVec []float32,
 	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
 ) (*models.Object, error) {
-	class, _, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}
+	vclass := vclasses[className]
+	class := vclass.Class
 
 	var mergedProps map[string]interface{}
 

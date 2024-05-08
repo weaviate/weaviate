@@ -96,11 +96,12 @@ type Parser interface {
 }
 
 type Config struct {
-	WorkDir  string // raft working directory
-	NodeID   string
-	Host     string
-	RaftPort int
-	RPCPort  int
+	WorkDir               string // raft working directory
+	NodeID                string
+	Host                  string
+	RaftPort              int
+	RPCPort               int
+	RaftRPCMessageMaxSize int
 
 	// ServerName2PortMap maps server names to port numbers
 	ServerName2PortMap map[string]int
@@ -372,7 +373,7 @@ func (st *Store) StoreSchemaV1() error {
 	return st.saveLegacySchema(st.db.Schema.States())
 }
 
-func (st *Store) Close(ctx context.Context) (err error) {
+func (st *Store) Close(ctx context.Context) error {
 	if !st.open.Load() {
 		return nil
 	}
@@ -388,23 +389,30 @@ func (st *Store) Close(ctx context.Context) (err error) {
 		}
 	}
 
-	if err = st.raft.Shutdown().Error(); err != nil {
+	if err := st.raft.Shutdown().Error(); err != nil {
 		return err
 	}
 
 	st.open.Store(false)
-	st.transport.Close()
 
-	st.log.Info("closing log store ...")
-	err = st.logStore.Close()
-
-	st.log.Info("closing data store ...")
-	errDB := st.db.Close(ctx)
-	if err != nil || errDB != nil {
-		return fmt.Errorf("close log store: %w, close database: %w", err, errDB)
+	st.log.Info("close raft-net ...")
+	if err := st.transport.Close(); err != nil {
+		// it's not that fatal if we weren't able to close
+		// the transport, that's why just warn
+		st.log.WithError(err).Warn("close raft-net")
 	}
 
-	return
+	st.log.Info("closing log store ...")
+	if err := st.logStore.Close(); err != nil {
+		return fmt.Errorf("close log store: %w", err)
+	}
+
+	st.log.Info("closing data store ...")
+	if err := st.db.Close(ctx); err != nil {
+		return fmt.Errorf(" close database: %w", err)
+	}
+
+	return nil
 }
 
 func (st *Store) SetDB(db Indexer) { st.db.SetIndexer(db) }
@@ -416,11 +424,13 @@ func (st *Store) Ready() bool {
 // WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
-func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration) error {
+func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {
 	t := time.NewTicker(period)
 	defer t.Stop()
 	for {
 		select {
+		case <-close:
+			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
@@ -534,7 +544,21 @@ func (st *Store) Stats() map[string]any {
 	// If the raft stats exist, add them as a nested map
 	if st.raft != nil {
 		stats["raft"] = st.raft.Stats()
+		// add the servers information
+		var servers []map[string]any
+		if cf := st.raft.GetConfiguration(); cf.Error() == nil {
+			servers = make([]map[string]any, len(cf.Configuration().Servers))
+			for i, server := range cf.Configuration().Servers {
+				servers[i] = map[string]any{
+					"id":       server.ID,
+					"address":  server.Address,
+					"suffrage": server.Suffrage,
+				}
+			}
+			stats["raft_latest_configuration_servers"] = servers
+		}
 	}
+
 	return stats
 }
 

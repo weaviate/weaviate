@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/vectorindex"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -37,7 +38,7 @@ func NewParser(cs clusterState, vCfg VectorConfigParser, v validator) *Parser {
 }
 
 func (m *Parser) ParseClass(class *models.Class) error {
-	if class == nil { // TODO-RAFT this might not be needed
+	if class == nil {
 		return fmt.Errorf("class cannot be nil")
 	}
 
@@ -102,7 +103,7 @@ func (m *Parser) parseTargetVectorsVectorIndexConfig(class *models.Class) error 
 func (m *Parser) parseGivenVectorIndexConfig(vectorIndexType string,
 	vectorIndexConfig interface{},
 ) (schemaConfig.VectorIndexConfig, error) {
-	if vectorIndexType != "hnsw" && vectorIndexType != "flat" {
+	if vectorIndexType != vectorindex.VectorIndexTypeHNSW && vectorIndexType != vectorindex.VectorIndexTypeFLAT && vectorIndexType != vectorindex.VectorIndexTypeDYNAMIC {
 		return nil, errors.Errorf(
 			"parse vector index config: unsupported vector index type: %q",
 			vectorIndexType)
@@ -125,6 +126,8 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
+	// TODO: fix PushShard issues before enabling scale out
+	//       https://github.com/weaviate/weaviate/issues/4840
 	if class.ReplicationConfig.Factor != update.ReplicationConfig.Factor {
 		return nil, fmt.Errorf("updating replication factor is not supported yet")
 	}

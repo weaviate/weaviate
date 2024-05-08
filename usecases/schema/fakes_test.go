@@ -20,6 +20,8 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/store"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -124,13 +126,15 @@ func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeMetaHandler) QueryReadOnlyClass(class string) (*models.Class, uint64, error) {
-	args := f.Called(class)
-	model := args.Get(0)
-	if model == nil {
-		return nil, 0, args.Error(2)
+func (f *fakeMetaHandler) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+	args := f.Called(classes)
+
+	models := args.Get(0)
+	if models == nil {
+		return nil, args.Error(2)
 	}
-	return model.(*models.Class), 0, nil
+
+	return models.(map[string]versioned.Class), nil
 }
 
 func (f *fakeMetaHandler) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
@@ -150,6 +154,11 @@ func (f *fakeMetaHandler) QueryTenantsShards(class string, tenants ...string) (m
 		res[args.String(idx+1)] = ""
 	}
 	return res, 0, nil
+}
+
+func (f *fakeMetaHandler) QueryShardingState(class string) (*sharding.State, uint64, error) {
+	args := f.Called(class)
+	return args.Get(0).(*sharding.State), 0, args.Error(0)
 }
 
 func (f *fakeMetaHandler) ReadOnlyClass(class string) *models.Class {
@@ -230,6 +239,10 @@ func (f *fakeMetaHandler) GetShardsStatus(class, tenant string) (models.ShardSta
 	return args.Get(0).(models.ShardStatusList), args.Error(1)
 }
 
+func (f *fakeMetaHandler) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return nil
+}
+
 type fakeStore struct {
 	collections map[string]*models.Class
 	parser      Parser
@@ -238,7 +251,7 @@ type fakeStore struct {
 func NewFakeStore() *fakeStore {
 	return &fakeStore{
 		collections: make(map[string]*models.Class),
-		parser:      *NewParser(&fakeClusterState{}, dummyParseVectorConfig, &fakeValidator{}),
+		parser:      *NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, &fakeValidator{}),
 	}
 }
 
