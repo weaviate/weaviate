@@ -146,6 +146,12 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
 
+	if !sg.compactionFitsSizeLimit(leftSegment, rightSegment) {
+		// nothing to do this round, let's wait for the next round in the hopes
+		// that we'll find smaller (lower-level) segments that can still fit.
+		return false, nil
+	}
+
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 
 	f, err := os.Create(path)
@@ -469,4 +475,36 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 			"path":     dir,
 		}).Set(float64(count))
 	}
+}
+
+func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
+	if sg.maxSegmentSize == 0 {
+		// no limit is set, always return true
+		return true
+	}
+
+	stat, err := os.Stat(left.path)
+	if err != nil {
+		sg.logger.WithField("action", "lsm_compaction_check_size_before_compaction").
+			WithField("path", sg.dir).
+			WithError(err).
+			Error("stat left segment")
+		return false
+	}
+
+	totalSize := stat.Size()
+	stat, err = os.Stat(right.path)
+	if err != nil {
+		sg.logger.WithField("action", "lsm_compaction_check_size_before_compaction").
+			WithField("path", sg.dir).
+			WithError(err).
+			Error("stat left segment")
+		return false
+	}
+
+	totalSize += stat.Size()
+
+	fmt.Printf("estimated compaction size in GB: %f\n", float64(totalSize)/1024/1024/1024)
+
+	return totalSize <= sg.maxSegmentSize
 }
