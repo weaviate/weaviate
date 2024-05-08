@@ -387,7 +387,7 @@ func TestServicePanics(t *testing.T) {
 
 	// Cannot Open File Store
 	m.indexer.On("Open", mock.Anything).Return(errAny)
-	assert.Panics(t, func() { m.store.loadDatabase(context.TODO()) })
+	assert.Panics(t, func() { m.store.openDatabase(context.TODO()) })
 }
 
 func TestStoreApply(t *testing.T) {
