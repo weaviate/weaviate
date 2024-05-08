@@ -40,15 +40,10 @@ type embeddingsDataResponse struct {
 	Embeddings []float32 `json:"embedding"`
 }
 
-type errorResponse struct {
-	Object  string `json:"object"`
-	Message string `json:"message"`
-}
-
 type embeddingsResponse struct {
 	Data    []embeddingsDataResponse `json:"data,omitempty"`
 	Model   string                   `json:"model,omitempty"`
-	Message *errorResponse           `json:"message,omitempty"`
+	Message string                   `json:"message,omitempty"`
 }
 
 type vectorizer struct {
@@ -126,8 +121,8 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}
 
 	if res.StatusCode != 200 {
-		if resBody.Message != nil {
-			errorMessage := getErrorMessage(res.StatusCode, resBody.Message.Message, "connection to Mistral failed with status: %d error: %v")
+		if resBody.Message != "" {
+			errorMessage := getErrorMessage(res.StatusCode, resBody.Message, "connection to Mistral failed with status: %d error: %v")
 			return nil, errors.Errorf(errorMessage)
 		}
 		errorMessage := getErrorMessage(res.StatusCode, "", "connection to Mistral failed with status: %d")

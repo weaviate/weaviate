@@ -29,7 +29,7 @@ import (
 
 const (
 	MaxObjectsPerBatch = 1000000 // dummy value, there is only a token limit
-	MaxTokensPerBatch  = 16384   // from devs
+	MaxTokensPerBatch  = 8192    // from error message
 	MaxTimePerBatch    = float64(10)
 )
 
@@ -40,8 +40,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 		icheck := ent.NewClassSettings(cfg)
 
 		// the encoding is different than OpenAI, but the code is not available in Go and too complicated to port.
-		// However, it is close to the OpenAI encoding and with a small margin, we can use the OpenAI token count
-		// https://docs.voyageai.com/docs/tokenization
+		// using 30% more than the OpenAI model is a rough estimate but seems to work
 		tke, err := tiktoken.EncodingForModel("text-embedding-ada-002")
 		if err != nil { // fail all objects as they all have the same model
 			return nil, nil, false, err
