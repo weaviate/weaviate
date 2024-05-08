@@ -43,7 +43,7 @@ func (m *Parser) ParseClass(class *models.Class) error {
 		return fmt.Errorf("class cannot be nil")
 	}
 
-	if class.Class == config.DefaultRaftDir {
+	if schema.UppercaseClassName(class.Class) == schema.UppercaseClassName(config.DefaultRaftDir) {
 		return fmt.Errorf("parse class name: %w", fmt.Errorf("class name `raft` is reserved"))
 	}
 
