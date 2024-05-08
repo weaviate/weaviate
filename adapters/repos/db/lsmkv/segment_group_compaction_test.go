@@ -41,7 +41,7 @@ func TestSegmentGroup_BestCompactionPair(t *testing.T) {
 			expectedPair: []string{"segment0", "segment1"},
 		},
 		{
-			name: "mulitple segments, mulitple levels, lowest level is picked",
+			name: "multiple segments, multiple levels, lowest level is picked",
 			segments: []*segment{
 				{size: 4000, path: "segment0", level: 2},
 				{size: 4000, path: "segment1", level: 2},
