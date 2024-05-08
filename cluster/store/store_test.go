@@ -387,12 +387,11 @@ func TestServicePanics(t *testing.T) {
 
 	// Cannot Open File Store
 	m.indexer.On("Open", mock.Anything).Return(errAny)
-	assert.Panics(t, func() { m.store.loadDatabase(context.TODO()) })
+	assert.Panics(t, func() { m.store.openDatabase(context.TODO()) })
 }
 
 func TestStoreApply(t *testing.T) {
 	doFirst := func(m *MockStore) {
-		m.indexer.On("Open", mock.Anything).Return(nil)
 		m.parser.On("ParseClass", mock.Anything).Return(nil)
 		m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	}
@@ -471,6 +470,7 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: errAny},
 			doBefore: func(ms *MockStore) {
 				doFirst(ms)
+				ms.indexer.On("Open", mock.Anything).Return(nil)
 				ms.indexer.On("AddClass", mock.Anything).Return(errAny)
 			},
 		},
@@ -495,7 +495,6 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("RestoreClassDir", cls.Class).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -523,7 +522,6 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: errSchema},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 			},
 		},
@@ -535,7 +533,6 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: errBadRequest},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, ss, 1)
 				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(nil, errAny)
 			},
@@ -548,7 +545,6 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 				m.store.db.Schema.addClass(cls, ss, 1)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
@@ -561,7 +557,6 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 			doAfter: func(ms *MockStore) error {
@@ -605,7 +600,6 @@ func TestStoreApply(t *testing.T) {
 			},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, ss, 1)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
@@ -659,7 +653,6 @@ func TestStoreApply(t *testing.T) {
 			})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, &sharding.State{
 					Physical: map[string]sharding.Physical{"T1": {}},
 				}, 1)
@@ -720,7 +713,6 @@ func TestStoreApply(t *testing.T) {
 					BelongsToNodes: []string{"NODE-2"},
 					Status:         models.TenantActivityStatusHOT,
 				}}}
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, ss, 1)
 			},
 			doAfter: func(ms *MockStore) error {
@@ -763,7 +755,6 @@ func TestStoreApply(t *testing.T) {
 				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("Open", mock.Anything).Return(nil)
 				m.store.db.Schema.addClass(cls, &sharding.State{Physical: map[string]sharding.Physical{"T1": {}}}, 1)
 			},
 			doAfter: func(ms *MockStore) error {
@@ -776,27 +767,29 @@ func TestStoreApply(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		m := NewMockStore(t, "Node-1", 9091)
-		store := m.Store(tc.doBefore)
-		ret := store.Apply(&tc.req)
-		resp, ok := ret.(Response)
-		if !ok {
-			t.Errorf("%s: response has wrong type", tc.name)
-		}
-		if got, want := resp.Error, tc.resp.Error; want != nil {
-			if !errors.Is(resp.Error, tc.resp.Error) {
-				t.Errorf("%s: error want: %v got: %v", tc.name, want, got)
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewMockStore(t, "Node-1", 9091)
+			store := m.Store(tc.doBefore)
+			ret := store.Apply(&tc.req)
+			resp, ok := ret.(Response)
+			if !ok {
+				t.Errorf("%s: response has wrong type", tc.name)
 			}
-		} else if got != nil {
-			t.Errorf("%s: error want: nil got: %v", tc.name, got)
-		}
-		if tc.doAfter != nil {
-			if err := tc.doAfter(&m); err != nil {
-				t.Errorf("%s check updates: %v", tc.name, err)
+			if got, want := resp.Error, tc.resp.Error; want != nil {
+				if !errors.Is(resp.Error, tc.resp.Error) {
+					t.Errorf("%s: error want: %v got: %v", tc.name, want, got)
+				}
+			} else if got != nil {
+				t.Errorf("%s: error want: nil got: %v", tc.name, got)
 			}
-			m.indexer.AssertExpectations(t)
-			m.parser.AssertExpectations(t)
-		}
+			if tc.doAfter != nil {
+				if err := tc.doAfter(&m); err != nil {
+					t.Errorf("%s check updates: %v", tc.name, err)
+				}
+				m.indexer.AssertExpectations(t)
+				m.parser.AssertExpectations(t)
+			}
+		})
 	}
 }
 

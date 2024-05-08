@@ -27,6 +27,7 @@ import (
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
@@ -242,10 +243,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
-	lastSnapshotIndex := snapshotIndex(st.snapshotStore)
-	if st.initialLastAppliedIndex == 0 { // empty node
-		st.loadDatabase(ctx)
-	}
 
 	st.log.WithFields(logrus.Fields{
 		"name":                 st.nodeID,
@@ -255,13 +252,21 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
+
+	if st.lastAppliedIndex.Load() <= st.raft.AppliedIndex() {
+		// this should include empty and non empty nodes
+		st.openDatabase(ctx)
+	}
+
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+
 	st.log.WithFields(logrus.Fields{
-		"raft_applied_index":     st.raft.AppliedIndex(),
-		"raft_last_index":        st.raft.LastIndex(),
-		"last_log_applied_index": st.initialLastAppliedIndex,
-		"last_snapshot_index":    lastSnapshotIndex,
-	}).Info("raft node")
+		"raft_applied_index":        st.raft.AppliedIndex(),
+		"raft_last_index":           st.raft.LastIndex(),
+		"initial_log_applied_index": st.initialLastAppliedIndex,
+		"last_store_applied_index":  st.lastAppliedIndex.Load(),
+		"last_snapshot_index":       snapshotIndex(st.snapshotStore),
+	}).Info("raft node constructed")
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
 	// However, we believe that 1 day should be more than sufficient.
@@ -621,7 +626,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	st.log.WithFields(logrus.Fields{
 		"type":  l.Type,
 		"index": l.Index,
-	}).Debug("apply command")
+	}).Debug("apply FSM store command")
 	if l.Type != raft.LogCommand {
 		st.log.WithFields(logrus.Fields{
 			"type":  l.Type,
@@ -636,14 +641,12 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	}
 
 	schemaOnly := l.Index <= st.initialLastAppliedIndex
+	if !schemaOnly {
+		st.openDatabase(context.Background())
+	}
+
 	defer func() {
 		st.lastAppliedIndex.Store(l.Index)
-		// If the local db has not been loaded, wait until we reach the state
-		// from the local raft log before loading the db.
-		// This is necessary because the database operations are not idempotent
-		if !st.dbLoaded.Load() && l.Index >= st.initialLastAppliedIndex {
-			st.loadDatabase(context.Background())
-		}
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
 				"type":  l.Type,
@@ -722,13 +725,13 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	}
 	st.log.Info("successfully restored schema from snapshot")
 
-	if st.reloadDB() {
+	if st.reloadDBFromSnapshot() {
 		st.log.WithField("n", st.db.Schema.len()).
 			Info("successfully reloaded indexes from snapshot")
 	}
 
 	if st.raft != nil {
-		st.lastAppliedIndex.Store(st.raft.AppliedIndex()) // TODO-RAFT: check if raft return the latest applied index
+		st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 	}
 
 	return nil
@@ -845,13 +848,13 @@ func (st *Store) raftConfig() *raft.Config {
 	return cfg
 }
 
-func (st *Store) loadDatabase(ctx context.Context) {
+func (st *Store) openDatabase(ctx context.Context) {
 	if st.dbLoaded.Load() {
 		return
 	}
 
-	st.log.Info("loading local db")
-	if err := st.db.Load(ctx, st.nodeID); err != nil {
+	st.log.Info("opening local db")
+	if err := st.db.Open(ctx, st.nodeID); err != nil {
 		st.log.WithError(err).Error("cannot restore database")
 		panic("error restoring database")
 	}
@@ -860,14 +863,14 @@ func (st *Store) loadDatabase(ctx context.Context) {
 	st.log.WithField("n", st.db.Schema.len()).Info("database has been successfully loaded")
 }
 
-// reloadDB reloads the node's local db. If the db is already loaded, it will be reloaded.
+// reloadDBFromSnapshot reloads the node's local db. If the db is already loaded, it will be reloaded.
 // If a snapshot exists and its is up to date with the log, it will be loaded.
 // Otherwise, the database will be loaded when the node synchronizes its state with the leader.
 // For more details, see apply() -> loadDatabase().
 //
 // In specific scenarios where the follower's state is too far behind the leader's log,
 // the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
-func (st *Store) reloadDB() bool {
+func (st *Store) reloadDBFromSnapshot() bool {
 	ctx := context.Background()
 
 	if !st.dbLoaded.CompareAndSwap(true, false) {
@@ -879,17 +882,20 @@ func (st *Store) reloadDB() bool {
 			"last_snapshot_index":        snapIndex,
 		}).Info("load local db from snapshot")
 		if st.initialLastAppliedIndex <= snapIndex {
-			st.loadDatabase(ctx)
+			st.openDatabase(ctx)
 			return true
 		}
 		return false
 	}
 
-	st.log.Info("reload local db: loading indexes ...")
-	if err := st.db.Reload(); err != nil {
-		st.log.WithError(err).Error("cannot reload database")
-		panic(fmt.Sprintf("cannot reload database: %v", err))
+	st.log.Info("reload local db: update schema  ...")
+	cs := make([]command.UpdateClassRequest, len(st.db.Schema.Classes))
+	i := 0
+	for _, v := range st.db.Schema.Classes {
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		i++
 	}
+	st.db.store.ReloadLocalDB(ctx, cs)
 
 	st.dbLoaded.Store(true)
 	st.initialLastAppliedIndex = 0

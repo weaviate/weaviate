@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -104,11 +105,17 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		req.State.SetLocalName(nodeID)
 	}
 
+	var oldClass *models.Class
+	if meta := db.Schema.metaClass(req.Class.Class); meta != nil {
+		oldClass = &meta.Class
+	}
+
+	u, err := db.parser.ParseClassUpdate(oldClass, req.Class)
+	if err != nil {
+		return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
+	}
+
 	update := func(meta *metaClass) error {
-		u, err := db.parser.ParseClassUpdate(&meta.Class, req.Class)
-		if err != nil {
-			return fmt.Errorf("%w :parse class update: %w", errBadRequest, err)
-		}
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
@@ -127,13 +134,10 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 
 	return db.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return db.Schema.updateClass(req.Class.Class, update) },
-			updateStore:  func() error { return db.store.UpdateClass(req) },
-			schemaOnly:   schemaOnly,
-			// Apply the DB change last otherwise we will error on the parsing of the class while updating the store.
-			// We need the schema to first parse the update and apply it so that we can use it in the DB update.
-			applyDbUpdateFirst:    false,
+			op:                    cmd.GetType().String(),
+			updateSchema:          func() error { return db.Schema.updateClass(req.Class.Class, update) },
+			updateStore:           func() error { return db.store.UpdateClass(req) },
+			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
@@ -146,7 +150,6 @@ func (db *localDB) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) error
 			updateSchema:          func() error { db.Schema.deleteClass(cmd.Class); return nil },
 			updateStore:           func() error { return db.store.DeleteClass(cmd.Class) },
 			schemaOnly:            schemaOnly,
-			applyDbUpdateFirst:    true,
 			triggerSchemaCallback: true,
 		},
 	)
@@ -163,14 +166,10 @@ func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error
 
 	return db.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
-			updateStore:  func() error { return db.store.AddProperty(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
-			// Apply the DB first to ensure the underlying buckets related to properties are created/deleted *before* the
-			// schema is updated. This allows us to have object write waiting on the right schema version to proceed only
-			// once the buck buckets are present.
-			applyDbUpdateFirst:    true,
+			op:                    cmd.GetType().String(),
+			updateSchema:          func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
+			updateStore:           func() error { return db.store.AddProperty(cmd.Class, req) },
+			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
@@ -184,11 +183,10 @@ func (db *localDB) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly bool)
 
 	return db.apply(
 		applyOp{
-			op:                 cmd.GetType().String(),
-			updateSchema:       func() error { return nil },
-			updateStore:        func() error { return db.store.UpdateShardStatus(&req) },
-			schemaOnly:         schemaOnly,
-			applyDbUpdateFirst: true,
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return nil },
+			updateStore:  func() error { return db.store.UpdateShardStatus(&req) },
+			schemaOnly:   schemaOnly,
 		},
 	)
 }
@@ -241,23 +239,10 @@ func (db *localDB) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool) err
 	)
 }
 
-func (db *localDB) Load(ctx context.Context, nodeID string) error {
+func (db *localDB) Open(ctx context.Context, nodeID string) error {
 	if err := db.store.Open(ctx); err != nil {
 		return err
 	}
-	return nil
-}
-
-// Reload updates an already opened local database with the newest schema.
-// It updates existing indexes and adds new ones as necessary
-func (db *localDB) Reload() error {
-	cs := make([]command.UpdateClassRequest, len(db.Schema.Classes))
-	i := 0
-	for _, v := range db.Schema.Classes {
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
-		i++
-	}
-	db.store.ReloadLocalDB(context.Background(), cs)
 	return nil
 }
 
@@ -270,7 +255,6 @@ type applyOp struct {
 	updateSchema          func() error
 	updateStore           func() error
 	schemaOnly            bool
-	applyDbUpdateFirst    bool
 	triggerSchemaCallback bool
 }
 
@@ -287,29 +271,20 @@ func (op applyOp) validate() error {
 	return nil
 }
 
+// apply will always apply the database before schema
 func (db *localDB) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
 		return fmt.Errorf("could not validate raft apply op: %s", err)
 	}
 
-	// To avoid a if/else with repeated logic, setup op1 and op2 to either updateSchema or updateStore depending on
-	// op.applyDbUpdateFirst and op.schemaOnly
-	op1, op2 := op.updateSchema, op.updateStore
-	msg1, msg2 := errSchema, errDB
-	if op.applyDbUpdateFirst && !op.schemaOnly {
-		op1, op2 = op.updateStore, op.updateSchema
-		msg1, msg2 = errDB, errSchema
-	}
-
-	if err := op1(); err != nil {
-		return fmt.Errorf("%w: %s: %w", msg1, op.op, err)
-	}
-
-	// If the operation is schema only, op1 is always the schemaUpdate so we can skip op2
 	if !op.schemaOnly {
-		if err := op2(); err != nil {
-			return fmt.Errorf("%w: %s: %w", msg2, op.op, err)
+		if err := op.updateStore(); err != nil {
+			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
+	}
+
+	if err := op.updateSchema(); err != nil {
+		return fmt.Errorf("%w: %s: %w", errSchema, op.op, err)
 	}
 
 	// Always trigger the schema callback last
