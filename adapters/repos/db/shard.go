@@ -526,6 +526,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		s.dynamicMemtableSizing(),
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {

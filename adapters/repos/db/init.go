@@ -88,6 +88,7 @@ func (db *DB) init(ctx context.Context) error {
 				MemtablesMaxSizeMB:        db.config.MemtablesMaxSizeMB,
 				MemtablesMinActiveSeconds: db.config.MemtablesMinActiveSeconds,
 				MemtablesMaxActiveSeconds: db.config.MemtablesMaxActiveSeconds,
+				MaxSegmentSize:            db.config.MaxSegmentSize,
 				TrackVectorDimensions:     db.config.TrackVectorDimensions,
 				AvoidMMap:                 db.config.AvoidMMap,
 				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,

@@ -16,6 +16,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -111,6 +112,10 @@ type Bucket struct {
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
 	allocChecker memwatch.AllocChecker
+
+	// optional segment size limit. If set, a compaction will skip segments that
+	// sum to more than the specified value.
+	maxSegmentSize int64
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -154,6 +159,11 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		}
 	}
 
+	// TODO: remove debug
+	if b.maxSegmentSize > 0 {
+		fmt.Printf("bucket %s has max segment size set to %d\n", path.Join(rootDir, dir), b.maxSegmentSize)
+	}
+
 	if b.memtableResizer != nil {
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
@@ -169,6 +179,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 			forceCompaction:       b.forceCompaction,
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
+			maxSegmentSize:        b.maxSegmentSize,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
