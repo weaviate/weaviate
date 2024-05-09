@@ -17,6 +17,7 @@ export QUERY_DEFAULTS_LIMIT=${QUERY_DEFAULTS_LIMIT:-"20"}
 export QUERY_MAXIMUM_RESULTS=${QUERY_MAXIMUM_RESULTS:-"10000"}
 export TRACK_VECTOR_DIMENSIONS=true
 export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
+export GPT4ALL_INFERENCE_API="http://localhost:8010"
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 
 function go_run() {
@@ -57,9 +58,9 @@ case $CONFIG in
   local-development)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      ENABLE_MODULES="text2vec-gpt4all,backup-filesystem" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
@@ -89,8 +90,8 @@ case $CONFIG in
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       CONTEXTIONARY_URL=localhost:9999 \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
+      ENABLE_MODULES="text2vec-gpt4all,backup-filesystem" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -115,8 +116,8 @@ case $CONFIG in
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         RAFT_BOOTSTRAP_EXPECT=3 \
         CONTEXTIONARY_URL=localhost:9999 \
-        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        ENABLE_MODULES="text2vec-contextionary" \
+        DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
+        ENABLE_MODULES="text2vec-gpt4all" \
         go_run ./cmd/weaviate-server \
           --scheme http \
           --host "127.0.0.1" \
@@ -138,8 +139,8 @@ case $CONFIG in
         RAFT_PORT="8306" \
         RAFT_INTERNAL_RPC_PORT="8307" \
         CONTEXTIONARY_URL=localhost:9999 \
-        DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        ENABLE_MODULES="text2vec-contextionary" \
+        DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
+        ENABLE_MODULES="text2vec-gpt4all" \
         go_run ./cmd/weaviate-server \
           --scheme http \
           --host "127.0.0.1" \
@@ -662,7 +663,6 @@ case $CONFIG in
 
   local-gpt4all)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      CLUSTER_IN_LOCALHOST=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
       GPT4ALL_INFERENCE_API="http://localhost:8010" \
       ENABLE_MODULES="text2vec-gpt4all" \

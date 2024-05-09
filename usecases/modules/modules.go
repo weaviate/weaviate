@@ -870,6 +870,12 @@ func (p *Provider) GetMeta() (map[string]interface{}, error) {
 }
 
 func (p *Provider) getClass(className string) (*models.Class, error) {
+	/*if p == nil {
+		return nil, errors.Errorf("provider not set")
+	}
+	if p.schemaGetter == nil {
+		return nil, errors.Errorf("schema getter not set for class" + className)
+	}*/
 	class := p.schemaGetter.ReadOnlyClass(className)
 	if class == nil {
 		return nil, errors.Errorf("class %q not found in schema", className)
