@@ -16,7 +16,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -166,11 +165,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		if err := opt(b); err != nil {
 			return nil, err
 		}
-	}
-
-	// TODO: remove debug
-	if b.maxSegmentSize > 0 {
-		fmt.Printf("bucket %s has max segment size set to %d\n", path.Join(rootDir, dir), b.maxSegmentSize)
 	}
 
 	if b.memtableResizer != nil {
