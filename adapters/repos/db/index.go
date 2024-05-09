@@ -200,7 +200,6 @@ type Index struct {
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *locks.NamedLocks
 	shardInUseLocks  *locks.NamedRWLocks
-	modules          *modules.Provider
 }
 
 func (i *Index) GetShards() []ShardLike {
