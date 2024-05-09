@@ -366,7 +366,7 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 				}
 
 				if errors.Is(err, context.Canceled) {
-					logger.WithError(err).Debugf("skipping indexing batch due to context cancellation")
+					logger.WithError(err).Info("skipping indexing batch due to context cancellation")
 					break LOOP
 				}
 
@@ -383,6 +383,8 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 				case <-t.C:
 				}
 			}
+		} else {
+			logger.WithField("deleted", len(deleted)).Info("skipping indexing batch because all objects were deleted")
 		}
 
 		// only persist checkpoint if we indexed a full batch

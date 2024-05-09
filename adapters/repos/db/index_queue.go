@@ -437,7 +437,7 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
 		return 0
 	}
 
-	for i, c := range chunks {
+	for i := range chunks {
 		select {
 		case <-q.ctx.Done():
 			// release unsent borrowed chunks
@@ -447,7 +447,7 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
 
 			return i
 		case q.indexCh <- job{
-			chunk:   c,
+			chunk:   chunks[i],
 			indexer: q.Index,
 			queue:   q.queue,
 			ctx:     q.ctx,
@@ -779,8 +779,8 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 
 	if len(full) > 0 {
 		q.fullChunks.Lock()
-		for _, f := range full {
-			f.elem = q.fullChunks.list.PushBack(f)
+		for i := range full {
+			full[i].elem = q.fullChunks.list.PushBack(full[i])
 		}
 		q.fullChunks.Unlock()
 	}
@@ -1045,9 +1045,9 @@ func (q *vectorQueue) IsDeleted(id uint64) bool {
 	return ok
 }
 
-func (q *vectorQueue) ResetDeleted(id ...uint64) {
+func (q *vectorQueue) ResetDeleted(ids ...uint64) {
 	q.deleted.Lock()
-	for _, id := range id {
+	for _, id := range ids {
 		delete(q.deleted.m, id)
 	}
 	q.deleted.Unlock()
