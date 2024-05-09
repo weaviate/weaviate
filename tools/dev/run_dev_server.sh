@@ -663,6 +663,7 @@ case $CONFIG in
 
   local-gpt4all)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      CLUSTER_IN_LOCALHOST=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-gpt4all \
       GPT4ALL_INFERENCE_API="http://localhost:8010" \
       ENABLE_MODULES="text2vec-gpt4all" \
