@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -34,14 +33,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/search"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"github.com/weaviate/weaviate/entities/moduletools"
-
-	"github.com/tailor-inc/graphql/language/ast"
 )
 
 type node struct {

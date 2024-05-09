@@ -48,8 +48,8 @@ import (
 
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 
-	text2vecadditionalprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
 	"github.com/weaviate/weaviate/usecases/config"
+	text2vecadditionalprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 
@@ -742,8 +742,6 @@ func (f *fakeInterpretation) AdditionalPropertyDefaultValue() interface{} {
 	return true
 }
 
-
-
 type fakeProjectorParams struct {
 	Enabled          bool
 	Algorithm        string
@@ -761,7 +759,6 @@ type fakeExtender struct {
 func (f *fakeExtender) AdditonalPropertyDefaultValue() interface{} {
 	return true
 }
-
 
 func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
@@ -781,10 +778,10 @@ func (f *fakeExtender) AdditionalPropertyDefaultValue() interface{} {
 type fakeProjector struct {
 	returnArgs []search.Result
 }
+
 func (f *fakeProjector) AdditonalPropertyDefaultValue() interface{} {
 	return &fakeProjectorParams{}
 }
-
 
 func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	in []search.Result, params interface{}, limit *int,
@@ -816,7 +813,6 @@ type fakePathBuilder struct {
 }
 
 type pathBuilderParams struct{}
-
 
 func (f *fakePathBuilder) AdditonalPropertyDefaultValue() interface{} {
 	return &pathBuilderParams{}
@@ -1365,12 +1361,10 @@ func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal
 	return args.Get(0).([]interface{}), args.Error(1)
 }
 
-
 type ModulesProvider interface {
 	AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig
 	ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{}
 }
-
 
 type RequestsLogger interface {
 	get.RequestsLog
