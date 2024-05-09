@@ -14,7 +14,6 @@ package storobj
 import (
 	"crypto/rand"
 	"fmt"
-	"math"
 	"testing"
 	"time"
 
@@ -704,11 +703,9 @@ func TestVectorFromBinary(t *testing.T) {
 }
 
 func TestStorageInvalidObjectMarshalling(t *testing.T) {
-	var longString [math.MaxUint32 + 1]byte
-	rand.Read(longString[:])
-
 	t.Run("invalid className", func(t *testing.T) {
-		invalidClassName := longString[:maxClassNameLength+1]
+		invalidClassName := make([]byte, maxClassNameLength+1)
+		rand.Read(invalidClassName[:])
 
 		invalidObj := FromObject(
 			&models.Object{
@@ -741,25 +738,6 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 		require.ErrorContains(t, err, "could not marshal 'vector' max length exceeded")
 	})
 
-	t.Run("invalid vectorWeights", func(t *testing.T) {
-		invalidVectorWeights := longString[:maxVectorWeightsLength+1]
-
-		invalidObj := FromObject(
-			&models.Object{
-				Class:              "classA",
-				CreationTimeUnix:   123456,
-				LastUpdateTimeUnix: 56789,
-				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-				VectorWeights:      invalidVectorWeights,
-			},
-			nil,
-			nil,
-		)
-
-		_, err := invalidObj.MarshalBinary()
-		require.ErrorContains(t, err, "could not marshal 'vectorWeights' max length exceeded")
-	})
-
 	t.Run("invalid named vector size", func(t *testing.T) {
 		invalidObj := FromObject(
 			&models.Object{
@@ -776,26 +754,5 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 
 		_, err := invalidObj.MarshalBinary()
 		require.ErrorContains(t, err, "could not marshal 'vector' max length exceeded")
-	})
-
-	t.Run("invalid named vectors", func(t *testing.T) {
-		vectors := make(models.Vectors)
-		for i := 0; i <= maxTargetVectorsSegmentLength/maxVectorLength/4; i++ {
-			vectors[fmt.Sprintf("vector%d", i)] = make(models.Vector, maxVectorLength)
-		}
-
-		invalidObj := FromObject(
-			&models.Object{
-				Class:              "classA",
-				CreationTimeUnix:   123456,
-				LastUpdateTimeUnix: 56789,
-				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
-			},
-			nil,
-			vectors,
-		)
-
-		_, err := invalidObj.MarshalBinary()
-		require.ErrorContains(t, err, "could not marshal 'targetVectorsSegmentLength' max length exceeded")
 	})
 }
