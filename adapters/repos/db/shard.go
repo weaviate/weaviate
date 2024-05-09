@@ -396,7 +396,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-						hnsw.WithAllocChecker(s.index.allocChecker))
+						hnsw.WithAllocChecker(s.index.allocChecker),
+						hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
+						// consistent with previous logic where the individual limit is 1/5 of the combined limit
+						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
+					)
 				},
 				AllocChecker: s.index.allocChecker,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
