@@ -194,24 +194,10 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 }
 
 func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
-}
-
-func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-
-	return ""
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
