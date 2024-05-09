@@ -369,20 +369,6 @@ func eventualReplicaCRUD(t *testing.T) {
 		startNodeAt(ctx, t, compose, 3)
 	})
 
-	t.Run("configure classes to replicate to node 3", func(t *testing.T) {
-		ac := helper.GetClass(t, "Article")
-		ac.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
-		}
-		helper.UpdateClass(t, ac)
-
-		pc := helper.GetClass(t, "Paragraph")
-		pc.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
-		}
-		helper.UpdateClass(t, pc)
-	})
-
 	t.Run("assert all previous data replicated to node 3", func(t *testing.T) {
 		resp := gqlGet(t, compose.GetWeaviateNode3().URI(), "Article", replica.All)
 		assert.Len(t, resp, len(articleIDs))
