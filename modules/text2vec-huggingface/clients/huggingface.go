@@ -147,7 +147,7 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 		return nil, err
 	}
 
-	vector, err := v.decodeVector(bodyBytes)
+	vector, errs, err := v.decodeVector(bodyBytes)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot decode vector")
 	}
@@ -156,6 +156,7 @@ func (v *vectorizer) vectorize(ctx context.Context, url string,
 		Text:       input,
 		Dimensions: len(vector[0]),
 		Vector:     vector,
+		Errors:     errs,
 	}, nil
 }
 
@@ -187,38 +188,39 @@ func checkResponse(res *http.Response, bodyBytes []byte) error {
 	return errors.New(message)
 }
 
-func (v *vectorizer) decodeVector(bodyBytes []byte) ([][]float32, error) {
+func (v *vectorizer) decodeVector(bodyBytes []byte) ([][]float32, []error, error) {
 	var emb embedding
 	if err := json.Unmarshal(bodyBytes, &emb); err != nil {
 		var embObject embeddingObject
 		if err := json.Unmarshal(bodyBytes, &embObject); err != nil {
 			var embBert embeddingBert
 			if err := json.Unmarshal(bodyBytes, &embBert); err != nil {
-				return nil, errors.Wrap(err, "unmarshal response body")
+				return nil, nil, errors.Wrap(err, "unmarshal response body")
 			}
 
 			if len(embBert) == 1 && len(embBert[0]) > 0 {
 				vectors := make([][]float32, len(embBert[0]))
+				errs := make([]error, len(embBert[0]))
 				for i, embBer := range embBert[0] {
-					vectors[i], err = v.bertEmbeddingsDecoder.calculateVector(embBer)
+					vectors[i], errs[i] = v.bertEmbeddingsDecoder.calculateVector(embBer)
 				}
-				return vectors, nil
+				return vectors, errs, nil
 			}
 
-			return nil, errors.New("unprocessable response body")
+			return nil, nil, errors.New("unprocessable response body")
 		}
 		if len(embObject.Embeddings) > 0 {
-			return embObject.Embeddings, nil
+			return embObject.Embeddings, nil, nil
 		}
 
-		return nil, errors.New("unprocessable response body")
+		return nil, nil, errors.New("unprocessable response body")
 	}
 
 	if len(emb) > 0 {
-		return emb, nil
+		return emb, nil, nil
 	}
 
-	return nil, errors.New("unprocessable response body")
+	return nil, nil, errors.New("unprocessable response body")
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
