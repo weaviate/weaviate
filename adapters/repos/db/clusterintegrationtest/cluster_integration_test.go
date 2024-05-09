@@ -37,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
-
 )
 
 const (
@@ -671,4 +670,3 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 		}
 	})
 }
-
