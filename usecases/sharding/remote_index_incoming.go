@@ -86,15 +86,15 @@ type RemoteIndexIncomingRepo interface {
 }
 
 type RemoteIndexIncoming struct {
-	repo   RemoteIncomingRepo
-	schema RemoteIncomingSchema
+	repo    RemoteIncomingRepo
+	schema  RemoteIncomingSchema
 	modules *modules.Provider
 }
 
 func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema, modules *modules.Provider) *RemoteIndexIncoming {
 	return &RemoteIndexIncoming{
-		repo:   repo,
-		schema: schema,
+		repo:    repo,
+		schema:  schema,
 		modules: modules,
 	}
 }
