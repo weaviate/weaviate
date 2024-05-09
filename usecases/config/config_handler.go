@@ -14,6 +14,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -214,10 +215,19 @@ type Persistence struct {
 	MemtablesMaxSizeMB                int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
+	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
 const DefaultPersistenceDataPath string = "./data"
+
+// DefaultPersistenceLSMMaxSegmentSize is effectively unlimited for backward
+// compatibility. TODO: consider changing this in a future release and make
+// some noise about it. This is technically a breaking change.
+const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
+
+const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {

@@ -294,7 +294,7 @@ func testObject(className string) *storobj.Object {
 	}
 }
 
-func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.Object {
+func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim int) []*storobj.Object {
 	obj := make([]*storobj.Object, numObj)
 
 	for i := 0; i < numObj; i++ {
@@ -304,7 +304,11 @@ func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.
 				ID:    strfmt.UUID(uuid.NewString()),
 				Class: className,
 			},
-			Vector: []float32{r.Float32(), r.Float32(), r.Float32(), r.Float32()},
+			Vector: make([]float32, vectorDim),
+		}
+
+		for d := 0; d < vectorDim; d++ {
+			obj[i].Vector[d] = r.Float32()
 		}
 	}
 	return obj

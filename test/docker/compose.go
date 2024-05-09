@@ -253,7 +253,10 @@ func (d *Compose) WithText2VecPaLM(apiKey string) *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecAWS() *Compose {
+func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Compose {
+	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
+	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
+	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
 	d.enableModules = append(d.enableModules, modaws.Name)
 	return d
 }
