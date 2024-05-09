@@ -526,6 +526,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		s.dynamicMemtableSizing(),
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {
@@ -652,6 +653,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -667,6 +669,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 	if err != nil {
 		return err
@@ -697,6 +700,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -707,6 +711,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -766,6 +771,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		s.dynamicMemtableSizing(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	}
 
 	if inverted.HasFilterableIndex(prop) {
@@ -826,6 +832,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -839,6 +846,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
