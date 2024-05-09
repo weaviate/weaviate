@@ -335,7 +335,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,
-		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil, nil)
+		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil)
 	require.Nil(t, err)
 	return idx
 }
