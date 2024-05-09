@@ -119,7 +119,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 		return nil, errors.Wrap(err, "Weaviate Inference API key")
 	}
 
-	req.Header.Set("Authorization", fmt.Sprintf(apiKey))
+	req.Header.Set("Authorization", apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Add("Request-Source", "unspecified:weaviate")
 
