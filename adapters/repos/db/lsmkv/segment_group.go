@@ -62,7 +62,8 @@ type SegmentGroup struct {
 	calcCountNetAdditions   bool // see bucket for more datails
 	compactLeftOverSegments bool // see bucket for more datails
 
-	allocChecker memwatch.AllocChecker
+	allocChecker   memwatch.AllocChecker
+	maxSegmentSize int64
 }
 
 type sgConfig struct {
@@ -75,6 +76,7 @@ type sgConfig struct {
 	useBloomFilter        bool
 	calcCountNetAdditions bool
 	forceCompaction       bool
+	maxSegmentSize        int64
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -99,6 +101,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:          cfg.useBloomFilter,
 		calcCountNetAdditions:   cfg.calcCountNetAdditions,
 		compactLeftOverSegments: cfg.forceCompaction,
+		maxSegmentSize:          cfg.maxSegmentSize,
 		allocChecker:            allocChecker,
 	}
 
