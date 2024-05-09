@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -64,7 +63,7 @@ type RemoteIndexIncomingRepo interface {
 		additional additional.Properties,
 	) ([]*storobj.Object, []float32, error)
 	IncomingAggregate(ctx context.Context, shardName string,
-		params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
+		params aggregation.Params, modules interface{}) (*aggregation.Result, error)
 
 	IncomingFindUUIDs(ctx context.Context, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
@@ -88,10 +87,10 @@ type RemoteIndexIncomingRepo interface {
 type RemoteIndexIncoming struct {
 	repo    RemoteIncomingRepo
 	schema  RemoteIncomingSchema
-	modules *modules.Provider
+	modules interface{}
 }
 
-func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema, modules *modules.Provider) *RemoteIndexIncoming {
+func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema, modules interface{}) *RemoteIndexIncoming {
 	return &RemoteIndexIncoming{
 		repo:    repo,
 		schema:  schema,

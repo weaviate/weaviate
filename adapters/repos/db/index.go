@@ -1865,7 +1865,7 @@ func (i *Index) aggregate(ctx context.Context,
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
-	params aggregation.Params, modules *modules.Provider,
+	params aggregation.Params, mods interface{},
 ) (*aggregation.Result, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
@@ -1873,7 +1873,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	}
 	defer release()
 
-	return shard.Aggregate(ctx, params, modules)
+	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
 }
 
 func (i *Index) drop() error {
