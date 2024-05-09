@@ -179,6 +179,28 @@ func FromEnv(config *Config) error {
 		config.AvoidMmap = true
 	}
 
+	if v := os.Getenv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_LSM_MAX_SEGMENT_SIZE: %w", err)
+		}
+
+		config.Persistence.LSMMaxSegmentSize = parsed
+	} else {
+		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
+	}
+
+	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_HNSW_MAX_LOG_SIZE: %w", err)
+		}
+
+		config.Persistence.HNSWMaxLogSize = parsed
+	} else {
+		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
+	}
+
 	clusterCfg, err := parseClusterConfig()
 	if err != nil {
 		return err
