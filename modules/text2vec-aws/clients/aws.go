@@ -22,6 +22,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -50,19 +54,21 @@ func buildSagemakerUrl(service, region, endpoint string) string {
 	return fmt.Sprintf(urlTemplate, service, region, endpoint)
 }
 
-type aws struct {
+type awsClient struct {
 	awsAccessKey        string
 	awsSecret           string
+	awsSessionToken     string
 	buildBedrockUrlFn   func(service, region, model string) string
 	buildSagemakerUrlFn func(service, region, endpoint string) string
 	httpClient          *http.Client
 	logger              logrus.FieldLogger
 }
 
-func New(awsAccessKey string, awsSecret string, timeout time.Duration, logger logrus.FieldLogger) *aws {
-	return &aws{
-		awsAccessKey: awsAccessKey,
-		awsSecret:    awsSecret,
+func New(awsAccessKey, awsSecret, awsSessionToken string, timeout time.Duration, logger logrus.FieldLogger) *awsClient {
+	return &awsClient{
+		awsAccessKey:    awsAccessKey,
+		awsSecret:       awsSecret,
+		awsSessionToken: awsSessionToken,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -72,19 +78,19 @@ func New(awsAccessKey string, awsSecret string, timeout time.Duration, logger lo
 	}
 }
 
-func (v *aws) Vectorize(ctx context.Context, input []string,
+func (v *awsClient) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	return v.vectorize(ctx, input, vectorizeObject, config)
 }
 
-func (v *aws) VectorizeQuery(ctx context.Context, input []string,
+func (v *awsClient) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	return v.vectorize(ctx, input, vectorizeQuery, config)
 }
 
-func (v *aws) vectorize(ctx context.Context, input []string, operation operationType, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (v *awsClient) vectorize(ctx context.Context, input []string, operation operationType, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	service := v.getService(config)
 	region := v.getRegion(config)
 	model := v.getModel(config)
@@ -144,39 +150,99 @@ func (v *aws) vectorize(ctx context.Context, input []string, operation operation
 	if err != nil {
 		return nil, errors.Wrapf(err, "AWS Secret Key")
 	}
-
-	headers["host"] = host
-	amzDate, headers, authorizationHeader := getAuthHeader(accessKey, secretKey, host, service, region, path, body, headers)
-	headers["Authorization"] = authorizationHeader
-	headers["x-amz-date"] = amzDate
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointUrl, bytes.NewReader(body))
+	awsSessionToken, err := v.getAwsSessionToken(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
+		return nil, err
 	}
 
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
+	maxRetries := 5
 
-	res, err := v.makeRequest(req, 30, 5)
-	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
-	}
-	defer res.Body.Close()
-
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
-	}
 	if v.isBedrock(service) {
-		return v.parseBedrockResponse(bodyBytes, res, input)
+		return v.sendBedrockRequest(ctx, input, operation, maxRetries, accessKey, secretKey, awsSessionToken, config)
 	} else {
+		headers["host"] = host
+		amzDate, headers, authorizationHeader := getAuthHeader(accessKey, secretKey, host, service, region, path, body, headers)
+		headers["Authorization"] = authorizationHeader
+		headers["x-amz-date"] = amzDate
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointUrl, bytes.NewReader(body))
+		if err != nil {
+			return nil, errors.Wrap(err, "create POST request")
+		}
+
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+
+		res, err := v.makeRequest(req, 30, maxRetries)
+		if err != nil {
+			return nil, errors.Wrap(err, "send POST request")
+		}
+		defer res.Body.Close()
+
+		bodyBytes, err := io.ReadAll(res.Body)
+		if err != nil {
+			return nil, errors.Wrap(err, "read response body")
+		}
 		return v.parseSagemakerResponse(bodyBytes, res, input)
 	}
 }
 
-func (v *aws) makeRequest(req *http.Request, delayInSeconds int, maxRetries int) (*http.Response, error) {
+func (v *awsClient) sendBedrockRequest(ctx context.Context,
+	input []string,
+	operation operationType,
+	maxRetries int,
+	awsKey, awsSecret, awsSessionToken string,
+	cfg ent.VectorizationConfig,
+) (*ent.VectorizationResult, error) {
+	model := cfg.Model
+	region := cfg.Region
+
+	req, err := createRequestBody(model, input, operation)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for model %s: %w", model, err)
+	}
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request for model %s: %w", model, err)
+	}
+
+	sdkConfig, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(awsKey, awsSecret, awsSessionToken),
+		),
+		config.WithRetryMaxAttempts(maxRetries),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load AWS configuration: %w", err)
+	}
+
+	client := bedrockruntime.NewFromConfig(sdkConfig)
+	result, err := client.InvokeModel(ctx, &bedrockruntime.InvokeModelInput{
+		ModelId:     aws.String(model),
+		ContentType: aws.String("application/json"),
+		Body:        body,
+	})
+	if err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "no such host") {
+			return nil, fmt.Errorf("Bedrock service is not available in the selected region. " +
+				"Please double-check the service availability for your region at " +
+				"https://aws.amazon.com/about-aws/global-infrastructure/regional-product-services/")
+		} else if strings.Contains(errMsg, "Could not resolve the foundation model") {
+			return nil, fmt.Errorf("Could not resolve the foundation model from model identifier: \"%v\". "+
+				"Please verify that the requested model exists and is accessible within the specified region", model)
+		} else {
+			return nil, fmt.Errorf("Couldn't invoke %s model: %w", model, err)
+		}
+	}
+
+	return v.parseBedrockResponse(result.Body, input)
+}
+
+func (v *awsClient) makeRequest(req *http.Request, delayInSeconds int, maxRetries int) (*http.Response, error) {
 	var res *http.Response
 	var err error
 
@@ -201,33 +267,16 @@ func (v *aws) makeRequest(req *http.Request, delayInSeconds int, maxRetries int)
 
 		// Double the delay for the next iteration
 		delayInSeconds *= 2
-
 	}
 
 	return res, err
 }
 
-func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
-	var resBodyMap map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &resBodyMap); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
-	}
-
-	// if resBodyMap has inputTextTokenCount, it's a resonse from an Amazon model
-	// otherwise, it is a response from a Cohere model
+func (v *awsClient) parseBedrockResponse(bodyBytes []byte, input []string) (*ent.VectorizationResult, error) {
 	var resBody bedrockEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
-
-	if res.StatusCode != 200 || resBody.Message != nil {
-		if resBody.Message != nil {
-			return nil, fmt.Errorf("connection to AWS Bedrock failed with status: %v error: %s",
-				res.StatusCode, *resBody.Message)
-		}
-		return nil, fmt.Errorf("connection to AWS Bedrock failed with status: %d", res.StatusCode)
-	}
-
 	if len(resBody.Embedding) == 0 && len(resBody.Embeddings) == 0 {
 		return nil, fmt.Errorf("could not obtain vector from AWS Bedrock")
 	}
@@ -244,7 +293,7 @@ func (v *aws) parseBedrockResponse(bodyBytes []byte, res *http.Response, input [
 	}, nil
 }
 
-func (v *aws) parseSagemakerResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
+func (v *awsClient) parseSagemakerResponse(bodyBytes []byte, res *http.Response, input []string) (*ent.VectorizationResult, error) {
 	var resBody sagemakerEmbeddingResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -269,71 +318,82 @@ func (v *aws) parseSagemakerResponse(bodyBytes []byte, res *http.Response, input
 	}, nil
 }
 
-func (v *aws) isSagemaker(service string) bool {
+func (v *awsClient) isSagemaker(service string) bool {
 	return service == "sagemaker"
 }
 
-func (v *aws) isBedrock(service string) bool {
+func (v *awsClient) isBedrock(service string) bool {
 	return service == "bedrock"
 }
 
-func (v *aws) getAwsAccessKey(ctx context.Context) (string, error) {
-	awsAccessKey := ctx.Value("X-Aws-Access-Key")
-	if awsAccessKeyHeader, ok := awsAccessKey.([]string); ok &&
-		len(awsAccessKeyHeader) > 0 && len(awsAccessKeyHeader[0]) > 0 {
-		return awsAccessKeyHeader[0], nil
+func (v *awsClient) getAwsAccessKey(ctx context.Context) (string, error) {
+	if awsAccessKey := v.getHeaderValue(ctx, "X-Aws-Access-Key"); awsAccessKey != "" {
+		return awsAccessKey, nil
 	}
-	if len(v.awsAccessKey) > 0 {
+	if v.awsAccessKey != "" {
 		return v.awsAccessKey, nil
-	}
-	// try getting header from GRPC if not successful
-	if accessKey := modulecomponents.GetValueFromGRPC(ctx, "X-Aws-Access-Key"); len(accessKey) > 0 && len(accessKey[0]) > 0 {
-		return accessKey[0], nil
 	}
 	return "", errors.New("no access key found " +
 		"neither in request header: X-AWS-Access-Key " +
 		"nor in environment variable under AWS_ACCESS_KEY_ID or AWS_ACCESS_KEY")
 }
 
-func (v *aws) getAwsAccessSecret(ctx context.Context) (string, error) {
-	awsSecretKey := ctx.Value("X-Aws-Secret-Key")
-	if awsAccessSecretHeader, ok := awsSecretKey.([]string); ok &&
-		len(awsAccessSecretHeader) > 0 && len(awsAccessSecretHeader[0]) > 0 {
-		return awsAccessSecretHeader[0], nil
+func (v *awsClient) getAwsAccessSecret(ctx context.Context) (string, error) {
+	if awsSecret := v.getHeaderValue(ctx, "X-Aws-Secret-Key"); awsSecret != "" {
+		return awsSecret, nil
 	}
-	if len(v.awsSecret) > 0 {
+	if v.awsSecret != "" {
 		return v.awsSecret, nil
-	}
-	// try getting header from GRPC if not successful
-	if secretKey := modulecomponents.GetValueFromGRPC(ctx, "X-Aws-Secret-Key"); len(secretKey) > 0 && len(secretKey[0]) > 0 {
-		return secretKey[0], nil
 	}
 	return "", errors.New("no secret found " +
 		"neither in request header: X-AWS-Secret-Key " +
 		"nor in environment variable under AWS_SECRET_ACCESS_KEY or AWS_SECRET_KEY")
 }
 
-func (v *aws) getModel(config ent.VectorizationConfig) string {
+func (v *awsClient) getAwsSessionToken(ctx context.Context) (string, error) {
+	if awsSessionToken := v.getHeaderValue(ctx, "X-Aws-Session-Token"); awsSessionToken != "" {
+		return awsSessionToken, nil
+	}
+	if v.awsSessionToken != "" {
+		return v.awsSessionToken, nil
+	}
+	return "", nil
+}
+
+func (v *awsClient) getHeaderValue(ctx context.Context, header string) string {
+	headerValue := ctx.Value(header)
+	if value, ok := headerValue.([]string); ok &&
+		len(value) > 0 && len(value[0]) > 0 {
+		return value[0]
+	}
+	// try getting header from GRPC if not successful
+	if value := modulecomponents.GetValueFromGRPC(ctx, header); len(value) > 0 && len(value[0]) > 0 {
+		return value[0]
+	}
+	return ""
+}
+
+func (v *awsClient) getModel(config ent.VectorizationConfig) string {
 	return config.Model
 }
 
-func (v *aws) getRegion(config ent.VectorizationConfig) string {
+func (v *awsClient) getRegion(config ent.VectorizationConfig) string {
 	return config.Region
 }
 
-func (v *aws) getService(config ent.VectorizationConfig) string {
+func (v *awsClient) getService(config ent.VectorizationConfig) string {
 	return config.Service
 }
 
-func (v *aws) getEndpoint(config ent.VectorizationConfig) string {
+func (v *awsClient) getEndpoint(config ent.VectorizationConfig) string {
 	return config.Endpoint
 }
 
-func (v *aws) getTargetModel(config ent.VectorizationConfig) string {
+func (v *awsClient) getTargetModel(config ent.VectorizationConfig) string {
 	return config.TargetModel
 }
 
-func (v *aws) getTargetVariant(config ent.VectorizationConfig) string {
+func (v *awsClient) getTargetVariant(config ent.VectorizationConfig) string {
 	return config.TargetVariant
 }
 
