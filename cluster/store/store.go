@@ -514,8 +514,8 @@ func (f *Store) FindSimilarClass(name string) string {
 // The value of "candidates" is a map[string]string of the current candidates IDs/addresses,
 // see Store.candidates.
 //
-// The value of "initial_last_applied_index" is the index of the last applied command found when
-// the store was opened, see Store.initialLastAppliedIndex.
+// The value of "last_store_log_applied_index" is the index of the last applied command found when
+// the store was opened, see Store.lastAppliedIndexOnStart.
 //
 // The value of "last_applied_index" is the index of the latest update to the store,
 // see Store.lastAppliedIndex.
