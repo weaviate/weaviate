@@ -60,7 +60,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary\
       BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
-      ENABLE_MODULES="text2vec-gpt4all,backup-filesystem" \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
@@ -91,7 +91,7 @@ case $CONFIG in
       RAFT_BOOTSTRAP_EXPECT=3 \
       CONTEXTIONARY_URL=localhost:9999 \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary\
-      ENABLE_MODULES="text2vec-gpt4all,backup-filesystem" \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -117,7 +117,7 @@ case $CONFIG in
         RAFT_BOOTSTRAP_EXPECT=3 \
         CONTEXTIONARY_URL=localhost:9999 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary\
-        ENABLE_MODULES="text2vec-gpt4all" \
+        ENABLE_MODULES="text2vec-contextionary" \
         go_run ./cmd/weaviate-server \
           --scheme http \
           --host "127.0.0.1" \
@@ -140,7 +140,7 @@ case $CONFIG in
         RAFT_INTERNAL_RPC_PORT="8307" \
         CONTEXTIONARY_URL=localhost:9999 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary\
-        ENABLE_MODULES="text2vec-gpt4all" \
+        ENABLE_MODULES="text2vec-contextionary" \
         go_run ./cmd/weaviate-server \
           --scheme http \
           --host "127.0.0.1" \
