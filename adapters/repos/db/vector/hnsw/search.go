@@ -290,37 +290,106 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			}
 
 			if distance < worstResultDistance || results.Len() < ef {
-				candidates.Insert(neighborID, distance)
-				if level == 0 && allowList != nil {
-					// we are on the lowest level containing the actual candidates and we
-					// have an allow list (i.e. the user has probably set some sort of a
-					// filter restricting this search further. As a result we have to
-					// ignore items not on the list
-					if !allowList.Contains(neighborID) {
-						continue
+				if level > 0 {
+					// higher levels, do not modify the search strategy
+					if !h.hasTombstone(neighborID) {
+						candidates.Insert(neighborID, distance)
+						results.Insert(neighborID, distance)
+
+						if h.compressed.Load() {
+							h.compressor.Prefetch(candidates.Top().ID)
+						} else {
+							h.cache.Prefetch(candidates.Top().ID)
+						}
+
+						if results.Len() > ef {
+							results.Pop()
+						}
+
+						if results.Len() > 0 {
+							worstResultDistance = results.Top().Dist
+						}
+					}
+				} else {
+					// If not on level 0, only put nodes on the allowList into the canddiate set
+					if level == 0 && allowList != nil {
+						// we are on the lowest level containing the actual candidates and we
+						// have an allow list (i.e. the user has probably set some sort of a
+						// filter restricting this search further. As a result we have to
+						// ignore items not on the list
+						candidates.Insert(neighborID, distance)
+						if !allowList.Contains(neighborID) {
+							if !h.acornSearch {
+								// HNSW with Pre-Filtering
+								candidates.Insert(neighborID, distance)
+								continue
+							}
+						}
+
+						if allowList.Contains(neighborID) && !h.hasTombstone(neighborID) {
+							results.Insert(neighborID, distance)
+
+							if h.compressed.Load() {
+								h.compressor.Prefetch(candidates.Top().ID)
+							} else {
+								h.cache.Prefetch(candidates.Top().ID)
+							}
+
+							if results.Len() > ef {
+								results.Pop()
+							}
+
+							if results.Len() > 0 {
+								worstResultDistance = results.Top().Dist
+							}
+						}
+
+						// search neighbors of neighborID
+						if h.acornSearch {
+							h.shardedNodeLocks.RLock(neighborID)
+							neighborNode := h.nodes[neighborID]
+							h.shardedNodeLocks.RUnlock(neighborID)
+
+							neighborNode.Lock()
+							expandedNeighbors := make([]uint64, len(neighborNode.connections[level]))
+							copy(expandedNeighbors, neighborNode.connections[level])
+							neighborNode.Unlock()
+
+							for _, neighborOfNeighborID := range expandedNeighbors {
+								// Ok so here is something interesting,
+								// we don't mark these nodes as visited because that entails expanding the 2-hop neighbors
+								// so maybe need to maintain two visited sets for this
+								if ok := visited.Visited(neighborOfNeighborID); ok {
+									continue
+								}
+								var distance float32
+								var ok bool
+								var err error
+								if h.compressed.Load() {
+									distance, ok, err = compressorDistancer.DistanceToNode(neighborOfNeighborID)
+								} else {
+									distance, ok, err = h.distanceToFloatNode(floatDistancer, neighborOfNeighborID)
+								}
+								if err != nil {
+									var e storobj.ErrNotFound
+									if errors.As(err, &e) {
+										h.handleDeletedNode(e.DocID)
+										continue
+									} else {
+										if err != nil {
+											return nil, errors.Wrap(err, "calculate distance between candidate and query")
+										}
+									}
+								}
+								// Might also want to think about the `distance < worstResultDistance` condition
+								if ok && allowList.Contains(neighborOfNeighborID) && distance < worstResultDistance {
+									candidates.Insert(neighborOfNeighborID, distance)
+								}
+							}
+						}
 					}
 				}
 
-				if h.hasTombstone(neighborID) {
-					continue
-				}
-
-				results.Insert(neighborID, distance)
-
-				if h.compressed.Load() {
-					h.compressor.Prefetch(candidates.Top().ID)
-				} else {
-					h.cache.Prefetch(candidates.Top().ID)
-				}
-
-				// +1 because we have added one node size calculating the len
-				if results.Len() > ef {
-					results.Pop()
-				}
-
-				if results.Len() > 0 {
-					worstResultDistance = results.Top().Dist
-				}
 			}
 		}
 	}

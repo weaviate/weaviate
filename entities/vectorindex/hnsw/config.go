@@ -28,7 +28,7 @@ const (
 	DefaultDynamicEFMin           = 100
 	DefaultDynamicEFMax           = 500
 	DefaultDynamicEFFactor        = 8
-	DefaultAcornSearch            = false
+	DefaultAcornSearch            = true
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 
