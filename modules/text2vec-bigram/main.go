@@ -81,12 +81,12 @@ func (m *BigramModule) Init(ctx context.Context, params moduletools.ModuleInitPa
 		case "bytepairs":
 			m.activeVectoriser = "bytepairs"
 		default:
-			m.activeVectoriser = "alphabet"
+			m.activeVectoriser = "mod26"
 		}
 	}
 
 	if m.activeVectoriser == "" {
-		m.activeVectoriser = "alphabet"
+		m.activeVectoriser = "mod26"
 	}
 
 	return nil
@@ -129,8 +129,12 @@ func (m *BigramModule) AdditionalProperties() map[string]modulecapabilities.Addi
 	return additional.NewText2VecProvider().AdditionalProperties()
 }
 
-func letter2Ordinal(letter rune) int {
+func alphabetOrdinal(letter rune) int {
 	return int(letter - 'a')
+}
+
+func ord(letter rune) int {
+	return int(letter)
 }
 
 func stripNonAlphabets(input string) string {
@@ -148,8 +152,8 @@ func alphabet2Vector(input string) ([]float32, error) {
 	input = strings.ToLower(input)
 	vector := make([]float32, 26*26)
 	for i := 0; i < len(input)-1; i++ {
-		first := letter2Ordinal(rune(input[i]))
-		second := letter2Ordinal(rune(input[i+1]))
+		first := alphabetOrdinal(rune(input[i]))
+		second := alphabetOrdinal(rune(input[i+1]))
 		index := first*26 + second
 		vector[index] = vector[index] + 1
 	}
@@ -164,17 +168,20 @@ func alphabet2Vector(input string) ([]float32, error) {
 	return vector, nil
 }
 
-func trigramVector(input string) ([]float32, error) {
-	input = stripNonAlphabets(input)
+func mod26Vector(input string) ([]float32, error) {
 	input = strings.ToLower(input)
-	vector := make([]float32, 26*26*26)
-	for i := 0; i < len(input)-2; i++ {
-		first := letter2Ordinal(rune(input[i]))
-		second := letter2Ordinal(rune(input[i+1]))
-		third := letter2Ordinal(rune(input[i+2]))
-		index := first*26*26 + second*26 + third
+	vector := make([]float32, 26*26)
+	for i := 0; i < len(input)-1; i++ {
+		first := int(input[i]) % 26
+		second := int(input[i+1]) % 26
+		index := first*26 + second
 		vector[index] = vector[index] + 1
 	}
+
+	return normaliseVector(vector), nil
+}
+
+func normaliseVector(vector []float32) []float32 {
 	var sum float32
 	for _, v := range vector {
 		sum += v
@@ -183,7 +190,21 @@ func trigramVector(input string) ([]float32, error) {
 	for i, v := range vector {
 		vector[i] = v / sum
 	}
-	return vector, nil
+	return vector
+}
+
+func trigramVector(input string) ([]float32, error) {
+	input = strings.ToLower(input)
+	vector := make([]float32, 26*26*26)
+	for i := 0; i < len(input)-2; i++ {
+		first := ord(rune(input[i]))%26
+		second := ord(rune(input[i+1]))%26
+		third := ord(rune(input[i+2]))%26
+		index := first*26*26 + second*26 + third
+		vector[index] = vector[index] + 1
+	}
+
+	return normaliseVector(vector), nil
 }
 
 func bytePairs2Vector(input string) ([]float32, error) {
@@ -194,15 +215,8 @@ func bytePairs2Vector(input string) ([]float32, error) {
 		index := int(bigram[0]) * int(bigram[1])
 		vector[index] = vector[index] + 1
 	}
-	var sum float32
-	for _, v := range vector {
-		sum += v
-	}
 
-	for i, v := range vector {
-		vector[i] = v / sum
-	}
-	return vector[1:], nil
+	return normaliseVector(vector[1:]), nil //Max length is 16k-1
 }
 
 func text2vec(input, activeVectoriser string) ([]float32, error) {
@@ -213,6 +227,8 @@ func text2vec(input, activeVectoriser string) ([]float32, error) {
 		return trigramVector(input)
 	case "bytepairs":
 		return bytePairs2Vector(input)
+	case "mod26":
+		return mod26Vector(input)
 	default:
 		return nil, fmt.Errorf("unsupported vectoriser: %s", activeVectoriser)
 	}
