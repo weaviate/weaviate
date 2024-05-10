@@ -40,7 +40,7 @@ func (db *localDB) SetIndexer(idx Indexer) {
 	db.Schema.shardReader = idx
 }
 
-func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
+func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string) error {
 	req := command.AddClassRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
@@ -57,13 +57,12 @@ func (db *localDB) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly
 			op:                    cmd.GetType().String(),
 			updateSchema:          func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
 			updateStore:           func() error { return db.store.AddClass(req) },
-			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
 }
 
-func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
+func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string) error {
 	req := command.AddClassRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
@@ -87,7 +86,6 @@ func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schema
 			op:                    cmd.GetType().String(),
 			updateSchema:          func() error { return db.Schema.addClass(req.Class, req.State, cmd.Version) },
 			updateStore:           func() error { return db.store.AddClass(req) },
-			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
@@ -95,7 +93,7 @@ func (db *localDB) RestoreClass(cmd *command.ApplyRequest, nodeID string, schema
 
 // UpdateClass modifies the vectors and inverted indexes associated with a class
 // Other class properties are handled by separate functions
-func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
+func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string) error {
 	req := command.UpdateClassRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
@@ -130,25 +128,23 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 			op:                    cmd.GetType().String(),
 			updateSchema:          func() error { return db.Schema.updateClass(req.Class.Class, update) },
 			updateStore:           func() error { return db.store.UpdateClass(req) },
-			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
 }
 
-func (db *localDB) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) error {
+func (db *localDB) DeleteClass(cmd *command.ApplyRequest) error {
 	return db.apply(
 		applyOp{
 			op:                    cmd.GetType().String(),
 			updateSchema:          func() error { db.Schema.deleteClass(cmd.Class); return nil },
 			updateStore:           func() error { return db.store.DeleteClass(cmd.Class) },
-			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
 }
 
-func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error {
+func (db *localDB) AddProperty(cmd *command.ApplyRequest) error {
 	req := command.AddPropertyRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
@@ -162,13 +158,12 @@ func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error
 			op:                    cmd.GetType().String(),
 			updateSchema:          func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
 			updateStore:           func() error { return db.store.AddProperty(cmd.Class, req) },
-			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
 }
 
-func (db *localDB) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly bool) error {
+func (db *localDB) UpdateShardStatus(cmd *command.ApplyRequest) error {
 	req := command.UpdateShardStatusRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
@@ -179,12 +174,11 @@ func (db *localDB) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly bool)
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return nil },
 			updateStore:  func() error { return db.store.UpdateShardStatus(&req) },
-			schemaOnly:   schemaOnly,
 		},
 	)
 }
 
-func (db *localDB) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
+func (db *localDB) AddTenants(cmd *command.ApplyRequest) error {
 	req := &command.AddTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
@@ -195,12 +189,11 @@ func (db *localDB) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error 
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return db.Schema.addTenants(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return db.store.AddTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
 		},
 	)
 }
 
-func (db *localDB) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool) (n int, err error) {
+func (db *localDB) UpdateTenants(cmd *command.ApplyRequest) (n int, err error) {
 	req := &command.UpdateTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return 0, fmt.Errorf("%w: %w", errBadRequest, err)
@@ -211,12 +204,11 @@ func (db *localDB) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool) (n 
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { n, err = db.Schema.updateTenants(cmd.Class, cmd.Version, req); return err },
 			updateStore:  func() error { return db.store.UpdateTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
 		},
 	)
 }
 
-func (db *localDB) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
+func (db *localDB) DeleteTenants(cmd *command.ApplyRequest) error {
 	req := &command.DeleteTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", errBadRequest, err)
@@ -227,7 +219,6 @@ func (db *localDB) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool) err
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return db.Schema.deleteTenants(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return db.store.DeleteTenants(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
 		},
 	)
 }
@@ -247,7 +238,6 @@ type applyOp struct {
 	op                    string
 	updateSchema          func() error
 	updateStore           func() error
-	schemaOnly            bool
 	triggerSchemaCallback bool
 }
 
