@@ -621,8 +621,9 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 func (st *Store) Apply(l *raft.Log) interface{} {
 	ret := Response{Version: l.Index}
 	st.log.WithFields(logrus.Fields{
-		"type":  l.Type,
-		"index": l.Index,
+		"log_type":  l.Type,
+		"log_name":  l.Type.String(),
+		"log_index": l.Index,
 	}).Debug("apply fsm store command")
 	if l.Type != raft.LogCommand {
 		st.log.WithFields(logrus.Fields{
@@ -641,13 +642,25 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		st.lastAppliedIndex.Store(l.Index)
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
-				"type":  l.Type,
-				"index": l.Index,
+				"log_type":      l.Type,
+				"log_name":      l.Type.String(),
+				"log_index":     l.Index,
+				"cmd_type":      cmd.Type,
+				"cmd_type_name": cmd.Type.String(),
+				"cmd_class":     cmd.Class,
 			}).WithError(ret.Error).Error("apply command")
 		}
 	}()
 
 	cmd.Version = l.Index
+	st.log.WithFields(logrus.Fields{
+		"log_type":      l.Type,
+		"log_name":      l.Type.String(),
+		"log_index":     l.Index,
+		"cmd_type":      cmd.Type,
+		"cmd_type_name": cmd.Type.String(),
+		"cmd_class":     cmd.Class,
+	}).Debug("server.apply")
 	switch cmd.Type {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
