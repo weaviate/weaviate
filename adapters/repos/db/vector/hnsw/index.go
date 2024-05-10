@@ -91,6 +91,8 @@ type hnsw struct {
 	efMax    int64
 	efFactor int64
 
+	acornSearch bool
+
 	// on filtered searches with less than n elements, perform flat search
 	flatSearchCutoff int64
 
@@ -257,10 +259,11 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shutdownCtxCancel: shutdownCtxCancel,
 		initialInsertOnce: &sync.Once{},
 
-		ef:       int64(uc.EF),
-		efMin:    int64(uc.DynamicEFMin),
-		efMax:    int64(uc.DynamicEFMax),
-		efFactor: int64(uc.DynamicEFFactor),
+		ef:          int64(uc.EF),
+		efMin:       int64(uc.DynamicEFMin),
+		efMax:       int64(uc.DynamicEFMax),
+		efFactor:    int64(uc.DynamicEFFactor),
+		acornSearch: uc.AcornSearch,
 
 		metrics:   NewMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName),
 		shardName: cfg.ShardName,

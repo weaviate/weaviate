@@ -28,6 +28,7 @@ const (
 	DefaultDynamicEFMin           = 100
 	DefaultDynamicEFMax           = 500
 	DefaultDynamicEFFactor        = 8
+	DefaultAcornSearch            = false
 	DefaultSkip                   = false
 	DefaultFlatSearchCutoff       = 40000
 
@@ -47,6 +48,7 @@ type UserConfig struct {
 	DynamicEFMax           int      `json:"dynamicEfMax"`
 	DynamicEFFactor        int      `json:"dynamicEfFactor"`
 	VectorCacheMaxObjects  int      `json:"vectorCacheMaxObjects"`
+	AcornSearch            bool     `json:"acornSearch"`
 	FlatSearchCutoff       int      `json:"flatSearchCutoff"`
 	Distance               string   `json:"distance"`
 	PQ                     PQConfig `json:"pq"`
@@ -74,6 +76,7 @@ func (u *UserConfig) SetDefaults() {
 	u.DynamicEFMax = DefaultDynamicEFMax
 	u.DynamicEFMin = DefaultDynamicEFMin
 	u.Skip = DefaultSkip
+	u.AcornSearch = DefaultAcornSearch
 	u.FlatSearchCutoff = DefaultFlatSearchCutoff
 	u.Distance = vectorIndexCommon.DefaultDistanceMetric
 	u.PQ = PQConfig{
