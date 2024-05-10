@@ -389,7 +389,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 						}
 					}
 				}
-
 			}
 		}
 	}
