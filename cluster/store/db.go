@@ -275,8 +275,10 @@ func (db *localDB) apply(op applyOp) error {
 		return fmt.Errorf("%w: %s: %w", errSchema, op.op, err)
 	}
 
-	if err := op.updateStore(); err != nil {
-		return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
+	if !op.schemaOnly {
+		if err := op.updateStore(); err != nil {
+			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
+		}
 	}
 
 	// Always trigger the schema callback last
