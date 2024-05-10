@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
-	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -73,12 +72,14 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
 	className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking,
 ) ([]*storobj.Object, []float32, error) {
-	// WEAVIATE-471 - If a property is not searchable, return an error
+	validProps := make([]string, 0, len(keywordRanking.Properties))
 	for _, property := range keywordRanking.Properties {
-		if !PropertyHasSearchableIndex(b.getClass(className.String()), property) {
-			return nil, nil, inverted.NewMissingSearchableIndexError(property)
+		if PropertyHasSearchableIndex(b.getClass(className.String()), property) {
+			validProps = append(validProps, property)
 		}
 	}
+	keywordRanking.Properties = validProps
+
 	class := b.getClass(className.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
