@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -29,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/classification"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestClassifications(t *testing.T) {
@@ -44,7 +44,7 @@ func TestClassifications(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -64,7 +64,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing categories", func(t *testing.T) {
 		for _, res := range classificationTestCategories() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})
@@ -72,7 +72,7 @@ func TestClassifications(t *testing.T) {
 	t.Run("importing articles", func(t *testing.T) {
 		for _, res := range classificationTestArticles() {
 			thing := res.Object()
-			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil)
+			err := repo.PutObject(context.Background(), thing, res.Vector, nil, nil, 0)
 			require.Nil(t, err)
 		}
 	})

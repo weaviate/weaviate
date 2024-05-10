@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package classification_integration_test
 
@@ -31,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	testhelper "github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/usecases/classification"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -50,7 +50,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
@@ -81,7 +81,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 				}
 			}
 
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, 0)
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -97,7 +97,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 					Object:        elem.Object(),
 				}
 			}
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, 0)
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)
@@ -187,7 +187,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
@@ -214,7 +214,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 				}
 			}
 
-			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil)
+			res, err := vrepo.BatchPutObjects(context.Background(), bt, nil, 0)
 			require.Nil(t, err)
 			for _, elem := range res {
 				require.Nil(t, elem.Err)

@@ -22,13 +22,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
+	s.activityTracker.Add(1)
 	if s.isReadOnly() {
 		return []error{errors.Errorf("shard is read-only")}
 	}
@@ -343,10 +343,9 @@ func (b *referencesBatcher) flushWALs(ctx context.Context) {
 
 func (b *referencesBatcher) getSchemaPropsByName() (map[string]*models.Property, error) {
 	idx := b.shard.Index()
-	sch := idx.getSchema.GetSchemaSkipAuth().Objects
-	class, err := schema.GetClassByName(sch, idx.Config.ClassName.String())
-	if err != nil {
-		return nil, err
+	class := idx.getSchema.ReadOnlyClass(idx.Config.ClassName.String())
+	if class == nil {
+		return nil, fmt.Errorf("could not find class %s in schema", idx.Config.ClassName)
 	}
 
 	propsByName := map[string]*models.Property{}

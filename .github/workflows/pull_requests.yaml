@@ -3,13 +3,30 @@ name: Tests
 on:
   push:
     branches:
-      - master
+      - main
       - 'stable/v*'
     tags:
       - '**'
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  Buf-Checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: bufbuild/buf-setup-action@v1
+      - uses: bufbuild/buf-lint-action@v1
+        with:
+          input: "cluster/proto"
+      - uses: bufbuild/buf-breaking-action@v1
+        if: github.event_name == 'pull_request'
+        with:
+          input: "cluster/proto"
+          against: "https://github.com/${GITHUB_REPOSITORY}.git#branch=${{ github.event.pull_request.base.ref }},subdir=cluster/proto"
   Run-Swagger:
     name: run-swagger
     runs-on: ubuntu-latest
@@ -85,7 +102,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-backup-azure", "--only-module-backup-filesystem", "--only-module-backup-gcs", "--only-module-backup-s3", "--only-module-img2vec-neural", "--only-module-many-modules", "--only-module-multi2vec-clip", "--only-module-ref2vec-centroid", "--only-module-reranker-transformers", "--only-module-text2vec-contextionary", "--only-module-text2vec-transformers"]
+        test: [
+          "--only-module-backup-azure",
+          "--only-module-backup-filesystem",
+          "--only-module-backup-gcs",
+          "--only-module-backup-s3",
+          "--only-module-img2vec-neural",
+          "--only-module-many-modules",
+          "--only-module-multi2vec-clip",
+          "--only-module-ref2vec-centroid",
+          "--only-module-reranker-transformers",
+          "--only-module-text2vec-contextionary",
+          "--only-module-text2vec-transformers",
+          "--only-module-text2vec-ollama",
+          "--only-module-generative-ollama"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -94,7 +125,13 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests (modules)
-        run: ./test/run.sh ${{ matrix.test }}
+        uses: nick-fields/retry@v2
+        with:
+          # 15 Minute is a large enough timeout for most of our tests
+          timeout_minutes: 15
+          max_attempts: 3
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
     runs-on: ubuntu-latest-4-cores
@@ -110,7 +147,13 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests Large (modules)
-        run: ./test/run.sh ${{ matrix.test }}
+        uses: nick-fields/retry@v2
+        with:
+          # 15 Minute is a large enough timeout for most of our tests
+          timeout_minutes: 15
+          max_attempts: 3
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-gcp:
     name: modules-acceptance-tests-gcp
     runs-on: ubuntu-latest
@@ -118,7 +161,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-multi2vec-palm"]
+        test: ["--only-module-multi2vec-palm", "--only-module-generative-palm", "--only-module-text2vec-palm"]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -152,12 +195,12 @@ jobs:
         if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         run: PALM_APIKEY=$(gcloud auth print-access-token) ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
-    name: acceptance-tests  
+    name: acceptance-tests
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-only-fast", "--acceptance-only-graphql", "--acceptance-only-replication", "--acceptance-only-python"]
+        test: ["--acceptance-only-fast", "--acceptance-go-client", "--acceptance-only-graphql", "--acceptance-only-replication", "--acceptance-only-python"]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -166,15 +209,21 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests
+        uses: nick-fields/retry@v2
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
-          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}        
-        run: ./test/run.sh ${{ matrix.test }}
+          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+        with:
+          # 15 Minute is a large enough timeout for most of our tests
+          timeout_minutes: 15
+          max_attempts: 3
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
     runs-on: ubuntu-latest
-    if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'master') }}
+    if: ${{ (github.ref_type == 'branch') && (github.ref_name != 'main') }}
     steps:
       - uses: actions/checkout@v4
       - name: Download coverage artifacts integration
@@ -201,11 +250,12 @@ jobs:
         with:
           go-version: '1.21'
           cache: true
+      - name: Install GoReleaser
+        uses: goreleaser/goreleaser-action@v5
+        with:
+          install-only: true
       - name: goreleaser
         run: |
-          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
-          sudo apt update
-          sudo apt install goreleaser
           GIT_HASH=$(git rev-parse --short HEAD) goreleaser build  --clean --snapshot
       - name: Upload macos
         uses: actions/upload-artifact@v4
@@ -242,6 +292,9 @@ jobs:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: true
       PERSISTENCE_DATA_PATH: /tmp
       QUERY_DEFAULTS_LIMIT: 20
+      CLUSTER_HOSTNAME: node1
+      RAFT_BOOTSTRAP_EXPECT: 1
+      RAFT_JOIN: node1
     steps:
       - uses: actions/checkout@v4
       - name: Download binaries
@@ -264,7 +317,7 @@ jobs:
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
-    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Modules-Acceptance-Tests-large, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
+    needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, Integration-Tests]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork

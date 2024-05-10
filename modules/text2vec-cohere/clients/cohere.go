@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,6 +28,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
+)
+
+const (
+	DefaultRPM = 10000    // from https://docs.cohere.com/docs/going-live#production-key-specifications default for production keys
+	DefaultTPM = 10000000 // no token limit used by cohere
 )
 
 type embeddingsRequest struct {
@@ -89,10 +95,9 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
-	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
-	return res, nil, err
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, searchQuery)
 }
 
 func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
@@ -166,10 +171,47 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 
 func (v *vectorizer) getCohereUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
+}
+
+func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
+	key, err := v.getApiKey(ctx)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
+}
+
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "Cohere", DefaultRPM, 0)
+
+	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
+		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened
+		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
+			if deductRequest {
+				limits.RemainingRequests -= 1
+			}
+			return
+		}
+
+		limits.RemainingRequests = rpm
+		limits.ResetRequests = time.Now().Add(time.Duration(61) * time.Second)
+		limits.LimitRequests = rpm
+		limits.LastOverwrite = time.Now()
+
+		// high dummy values
+		limits.RemainingTokens = DefaultTPM
+		limits.LimitTokens = DefaultTPM
+		limits.ResetTokens = time.Now().Add(time.Duration(1) * time.Second)
+	}
+
+	initialRL := &modulecomponents.RateLimits{AfterRequestFunction: execAfterRequestFunction, LastOverwrite: time.Now().Add(-61 * time.Minute)}
+	initialRL.ResetAfterRequestFunction(0) // set initial values
+
+	return initialRL
 }
 
 func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) string {
@@ -179,21 +221,8 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 	return fmt.Sprintf(errorTemplate, statusCode)
 }
 
-func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Cohere-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {

@@ -12,11 +12,11 @@
 package classification
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 )
@@ -29,8 +29,10 @@ func (c *Classifier) classifyItemUsingZeroShot(item search.Result, itemIndex int
 
 	properties := params.ClassifyProperties
 
-	s := c.schemaGetter.GetSchemaSkipAuth()
-	class := s.GetClass(schema.ClassName(item.ClassName))
+	class := c.schemaGetter.ReadOnlyClass(item.ClassName)
+	if class == nil {
+		return fmt.Errorf("zeroshot: search: could not find class %s in schema", item.ClassName)
+	}
 
 	classifyProp := []string{}
 	for _, prop := range properties {

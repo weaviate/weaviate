@@ -187,6 +187,6 @@ func Test_Delete_ReadOnly_Classes(t *testing.T) {
 	t.Run("assert class is deleted", func(t *testing.T) {
 		params := clschema.NewSchemaObjectsGetParams().WithClassName(className)
 		_, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
-		require.Equal(t, err, &clschema.SchemaObjectsGetNotFound{})
+		require.Equal(t, &clschema.SchemaObjectsGetNotFound{}, err)
 	})
 }

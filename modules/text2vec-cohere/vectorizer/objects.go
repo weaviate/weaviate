@@ -13,10 +13,10 @@ package vectorizer
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/sirupsen/logrus"
@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
-	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
 const (
@@ -32,45 +31,28 @@ const (
 	MaxTimePerBatch    = float64(10)
 )
 
-type Vectorizer struct {
-	client           Client
-	objectVectorizer *objectsvectorizer.ObjectVectorizer
-	batchVectorizer  *batch.Batch
-}
+func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
+	batchTokenizer := func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
+		texts := make([]string, len(objects))
+		tokenCounts := make([]int, len(objects))
+		icheck := ent.NewClassSettings(cfg)
 
-func New(client Client, logger logrus.FieldLogger) *Vectorizer {
-	// cohere has only request limit and no token limit
-	execAfterRequestFunction := func(limits *modulecomponents.RateLimits) {
-		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise we only deduct the request that just happened
-		if limits.LastOverwrite.Add(61 * time.Second).After(time.Now()) {
-			limits.RemainingRequests -= 1
-			return
+		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
+		skipAll := true
+		for i := range texts {
+			if skipObject[i] {
+				continue
+			}
+			skipAll = false
+			text := objectVectorizer.Texts(ctx, objects[i], icheck)
+			texts[i] = text
+			tokenCounts[i] = 0
 		}
-
-		// initial values, from https://docs.cohere.com/docs/going-live#production-key-specifications
-		limits.RemainingRequests = 10000
-		limits.ResetTokens = 61
-		limits.LimitRequests = 10000
-		limits.LastOverwrite = time.Now()
-
-		// high dummy values
-		limits.RemainingTokens = 10000000
-		limits.LimitTokens = 10000000
-		limits.ResetTokens = 1
+		return texts, tokenCounts, skipAll, nil
 	}
-
-	return &Vectorizer{
-		client:           client,
-		objectVectorizer: objectsvectorizer.New(),
-		batchVectorizer:  batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, MaxTimePerBatch, execAfterRequestFunction, logger, false),
-	}
-}
-
-type Client interface {
-	Vectorize(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
-	VectorizeQuery(ctx context.Context, input []string,
-		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
+	// there does not seem to be a limit
+	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -81,53 +63,4 @@ type ClassSettings interface {
 	Model() string
 	Truncate() string
 	BaseURL() string
-}
-
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object, cfg)
-	return vec, nil, err
-}
-
-func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	icheck := ent.NewClassSettings(cfg)
-	text := v.objectVectorizer.Texts(ctx, object, icheck)
-
-	res, _, err := v.client.Vectorize(ctx, []string{text}, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if len(res.Vector) == 0 {
-		return nil, fmt.Errorf("no vectors generated")
-	}
-
-	if len(res.Vector) > 1 {
-		return libvectorizer.CombineVectors(res.Vector), nil
-	}
-	return res.Vector[0], nil
-}
-
-func (v *Vectorizer) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
-) ([][]float32, map[int]error) {
-	texts := make([]string, len(objects))
-	tokenCounts := make([]int, len(objects))
-	icheck := ent.NewClassSettings(cfg)
-
-	// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
-	skipAll := true
-	for i := range objects {
-		if skipObject[i] {
-			continue
-		}
-		skipAll = false
-		texts[i] = v.objectVectorizer.Texts(ctx, objects[i], icheck)
-		tokenCounts[i] = 0 // no token limit
-	}
-
-	if skipAll {
-		return make([][]float32, len(objects)), make(map[int]error)
-	}
-
-	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
 }

@@ -190,6 +190,27 @@ func TestClient(t *testing.T) {
 		buildURL = c.getCohereUrl(context.TODO(), baseURL)
 		assert.Equal(t, "http://default-url.com/v1/embed", buildURL)
 	})
+
+	t.Run("pass rate limit headers requests", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &vectorizer{
+			apiKey:     "",
+			httpClient: &http.Client{},
+			urlBuilder: &cohereUrlBuilder{
+				origin:   server.URL,
+				pathMask: "/v1/embed",
+			},
+			logger: nullLogger(),
+		}
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Cohere-Ratelimit-RequestPM-Embedding", []string{"50"})
+
+		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		assert.Equal(t, 50, rl.LimitRequests)
+		assert.Equal(t, 50, rl.RemainingRequests)
+	})
 }
 
 type fakeHandler struct {

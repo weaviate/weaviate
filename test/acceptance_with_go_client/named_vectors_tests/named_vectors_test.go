@@ -69,6 +69,7 @@ func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
 
 func allTests(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
+		t.Run("hybrid", testHybrid(endpoint))
 		t.Run("schema", testCreateSchema(endpoint))
 		t.Run("schema with none vectorizer", testCreateSchemaWithNoneVectorizer(endpoint))
 		t.Run("object", testCreateObject(endpoint))
@@ -80,7 +81,19 @@ func allTests(endpoint string) func(t *testing.T) {
 		t.Run("cross references", testReferenceProperties(endpoint))
 		t.Run("objects with vectorizer and objects", testCreateSchemaWithVectorizerAndBYOV(endpoint))
 		t.Run("hybrid", testHybrid(endpoint))
+		t.Run("generative modules", testNamedVectorsWithGenerativeModules(endpoint))
+		t.Run("aggregate", testAggregate(endpoint))
 	}
+}
+
+func TestNamedVectors_SingleNode_Restart(t *testing.T) {
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironment(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	t.Run("restart", testRestart(compose))
 }
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {

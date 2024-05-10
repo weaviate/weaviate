@@ -15,6 +15,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/stretchr/testify/require"
@@ -49,6 +50,7 @@ func TestGRPCRequest(t *testing.T) {
 	dotClass := "DotClass"
 	objClass := "ObjClass"
 	multiVecClass := "MultiVecClass"
+	one := float64(1.0)
 
 	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
 
@@ -158,6 +160,89 @@ func TestGRPCRequest(t *testing.T) {
 		out   dto.GetParams
 		error bool
 	}{
+		{
+			name: "hybrid neartext",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				Metadata:   &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{
+					Query: "query",
+					NearText: &pb.NearTextSearch{
+						Query:    []string{"first and", "second", "query"},
+						MoveTo:   &pb.NearTextSearch_Move{Force: 0.5, Concepts: []string{"first", "and second"}, Uuids: []string{UUID3, UUID4}},
+						MoveAway: &pb.NearTextSearch_Move{Force: 0.3, Concepts: []string{"second to last", "really last"}, Uuids: []string{UUID4}},
+					},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:  classname,
+				Pagination: defaultPagination,
+				HybridSearch: &searchparams.HybridSearch{
+					Query:           "query",
+					FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
+					NearTextParams: &searchparams.NearTextParams{
+						Limit:        10, // default
+						Values:       []string{"first and", "second", "query"},
+						MoveTo:       searchparams.ExploreMove{Force: 0.5, Values: []string{"first", "and second"}},
+						MoveAwayFrom: searchparams.ExploreMove{Force: 0.3, Values: []string{"second to last", "really last"}},
+					},
+				},
+
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid nearvector returns all named vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+
+				HybridSearch: &pb.Hybrid{
+					Alpha: 1.0,
+					Query: "nearvecquery",
+					NearVector: &pb.NearVector{
+						VectorBytes:   byteops.Float32ToByteVector([]float32{1, 2, 3}),
+						TargetVectors: []string{"custom"},
+						Certainty:     &one,
+						Distance:      &one,
+					},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
+				HybridSearch: &searchparams.HybridSearch{
+					Alpha:           1.0,
+					Query:           "nearvecquery",
+					FusionAlgorithm: 1,
+					NearVectorParams: &searchparams.NearVector{
+						Vector:        []float32{1, 2, 3},
+						TargetVectors: []string{"custom"},
+						Certainty:     1.0,
+						Distance:      1.0,
+						WithDistance:  true,
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "near text wrong uuid format",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				NearText: &pb.NearTextSearch{
+					Query:  []string{"first"},
+					MoveTo: &pb.NearTextSearch_Move{Force: 0.5, Uuids: []string{"not a uuid"}},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
 		{
 			name:  "No classname",
 			req:   &pb.SearchRequest{},
@@ -461,6 +546,21 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "hybrid ranked groupby",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				GroupBy:      &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				HybridSearch: &pb.Hybrid{Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "CapitalizedName"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
+			},
+			error: false,
+		},
+		{
 			name: "hybrid targetvectors",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
@@ -499,6 +599,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
+
 		{
 			name: "bm25",
 			req: &pb.SearchRequest{
@@ -510,6 +611,22 @@ func TestGRPCRequest(t *testing.T) {
 				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
 				Properties:           defaultTestClassProps,
 				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+			},
+			error: false,
+		},
+		{
+			name: "bm25 groupby",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
+				GroupBy:    &pb.GroupBy{Path: []string{"name"}, NumberOfGroups: 2, ObjectsPerGroup: 3},
+				Bm25Search: &pb.BM25{Query: "query", Properties: []string{"name", "CapitalizedName"}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				KeywordRanking:       &searchparams.KeywordRanking{Query: "query", Properties: []string{"name", "capitalizedName"}, Type: "bm25"},
+				GroupBy:              &searchparams.GroupBy{Property: "name", Groups: 2, ObjectsPerGroup: 3},
+				Properties:           defaultTestClassProps,
+				AdditionalProperties: additional.Properties{Vector: true, NoProps: false, Group: true},
 			},
 			error: false,
 		},
@@ -1017,18 +1134,6 @@ func TestGRPCRequest(t *testing.T) {
 			error: false,
 		},
 		{
-			name: "near text wrong uuid format",
-			req: &pb.SearchRequest{
-				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
-				NearText: &pb.NearTextSearch{
-					Query:  []string{"first"},
-					MoveTo: &pb.NearTextSearch_Move{Force: 0.5, Uuids: []string{"not a uuid"}},
-				},
-			},
-			out:   dto.GetParams{},
-			error: true,
-		},
-		{
 			name: "near audio search",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
@@ -1377,7 +1482,7 @@ func TestGRPCRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchParamsFromProto(tt.req, scheme, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			out, err := searchParamsFromProto(tt.req, scheme.GetClass, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 			if tt.error {
 				require.NotNil(t, err)
 			} else {

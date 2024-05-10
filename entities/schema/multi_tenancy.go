@@ -14,8 +14,23 @@ package schema
 import "github.com/weaviate/weaviate/entities/models"
 
 func MultiTenancyEnabled(class *models.Class) bool {
+	if class == nil {
+		return false
+	}
+
 	if class.MultiTenancyConfig != nil {
 		return class.MultiTenancyConfig.Enabled
+	}
+	return false
+}
+
+func AutoTenantCreationEnabled(class *models.Class) bool {
+	if class == nil {
+		return false
+	}
+
+	if class.MultiTenancyConfig != nil {
+		return class.MultiTenancyConfig.AutoTenantCreation
 	}
 	return false
 }

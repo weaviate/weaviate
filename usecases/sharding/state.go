@@ -20,13 +20,14 @@ import (
 	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 const shardNameLength = 12
 
 type State struct {
 	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
-	Config              Config              `json:"config"`
+	Config              config.Config       `json:"config"`
 	Physical            map[string]Physical `json:"physical"`
 	Virtual             []Virtual           `json:"virtual"`
 	PartitioningEnabled bool                `json:"partitioningEnabled"`
@@ -100,7 +101,7 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 
 	names := nodes.Candidates()
 	if count > len(names) {
-		return fmt.Errorf("not enough replicas: found %d want %d", len(names), count)
+		return fmt.Errorf("not enough storage replicas: found %d want %d", len(names), count)
 	}
 
 	// make sure included nodes are unique
@@ -126,7 +127,7 @@ type nodes interface {
 	LocalName() string
 }
 
-func InitState(id string, config Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
+func InitState(id string, config config.Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
 	out := &State{
 		Config:              config,
 		IndexID:             id,
@@ -140,7 +141,7 @@ func InitState(id string, config Config, nodes nodes, replFactor int64, partitio
 
 	names := nodes.Candidates()
 	if f, n := replFactor, len(names); f > int64(n) {
-		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+		return nil, fmt.Errorf("not enough storage replicas: found %d want %d", n, f)
 	}
 
 	if err := out.initPhysical(names, replFactor); err != nil {
@@ -291,10 +292,11 @@ func (s *State) initPhysical(nodes []string, replFactor int64) error {
 
 // GetPartitions based on the specified shards, available nodes, and replFactor
 // It doesn't change the internal state
-func (s *State) GetPartitions(lookUp nodes, shards []string, replFactor int64) (map[string][]string, error) {
-	nodes := lookUp.Candidates()
+// TODO-RAFT: Ensure this function is higherorder, if the repartition result is changed, this will result in
+// inconsistency when applying old log entry for add tenants
+func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) (map[string][]string, error) {
 	if len(nodes) == 0 {
-		return nil, fmt.Errorf("list of node candidates is empty")
+		return nil, fmt.Errorf("list of storage nodes is empty")
 	}
 	if f, n := replFactor, len(nodes); f > int64(n) {
 		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
@@ -490,19 +492,6 @@ func (s State) DeepCopy() State {
 		Physical:            physicalCopy,
 		Virtual:             virtualCopy,
 		PartitioningEnabled: s.PartitioningEnabled,
-	}
-}
-
-func (c Config) DeepCopy() Config {
-	return Config{
-		VirtualPerPhysical:  c.VirtualPerPhysical,
-		DesiredCount:        c.DesiredCount,
-		ActualCount:         c.ActualCount,
-		DesiredVirtualCount: c.DesiredVirtualCount,
-		ActualVirtualCount:  c.ActualVirtualCount,
-		Key:                 c.Key,
-		Strategy:            c.Strategy,
-		Function:            c.Function,
 	}
 }
 

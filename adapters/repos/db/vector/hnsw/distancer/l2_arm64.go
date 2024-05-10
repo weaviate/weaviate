@@ -18,6 +18,10 @@ import (
 
 func init() {
 	if cpu.ARM64.HasASIMD {
-		l2SquaredImpl = asm.L2
+		if cpu.ARM64.HasSVE {
+			l2SquaredImpl = asm.L2_SVE
+		} else {
+			l2SquaredImpl = asm.L2_Neon
+		}
 	}
 }

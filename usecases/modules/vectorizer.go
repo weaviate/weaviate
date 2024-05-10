@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -204,7 +204,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 			if !reVectorize {
 				skipRevectorization[i] = true
 				p.lockGuard(func() {
-					obj = p.addVectorToObject(obj, vector, addProps, cfg)
+					p.addVectorToObject(obj, vector, addProps, cfg)
 				})
 			}
 		}
@@ -220,7 +220,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 			}
 
 			p.lockGuard(func() {
-				objects[i] = p.addVectorToObject(objects[i], vectors[i], addProp, cfg)
+				p.addVectorToObject(objects[i], vectors[i], addProp, cfg)
 			})
 		}
 
@@ -234,7 +234,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				errs[i] = fmt.Errorf("update reference vector: %w", err)
 			}
 			p.lockGuard(func() {
-				obj = p.addVectorToObject(obj, vector, nil, cfg)
+				p.addVectorToObject(obj, vector, nil, cfg)
 			})
 		}
 		return errs, nil
@@ -264,7 +264,7 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	if !p.hasMultipleVectorsConfiguration(class) {
 		// legacy vectorizer configuration
 		for targetVector, modConfig := range modConfigs {
-			return p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig, logger)
+			return p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig)
 		}
 	}
 	return p.vectorizeMultiple(ctx, object, class, findObjectFn, modConfigs, logger)
@@ -305,7 +305,7 @@ func (p *Provider) lockGuard(mutate func()) {
 
 func (p *Provider) addVectorToObject(object *models.Object,
 	vector []float32, additional models.AdditionalProperties, cfg moduletools.ClassConfig,
-) *models.Object {
+) {
 	if len(additional) > 0 {
 		if object.Additional == nil {
 			object.Additional = models.AdditionalProperties{}
@@ -316,13 +316,12 @@ func (p *Provider) addVectorToObject(object *models.Object,
 	}
 	if cfg.TargetVector() == "" {
 		object.Vector = vector
-		return object
+		return
 	}
 	if object.Vectors == nil {
 		object.Vectors = models.Vectors{}
 	}
 	object.Vectors[cfg.TargetVector()] = vector
-	return object
 }
 
 func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, class *models.Class,
@@ -335,7 +334,7 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 		return fmt.Errorf("vectorize check for target vector %s: %w", targetVector, err)
 	}
 	if vectorize {
-		if err := p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig, logger); err != nil {
+		if err := p.vectorize(ctx, object, class, findObjectFn, targetVector, modConfig); err != nil {
 			return fmt.Errorf("vectorize target vector %s: %w", targetVector, err)
 		}
 	}
@@ -345,7 +344,6 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *models.Class,
 	findObjectFn modulecapabilities.FindObjectFn,
 	targetVector string, modConfig map[string]interface{},
-	logger logrus.FieldLogger,
 ) error {
 	found := p.getModule(class, modConfig)
 	if found == nil {
@@ -357,11 +355,13 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 
 	if vectorizer, ok := found.(modulecapabilities.Vectorizer); ok {
 		if p.shouldVectorizeObject(object, cfg) {
-			var targetProperties []string = nil
+			var targetProperties []string
 			vecConfig, ok := modConfig[found.Name()]
 			if ok {
 				if properties, ok := vecConfig.(map[string]interface{})["properties"]; ok {
-					targetProperties = properties.([]string)
+					if propSlice, ok := properties.([]string); ok {
+						targetProperties = propSlice
+					}
 				}
 			}
 			needsRevectorization, additionalProperties, vector := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
@@ -374,7 +374,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			}
 
 			p.lockGuard(func() {
-				object = p.addVectorToObject(object, vector, additionalProperties, cfg)
+				p.addVectorToObject(object, vector, additionalProperties, cfg)
 			})
 			return nil
 		}
@@ -385,7 +385,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 			return fmt.Errorf("update reference vector: %w", err)
 		}
 		p.lockGuard(func() {
-			object = p.addVectorToObject(object, vector, nil, cfg)
+			p.addVectorToObject(object, vector, nil, cfg)
 		})
 	}
 	return nil
@@ -463,7 +463,8 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 	}
 	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)
-	if !(okHnsw || okFlat) {
+	_, okDynamic := vectorIndexConfig.(dynamic.UserConfig)
+	if !(okHnsw || okFlat || okDynamic) {
 		return hnsw.UserConfig{}, fmt.Errorf(errorVectorIndexType, vectorIndexConfig)
 	}
 	return hnswConfig, nil
@@ -514,9 +515,7 @@ func (p *Provider) VectorizerName(className string) (string, error) {
 }
 
 func (p *Provider) getClassVectorizer(className string) (string, interface{}, error) {
-	sch := p.schemaGetter.GetSchemaSkipAuth()
-
-	class := sch.FindClassByName(schema.ClassName(className))
+	class := p.schemaGetter.ReadOnlyClass(className)
 	if class == nil {
 		// this should be impossible by the time this method gets called, but let's
 		// be 100% certain

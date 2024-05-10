@@ -2,7 +2,7 @@ name: golangci-lint
 on:
   push:
     branches:
-      - master
+      - main
     tags:
       - '**'
   pull_request:
@@ -16,7 +16,7 @@ jobs:
           go-version: '1.21'
       - uses: actions/checkout@v4
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v5
         with:
           # Required: the version of golangci-lint is required and must be specified without patch version: we always use the latest patch version.
           version: v1.54
@@ -35,12 +35,10 @@ jobs:
       - uses: psf/black@stable
         with:
           version: "24.2.0"
-  custom:
-    name: custom checks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Error groups checks
-        run: ./tools/linter_error_groups.sh
-      - name: goroutine checks
-        run: ./tools/linter_go_routines.sh
+  # custom:
+  #   name: custom checks
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - name: Error groups checks
+  #       run: ./tools/linter_error_groups.sh

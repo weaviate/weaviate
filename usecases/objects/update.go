@@ -17,7 +17,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // UpdateObject updates object of class.
@@ -39,11 +41,18 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	m.metrics.UpdateObjectInc()
 	defer m.metrics.UpdateObjectDec()
 
+	ctx = classcache.ContextWithClassCache(ctx)
+
 	unlock, err := m.locks.LockSchema()
 	if err != nil {
 		return nil, NewErrInternal("could not acquire lock: %v", err)
 	}
 	defer unlock()
+
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process update object")
+		return nil, fmt.Errorf("cannot process update object: %w", err)
+	}
 
 	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl)
 }
@@ -61,8 +70,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
-	if err != nil {
+	var schemaVersion uint64
+	if schemaVersion, err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
@@ -87,17 +96,18 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	class, err := m.schemaManager.GetClass(ctx, principal, className)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}
 
-	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
+	vclass := vclasses[className]
+	err = m.modulesProvider.UpdateVector(ctx, updates, vclass.Class, m.findObject, m.logger)
 	if err != nil {
 		return nil, NewErrInternal("update object: %v", err)
 	}
 
-	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl)
+	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, updates.Vectors, repl, schemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
 	}

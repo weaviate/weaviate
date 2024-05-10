@@ -13,7 +13,7 @@ package sorter
 
 import (
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -23,11 +23,11 @@ type Sorter interface {
 }
 
 type objectsSorter struct {
-	schema schema.Schema
+	readOnlyClass func(string) *models.Class
 }
 
-func NewObjectsSorter(schema schema.Schema) *objectsSorter {
-	return &objectsSorter{schema}
+func NewObjectsSorter(fn func(string) *models.Class) *objectsSorter {
+	return &objectsSorter{readOnlyClass: fn}
 }
 
 func (s objectsSorter) Sort(objects []*storobj.Object,
@@ -44,7 +44,7 @@ func (s objectsSorter) Sort(objects []*storobj.Object,
 		return nil, nil, err
 	}
 
-	class := s.schema.GetClass(objects[0].Class())
+	class := s.readOnlyClass(objects[0].Class().String())
 	dataTypesHelper := newDataTypesHelper(class)
 	valueExtractor := newComparableValueExtractor(dataTypesHelper)
 	comparator := newComparator(dataTypesHelper, propNames, orders)

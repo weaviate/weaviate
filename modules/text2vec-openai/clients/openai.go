@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -82,7 +83,7 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
-func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+func buildUrl(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 	if isAzure {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
@@ -91,7 +92,7 @@ func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string,
 		}
 
 		path := "openai/deployments/" + deploymentID + "/embeddings"
-		queryParam := "api-version=2022-12-01"
+		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
 	}
 
@@ -105,7 +106,7 @@ type client struct {
 	openAIOrganization string
 	azureApiKey        string
 	httpClient         *http.Client
-	buildUrlFn         func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error)
+	buildUrlFn         func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error)
 	logger             logrus.FieldLogger
 }
 
@@ -204,11 +205,11 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 }
 
 func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
-	baseURL, resourceName, deploymentID, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.IsAzure
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+	baseURL, resourceName, deploymentID, apiVersion, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
-	return v.buildUrlFn(baseURL, resourceName, deploymentID, isAzure)
+	return v.buildUrlFn(baseURL, resourceName, deploymentID, apiVersion, isAzure)
 }
 
 func (v *client) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
@@ -237,10 +238,32 @@ func (v *client) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, s
 }
 
 func (v *client) getOpenAIOrganization(ctx context.Context) string {
-	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
+	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
 	}
 	return v.openAIOrganization
+}
+
+func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	config := v.getVectorizationConfig(cfg)
+
+	key, err := v.getApiKey(ctx, config.IsAzure)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
+}
+
+func (v *client) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Openai", 0, 0)
+	return &modulecomponents.RateLimits{
+		RemainingTokens:   tpm,
+		LimitTokens:       tpm,
+		ResetTokens:       time.Now().Add(61 * time.Second),
+		RemainingRequests: rpm,
+		LimitRequests:     rpm,
+		ResetRequests:     time.Now().Add(61 * time.Second),
+	}
 }
 
 func (v *client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
@@ -264,24 +287,10 @@ func (v *client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 }
 
 func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
-}
-
-func (v *client) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-
-	return ""
 }
 
 func (v *client) getModelString(docType, model, action, version string) string {
@@ -326,6 +335,7 @@ func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vectori
 		DeploymentID: settings.DeploymentID(),
 		BaseURL:      settings.BaseURL(),
 		IsAzure:      settings.IsAzure(),
+		ApiVersion:   settings.ApiVersion(),
 		Dimensions:   settings.Dimensions(),
 	}
 }

@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -97,7 +98,7 @@ func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
-	params aggregation.Params,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
@@ -177,7 +178,7 @@ func (f *fakeVectorRepo) Object(ctx context.Context, className string, id strfmt
 }
 
 func (f *fakeVectorRepo) Aggregate(ctx context.Context,
-	params aggregation.Params,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
@@ -227,6 +228,10 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
+func (f *fakeSchemaGetter) ReadOnlyClass(className string) *models.Class {
+	return f.schema.GetClass(className)
+}
+
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	panic("not implemented")
 }
@@ -239,9 +244,20 @@ func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) 
 	return []string{shard}, nil
 }
 
-func (f *fakeSchemaGetter) TenantShard(class, tenant string) (string, string) {
-	return tenant, models.TenantActivityStatusHOT
+func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	res := map[string]string{}
+	for _, t := range tenants {
+		res[t] = models.TenantActivityStatusHOT
+	}
+	return res, nil
 }
+
+func (f *fakeSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
+}
+
 func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return string(uuid) }
 
 func (f *fakeSchemaGetter) Nodes() []string {
@@ -258,6 +274,10 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 
 func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
 ) (map[string]string, error) {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) Statistics() map[string]any {
 	panic("not implemented")
 }
 

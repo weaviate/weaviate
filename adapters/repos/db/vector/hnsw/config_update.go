@@ -19,11 +19,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/config"
+
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
+func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 	initialParsed, ok := initial.(ent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
@@ -84,7 +85,7 @@ func validateImmutableField(u immutableParameter,
 	return nil
 }
 
-func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
+func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(ent.UserConfig)
 	if !ok {
 		callback()
@@ -112,7 +113,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 
 	if !h.compressed.Load() {
 		// the compression will fire the callback once it's complete
-		return h.TurnOnCompression(callback)
+		return h.Upgrade(callback)
 	} else {
 		h.compressor.SetCacheMaxSize(int64(parsed.VectorCacheMaxObjects))
 		callback()
@@ -124,7 +125,7 @@ func asyncEnabled() bool {
 	return configbase.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
-func (h *hnsw) TurnOnCompression(callback func()) error {
+func (h *hnsw) Upgrade(callback func()) error {
 	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)

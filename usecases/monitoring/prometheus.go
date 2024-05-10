@@ -16,8 +16,14 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/weaviate/weaviate/usecases/config"
 )
+
+type Config struct {
+	Enabled bool   `json:"enabled" yaml:"enabled"`
+	Tool    string `json:"tool" yaml:"tool"`
+	Port    int    `json:"port" yaml:"port"`
+	Group   bool   `json:"group_classes" yaml:"group_classes"`
+}
 
 type PrometheusMetrics struct {
 	BatchTime                         *prometheus.HistogramVec
@@ -69,7 +75,25 @@ type PrometheusMetrics struct {
 	ShardsLoading   *prometheus.GaugeVec
 	ShardsUnloading *prometheus.GaugeVec
 
+	// RAFT-based schema metrics
+	SchemaWrites         *prometheus.SummaryVec
+	SchemaReadsLocal     *prometheus.SummaryVec
+	SchemaReadsLeader    *prometheus.SummaryVec
+	SchemaWaitForVersion *prometheus.SummaryVec
+
+	TombstoneFindLocalEntrypoint  *prometheus.CounterVec
+	TombstoneFindGlobalEntrypoint *prometheus.CounterVec
+	TombstoneReassignNeighbors    *prometheus.CounterVec
+	TombstoneDeleteListSize       *prometheus.GaugeVec
+
 	Group bool
+
+	// Deprecated metrics, keeping around because the classification features
+	// seems to sill use the old logic. However, those metrics are not actually
+	// used for the schema anymore, but only for the classification features.
+	SchemaTxOpened   *prometheus.CounterVec
+	SchemaTxClosed   *prometheus.CounterVec
+	SchemaTxDuration *prometheus.SummaryVec
 }
 
 // Delete Shard deletes existing label combinations that match both
@@ -149,7 +173,7 @@ func init() {
 	metrics = newPrometheusMetrics()
 }
 
-func InitConfig(cfg config.Monitoring) {
+func InitConfig(cfg Config) {
 	metrics.Group = cfg.Group
 }
 
@@ -358,6 +382,55 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
 		}, []string{"class_name"}),
+
+		// Schema TX-metrics. Can be removed when RAFT is ready
+		SchemaTxOpened: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "schema_tx_opened_total",
+			Help: "Total number of opened schema transactions",
+		}, []string{"ownership"}),
+		SchemaTxClosed: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "schema_tx_closed_total",
+			Help: "Total number of closed schema transactions. A close must be either successful or failed",
+		}, []string{"ownership", "status"}),
+		SchemaTxDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_tx_duration_seconds",
+			Help: "Mean duration of a tx by status",
+		}, []string{"ownership", "status"}),
+
+		// RAFT-based schema metrics
+		SchemaWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_writes_seconds",
+			Help: "Duration of schema writes (which always involve the leader)",
+		}, []string{"type"}),
+		SchemaReadsLocal: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_reads_local_seconds",
+			Help: "Duration of local schema reads that do not involve the leader",
+		}, []string{"type"}),
+		SchemaReadsLeader: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_reads_leader_seconds",
+			Help: "Duration of schema reads that are passed to the leader",
+		}, []string{"type"}),
+		SchemaWaitForVersion: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_wait_for_version_seconds",
+			Help: "Duration of waiting for a schema version to be reached",
+		}, []string{"type"}),
+
+		TombstoneFindLocalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_find_local_entrypoint",
+			Help: "Total number of tombstone delete local entrypoint calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneFindGlobalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_find_global_entrypoint",
+			Help: "Total number of tombstone delete global entrypoint calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneReassignNeighbors: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tombstone_reassign_neighbors",
+			Help: "Total number of tombstone reassign neighbor calls",
+		}, []string{"class_name", "shard_name"}),
+		TombstoneDeleteListSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "tombstone_delete_list_size",
+			Help: "Delete list size of tombstones",
+		}, []string{"class_name", "shard_name"}),
 	}
 }
 

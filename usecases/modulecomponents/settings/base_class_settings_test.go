@@ -150,7 +150,7 @@ func Test_BaseClassSettings_Validate(t *testing.T) {
 			class := getClass(tt.settings)
 			cfg := modules.NewClassBasedModuleConfig(class, "my-module", "tenant", targetVector)
 			s := NewBaseClassSettings(cfg)
-			err := s.Validate()
+			err := s.ValidateClassSettings()
 			if tt.wantErr != nil {
 				require.Error(t, err)
 				assert.Equal(t, err.Error(), tt.wantErr.Error())

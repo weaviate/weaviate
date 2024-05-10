@@ -53,10 +53,6 @@ func newStruct(t *testing.T, values map[string]interface{}) *structpb.Struct {
 	return s
 }
 
-func ignoreError[T any](val T, err error) T {
-	return val
-}
-
 func byteVector(vec []float32) []byte {
 	vector := make([]byte, len(vec)*4)
 
@@ -449,7 +445,13 @@ func TestGRPCReply(t *testing.T) {
 						TargetCollection: className,
 						NonRefProps: &pb.Properties{
 							Fields: map[string]*pb.Value{
-								"nums": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]float64{1, 2, 3}, schema.DataTypeInt))}},
+								"nums": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
+									Values: []*pb.Value{
+										{Kind: &pb.Value_IntValue{IntValue: 1}},
+										{Kind: &pb.Value_IntValue{IntValue: 2}},
+										{Kind: &pb.Value_IntValue{IntValue: 3}},
+									},
+								}}},
 							},
 						},
 					},
@@ -550,13 +552,23 @@ func TestGRPCReply(t *testing.T) {
 								"something": {Kind: &pb.Value_ObjectValue{
 									ObjectValue: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"name":  {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
-											"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
+											"name": {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
+											"names": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
+												Values: []*pb.Value{
+													{Kind: &pb.Value_StringValue{StringValue: "Jo"}},
+													{Kind: &pb.Value_StringValue{StringValue: "Jill"}},
+												},
+											}}},
 											"else": {Kind: &pb.Value_ObjectValue{
 												ObjectValue: &pb.Properties{
 													Fields: map[string]*pb.Value{
-														"name":  {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
-														"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
+														"name": {Kind: &pb.Value_StringValue{StringValue: "Bill"}},
+														"names": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
+															Values: []*pb.Value{
+																{Kind: &pb.Value_StringValue{StringValue: "Jo"}},
+																{Kind: &pb.Value_StringValue{StringValue: "Jill"}},
+															},
+														}}},
 													},
 												},
 											}},
@@ -647,12 +659,22 @@ func TestGRPCReply(t *testing.T) {
 								"something": {Kind: &pb.Value_ObjectValue{
 									ObjectValue: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"name":  {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
-											"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
+											"name": {Kind: &pb.Value_StringValue{StringValue: "Bob"}},
+											"names": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
+												Values: []*pb.Value{
+													{Kind: &pb.Value_StringValue{StringValue: "Jo"}},
+													{Kind: &pb.Value_StringValue{StringValue: "Jill"}},
+												},
+											}}},
 											"else": {Kind: &pb.Value_ObjectValue{
 												ObjectValue: &pb.Properties{
 													Fields: map[string]*pb.Value{
-														"names": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]string{"Jo", "Jill"}, schema.DataTypeString))}},
+														"names": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
+															Values: []*pb.Value{
+																{Kind: &pb.Value_StringValue{StringValue: "Jo"}},
+																{Kind: &pb.Value_StringValue{StringValue: "Jill"}},
+															},
+														}}},
 													},
 												},
 											}},
@@ -1134,7 +1156,13 @@ func TestGRPCReply(t *testing.T) {
 									Metadata:         &pb.MetadataResult{Vector: []float32{3}, VectorBytes: byteVector([]float32{3})},
 									NonRefProps: &pb.Properties{
 										Fields: map[string]*pb.Value{
-											"nums": {Kind: &pb.Value_ListValue{ListValue: ignoreError(NewPrimitiveList([]float64{1, 2, 3}, schema.DataTypeInt))}},
+											"nums": {Kind: &pb.Value_ListValue{ListValue: &pb.ListValue{
+												Values: []*pb.Value{
+													{Kind: &pb.Value_IntValue{IntValue: 1}},
+													{Kind: &pb.Value_IntValue{IntValue: 2}},
+													{Kind: &pb.Value_IntValue{IntValue: 3}},
+												},
+											}}},
 										},
 									},
 								},
@@ -1546,10 +1574,10 @@ func TestGRPCReply(t *testing.T) {
 			outGenerative: refClass2,
 		},
 	}
-
 	for _, tt := range tests {
+		replier := NewReplier(tt.usesWeaviateStruct, false)
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchResultsToProto(tt.res, time.Now(), tt.searchParams, scheme, tt.usesWeaviateStruct)
+			out, err := replier.Search(tt.res, time.Now(), tt.searchParams, scheme)
 			if tt.hasError {
 				require.NotNil(t, err)
 			} else {

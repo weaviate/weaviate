@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"testing"
 
@@ -24,12 +25,13 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -97,7 +99,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 		data := map[string]interface{}{"document": doc.Document, "code": doc.DocID}
 		obj := &models.Object{Class: "StandardTest", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
-		err := repo.PutObject(context.Background(), obj, nil, nil, nil)
+		err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
 }
@@ -113,7 +115,7 @@ func TestHybrid(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -152,7 +154,7 @@ func TestBIER(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -196,7 +198,7 @@ func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error 
 
 	obj := &models.Object{Class: "MyClass", ID: id, Properties: props, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 	vector := vec
-	err := repo.PutObject(context.Background(), obj, vector, nil, nil)
+	err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
 	return err
 }
 
@@ -205,6 +207,7 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
 		Class:               "MyClass",
+		Vectorizer:          "test-vectoriser",
 		Properties: []*models.Property{
 			{
 				Name:         "title",
@@ -254,7 +257,7 @@ func TestRFJourney(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -420,10 +423,14 @@ func TestRFJourney(t *testing.T) {
 
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
+		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", JourneyVector())
+		prov.Register(testerModule)
 
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -453,10 +460,15 @@ func TestRFJourney(t *testing.T) {
 
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
+		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("Elephant Parade", elephantVector())
+		testerModule.AddVector("journey", JourneyVector())
+		prov.Register(testerModule)
 
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
@@ -471,7 +483,7 @@ func TestRFJourney(t *testing.T) {
 		require.True(t, len(hybridResults) > 0)
 	})
 
-	t.Run("Hybrid with offset", func(t *testing.T) {
+	t.Run("Hybrid with offset 1", func(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
@@ -487,10 +499,15 @@ func TestRFJourney(t *testing.T) {
 
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
+		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("Elephant Parade", elephantVector())
+		testerModule.AddVector("journey", JourneyVector())
+		prov.Register(testerModule)
 
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
@@ -503,11 +520,11 @@ func TestRFJourney(t *testing.T) {
 		}
 
 		require.Nil(t, err)
-		require.True(t, len(hybridResults) == 1)
-		require.True(t, hybridResults[0].ID == "00000000-0000-0000-0000-000000000001")
+		require.Equal(t, 1, len(hybridResults))
+		require.Equal(t, strfmt.UUID("00000000-0000-0000-0000-000000000001"), hybridResults[0].ID)
 	})
 
-	t.Run("Hybrid with offset", func(t *testing.T) {
+	t.Run("Hybrid with offset 2", func(t *testing.T) {
 		params := dto.GetParams{
 			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
@@ -523,10 +540,15 @@ func TestRFJourney(t *testing.T) {
 
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
+		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("Elephant Parade", elephantVector())
+		testerModule.AddVector("journey", JourneyVector())
+		prov.Register(testerModule)
 
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 
@@ -539,7 +561,7 @@ func TestRFJourney(t *testing.T) {
 		}
 
 		require.Nil(t, err)
-		require.True(t, len(hybridResults) == 0)
+		require.Equal(t, len(hybridResults), 0)
 	})
 }
 
@@ -556,7 +578,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -643,10 +665,14 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
+		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", JourneyVector())
+		prov.Register(testerModule)
 
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -669,10 +695,14 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
+		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", JourneyVector())
+		prov.Register(testerModule)
 
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -705,10 +735,14 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
+		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", JourneyVector())
+		prov.Register(testerModule)
 
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(repo, log, prov, metrics, defaultConfig)
+		explorer := traverser.NewExplorer(repo, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -738,7 +772,7 @@ func TestStability(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -816,14 +850,6 @@ func JourneyVector() []float32 {
 // "peanuts"
 func PeanutsVector() []float32 {
 	return []float32{0.563772, -0.779601, -0.18491, 0.509093, 0.080691, -0.621506, -0.127855, -0.165435, 0.57496, 0.006945, 0.452967, -0.285534, -0.129205, 0.193883, 0.092732, 0.083284, 0.714696, 0.107078, -0.398886, -0.117344, -0.387671, 0.026748, -0.562581, -0.007178, -0.354846, -0.431299, -0.788228, 0.175199, 0.914486, 0.441425, 0.089804, 0.284472, 0.106916, -0.133174, 0.399299, 0.002177, 0.551474, 0.389343, -0.016404, 0.770212, -0.219833, 0.303322, 0.127598, -0.378037, -0.172971, 0.394854, -0.424415, -0.71173, 0.080323, -0.406372, 0.398395, -0.594257, -0.418287, 0.055755, -0.352343, -0.393373, -0.732443, 0.333113, 0.420378, -0.50231, 0.261863, -0.061356, -0.180985, 0.311916, -0.180207, -0.154169, 0.371969, 0.454717, 0.320499, -0.182448, 0.087347, 0.585272, 0.136098, 0.288909, -0.229571, -0.140278, 0.229644, -0.557327, -0.110147, 0.034364, -0.021627, -0.598707, 0.221168, -0.059591, -0.203555, -0.434876, 0.209634, -0.460895, -0.345391, -0.18248, -0.24853, 0.730295, -0.295402, -0.562237, 0.255922, 0.076661, -0.713794, -0.354747, -1.109888, -0.066694, -0.195747, -0.282781, 0.459869, -0.309599, -0.002211, -0.274471, -0.003621, 0.008228, 0.011961, -0.258772, -0.210687, -0.664148, -0.257968, 0.231335, 0.530392, -0.205764, -0.621055, -0.440582, 0.080335, 0.017367, 0.880771, 0.656272, -0.713248, -0.208629, 0.095346, 0.336802, 0.888765, 0.251927, 0.066473, 0.182678, -0.220494, 0.288927, -0.602036, 0.057106, -0.594172, 0.848978, 0.751973, 0.090758, -0.732184, 0.683475, -0.075085, 0.381326, -0.076531, -0.253831, 0.10311, -0.02988, -0.043583, 0.005746, -0.460183, -0.189048, 0.25792, 0.477565, 0.391953, 0.08469, -0.10022, 0.454383, 0.170811, 0.196819, -0.760276, 0.045886, -0.743934, 0.190072, -0.216326, -0.624262, -0.22944, 0.066233, 1.024283, 0.044009, -0.373543, -0.243663, 0.204444, 0.402183, 0.043356, 0.31716, 0.302178, 0.369374, 0.36901, 0.02886, -0.26132, -0.234714, -0.791308, -0.433528, -0.098797, -0.447567, -0.124892, -0.119958, 0.31019, -0.096092, -0.259021, -0.078099, -0.178679, 0.14879, 0.106432, -0.450003, -0.294972, 0.044257, 0.402832, 0.263266, -0.309787, -0.17766, -0.399104, 0.577422, 0.30102, 0.05326, -0.271873, 0.204839, -0.019002, -0.743543, 0.739314, -0.115868, -0.504568, -0.115713, 0.042769, -0.123561, -0.057097, 0.407096, 0.770627, 0.372981, -0.321945, 0.349865, 0.437571, -0.77394, -0.090017, -0.011273, -0.468664, -0.735247, -0.745655, 0.018983, -0.248165, 0.215342, -0.136942, -0.458205, 0.4572, -0.032293, 0.654409, -0.024184, -0.392144, 0.634579, 0.222185, 0.471951, -0.063678, -0.473611, 0.796793, -0.295494, -0.157621, -0.103365, -0.564606, -0.092231, -0.517754, -0.369358, 0.137479, -0.214837, 0.11057, -0.095227, 0.726768, -0.079352, -0.065927, -0.846602, -0.317556, -0.344271, 0.201353, -0.367633, -0.004477, 0.157801, -0.249114, -0.549599, -0.147123, 0.308084, -0.175564, 0.306867, -0.071157, -0.588356, 0.450987, -0.184879, -0.096782, -0.006346, -0.017689, 0.005998, 0.200963, 0.225338, 0.189993, -1.105824, 0.520005, 0.129679, 0.198194, -0.254813, -0.127583, 0.326054, 0.009956, -0.016008, -0.483044, 0.801135, -0.517766, 0.067179, -0.372756, -0.511781, 0.058562, -0.082906, -0.28168, -0.285859}
-}
-
-type fakeMetrics struct {
-	mock.Mock
-}
-
-func (m *fakeMetrics) AddUsageDimensions(class, query, op string, dims int) {
-	m.Called(class, query, op, dims)
 }
 
 type fakeObjectSearcher struct{}
@@ -929,7 +955,7 @@ func TestHybridOverSearch(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -957,10 +983,14 @@ func TestHybridOverSearch(t *testing.T) {
 
 		prov := modules.NewProvider()
 		prov.SetClassDefaults(class)
+		prov.SetSchemaGetter(schemaGetter)
+		testerModule := &TesterModule{}
+		testerModule.AddVector("elephant", elephantVector())
+		testerModule.AddVector("journey", JourneyVector())
+		prov.Register(testerModule)
 
-		metrics := &fakeMetrics{}
 		log, _ := test.NewNullLogger()
-		explorer := traverser.NewExplorer(fos, log, prov, metrics, defaultConfig)
+		explorer := traverser.NewExplorer(fos, log, prov, nil, defaultConfig)
 		explorer.SetSchemaGetter(schemaGetter)
 		hybridResults, err := explorer.Hybrid(context.TODO(), params)
 		require.Nil(t, err)
@@ -968,4 +998,63 @@ func TestHybridOverSearch(t *testing.T) {
 		require.Equal(t, strfmt.UUID("9889a225-3b28-477d-b8fc-5f6071bb4731"), hybridResults[0].ID)
 		// require.Equal(t, "79a636c2-3314-442e-a4d1-e94d7c0afc3a", hybridResults[1].ID)
 	})
+}
+
+type TesterModule struct {
+	vectors map[string][]float32
+}
+
+func (m *TesterModule) Name() string {
+	return "test-vectoriser"
+}
+
+func (m *TesterModule) Type() modulecapabilities.ModuleType {
+	return modulecapabilities.Text2Vec
+}
+
+func (m *TesterModule) Init(ctx context.Context,
+	params moduletools.ModuleInitParams,
+) error {
+	return nil
+}
+
+func (m *TesterModule) InitExtension(modules []modulecapabilities.Module) error {
+	return nil
+}
+
+func (m *TesterModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
+	return nil
+}
+
+func (m *TesterModule) VectorizeObject(ctx context.Context,
+	obj *models.Object, objDiff *models.Object, cfg moduletools.ClassConfig,
+) error {
+	return nil
+}
+
+func (m *TesterModule) MetaInfo() (map[string]interface{}, error) {
+	return nil, nil
+}
+
+func (m *TesterModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+	return nil
+}
+
+func (m *TesterModule) VectorizeInput(ctx context.Context,
+	input string, cfg moduletools.ClassConfig,
+) ([]float32, error) {
+	vec, ok := m.vectors[input]
+	if !ok {
+		return nil, fmt.Errorf("vector not found")
+	}
+	return vec, nil
+}
+
+func (m *TesterModule) AddVector(text string, vector []float32) error {
+	if m.vectors == nil {
+		m.vectors = map[string][]float32{}
+	}
+	m.vectors[text] = vector
+	return nil
 }

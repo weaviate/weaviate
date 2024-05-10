@@ -14,7 +14,6 @@ package vectorizer
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 
@@ -143,7 +142,7 @@ func TestVectorizingTexts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client, 40*time.Second, logger)
+			v := New(client, logger)
 
 			cfg := &FakeClassConfig{
 				classConfig: map[string]interface{}{

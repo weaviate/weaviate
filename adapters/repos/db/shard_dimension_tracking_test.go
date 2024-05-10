@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -30,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -51,7 +51,7 @@ func Benchmark_Migration(b *testing.B) {
 				QueryMaximumResults:       1000,
 				MaxImportGoroutinesFactor: 1,
 				TrackVectorDimensions:     true,
-			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 			require.Nil(b, err)
 			repo.SetSchemaGetter(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
@@ -85,7 +85,7 @@ func Benchmark_Migration(b *testing.B) {
 
 				id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 				obj := &models.Object{Class: "Test", ID: id}
-				err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+				err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -116,7 +116,7 @@ func Test_Migration(t *testing.T) {
 		QueryMaximumResults:       1000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -154,7 +154,7 @@ func Test_Migration(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -184,7 +184,7 @@ func Test_DimensionTracking(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -220,7 +220,7 @@ func Test_DimensionTracking(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -235,7 +235,7 @@ func Test_DimensionTracking(t *testing.T) {
 		for i := 100; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -258,7 +258,7 @@ func Test_DimensionTracking(t *testing.T) {
 		quantDimBefore := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
 		for i := 0; i < 10; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			err := repo.DeleteObject(context.Background(), "Test", id, nil, "")
+			err := repo.DeleteObject(context.Background(), "Test", id, nil, "", 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -290,7 +290,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinstert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -307,7 +307,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinsert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -340,7 +340,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinsert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -357,7 +357,7 @@ func Test_DimensionTracking(t *testing.T) {
 			obj := &models.Object{Class: "Test", ID: id}
 			// Put is idempotent, but since the IDs exist now, this is an update
 			// under the hood and a "reinstert" for the already deleted ones
-			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
+			err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(repo, "Test")
@@ -420,7 +420,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -456,7 +456,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "HNSW", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 
@@ -509,7 +509,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "BQ", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 
@@ -573,7 +573,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "PQ", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
+			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
 			require.Nil(t, err)
 		}
 
