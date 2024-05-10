@@ -168,6 +168,7 @@ func alphabet2Vector(input string) ([]float32, error) {
 	return vector, nil
 }
 
+//Maybe we should do this for bytes instead of letters?
 func mod26Vector(input string) ([]float32, error) {
 	input = strings.ToLower(input)
 	vector := make([]float32, 26*26)
