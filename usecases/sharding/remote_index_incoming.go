@@ -346,7 +346,7 @@ func (rii *RemoteIndexIncoming) indexForIncomingWrite(ctx context.Context, index
 func (rii *RemoteIndexIncoming) DigestObjectsInTokenRange(ctx context.Context,
 	indexName, shardName string, initialToken, finalToken uint64, limit int,
 ) ([]replica.RepairResponse, uint64, error) {
-	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return nil, 0, fmt.Errorf("local index %q not found", indexName)
 	}

@@ -306,7 +306,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	const limit = 100
 
 	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
-		localDigests, newLocalLastReadToken, err := s.index.digestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, limit)
+		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, limit)
 		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
 		}
@@ -390,7 +390,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			uuids = append(uuids, strfmt.UUID(uuid))
 		}
 
-		replicaObjs, err := s.index.fetchObjects(ctx, shardName, uuids)
+		replicaObjs, err := s.index.FetchObjects(ctx, shardName, uuids)
 		if err != nil {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local objects: %w", err)
 		}
