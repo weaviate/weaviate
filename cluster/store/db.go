@@ -127,13 +127,10 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 
 	return db.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return db.Schema.updateClass(req.Class.Class, update) },
-			updateStore:  func() error { return db.store.UpdateClass(req) },
-			schemaOnly:   schemaOnly,
-			// Apply the DB change last otherwise we will error on the parsing of the class while updating the store.
-			// We need the schema to first parse the update and apply it so that we can use it in the DB update.
-			applyDbUpdateFirst:    false,
+			op:                    cmd.GetType().String(),
+			updateSchema:          func() error { return db.Schema.updateClass(req.Class.Class, update) },
+			updateStore:           func() error { return db.store.UpdateClass(req) },
+			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
@@ -146,7 +143,6 @@ func (db *localDB) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) error
 			updateSchema:          func() error { db.Schema.deleteClass(cmd.Class); return nil },
 			updateStore:           func() error { return db.store.DeleteClass(cmd.Class) },
 			schemaOnly:            schemaOnly,
-			applyDbUpdateFirst:    true,
 			triggerSchemaCallback: true,
 		},
 	)
@@ -163,14 +159,10 @@ func (db *localDB) AddProperty(cmd *command.ApplyRequest, schemaOnly bool) error
 
 	return db.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
-			updateStore:  func() error { return db.store.AddProperty(cmd.Class, req) },
-			schemaOnly:   schemaOnly,
-			// Apply the DB first to ensure the underlying buckets related to properties are created/deleted *before* the
-			// schema is updated. This allows us to have object write waiting on the right schema version to proceed only
-			// once the buck buckets are present.
-			applyDbUpdateFirst:    true,
+			op:                    cmd.GetType().String(),
+			updateSchema:          func() error { return db.Schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
+			updateStore:           func() error { return db.store.AddProperty(cmd.Class, req) },
+			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
 	)
@@ -184,11 +176,10 @@ func (db *localDB) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly bool)
 
 	return db.apply(
 		applyOp{
-			op:                 cmd.GetType().String(),
-			updateSchema:       func() error { return nil },
-			updateStore:        func() error { return db.store.UpdateShardStatus(&req) },
-			schemaOnly:         schemaOnly,
-			applyDbUpdateFirst: true,
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return nil },
+			updateStore:  func() error { return db.store.UpdateShardStatus(&req) },
+			schemaOnly:   schemaOnly,
 		},
 	)
 }
@@ -257,7 +248,6 @@ type applyOp struct {
 	updateSchema          func() error
 	updateStore           func() error
 	schemaOnly            bool
-	applyDbUpdateFirst    bool
 	triggerSchemaCallback bool
 }
 
@@ -274,28 +264,20 @@ func (op applyOp) validate() error {
 	return nil
 }
 
+// apply does apply commands from RAFT to schema 1st and then db
 func (db *localDB) apply(op applyOp) error {
 	if err := op.validate(); err != nil {
 		return fmt.Errorf("could not validate raft apply op: %s", err)
 	}
 
-	// To avoid a if/else with repeated logic, setup op1 and op2 to either updateSchema or updateStore depending on
-	// op.applyDbUpdateFirst and op.schemaOnly
-	op1, op2 := op.updateSchema, op.updateStore
-	msg1, msg2 := errSchema, errDB
-	if op.applyDbUpdateFirst && !op.schemaOnly {
-		op1, op2 = op.updateStore, op.updateSchema
-		msg1, msg2 = errDB, errSchema
+	// schema applied 1st to make sure any validation happen before applying it to db
+	if err := op.updateSchema(); err != nil {
+		return fmt.Errorf("%w: %s: %w", errSchema, op.op, err)
 	}
 
-	if err := op1(); err != nil {
-		return fmt.Errorf("%w: %s: %w", msg1, op.op, err)
-	}
-
-	// If the operation is schema only, op1 is always the schemaUpdate so we can skip op2
 	if !op.schemaOnly {
-		if err := op2(); err != nil {
-			return fmt.Errorf("%w: %s: %w", msg2, op.op, err)
+		if err := op.updateStore(); err != nil {
+			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
 	}
 
