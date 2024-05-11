@@ -411,14 +411,19 @@ func (q *IndexQueue) indexer() {
 	for {
 		select {
 		case <-t.C:
-			q.checkCompressionSettings()
+			if q.paused.Load() {
+				continue
+			}
+
+			if q.checkCompressionSettings() {
+				continue
+			}
+
 			if q.Size() == 0 {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 				continue
 			}
-			if q.paused.Load() {
-				continue
-			}
+
 			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 			if status != storagestate.StatusIndexing || err != nil {
 				q.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in " + q.IndexInterval.String())
@@ -604,15 +609,15 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 	return ids, dists, nil
 }
 
-func (q *IndexQueue) checkCompressionSettings() {
+func (q *IndexQueue) checkCompressionSettings() bool {
 	ci, ok := q.Index.(compressedIndexer)
 	if !ok {
-		return
+		return false
 	}
 
 	shouldCompress, shouldCompressAt := ci.ShouldCompress()
 	if !shouldCompress || ci.Compressed() {
-		return
+		return false
 	}
 
 	if ci.AlreadyIndexed() > uint64(shouldCompressAt) {
@@ -621,7 +626,11 @@ func (q *IndexQueue) checkCompressionSettings() {
 		if err != nil {
 			q.Logger.WithError(err).Error("failed to turn on compression")
 		}
+
+		return true
 	}
+
+	return false
 }
 
 // pause indexing and wait for the workers to finish their current tasks
