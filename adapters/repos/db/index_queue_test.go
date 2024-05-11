@@ -613,10 +613,12 @@ func TestIndexQueue(t *testing.T) {
 		require.False(t, q.paused.Load())
 
 		indexed := make(chan struct{})
+		idx.Lock()
 		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
 			close(indexed)
 			return nil
 		}
+		idx.Unlock()
 
 		// add more vectors
 		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
