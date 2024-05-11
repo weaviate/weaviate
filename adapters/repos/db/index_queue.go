@@ -16,7 +16,9 @@ import (
 	"context"
 	"encoding/binary"
 	"math"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -91,6 +93,9 @@ type IndexQueueOptions struct {
 	// Maximum number of vectors to use for brute force search
 	// when vectors are not indexed.
 	BruteForceSearchLimit int
+
+	// Maximum number of chunks to send to the workers in a single tick.
+	MaxChunksPerTick int
 }
 
 type batchIndexer interface {
@@ -134,9 +139,15 @@ func NewIndexQueue(
 	if opts.BatchSize == 0 {
 		opts.BatchSize = 1000
 	}
+	if v, _ := strconv.Atoi(os.Getenv("ASYNC_BATCH_SIZE")); v > 0 {
+		opts.BatchSize = v
+	}
 
 	if opts.IndexInterval == 0 {
 		opts.IndexInterval = 1 * time.Second
+	}
+	if v, _ := time.ParseDuration(os.Getenv("ASYNC_INDEX_INTERVAL")); v > 0 {
+		opts.IndexInterval = v
 	}
 
 	if opts.BruteForceSearchLimit == 0 {
@@ -145,6 +156,13 @@ func NewIndexQueue(
 
 	if opts.StaleTimeout == 0 {
 		opts.StaleTimeout = 30 * time.Second
+	}
+
+	if opts.MaxChunksPerTick == 0 {
+		opts.MaxChunksPerTick = runtime.GOMAXPROCS(0) - 1
+	}
+	if v, _ := strconv.Atoi(os.Getenv("ASYNC_MAX_CHUNKS_PER_TICK")); v > 0 {
+		opts.MaxChunksPerTick = v
 	}
 
 	q := IndexQueue{
@@ -384,7 +402,7 @@ func (q *IndexQueue) Drop() error {
 func (q *IndexQueue) indexer() {
 	t := time.NewTicker(q.IndexInterval)
 
-	maxPerTick := runtime.GOMAXPROCS(0) - 1
+	maxPerTick := q.MaxChunksPerTick
 
 	for {
 		select {
