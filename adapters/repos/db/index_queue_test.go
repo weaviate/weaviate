@@ -498,6 +498,31 @@ func TestIndexQueue(t *testing.T) {
 		}
 	})
 
+	t.Run("close waits for indexing to be done", func(t *testing.T) {
+		var idx mockBatchIndexer
+		var count int
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			<-time.After(10 * time.Millisecond)
+			count++
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize: 5,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		for i := uint64(0); i < 100; i++ {
+			pushVector(t, ctx, q, i+1, []float32{1, 2, 3})
+		}
+
+		q.pushToWorkers(-1)
+		q.Close()
+
+		require.EqualValues(t, 20, count)
+	})
+
 	t.Run("cos: normalized the query vector", func(t *testing.T) {
 		var idx mockBatchIndexer
 		idx.distancerProvider = distancer.NewCosineDistanceProvider()
