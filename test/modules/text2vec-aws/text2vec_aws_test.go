@@ -71,6 +71,10 @@ func testText2VecAWS(host, region string) func(t *testing.T) {
 				model: "amazon.titan-embed-text-v1",
 			},
 			{
+				name:  "amazon.titan-embed-text-v2:0",
+				model: "amazon.titan-embed-text-v2:0",
+			},
+			{
 				name:  "cohere.embed-english-v3",
 				model: "cohere.embed-english-v3",
 			},

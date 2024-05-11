@@ -16,7 +16,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -157,11 +156,6 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		if err := opt(b); err != nil {
 			return nil, err
 		}
-	}
-
-	// TODO: remove debug
-	if b.maxSegmentSize > 0 {
-		fmt.Printf("bucket %s has max segment size set to %d\n", path.Join(rootDir, dir), b.maxSegmentSize)
 	}
 
 	if b.memtableResizer != nil {
@@ -1003,6 +997,11 @@ func (b *Bucket) FlushAndSwitch() error {
 func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
+
+	if b.flushing.Size() == 0 {
+		b.flushing = nil
+		return nil
+	}
 
 	path := b.flushing.path
 	if err := b.disk.add(path + ".db"); err != nil {
