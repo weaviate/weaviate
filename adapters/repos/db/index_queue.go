@@ -67,7 +67,11 @@ type IndexQueue struct {
 	paused atomic.Bool
 
 	// tracks the jobs that are currently being processed
-	doneChans []chan struct{}
+	doneChans struct {
+		sync.Mutex
+
+		chans []chan struct{}
+	}
 }
 
 type vectorDescriptor struct {
@@ -407,6 +411,7 @@ func (q *IndexQueue) indexer() {
 	for {
 		select {
 		case <-t.C:
+			q.checkCompressionSettings()
 			if q.Size() == 0 {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 				continue
@@ -422,7 +427,6 @@ func (q *IndexQueue) indexer() {
 
 			chunksSent := q.pushToWorkers(maxPerTick)
 			q.logStats(chunksSent)
-			q.checkCompressionSettings()
 		case <-q.ctx.Done():
 			// stop the ticker
 			t.Stop()
@@ -443,8 +447,8 @@ func (q *IndexQueue) pushToWorkers(max int) int {
 
 	for i := range chunks {
 		c := chunks[i]
-		var ids []uint64
-		var vectors [][]float32
+		ids := make([]uint64, 0, c.cursor)
+		vectors := make([][]float32, 0, c.cursor)
 		var deleted []uint64
 
 		for i := range c.data[:c.cursor] {
@@ -484,7 +488,9 @@ func (q *IndexQueue) pushToWorkers(max int) int {
 		}
 	}
 
-	q.doneChans = doneChans
+	q.doneChans.Lock()
+	q.doneChans.chans = append(q.doneChans.chans, doneChans...)
+	q.doneChans.Unlock()
 
 	q.queue.persistCheckpoint(minID)
 
@@ -492,13 +498,16 @@ func (q *IndexQueue) pushToWorkers(max int) int {
 }
 
 // waits for all workers to finish their current tasks.
-// must be called only when the queue is closed.
 func (q *IndexQueue) wait(ctx context.Context) {
-	for i := range q.doneChans {
+	q.doneChans.Lock()
+	chans := q.doneChans.chans
+	q.doneChans.Unlock()
+
+	for i := range chans {
 		select {
 		case <-ctx.Done():
 			return
-		case <-q.doneChans[i]:
+		case <-chans[i]:
 		}
 	}
 }
@@ -620,6 +629,7 @@ func (q *IndexQueue) checkCompressionSettings() {
 func (q *IndexQueue) pauseIndexing() {
 	q.Logger.Info("pausing indexing, waiting for the current tasks to finish")
 	q.paused.Store(true)
+	q.wait(context.Background())
 	q.Logger.Info("indexing paused")
 }
 
