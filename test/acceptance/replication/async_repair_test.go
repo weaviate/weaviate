@@ -31,7 +31,7 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster(2).
+		WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -47,13 +47,13 @@ func asyncRepairSimpleScenario(t *testing.T) {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       2,
+			Factor:       3,
 			AsyncEnabled: true,
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:       2,
+			Factor:       3,
 			AsyncEnabled: true,
 		}
 		helper.CreateClass(t, articleClass)
@@ -81,9 +81,8 @@ func asyncRepairSimpleScenario(t *testing.T) {
 		createObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
-	t.Run("stop node 2", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 2)
-		time.Sleep(10 * time.Second)
+	t.Run("stop node 3", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 3)
 	})
 
 	repairObj := models.Object{
@@ -98,20 +97,20 @@ func asyncRepairSimpleScenario(t *testing.T) {
 		createObjectCL(t, compose.GetWeaviate().URI(), &repairObj, replica.One)
 	})
 
-	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.Start(ctx, compose.GetWeaviateNode(2).Name())
-		require.Nil(t, err)
+	t.Run("restart node 3", func(t *testing.T) {
+		err = compose.StartAt(ctx, 3)
+		require.NoError(t, err)
 	})
 
 	// wait for some time for async replication to repair missing object
 	time.Sleep(3 * time.Second)
 
-	t.Run("stop node 1", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 1)
+	t.Run("stop node 2", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 2)
 	})
 
 	t.Run("assert new object read repair was made", func(t *testing.T) {
-		resp, err := getObjectCL(t, compose.GetWeaviateNode(2).URI(),
+		resp, err := getObjectCL(t, compose.GetWeaviateNode(3).URI(),
 			repairObj.Class, repairObj.ID, replica.One)
 		require.Nil(t, err)
 		assert.Equal(t, repairObj.ID, resp.ID)
@@ -126,22 +125,23 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	}
 
 	t.Run("replace object", func(t *testing.T) {
-		updateObjectCL(t, compose.GetWeaviateNode(2).URI(), &replaceObj, replica.One)
+		updateObjectCL(t, compose.GetWeaviateNode(3).URI(), &replaceObj, replica.One)
 	})
 
-	t.Run("restart node 1", func(t *testing.T) {
-		restartNode1(ctx, t, compose)
+	t.Run("restart node 2", func(t *testing.T) {
+		err = compose.StartAt(ctx, 2)
+		require.NoError(t, err)
 	})
 
 	// wait for some time for async replication to repair missing object
 	time.Sleep(3 * time.Second)
 
-	t.Run("stop node 2", func(t *testing.T) {
-		stopNodeAt(ctx, t, compose, 2)
+	t.Run("stop node 3", func(t *testing.T) {
+		stopNodeAt(ctx, t, compose, 3)
 	})
 
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
-		exists, err := objectExistsCL(t, compose.GetWeaviate().URI(),
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode(2).URI(),
 			replaceObj.Class, replaceObj.ID, replica.One)
 		require.Nil(t, err)
 		require.True(t, exists)
