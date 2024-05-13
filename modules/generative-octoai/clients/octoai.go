@@ -205,6 +205,9 @@ func (v *octoai) getValueFromContext(ctx context.Context, key string) string {
 }
 
 func (v *octoai) getApiKey(ctx context.Context) (string, error) {
+	if v.apiKey != "" {
+		return v.apiKey, nil
+	}
 	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
