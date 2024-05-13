@@ -368,7 +368,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		c := bucket.MapCursor()
 		defer c.Close()
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
 			retrieved = append(retrieved, kv{
 				key:    k,
 				values: v,
@@ -400,7 +400,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 		c := bucket.MapCursor()
 		defer c.Close()
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
 			retrieved = append(retrieved, kv{
 				key:    k,
 				values: v,
@@ -419,7 +419,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 			// _individual_ keys. Corrupting this index is exactly what happened in
 			// https://github.com/weaviate/weaviate/issues/3517
 			for _, pair := range expected {
-				retrieved, err := bucket.MapList(pair.key)
+				retrieved, err := bucket.MapList(ctx, pair.key)
 				require.NoError(t, err)
 
 				assert.Equal(t, pair.values, retrieved)
@@ -511,7 +511,7 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 		c := bucket.MapCursor()
 		defer c.Close()
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
 			retrieved = append(retrieved, kv{
 				key:    k,
 				values: v,
@@ -535,7 +535,7 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 		c := bucket.MapCursor()
 		defer c.Close()
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
 			retrieved = append(retrieved, kv{
 				key:    k,
 				values: v,
@@ -553,7 +553,7 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 			// _individual_ keys. Corrupting this index is exactly what happened in
 			// https://github.com/weaviate/weaviate/issues/3517
 			for _, pair := range expected {
-				retrieved, err := bucket.MapList(pair.key)
+				retrieved, err := bucket.MapList(ctx, pair.key)
 				require.NoError(t, err)
 
 				assert.Equal(t, pair.values, retrieved)
@@ -607,7 +607,7 @@ func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 			})
 
 			t.Run("check entries before compaction", func(t *testing.T) {
-				res, err := bucket.MapList(key)
+				res, err := bucket.MapList(ctx, key)
 				assert.Nil(t, err)
 				if size == 5 || size == 6 {
 					assert.Empty(t, res)
@@ -626,7 +626,7 @@ func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 			})
 
 			t.Run("check entries after compaction", func(t *testing.T) {
-				res, err := bucket.MapList(key)
+				res, err := bucket.MapList(ctx, key)
 				assert.Nil(t, err)
 				if size == 5 || size == 6 {
 					assert.Empty(t, res)
