@@ -143,6 +143,24 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		}
 	}
 
+	{ // add/remove missing shards
+		if incomingSS.PartitioningEnabled {
+			if err := m.updateIndexTenants(ctx, idx, incomingClass, incomingSS); err != nil {
+				return err
+			}
+		} else {
+			if err := m.updateIndexAddShards(ctx, idx, incomingClass, incomingSS); err != nil {
+				return err
+			}
+		}
+	}
+
+	{ // add missing properties
+		if err := m.updateIndexAddMissingProperties(ctx, idx, incomingClass); err != nil {
+			return err
+		}
+	}
+
 	{ // update index configs
 		if schemaUC.HasTargetVectors(incomingClass) {
 			if err := idx.updateVectorIndexConfigs(ctx, schemaUC.AsVectorIndexConfigs(incomingClass)); err != nil {
@@ -157,32 +175,7 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		if err := idx.updateInvertedIndexConfig(ctx, inverted.ConfigFromModel(incomingClass.InvertedIndexConfig)); err != nil {
 			return fmt.Errorf("inverted index config: %w", err)
 		}
-
 	}
-
-	{ // add missing properties
-		if err := m.updateIndexAddMissingProperties(ctx, idx, incomingClass); err != nil {
-			return err
-		}
-	}
-
-	// break early if state is nil
-	if incomingSS == nil {
-		return nil
-	}
-
-	{ // add/remove missing shards
-		if incomingSS.PartitioningEnabled {
-			if err := m.updateIndexTenants(ctx, idx, incomingClass, incomingSS); err != nil {
-				return err
-			}
-		} else {
-			if err := m.updateIndexAddShards(ctx, idx, incomingClass, incomingSS); err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
