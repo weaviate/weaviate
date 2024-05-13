@@ -84,27 +84,10 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("UpdateIndex", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
-		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
+		migrator.On("UpdateIndex", Anything, Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}))
-	})
-
-	t.Run("UpdateVectorIndexConfig", func(t *testing.T) {
-		migrator := &fakeMigrator{}
-		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(ErrAny)
-
-		x := newMockExecutor(migrator, store)
-		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
-	})
-	t.Run("UpdateInvertedIndexConfig", func(t *testing.T) {
-		migrator := &fakeMigrator{}
-		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
-		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(ErrAny)
-
-		x := newMockExecutor(migrator, store)
-		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
 	})
 
 	t.Run("AddProperty", func(t *testing.T) {
