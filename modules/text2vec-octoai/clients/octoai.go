@@ -182,22 +182,12 @@ func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	var apiKey, envVar string
-
-	apiKey = "X-OctoAI-Api-Key"
-	envVar = "OCTOAI_APIKEY"
-	if len(v.octoAIApiKey) > 0 {
-		return v.octoAIApiKey, nil
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
+		return apiKey, nil
 	}
-
-	return v.getApiKeyFromContext(ctx, apiKey, envVar)
-}
-
-func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
-		return apiKeyValue, nil
-	}
-	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+	return "", errors.New("no api key found " +
+		"neither in request header: X-OctoAI-Api-Key " +
+		"nor in environment variable under OCTOAI_APIKEY")
 }
 
 func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
