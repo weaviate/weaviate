@@ -345,7 +345,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 						}
 
 						// search neighbors of neighborID
-						if h.acornSearch && allowList != nil {
+						if h.acornSearch {
 							h.shardedNodeLocks.RLock(neighborID)
 							neighborNode := h.nodes[neighborID]
 							h.shardedNodeLocks.RUnlock(neighborID)
