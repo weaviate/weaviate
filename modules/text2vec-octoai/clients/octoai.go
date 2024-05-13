@@ -67,15 +67,15 @@ func buildUrl(config ent.VectorizationConfig) (string, error) {
 }
 
 type vectorizer struct {
-	octoAIApiKey string
-	httpClient   *http.Client
-	buildUrlFn   func(config ent.VectorizationConfig) (string, error)
-	logger       logrus.FieldLogger
+	apiKey     string
+	httpClient *http.Client
+	buildUrlFn func(config ent.VectorizationConfig) (string, error)
+	logger     logrus.FieldLogger
 }
 
-func New(octoAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		octoAIApiKey: octoAIApiKey,
+		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -182,26 +182,15 @@ func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
+	if v.apiKey != "" {
+		return v.apiKey, nil
+	}
 	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-OctoAI-Api-Key " +
 		"nor in environment variable under OCTOAI_APIKEY")
-}
-
-func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-
-	return ""
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
