@@ -80,18 +80,22 @@ func (d *DistributedBackupDescriptor) Classes() []string {
 }
 
 // Filter classes based on predicate
-func (d *BackupDescriptor) Filter(pred func(s string) bool) {
-	cs := make([]ClassDescriptor, 0, len(d.Classes))
-	for _, dest := range d.Classes {
-		if pred(dest.Name) {
-			cs = append(cs, dest)
+func (d *DistributedBackupDescriptor) Filter(pred func(s string) bool) {
+	for _, desc := range d.Nodes {
+		cs := make([]string, 0, len(desc.Classes))
+		for _, cls := range desc.Classes {
+			if pred(cls) {
+				cs = append(cs, cls)
+			}
+		}
+		if len(cs) != len(desc.Classes) {
+			desc.Classes = cs
 		}
 	}
-	d.Classes = cs
 }
 
 // Include only these classes and remove everything else
-func (d *BackupDescriptor) Include(classes []string) {
+func (d *DistributedBackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
@@ -111,7 +115,7 @@ func (d *BackupDescriptor) Include(classes []string) {
 }
 
 // Exclude removes classes from d
-func (d *BackupDescriptor) Exclude(classes []string) {
+func (d *DistributedBackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
@@ -297,7 +301,7 @@ func (d *BackupDescriptor) AllExist(classes []string) string {
 }
 
 // Include only these classes and remove everything else
-func (d *DistributedBackupDescriptor) Include(classes []string) {
+func (d *BackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
@@ -317,7 +321,7 @@ func (d *DistributedBackupDescriptor) Include(classes []string) {
 }
 
 // Exclude removes classes from d
-func (d *DistributedBackupDescriptor) Exclude(classes []string) {
+func (d *BackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
@@ -337,18 +341,14 @@ func (d *DistributedBackupDescriptor) Exclude(classes []string) {
 }
 
 // Filter classes based on predicate
-func (d *DistributedBackupDescriptor) Filter(pred func(s string) bool) {
-	for _, desc := range d.Nodes {
-		cs := make([]string, 0, len(desc.Classes))
-		for _, cls := range desc.Classes {
-			if pred(cls) {
-				cs = append(cs, cls)
-			}
-		}
-		if len(cs) != len(desc.Classes) {
-			desc.Classes = cs
+func (d *BackupDescriptor) Filter(pred func(s string) bool) {
+	cs := make([]ClassDescriptor, 0, len(d.Classes))
+	for _, dest := range d.Classes {
+		if pred(dest.Name) {
+			cs = append(cs, dest)
 		}
 	}
+	d.Classes = cs
 }
 
 // ValidateV1 validates d
