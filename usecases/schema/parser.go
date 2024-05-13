@@ -60,7 +60,7 @@ func (m *Parser) ParseClass(class *models.Class) error {
 
 func (m *Parser) parseVectorIndexConfig(class *models.Class,
 ) error {
-	if !hasTargetVectors(class) {
+	if !HasTargetVectors(class) {
 		parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
 		if err != nil {
 			return err
@@ -152,9 +152,9 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	if hasTargetVectors(update) {
+	if HasTargetVectors(update) {
 		if err := p.validator.ValidateVectorIndexConfigsUpdate(
-			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
+			AsVectorIndexConfigs(class), AsVectorIndexConfigs(update)); err != nil {
 			return nil, err
 		}
 	} else {
@@ -188,7 +188,7 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	return update, nil
 }
 
-func hasTargetVectors(class *models.Class) bool {
+func HasTargetVectors(class *models.Class) bool {
 	return len(class.VectorConfig) > 0
 }
 
@@ -261,7 +261,7 @@ func validateVectorConfigsParityAndImmutables(initial, updated *models.Class) er
 	return nil
 }
 
-func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexConfig {
+func AsVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexConfig {
 	if c.VectorConfig == nil {
 		return nil
 	}
@@ -273,7 +273,7 @@ func asVectorIndexConfigs(c *models.Class) map[string]schemaConfig.VectorIndexCo
 	return cfgs
 }
 
-func asVectorIndexConfig(c *models.Class) schemaConfig.VectorIndexConfig {
+func AsVectorIndexConfig(c *models.Class) schemaConfig.VectorIndexConfig {
 	validCfg, ok := c.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 	if !ok {
 		return nil

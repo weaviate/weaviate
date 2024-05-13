@@ -112,7 +112,7 @@ func (h *Handler) validatePropModuleConfig(class *models.Class, props ...*models
 			return fmt.Errorf("%v property config invalid", prop.Name)
 		}
 
-		if !hasTargetVectors(class) {
+		if !HasTargetVectors(class) {
 			configuredVectorizers := make([]string, 0, len(modconfig))
 			for modName := range modconfig {
 				if err := h.vectorizerValidator.ValidateVectorizer(modName); err == nil {

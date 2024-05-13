@@ -251,7 +251,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) setClassDefaults(class *models.Class) {
 	// set only when no target vectors configured
-	if !hasTargetVectors(class) {
+	if !HasTargetVectors(class) {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
 		}
@@ -628,7 +628,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func (m *Handler) validateVectorSettings(class *models.Class) error {
-	if !hasTargetVectors(class) {
+	if !HasTargetVectors(class) {
 		if err := m.validateVectorizer(class.Vectorizer); err != nil {
 			return err
 		}

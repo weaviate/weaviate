@@ -298,29 +298,13 @@ func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardNa
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error {
-	args := f.Called(ctx, className, updated)
-	return args.Error(0)
-}
-
 func (*fakeMigrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,
-) error {
-	return nil
-}
-
-func (*fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
-	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	return nil
 }
 
 func (*fakeMigrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error {
 	return nil
-}
-
-func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
-	args := f.Called(ctx, className, updated)
-	return args.Error(0)
 }
 
 func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {

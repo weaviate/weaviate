@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -80,33 +79,11 @@ func (e *executor) RestoreClassDir(class string) error {
 }
 
 func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
-	className := req.Class.Class
-	ctx := context.Background()
-
-	if hasTargetVectors(req.Class) {
-		if err := e.migrator.UpdateVectorIndexConfigs(ctx, className, asVectorIndexConfigs(req.Class)); err != nil {
-			return fmt.Errorf("vector index configs update: %w", err)
-		}
-	} else {
-		if err := e.migrator.UpdateVectorIndexConfig(ctx,
-			className, asVectorIndexConfig(req.Class)); err != nil {
-			return fmt.Errorf("vector index config update: %w", err)
-		}
-	}
-
-	if err := e.migrator.UpdateInvertedIndexConfig(ctx, className,
-		req.Class.InvertedIndexConfig); err != nil {
-		return errors.Wrap(err, "inverted index config")
-	}
-	return nil
+	return e.UpdateIndex(req)
 }
 
 func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
-	ctx := context.Background()
-	if err := e.migrator.UpdateIndex(ctx, req.Class, req.State); err != nil {
-		return err
-	}
-	return nil
+	return e.migrator.UpdateIndex(context.Background(), req.Class, req.State)
 }
 
 func (e *executor) DeleteClass(cls string) error {

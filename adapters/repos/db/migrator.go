@@ -161,6 +161,22 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		}
 	}
 
+	{ // update index configs
+		if schemaUC.HasTargetVectors(incomingClass) {
+			if err := idx.updateVectorIndexConfigs(ctx, schemaUC.AsVectorIndexConfigs(incomingClass)); err != nil {
+				return fmt.Errorf("vector index configs update: %w", err)
+			}
+		} else {
+			if err := idx.updateVectorIndexConfig(ctx, schemaUC.AsVectorIndexConfig(incomingClass)); err != nil {
+				return fmt.Errorf("vector index config update: %w", err)
+			}
+		}
+
+		if err := idx.updateInvertedIndexConfig(ctx, inverted.ConfigFromModel(incomingClass.InvertedIndexConfig)); err != nil {
+			return fmt.Errorf("inverted index config: %w", err)
+		}
+
+	}
 	return nil
 }
 
@@ -389,28 +405,6 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []st
 	return nil
 }
 
-func (m *Migrator) UpdateVectorIndexConfig(ctx context.Context,
-	className string, updated schemaConfig.VectorIndexConfig,
-) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot update vector index config of non-existing index for %s", className)
-	}
-
-	return idx.updateVectorIndexConfig(ctx, updated)
-}
-
-func (m *Migrator) UpdateVectorIndexConfigs(ctx context.Context,
-	className string, updated map[string]schemaConfig.VectorIndexConfig,
-) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot update vector config of non-existing index for %s", className)
-	}
-
-	return idx.updateVectorIndexConfigs(ctx, updated)
-}
-
 func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	old, updated schemaConfig.VectorIndexConfig,
 ) error {
@@ -441,19 +435,6 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 func (m *Migrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig,
 ) error {
 	return inverted.ValidateUserConfigUpdate(old, updated)
-}
-
-func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className string,
-	updated *models.InvertedIndexConfig,
-) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
-	}
-
-	conf := inverted.ConfigFromModel(updated)
-
-	return idx.updateInvertedIndexConfig(ctx, conf)
 }
 
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
