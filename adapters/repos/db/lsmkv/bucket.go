@@ -286,7 +286,7 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 	cursor := b.MapCursor()
 	defer cursor.Close()
 
-	for kList, vList := cursor.First(); kList != nil; kList, vList = cursor.Next() {
+	for kList, vList := cursor.First(ctx); kList != nil; kList, vList = cursor.Next(ctx) {
 		for _, v := range vList {
 			if err := f(kList, v.Key, v.Value, v.Tombstone); err != nil {
 				return fmt.Errorf("callback on object '%v' failed: %w", v, err)
