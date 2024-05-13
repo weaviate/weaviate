@@ -18,13 +18,16 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"fmt"
 )
 
 func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, groupBy *searchparams.GroupBy) (search.Results, error) {
 	groupsOrdered := []string{}
 	groups := map[string][]search.Result{}
 
-	for _, result := range sr {
+	fmt.Println("-----------------")
+	for i, result := range sr {
+		fmt.Println("result", i, result.ID, result.Dist, result.Vector, result.Object().Properties)
 
 		prop_i := result.Object().Properties
 		prop := prop_i.(map[string]interface{})
