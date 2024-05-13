@@ -321,7 +321,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 						if !allowList.Contains(neighborID) {
 							if !h.acornSearch {
 								// HNSW with Pre-Filtering
-								candidates.Insert(neighborID, distance)
+								// Note, ACORN also describes a fallback option to pre-filtering when
+								// -- the filter is too selective / rarely occurring
 								continue
 							}
 						}
@@ -381,9 +382,23 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 										}
 									}
 								}
-								// Might also want to think about the `distance < worstResultDistance` condition
+								candidates.Insert(neighborOfNeighborID, distance)
 								if ok && allowList.Contains(neighborOfNeighborID) && distance < worstResultDistance {
-									candidates.Insert(neighborOfNeighborID, distance)
+									results.Insert(neighborOfNeighborID, distance)
+
+									if h.compressed.Load() {
+										h.compressor.Prefetch(candidates.Top().ID)
+									} else {
+										h.cache.Prefetch(candidates.Top().ID)
+									}
+
+									if results.Len() > ef {
+										results.Pop()
+									}
+
+									if results.Len() > 0 {
+										worstResultDistance = results.Top().Dist
+									}
 								}
 							}
 						}
