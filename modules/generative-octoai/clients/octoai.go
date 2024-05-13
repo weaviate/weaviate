@@ -69,7 +69,7 @@ func (v *octoai) GenerateAllResults(ctx context.Context, textProperties []map[st
 func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
-	octoAIUrl, err := v.getOctoAIUrl(ctx, settings.BaseURL())
+	octoAIUrl, isImage, err := v.getOctoAIUrl(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "join OctoAI API host and path")
 	}
@@ -78,11 +78,29 @@ func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		{"role": "user", "content": prompt},
 	}
 
-	input := generateInput{
-		Messages:    octoAIPrompt,
-		Model:       settings.Model(),
-		MaxTokens:   settings.MaxTokens(),
-		Temperature: settings.Temperature(),
+	var input interface{}
+	if !isImage {
+		input = generateInputText{
+			Messages:    octoAIPrompt,
+			Model:       settings.Model(),
+			MaxTokens:   settings.MaxTokens(),
+			Temperature: settings.Temperature(),
+		}
+	} else {
+		input = generateInputImage{
+			Prompt:         prompt,
+			NegativePrompt: "ugly, tiling, poorly drawn hands, poorly drawn feet, poorly drawn face, out of frame, extra limbs, disfigured, deformed, body out of frame, blurry, bad anatomy, blurred, watermark, grainy, signature, cut off, draft",
+			Sampler:        "DDIM",
+			CfgScale:       11,
+			Height:         1024,
+			Width:          1024,
+			Seed:           0,
+			Steps:          20,
+			NumImages:      1,
+			HighNoiseFrac:  0.7,
+			Strength:       0.92,
+			UseRefiner:     true,
+		}
 	}
 
 	body, err := json.Marshal(input)
@@ -125,19 +143,29 @@ func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Errorf("connection to OctoAI API failed with status: %d", res.StatusCode)
 	}
 
-	textResponse := resBody.Choices[0].Message.Content
+	var textResponse string
+	if isImage {
+		textResponse = resBody.Images[0].Image
+	} else {
+		textResponse = resBody.Choices[0].Message.Content
+	}
 
 	return &generativemodels.GenerateResponse{
 		Result: &textResponse,
 	}, nil
 }
 
-func (v *octoai) getOctoAIUrl(ctx context.Context, baseURL string) (string, error) {
+func (v *octoai) getOctoAIUrl(ctx context.Context, baseURL string) (string, bool, error) {
 	passedBaseURL := baseURL
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Octoai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return url.JoinPath(passedBaseURL, "/v1/chat/completions")
+	if strings.Contains(passedBaseURL, "image") {
+		urlTmp, err := url.JoinPath(passedBaseURL, "/generate/sdxl")
+		return urlTmp, true, err
+	}
+	urlTmp, err := url.JoinPath(passedBaseURL, "/v1/chat/completions")
+	return urlTmp, false, err
 }
 
 func (v *octoai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
@@ -177,22 +205,38 @@ func (v *octoai) getValueFromContext(ctx context.Context, key string) string {
 }
 
 func (v *octoai) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := v.getValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
-		return apiKey, nil
-	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
+	}
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
+		return apiKey, nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-OctoAI-Api-Key " +
 		"nor in environment variable under OCTOAI_APIKEY")
 }
 
-type generateInput struct {
+type generateInputText struct {
 	Model       string              `json:"model"`
 	Messages    []map[string]string `json:"messages"`
 	MaxTokens   int                 `json:"max_tokens"`
 	Temperature int                 `json:"temperature"`
+}
+
+type generateInputImage struct {
+	Prompt         string  `json:"prompt"`
+	NegativePrompt string  `json:"negative_prompt"`
+	Sampler        string  `json:"sampler"`
+	CfgScale       int     `json:"cfg_scale"`
+	Height         int     `json:"height"`
+	Width          int     `json:"width"`
+	Seed           int     `json:"seed"`
+	Steps          int     `json:"steps"`
+	NumImages      int     `json:"num_images"`
+	HighNoiseFrac  float64 `json:"high_noise_frac"`
+	Strength       float64 `json:"strength"`
+	UseRefiner     bool    `json:"use_refiner"`
+	// StylePreset    string  `json:"style_preset"`
 }
 
 type Message struct {
@@ -205,9 +249,16 @@ type Choice struct {
 	Index        int     `json:"index"`
 	FinishReason string  `json:"finish_reason"`
 }
+
+type Image struct {
+	Image string `json:"image_b64"`
+}
+
 type generateResponse struct {
 	Choices []Choice
-	Error   *octoaiApiError `json:"error,omitempty"`
+	Images  []Image
+
+	Error *octoaiApiError `json:"error,omitempty"`
 }
 
 type octoaiApiError struct {
