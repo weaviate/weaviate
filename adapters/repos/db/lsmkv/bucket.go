@@ -661,7 +661,7 @@ func MapListLegacySortingRequired() MapListOption {
 //
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
-func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -680,6 +680,10 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	}
 
 	for i := range disk {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
 			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
@@ -733,7 +737,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		}
 	}
 
-	return newSortedMapMerger().do(segments)
+	return newSortedMapMerger().do(ctx, segments)
 }
 
 // MapSet writes one [MapPair] into the map for the given row key. It is
