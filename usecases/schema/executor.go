@@ -107,7 +107,7 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		return fmt.Errorf("replication index update: %w", err)
 	}
 
-	return nil
+	return e.UpdateIndex(req)
 }
 
 func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
