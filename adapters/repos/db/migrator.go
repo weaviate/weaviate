@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/pkg/errors"
@@ -144,15 +145,13 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 	}
 
 	{ // add/remove missing shards
-		if incomingSS != nil {
-			if incomingSS.PartitioningEnabled {
-				if err := m.updateIndexTenants(ctx, idx, incomingClass, incomingSS); err != nil {
-					return err
-				}
-			} else {
-				if err := m.updateIndexAddShards(ctx, idx, incomingClass, incomingSS); err != nil {
-					return err
-				}
+		if incomingSS.PartitioningEnabled {
+			if err := m.updateIndexTenants(ctx, idx, incomingClass, incomingSS); err != nil {
+				return err
+			}
+		} else {
+			if err := m.updateIndexAddShards(ctx, idx, incomingClass, incomingSS); err != nil {
+				return err
 			}
 		}
 	}
@@ -165,17 +164,30 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 
 	{ // update index configs
 		if schemaUC.HasTargetVectors(incomingClass) {
-			if err := idx.updateVectorIndexConfigs(ctx, schemaUC.AsVectorIndexConfigs(incomingClass)); err != nil {
-				return fmt.Errorf("vector index configs update: %w", err)
+			old := idx.vectorIndexUserConfigs
+			new := schemaUC.AsVectorIndexConfigs(incomingClass)
+			if !reflect.DeepEqual(old, new) {
+				if err := idx.updateVectorIndexConfigs(ctx, new); err != nil {
+					return fmt.Errorf("vector index configs update: %w", err)
+				}
 			}
+
 		} else {
-			if err := idx.updateVectorIndexConfig(ctx, schemaUC.AsVectorIndexConfig(incomingClass)); err != nil {
-				return fmt.Errorf("vector index config update: %w", err)
+			old := idx.vectorIndexUserConfig
+			new := schemaUC.AsVectorIndexConfig(incomingClass)
+			if !reflect.DeepEqual(old, new) {
+				if err := idx.updateVectorIndexConfig(ctx, new); err != nil {
+					return fmt.Errorf("vector index config update: %w", err)
+				}
 			}
 		}
 
-		if err := idx.updateInvertedIndexConfig(ctx, inverted.ConfigFromModel(incomingClass.InvertedIndexConfig)); err != nil {
-			return fmt.Errorf("inverted index config: %w", err)
+		old := idx.vectorIndexUserConfigs
+		new := inverted.ConfigFromModel(incomingClass.InvertedIndexConfig)
+		if !reflect.DeepEqual(old, new) {
+			if err := idx.updateInvertedIndexConfig(ctx, new); err != nil {
+				return fmt.Errorf("inverted index config: %w", err)
+			}
 		}
 	}
 	return nil
