@@ -418,14 +418,6 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	return l.shard.Shutdown(ctx)
 }
 
-func (l *LazyLoadShard) activate() error {
-	if err := l.Load(context.Background()); err != nil {
-		return fmt.Errorf("LazyLoadShard::activate: %w", err)
-	}
-
-	return l.shard.activate()
-}
-
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 	if err := l.Load(context.Background()); err != nil {
 		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
@@ -510,13 +502,6 @@ func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, m
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
 	l.mustLoad()
 	return l.shard.abortReplication(ctx, shardID)
-}
-
-func (l *LazyLoadShard) reinit(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.reinit(ctx)
 }
 
 func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.WriteCloser, error) {
