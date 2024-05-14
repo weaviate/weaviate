@@ -110,7 +110,6 @@ type ShardLike interface {
 	Queues() map[string]*IndexQueue
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
-	activate() error
 
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
@@ -133,7 +132,6 @@ type ShardLike interface {
 
 	commitReplication(context.Context, string, *backupMutex) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
-	reinit(context.Context) error
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
@@ -1052,14 +1050,6 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
-	return nil
-}
-
-// activate makes sure the shut flag is false
-func (s *Shard) activate() error {
-	s.shutdownLock.Lock()
-	defer s.shutdownLock.Unlock()
-	s.shut = false
 	return nil
 }
 
