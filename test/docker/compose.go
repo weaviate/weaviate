@@ -245,7 +245,10 @@ func (d *Compose) WithGenerativeOpenAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativeAWS() *Compose {
+func (d *Compose) WithGenerativeAWS(accessKey, secretKey, sessionToken string) *Compose {
+	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
+	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
+	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
 	d.enableModules = append(d.enableModules, modgenerativeaws.Name)
 	return d
 }
