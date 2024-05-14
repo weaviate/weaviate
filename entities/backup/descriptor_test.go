@@ -479,38 +479,38 @@ func TestWildcardFunctionality(t *testing.T) {
 	// Test case scenarios for wildcard functionality
 	tests := []struct {
 		name            string
-		files           []string // Simulated list of file names
-		wildcardPattern string   // Wildcard pattern to match files
-		expectedMatch   []string // Expected list of files matching the pattern
-		expectedNoMatch []string // Expected list of files not matching the pattern
+		classes         []string // Simulated list of class names
+		wildcardPattern string   // Wildcard pattern to match class names
+		expectedMatch   []string // Expected list of class names matching the pattern
+		expectedNoMatch []string // Expected list of class names not matching the pattern
 	}{
 		{
 			name:            "Exact match",
-			files:           []string{"file1.txt", "file2.txt", "file3.txt"},
-			wildcardPattern: "file2.txt",
-			expectedMatch:   []string{"file2.txt"},
-			expectedNoMatch: []string{"file1.txt", "file3.txt"},
+			classes:         []string{"ClassA", "ClassB", "ClassC"},
+			wildcardPattern: "ClassB",
+			expectedMatch:   []string{"ClassB"},
+			expectedNoMatch: []string{"ClassA", "ClassC"},
 		},
 		{
 			name:            "Wildcard match",
-			files:           []string{"file1.txt", "file2.txt", "file3.txt"},
-			wildcardPattern: "file*.txt",
-			expectedMatch:   []string{"file1.txt", "file2.txt", "file3.txt"},
+			classes:         []string{"ClassA", "ClassB", "ClassC"},
+			wildcardPattern: "Class*",
+			expectedMatch:   []string{"ClassA", "ClassB", "ClassC"},
 			expectedNoMatch: []string{},
 		},
 		{
 			name:            "Pattern match with character wildcard",
-			files:           []string{"file1.txt", "file2.txt", "file3.txt"},
-			wildcardPattern: "file?.txt",
-			expectedMatch:   []string{"file1.txt", "file2.txt", "file3.txt"},
+			classes:         []string{"ClassA", "ClassB", "ClassC"},
+			wildcardPattern: "Class?",
+			expectedMatch:   []string{"ClassA", "ClassB", "ClassC"},
 			expectedNoMatch: []string{},
 		},
 		{
 			name:            "Pattern match with range wildcard",
-			files:           []string{"file1.txt", "file2.txt", "file3.txt", "file4.doc"},
-			wildcardPattern: "file[1-3].txt",
-			expectedMatch:   []string{"file1.txt", "file2.txt", "file3.txt"},
-			expectedNoMatch: []string{"file4.doc"},
+			classes:         []string{"Class1", "Class2", "Class3", "OtherClass"},
+			wildcardPattern: "Class[1-3]",
+			expectedMatch:   []string{"Class1", "Class2", "Class3"},
+			expectedNoMatch: []string{"OtherClass"},
 		},
 	}
 
@@ -518,38 +518,38 @@ func TestWildcardFunctionality(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// Simulate wildcard matching based on the pattern
-			matchedFiles := []string{}
-			for _, file := range tc.files {
-				// Check if file matches the wildcard pattern
-				matched, err := filepath.Match(tc.wildcardPattern, file)
+			matchedClasses := []string{}
+			for _, class := range tc.classes {
+				// Check if class matches the wildcard pattern
+				matched, err := filepath.Match(tc.wildcardPattern, class)
 				if err != nil {
 					t.Fatalf("Error matching wildcard pattern: %v", err)
 				}
 				if matched {
-					matchedFiles = append(matchedFiles, file)
+					matchedClasses = append(matchedClasses, class)
 				}
 			}
 
-			// Assert that matched files match the expected list
-			sort.Strings(matchedFiles)
+			// Assert that matched classes match the expected list
+			sort.Strings(matchedClasses)
 			sort.Strings(tc.expectedMatch)
-			assert.Equal(t, tc.expectedMatch, matchedFiles, "Matched files mismatch")
+			assert.Equal(t, tc.expectedMatch, matchedClasses, "Matched classes mismatch")
 
-			// Assert that non-matched files match the expected list
-			notMatchedFiles := []string{}
-			for _, file := range tc.files {
-				// Check if file does not match the wildcard pattern
-				matched, err := filepath.Match(tc.wildcardPattern, file)
+			// Assert that non-matched classes match the expected list
+			notMatchedClasses := []string{}
+			for _, class := range tc.classes {
+				// Check if class does not match the wildcard pattern
+				matched, err := filepath.Match(tc.wildcardPattern, class)
 				if err != nil {
 					t.Fatalf("Error matching wildcard pattern: %v", err)
 				}
 				if !matched {
-					notMatchedFiles = append(notMatchedFiles, file)
+					notMatchedClasses = append(notMatchedClasses, class)
 				}
 			}
-			sort.Strings(notMatchedFiles)
+			sort.Strings(notMatchedClasses)
 			sort.Strings(tc.expectedNoMatch)
-			assert.Equal(t, tc.expectedNoMatch, notMatchedFiles, "Non-matched files mismatch")
+			assert.Equal(t, tc.expectedNoMatch, notMatchedClasses, "Non-matched classes mismatch")
 		})
 	}
 }
