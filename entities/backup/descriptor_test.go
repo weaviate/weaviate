@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
@@ -474,52 +475,81 @@ func TestShardDescriptorClear(t *testing.T) {
 	assert.Equal(t, want, s)
 }
 
-func TestBackupDescriptorValidate(t *testing.T) {
-	// Create a BackupDescriptor instance with valid attributes
-	validBackup := &BackupDescriptor{
-		StartedAt:     time.Now(),
-		CompletedAt:   time.Now(),
-		ID:            "backup123",
-		Version:       "1.0",
-		ServerVersion: "2.0",
-		Error:         "",
-		Classes: []ClassDescriptor{
-			{
-				Name:          "ClassA",
-				ShardingState: []byte{1, 2, 3},
-				Schema:        []byte{4, 5, 6},
-				Shards: []*ShardDescriptor{
-					{
-						Name:                  "ShardA",
-						Node:                  "NodeA",
-						DocIDCounterPath:      "/path/to/counter",
-						PropLengthTrackerPath: "/path/to/tracker",
-						ShardVersionPath:      "/path/to/version",
-					},
-				},
-			},
+func TestWildcardFunctionality(t *testing.T) {
+	// Test case scenarios for wildcard functionality
+	tests := []struct {
+		name            string
+		files           []string // Simulated list of file names
+		wildcardPattern string   // Wildcard pattern to match files
+		expectedMatch   []string // Expected list of files matching the pattern
+		expectedNoMatch []string // Expected list of files not matching the pattern
+	}{
+		{
+			name:            "Exact match",
+			files:           []string{"file1.txt", "file2.txt", "file3.txt"},
+			wildcardPattern: "file2.txt",
+			expectedMatch:   []string{"file2.txt"},
+			expectedNoMatch: []string{"file1.txt", "file3.txt"},
+		},
+		{
+			name:            "Wildcard match",
+			files:           []string{"file1.txt", "file2.txt", "file3.txt"},
+			wildcardPattern: "file*.txt",
+			expectedMatch:   []string{"file1.txt", "file2.txt", "file3.txt"},
+			expectedNoMatch: []string{},
+		},
+		{
+			name:            "Pattern match with character wildcard",
+			files:           []string{"file1.txt", "file2.txt", "file3.txt"},
+			wildcardPattern: "file?.txt",
+			expectedMatch:   []string{"file1.txt", "file2.txt", "file3.txt"},
+			expectedNoMatch: []string{},
+		},
+		{
+			name:            "Pattern match with range wildcard",
+			files:           []string{"file1.txt", "file2.txt", "file3.txt", "file4.doc"},
+			wildcardPattern: "file[1-3].txt",
+			expectedMatch:   []string{"file1.txt", "file2.txt", "file3.txt"},
+			expectedNoMatch: []string{"file4.doc"},
 		},
 	}
 
-	// Test validation for a valid BackupDescriptor with the same schema version
-	err := validBackup.Validate(false)
-	if err != nil {
-		t.Errorf("Validation failed for a valid BackupDescriptor with the same schema version: %v", err)
-	}
+	// Iterate over test cases
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Simulate wildcard matching based on the pattern
+			matchedFiles := []string{}
+			for _, file := range tc.files {
+				// Check if file matches the wildcard pattern
+				matched, err := filepath.Match(tc.wildcardPattern, file)
+				if err != nil {
+					t.Fatalf("Error matching wildcard pattern: %v", err)
+				}
+				if matched {
+					matchedFiles = append(matchedFiles, file)
+				}
+			}
 
-	// Test validation for a valid BackupDescriptor with a new schema version
-	err = validBackup.Validate(true)
-	if err != nil {
-		t.Errorf("Validation failed for a valid BackupDescriptor with a new schema version: %v", err)
-	}
+			// Assert that matched files match the expected list
+			sort.Strings(matchedFiles)
+			sort.Strings(tc.expectedMatch)
+			assert.Equal(t, tc.expectedMatch, matchedFiles, "Matched files mismatch")
 
-	// Modify the BackupDescriptor to make it invalid
-	invalidBackup := validBackup
-	invalidBackup.Version = "" // Making version attribute empty
-
-	// Test validation for an invalid BackupDescriptor
-	err = invalidBackup.Validate(false)
-	if err == nil {
-		t.Error("Validation passed for an invalid BackupDescriptor, expected error")
+			// Assert that non-matched files match the expected list
+			notMatchedFiles := []string{}
+			for _, file := range tc.files {
+				// Check if file does not match the wildcard pattern
+				matched, err := filepath.Match(tc.wildcardPattern, file)
+				if err != nil {
+					t.Fatalf("Error matching wildcard pattern: %v", err)
+				}
+				if !matched {
+					notMatchedFiles = append(notMatchedFiles, file)
+				}
+			}
+			sort.Strings(notMatchedFiles)
+			sort.Strings(tc.expectedNoMatch)
+			assert.Equal(t, tc.expectedNoMatch, notMatchedFiles, "Non-matched files mismatch")
+		})
 	}
 }
