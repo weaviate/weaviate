@@ -162,7 +162,7 @@ func (s *State) AllHostnames() []string {
 	return out
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// AllNames returns all node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
 	mem := s.list.Members()
 	out := make([]string, len(mem))
@@ -199,7 +199,7 @@ func (s *State) Candidates() []string {
 	return s.delegate.sortCandidates(s.StorageNodes())
 }
 
-// All node names (not their hostnames!) for live members, including self.
+// NodeCount returns numbers of node members.
 func (s *State) NodeCount() int {
 	return s.list.NumMembers()
 }

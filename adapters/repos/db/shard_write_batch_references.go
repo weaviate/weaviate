@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// return value map[int]error gives the error for the index as it received it
+// AddReferencesBatch returns value map[int]error gives the error for the index as it received it
 func (s *Shard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	s.activityTracker.Add(1)
 	if s.isReadOnly() {

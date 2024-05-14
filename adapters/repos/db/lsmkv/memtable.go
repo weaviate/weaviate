@@ -326,7 +326,7 @@ func (m *Memtable) updateDirtyAt() {
 	}
 }
 
-// returns time memtable got dirty (1st write occurred)
+// DirtyDuration returns time memtable got dirty (1st write occurred)
 // (0 if clean)
 func (m *Memtable) DirtyDuration() time.Duration {
 	m.RLock()

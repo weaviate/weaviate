@@ -408,7 +408,7 @@ func (i *Index) initAndStoreShard(ctx context.Context, shardName string, class *
 	return nil
 }
 
-// Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
+// IterateObjects iterates over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard ShardLike, object *storobj.Object) error) (err error) {
 	return i.ForEachShard(func(_ string, shard ShardLike) error {
 		wrapper := func(object *storobj.Object) error {
@@ -427,7 +427,7 @@ func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) er
 	return i.shards.RangeConcurrently(i.logger, f)
 }
 
-// Iterate over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
+// IterateShards iterates over all objects in the shard, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
 func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard ShardLike) error) (err error) {
 	return i.ForEachShard(func(key string, shard ShardLike) error {
 		return cb(i, shard)
@@ -914,7 +914,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	return shard.PutObjectBatch(ctx, objects)
 }
 
-// return value map[int]error gives the error for the index as it received it
+// AddReferencesBatch returns value map[int]error gives the error for the index as it received it.
 func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {

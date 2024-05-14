@@ -186,7 +186,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		return tenants, err
 	}
 
-	// If non consistent, fallback to the default implementation
+	// If non-consistent, fallback to the default implementation
 	return h.getTenantsByNames(class, tenants)
 }
 
@@ -227,7 +227,7 @@ func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {
 	return info, nil
 }
 
-// TenantExists is used to check if the tenant exists of a class
+// ConsistentTenantExists is used to check if the tenant exists of a class.
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {

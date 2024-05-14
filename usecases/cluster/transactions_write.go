@@ -303,7 +303,7 @@ func (c *TxManager) SetResponseFn(fn ResponseFn) {
 	c.responseFn = fn
 }
 
-// Begin a Transaction with the specified type and payload. Transactions expire
+// BeginTransaction beings a Transaction with the specified type and payload. Transactions expire
 // after the specified TTL. For a transaction that does not ever expire, pass
 // in a ttl of 0. When choosing TTLs keep in mind that clocks might be slightly
 // skewed in the cluster, therefore set your TTL for desiredTTL +

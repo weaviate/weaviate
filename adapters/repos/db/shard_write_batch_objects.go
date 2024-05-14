@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// return value map[int]error gives the error for the index as it received it
+// PutObjectBatch returns value map[int]error gives the error for the index as it received it
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {

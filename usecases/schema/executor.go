@@ -34,7 +34,7 @@ type executor struct {
 	restoreClassDir func(string) error
 }
 
-// NewManager creates a new manager
+// NewExecutor creates a new executor
 func NewExecutor(migrator Migrator, mr metaReader,
 	logger logrus.FieldLogger, classBackupDir func(string) error,
 ) *executor {

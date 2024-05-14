@@ -180,7 +180,7 @@ type rpcResolver struct {
 	rpcPort        int
 }
 
-// rpcAddressFromRAFT returns the RPC address based on the provided RAFT address.
+// Address returns the RPC address based on the provided RAFT address.
 // In a real cluster, the RPC port is the same for all nodes.
 // In a local environment, the RAFT ports need to be different. Specifically,
 // we calculate the RPC port as the RAFT port + 1.

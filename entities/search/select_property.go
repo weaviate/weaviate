@@ -53,7 +53,7 @@ func (sp SelectProperty) FindSelectClass(className schema.ClassName) *SelectClas
 	return nil
 }
 
-// FindSelectObject by specifying the exact object name
+// FindSelectProperty by specifying the exact object name
 func (sp SelectProperty) FindSelectProperty(name string) *SelectProperty {
 	for _, selectProp := range sp.Props {
 		if selectProp.Name == name {

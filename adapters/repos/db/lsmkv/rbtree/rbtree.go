@@ -101,7 +101,7 @@ func recolourNodes(nodes ...Node) {
 	}
 }
 
-// Rotate the tree left around the given node.
+// leftRotate rotates the tree left around the given node.
 //
 // After this rotation, the former right child (FC) will be the new parent and the former parent (FP) will
 // be the left node of the new parent. The left child of the former child is transferred to the former parent.
@@ -145,7 +145,7 @@ func leftRotate(rotationNode Node) Node {
 	}
 }
 
-// Same as leftRotate, just switch left and right everywhere
+// rightRotate is same as leftRotate, just switch left and right everywhere
 func rightRotate(rotationNode Node) Node {
 	formerChild := rotationNode.Left()
 	rootRotate := rotationNode.Parent().IsNil()

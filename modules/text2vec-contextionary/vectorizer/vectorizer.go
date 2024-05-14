@@ -50,7 +50,7 @@ type client interface {
 		overrides map[string]string) ([]float32, []txt2vecmodels.InterpretationSource, error)
 }
 
-// IndexCheck returns whether a property of a class should be indexed
+// ClassIndexCheck returns whether a property of a class should be indexed
 type ClassIndexCheck interface {
 	PropertyIndexed(property string) bool
 	VectorizeClassName() bool

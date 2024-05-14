@@ -119,7 +119,7 @@ func (i *Index) Add(id uint64, coordinates *models.GeoCoordinates) error {
 	return i.vectorIndex.Add(id, v)
 }
 
-// WithinGeoRange searches the index by the specified range. It is thread-safe
+// WithinRange searches the index by the specified range. It is thread-safe
 // and can be called concurrently.
 func (i *Index) WithinRange(ctx context.Context,
 	geoRange filters.GeoRange,

@@ -50,7 +50,7 @@ func MergeRecursivelyNestedProperties(nestPropsOld, nestPropsNew []*models.Neste
 	return nestPropsMerged, merged
 }
 
-// Determines diff between nestPropsNew and nestPropsOld slices
+// DiffRecursivelyNestedProperties determines diff between nestPropsNew and nestPropsOld slices
 func DiffRecursivelyNestedProperties(nestPropsOld, nestPropsNew []*models.NestedProperty,
 ) []*models.NestedProperty {
 	nestPropsDiff := make([]*models.NestedProperty, 0, len(nestPropsNew))

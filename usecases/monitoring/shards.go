@@ -15,7 +15,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Move the shard from unloaded to in progress
+// StartLoadingShard moves the shard from unloaded to in progress
 func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	if pm == nil {
 		return nil
@@ -39,7 +39,7 @@ func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	return nil
 }
 
-// Move the shard from in progress to loaded
+// FinishLoadingShard moves the shard from in progress to loaded
 func (pm *PrometheusMetrics) FinishLoadingShard(className string) error {
 	if pm == nil {
 		return nil
@@ -65,7 +65,7 @@ func (pm *PrometheusMetrics) FinishLoadingShard(className string) error {
 	return nil
 }
 
-// Move the shard from loaded to in progress
+// StartUnloadingShard moves the shard from loaded to in progress
 func (pm *PrometheusMetrics) StartUnloadingShard(className string) error {
 	if pm == nil {
 		return nil
@@ -91,7 +91,7 @@ func (pm *PrometheusMetrics) StartUnloadingShard(className string) error {
 	return nil
 }
 
-// Move the shard from in progress to unloaded
+// FinishUnloadingShard moves the shard from in progress to unloaded
 func (pm *PrometheusMetrics) FinishUnloadingShard(className string) error {
 	if pm == nil {
 		return nil
@@ -118,7 +118,7 @@ func (pm *PrometheusMetrics) FinishUnloadingShard(className string) error {
 	return nil
 }
 
-// Register a new, unloaded shard
+// NewUnloadedshard registers a new, unloaded shard
 func (pm *PrometheusMetrics) NewUnloadedshard(className string) error {
 	if pm == nil {
 		return nil

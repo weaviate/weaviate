@@ -27,7 +27,7 @@ type GraphQLResult struct {
 	Result interface{}
 }
 
-// Perform a GraphQL request
+// QueryGraphQL performs a GraphQL request
 func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) (*models.GraphQLResponse, error) {
 	var vars interface{} = variables
 	params := graphql_client.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
@@ -39,7 +39,7 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 	return response.Payload, nil
 }
 
-// Perform a query and assert that it is successful
+// AssertGraphQL performs a query and assert that it is successful
 func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
 	response, err := QueryGraphQL(t, auth, "", query, nil)
 	if err != nil {
@@ -65,7 +65,7 @@ func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query st
 	return &GraphQLResult{Result: data}
 }
 
-// Drill down in the result
+// Get drills down in the result
 func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
 	current := g.Result
 	for _, path := range paths {
@@ -82,7 +82,7 @@ func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
 	}
 }
 
-// Cast the result to a slice
+// AsSlice casts the result to a slice
 func (g *GraphQLResult) AsSlice() []interface{} {
 	return g.Result.([]interface{})
 }

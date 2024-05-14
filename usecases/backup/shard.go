@@ -151,7 +151,7 @@ func (c *shardSyncChan) OnCommit(ctx context.Context, req *StatusRequest) error 
 	return fmt.Errorf("shard has abandon backup operation")
 }
 
-// Abort tells a node to abort the previous backup operation
+// OnAbort tells a node to abort the previous backup operation
 func (c *shardSyncChan) OnAbort(_ context.Context, req *AbortRequest) error {
 	st := c.lastOp.get()
 	if st.ID == req.ID {

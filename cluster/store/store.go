@@ -89,10 +89,10 @@ type Indexer interface {
 
 // Parser parses concrete class fields after deserialization
 type Parser interface {
-	// ParseClassUpdate parses a class after unmarshaling by setting concrete types for the fields
+	// ParseClass parses a class after unmarshaling by setting concrete types for the fields
 	ParseClass(class *models.Class) error
 
-	// ParseClass parses new updates by providing the current class data.
+	// ParseClassUpdate parses new updates by providing the current class data.
 	ParseClassUpdate(class, update *models.Class) (*models.Class, error)
 }
 
@@ -374,7 +374,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 	}
 }
 
-// StoreSchemaV1() is responsible for saving new schema (RAFT) to boltDB
+// StoreSchemaV1 is responsible for saving new schema (RAFT) to boltDB
 func (st *Store) StoreSchemaV1() error {
 	return st.saveLegacySchema(st.db.Schema.States())
 }
@@ -427,7 +427,7 @@ func (st *Store) Ready() bool {
 	return st.open.Load() && st.dbLoaded.Load() && st.Leader() != ""
 }
 
-// WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
+// WaitToRestoreDB waits for the DB to be loaded. The DB might be first loaded
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
 func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {

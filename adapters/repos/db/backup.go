@@ -156,7 +156,7 @@ func (db *DB) ClassExists(name string) bool {
 	return db.IndexExists(schema.ClassName(name))
 }
 
-// Returns the list of nodes where shards of class are contained.
+// Shards returns the list of nodes where shards of class are contained.
 // If there are no shards for the class, returns an empty list
 // If there are shards for the class but no nodes are found, return an error
 func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {

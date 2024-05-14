@@ -39,7 +39,7 @@ import (
 	apiclient "github.com/weaviate/weaviate/client"
 )
 
-// Create a client that logs with t.Logf, if a *testing.T is provided.
+// Client creates a client that logs with t.Logf, if a *testing.T is provided.
 // If there is no test case at hand, pass in nil to disable logging.
 func Client(t *testing.T) *apiclient.Weaviate {
 	transport := httptransport.New(fmt.Sprintf("%s:%s", ServerHost, ServerPort), "/v1", []string{ServerScheme})
@@ -55,7 +55,7 @@ func Client(t *testing.T) *apiclient.Weaviate {
 	return client
 }
 
-// Create a Weaviate client for the given API key & token.
+// CreateAuth creates a Weaviate client for the given API key & token.
 func CreateAuth(apiKey strfmt.UUID, apiToken string) runtime.ClientAuthInfoWriterFunc {
 	// Create an auth writer that both sets the api key & token.
 	authWriter := func(r runtime.ClientRequest, _ strfmt.Registry) error {

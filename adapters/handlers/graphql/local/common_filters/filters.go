@@ -19,7 +19,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-// The filters common to Local->Get and Local->Meta queries.
+// BuildNew the filters common to Local->Get and Local->Meta queries.
 func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 	commonFilters := graphql.InputObjectConfigFieldMap{
 		"operator": &graphql.InputObjectFieldConfig{

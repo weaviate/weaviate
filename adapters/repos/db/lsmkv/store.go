@@ -290,7 +290,7 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 	return newMap
 }
 
-// Creates bucket, first removing any files if already exist
+// CreateBucket creates bucket, first removing any files if already exist
 // Bucket can not be registered in bucketsByName before removal
 func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
@@ -317,7 +317,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	return nil
 }
 
-// Replaces 1st bucket with 2nd one. Both buckets have to registered in bucketsByName.
+// ReplaceBuckets replaces 1st bucket with 2nd one. Both buckets have to registered in bucketsByName.
 // 2nd bucket swaps the 1st one in bucketsByName using 1st one's name, 2nd one's name is deleted.
 // Dir path of 2nd bucket is changed to dir of 1st bucket as well as all other related paths of
 // bucket resources (segment group, memtables, commit log).

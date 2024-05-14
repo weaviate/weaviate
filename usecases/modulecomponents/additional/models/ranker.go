@@ -11,7 +11,7 @@
 
 package models
 
-// Answer used in qna module to represent
+// RankResult is answer used in qna module to represent
 // the answer to a given question
 type RankResult struct {
 	Score *float64 `json:"score,omitempty"`

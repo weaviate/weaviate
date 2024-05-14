@@ -162,7 +162,7 @@ func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
 	return nil
 }
 
-// WriteFile downloads contents of an object to a local file destPath
+// WriteToFile downloads contents of an object to a local file destPath
 func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
 	object := s.makeObjectName(backupID, key)
 	err := s.client.FGetObject(ctx, s.config.Bucket, object, destPath, minio.GetObjectOptions{})

@@ -17,7 +17,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// Helper function to get all the names of Object classes.
+// GetObjectClassNames is a helper function to get all the names of Object classes.
 func GetObjectClassNames(t *testing.T) []string {
 	resp, err := helper.Client(t).Schema.SchemaDump(nil, nil)
 	var names []string

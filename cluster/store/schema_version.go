@@ -142,7 +142,7 @@ func (s versionedSchema) ShardReplicas(
 	return nodes, err
 }
 
-// TenantShard returns shard name for the provided tenant and its activity status
+// TenantsShards returns shard name for the provided tenant and its activity status
 func (s versionedSchema) TenantsShards(ctx context.Context,
 	v uint64, class string, tenants ...string,
 ) (map[string]string, uint64, error) {

@@ -143,7 +143,7 @@ func (s *nodeStore) Meta(ctx context.Context, backupID string, adjustBasePath bo
 	return &result, err
 }
 
-// meta marshals and uploads metadata
+// PutMeta marshals and uploads metadata
 func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
 	return s.putMeta(ctx, BackupFile, desc)
 }
