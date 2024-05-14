@@ -12,9 +12,8 @@
 package searchparams
 
 import (
-	"strings"
-
 	"fmt"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
