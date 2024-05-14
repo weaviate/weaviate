@@ -98,8 +98,8 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	})
 
 	t.Run("restart node 3", func(t *testing.T) {
-		err := compose.StartAt(ctx, 3)
-		require.NoError(t, err)
+		startNodeAt(ctx, t, compose, 3)
+		time.Sleep(time.Second)
 	})
 
 	// wait for some time for async replication to repair missing object
@@ -129,8 +129,8 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		err := compose.StartAt(ctx, 2)
-		require.NoError(t, err)
+		startNodeAt(ctx, t, compose, 2)
+		time.Sleep(time.Second)
 	})
 
 	// wait for some time for async replication to repair missing object

@@ -88,8 +88,8 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			err := compose.StartAt(ctx, node)
-			require.NoError(t, err)
+			startNodeAt(ctx, t, compose, node)
+			time.Sleep(time.Second)
 		})
 	}
 
