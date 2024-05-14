@@ -46,11 +46,11 @@ var notIndexedClass = &models.Class{
 	InvertedIndexConfig: invertedConfig(),
 	Properties: []*models.Property{
 		{
-			Name:         "name",
-			DataType:     schema.DataTypeText.PropString(),
-			Tokenization: models.PropertyTokenizationWhitespace,
+			Name:            "name",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWhitespace,
 			IndexFilterable: boolRef(false),
-			IndexInverted: boolRef(false),
+			IndexInverted:   boolRef(false),
 		},
 	},
 }

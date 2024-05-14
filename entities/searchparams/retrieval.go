@@ -14,9 +14,10 @@ package searchparams
 import (
 	"strings"
 
+	"fmt"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"fmt"
 )
 
 type NearVector struct {
@@ -74,7 +75,6 @@ func GetPropertyByName(c *models.Class, propName string) (*models.Property, erro
 	}
 	return nil, fmt.Errorf("Property %v not found %v", propName, c.Class)
 }
-
 
 func (k *KeywordRanking) ChooseSearchableProperties(class *models.Class) {
 	var validProperties []string

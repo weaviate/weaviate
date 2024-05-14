@@ -125,7 +125,7 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 	}
 	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
 
-	//kw.ChooseSearchableProperties(class)
+	// kw.ChooseSearchableProperties(class)
 
 	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, fa.classSearcher,
