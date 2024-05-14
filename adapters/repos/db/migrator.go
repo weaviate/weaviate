@@ -68,7 +68,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
 			AvoidMMap:                 m.db.config.AvoidMMap,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
-			ReplicationFactor:         class.ReplicationConfig.Factor,
+			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -454,6 +454,16 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	conf := inverted.ConfigFromModel(updated)
 
 	return idx.updateInvertedIndexConfig(ctx, conf)
+}
+
+func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
+	}
+
+	idx.Config.ReplicationFactor.Store(factor)
+	return nil
 }
 
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {

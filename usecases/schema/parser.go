@@ -132,12 +132,6 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 		return nil, err
 	}
 
-	// TODO: fix PushShard issues before enabling scale out
-	//       https://github.com/weaviate/weaviate/issues/4840
-	if class.ReplicationConfig.Factor != update.ReplicationConfig.Factor {
-		return nil, fmt.Errorf("updating replication factor is not supported yet")
-	}
-
 	if err := validateImmutableFields(class, update); err != nil {
 		return nil, err
 	}
