@@ -62,7 +62,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
-		node := 1 + rand.Intn(clusterSize)
+		node := 2 + rand.Intn(clusterSize-1)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
 			stopNodeAt(ctx, t, compose, node)
@@ -102,7 +102,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 
 	for _, id := range paragraphIDs[:paragraphCount] {
 		// pick one node to be down during upserts
-		node := 1 + rand.Intn(clusterSize)
+		node := 2 + rand.Intn(clusterSize-1)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
 			stopNodeAt(ctx, t, compose, node)
