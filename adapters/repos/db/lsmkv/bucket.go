@@ -1007,6 +1007,11 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
+	if b.flushing.Size() == 0 {
+		b.flushing = nil
+		return nil
+	}
+
 	path := b.flushing.path
 	if err := b.disk.add(path + ".db"); err != nil {
 		return err

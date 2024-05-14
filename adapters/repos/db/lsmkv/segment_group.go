@@ -128,7 +128,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		jointSegmentsIDs := strings.Split(jointSegments, "_")
 
 		if len(jointSegmentsIDs) != 2 {
-			return nil, fmt.Errorf("invalid compacted segment file name %q", entry.Name())
+			logger.WithField("action", "lsm_segment_init").
+				WithField("path", filepath.Join(sg.dir, entry.Name())).
+				Warn("ignored (partially written) LSM compacted segment generated with a version older than v1.24.0")
+
+			continue
 		}
 
 		leftSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
@@ -220,7 +224,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			logger.WithField("action", "lsm_segment_init").
 				WithField("path", filepath.Join(sg.dir, entry.Name())).
 				WithField("wal_path", walFileName).
-				Info("Discarded (partially written) LSM segment, because an active WAL for " +
+				Info("discarded (partially written) LSM segment, because an active WAL for " +
 					"the same segment was found. A recovery from the WAL will follow.")
 
 			continue
