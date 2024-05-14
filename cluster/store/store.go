@@ -638,7 +638,29 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		panic("error proto un-marshalling log data")
 	}
 
+	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
+	// don't update the database. This can lead to dataloss for example if we drop then re-add a class.
+	// If we don't have any last applied index on start, schema only is always false.
+	schemaOnly := st.lastAppliedIndexOnStart != 0 && l.Index <= st.lastAppliedIndexOnStart
 	defer func() {
+		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
+		// that means we're done doing schema only.
+		if st.lastAppliedIndexOnStart != 0 && l.Index == st.lastAppliedIndexOnStart {
+			st.log.WithFields(logrus.Fields{
+				"log_type":                     l.Type,
+				"log_name":                     l.Type.String(),
+				"log_index":                    l.Index,
+				"last_store_log_applied_index": st.lastAppliedIndexOnStart,
+			}).Debug("reloading local DB as RAFT and local DB are now caught up")
+			cs := make([]command.UpdateClassRequest, len(st.db.Schema.Classes))
+			i := 0
+			for _, v := range st.db.Schema.Classes {
+				cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+				i++
+			}
+			st.db.store.ReloadLocalDB(context.Background(), cs)
+		}
+
 		st.lastAppliedIndex.Store(l.Index)
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
@@ -654,41 +676,42 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	cmd.Version = l.Index
 	st.log.WithFields(logrus.Fields{
-		"log_type":      l.Type,
-		"log_name":      l.Type.String(),
-		"log_index":     l.Index,
-		"cmd_type":      cmd.Type,
-		"cmd_type_name": cmd.Type.String(),
-		"cmd_class":     cmd.Class,
+		"log_type":        l.Type,
+		"log_name":        l.Type.String(),
+		"log_index":       l.Index,
+		"cmd_type":        cmd.Type,
+		"cmd_type_name":   cmd.Type.String(),
+		"cmd_class":       cmd.Class,
+		"cmd_schema_only": schemaOnly,
 	}).Debug("server.apply")
 	switch cmd.Type {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
-		ret.Error = st.db.AddClass(&cmd, st.nodeID)
+		ret.Error = st.db.AddClass(&cmd, st.nodeID, schemaOnly)
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
-		ret.Error = st.db.RestoreClass(&cmd, st.nodeID)
+		ret.Error = st.db.RestoreClass(&cmd, st.nodeID, schemaOnly)
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
-		ret.Error = st.db.UpdateClass(&cmd, st.nodeID)
+		ret.Error = st.db.UpdateClass(&cmd, st.nodeID, schemaOnly)
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
-		ret.Error = st.db.DeleteClass(&cmd)
+		ret.Error = st.db.DeleteClass(&cmd, schemaOnly)
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
-		ret.Error = st.db.AddProperty(&cmd)
+		ret.Error = st.db.AddProperty(&cmd, schemaOnly)
 
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
-		ret.Error = st.db.UpdateShardStatus(&cmd)
+		ret.Error = st.db.UpdateShardStatus(&cmd, schemaOnly)
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
-		ret.Error = st.db.AddTenants(&cmd)
+		ret.Error = st.db.AddTenants(&cmd, schemaOnly)
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
-		ret.Data, ret.Error = st.db.UpdateTenants(&cmd)
+		ret.Data, ret.Error = st.db.UpdateTenants(&cmd, schemaOnly)
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
-		ret.Error = st.db.DeleteTenants(&cmd)
+		ret.Error = st.db.DeleteTenants(&cmd, schemaOnly)
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		ret.Error = st.StoreSchemaV1()
