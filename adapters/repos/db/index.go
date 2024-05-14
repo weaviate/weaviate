@@ -557,7 +557,7 @@ type IndexConfig struct {
 	MemtablesMaxActiveSeconds int
 	MaxSegmentSize            int64
 	HNSWMaxLogSize            int64
-	ReplicationFactor         atomic.Int64
+	ReplicationFactor         *atomic.Int64
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
 
