@@ -30,6 +30,7 @@ func TestOperators(t *testing.T) {
 		{op: OperatorGreaterThan, expectedName: "GreaterThan", expectedOnValue: true},
 		{op: OperatorGreaterThanEqual, expectedName: "GreaterThanEqual", expectedOnValue: true},
 		{op: OperatorLessThanEqual, expectedName: "LessThanEqual", expectedOnValue: true},
+		{op: OperatorNotLike, expectedName: "NotLike", expectedOnValue: true},
 		{op: OperatorLessThan, expectedName: "LessThan", expectedOnValue: true},
 		{op: OperatorWithinGeoRange, expectedName: "WithinGeoRange", expectedOnValue: true},
 		{op: OperatorLike, expectedName: "Like", expectedOnValue: true},

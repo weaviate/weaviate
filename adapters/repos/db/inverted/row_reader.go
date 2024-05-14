@@ -23,6 +23,8 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
+import "./like_helper"
+
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
 	value         []byte
@@ -66,6 +68,8 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
+	case filters.OperatorNotLike:
+		return rr.notLike(ctx, readFn)
 	case filters.OperatorIsNull: // we need to fetch a row with a given value (there is only nil and !nil) and can reuse equal to get the correct row
 		return rr.equal(ctx, readFn)
 	default:
@@ -168,50 +172,37 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 	c := rr.newCursor()
 	defer c.Close()
 
-	var (
-		initialK []byte
-		initialV [][]byte
-	)
-
-	if like.optimizable {
-		initialK, initialV = c.Seek(like.min)
-	} else {
-		initialK, initialV = c.First()
+	rp := func(k []byte, v [][]byte) (bool, error) {
+		return readFn(k, rr.transformToBitmap(v))
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
+	return like_helper.likeHelper(ctx, like, c, rp)
+}
 
-		if like.optimizable {
-			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
-			// can abort once we've moved past the point where the fixed characters
-			// no longer match
-			if len(k) < len(like.min) {
-				break
-			}
-
-			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
-				break
-			}
-		}
-
-		if !like.regexp.Match(k) {
-			continue
-		}
-
-		continueReading, err := readFn(k, rr.transformToBitmap(v))
-		if err != nil {
-			return err
-		}
-
-		if !continueReading {
-			break
-		}
+func (rr *RowReader) notLike(ctx context.Context, readFn ReadFn) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse notLike value: %w", err)
 	}
 
-	return nil
+	c := rr.newCursor()
+	defer c.Close()
+
+	likeMap := sroar.NewBitmap()
+	rp := func(k []byte, v [][]byte) (bool, error) {
+		likeMap.Or(rr.transformToBitmap(v))
+		return true, nil
+
+	}
+	if err := like_helper.likeHelper(ctx, like, c, rp); err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(likeMap)
+	_, err = readFn(rr.value, inverted)
+	return err
 }
 
 // newCursor will either return a regular cursor - or a key-only cursor if

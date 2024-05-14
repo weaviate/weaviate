@@ -28,6 +28,7 @@ func BuildNew(path string) graphql.InputObjectConfigFieldMap {
 				Values: graphql.EnumValueConfigMap{
 					"And":              &graphql.EnumValueConfig{},
 					"Like":             &graphql.EnumValueConfig{},
+					"NotLike":          &graphql.EnumValueConfig{},
 					"Or":               &graphql.EnumValueConfig{},
 					"Equal":            &graphql.EnumValueConfig{},
 					"Not":              &graphql.EnumValueConfig{},

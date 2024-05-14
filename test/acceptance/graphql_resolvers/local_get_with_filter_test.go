@@ -177,6 +177,37 @@ func gettingObjectsWithFilters(t *testing.T) {
 		assert.Equal(t, expected, cityMeta)
 	})
 
+	t.Run("with NotLike filters applied", func(t *testing.T) {
+		query := `
+		{
+			Get {
+				Company(where:{
+					operator:And
+					operands: [
+						{
+							operator: NotLike,
+							valueText:"Appl* Goog*"
+							path:["name"]
+						}
+					]
+				}){
+					name
+				}
+			}
+		}
+		`
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
+		companies := result.Get("Get", "Company").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{"name": "Microsoft Inc."},
+			map[string]interface{}{"name": "Microsoft Incorporated"},
+			map[string]interface{}{"name": "Microsoft"},
+		}
+
+		assert.ElementsMatch(t, expected, companies)
+	})
+	
 	t.Run("with filters and ref showing a phone number", func(t *testing.T) {
 		// this is the journey test for gh-1088
 

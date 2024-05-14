@@ -148,7 +148,7 @@ var whereFilterTypeOperatorPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull","ContainsAny","ContainsAll"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["And","Or","Equal","Like","NotLike","NotEqual","GreaterThan","GreaterThanEqual","LessThan","LessThanEqual","WithinGeoRange","IsNull","ContainsAny","ContainsAll"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -170,6 +170,9 @@ const (
 	// WhereFilterOperatorLike captures enum value "Like"
 	WhereFilterOperatorLike string = "Like"
 
+	// WhereFilterOperatorNotLike captures enum value "NotLike"
+	WhereFilterOperatorNotLike string = "NotLike"
+	
 	// WhereFilterOperatorNotEqual captures enum value "NotEqual"
 	WhereFilterOperatorNotEqual string = "NotEqual"
 
