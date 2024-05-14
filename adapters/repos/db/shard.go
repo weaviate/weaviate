@@ -132,7 +132,6 @@ type ShardLike interface {
 
 	commitReplication(context.Context, string, *backupMutex) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
-	reinit(context.Context) error
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
