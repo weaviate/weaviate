@@ -89,6 +89,8 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
+		migrator.On("UpdateReplicationFactor", Anything, "A", Anything).Return(nil)
+		migrator.On("UpdateIndex", Anything, Anything).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}))

@@ -243,6 +243,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 	st.lastAppliedIndexOnStart.Store(l)
 
+	if st.justRecovered() {
+		st.reloadLocalDBToMemory()
+		st.log.WithField("n", st.db.Schema.len()).
+			Info("successfully reloaded indexes from on recovery")
+	}
+
 	st.log.WithFields(logrus.Fields{
 		"name":                 st.nodeID,
 		"metadata_only_voters": st.metadataOnlyVoters,
@@ -642,7 +648,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to dataloss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index < st.lastAppliedIndexOnStart.Load()
+	schemaOnly := st.justRecovered() && l.Index < st.lastAppliedIndexOnStart.Load()
 	defer func() {
 		st.lastAppliedIndex.Store(l.Index)
 		if ret.Error != nil {
@@ -712,6 +718,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	}
 
 	return ret
+}
+
+func (st *Store) justRecovered() bool {
+	return st.lastAppliedIndexOnStart.Load() > 0
 }
 
 func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
@@ -901,6 +911,11 @@ func (st *Store) reloadDBFromSnapshot() bool {
 		return false
 	}
 
+	st.reloadLocalDBToMemory()
+	return true
+}
+
+func (st *Store) reloadLocalDBToMemory() {
 	st.log.Info("reload local db: update schema ...")
 	cs := make([]command.UpdateClassRequest, len(st.db.Schema.Classes))
 	i := 0
@@ -912,7 +927,6 @@ func (st *Store) reloadDBFromSnapshot() bool {
 
 	st.dbLoaded.Store(true)
 	st.lastAppliedIndexOnStart.Store(0)
-	return true
 }
 
 type Response struct {
