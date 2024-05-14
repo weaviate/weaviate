@@ -174,7 +174,7 @@ type Store struct {
 	candidates map[string]string
 
 	// lastAppliedIndexOnStart represents the index of the last applied command when the store is opened.
-	lastAppliedIndexOnStart uint64
+	lastAppliedIndexOnStart atomic.Uint64
 
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
@@ -237,10 +237,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 
 	rLog := rLog{st.logStore}
-	st.lastAppliedIndexOnStart, err = rLog.LastAppliedCommand()
+	l, err := rLog.LastAppliedCommand()
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
+
+	st.lastAppliedIndexOnStart.Store(l)
 
 	st.log.WithFields(logrus.Fields{
 		"name":                 st.nodeID,
@@ -250,7 +252,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
-	if st.lastAppliedIndexOnStart <= st.raft.LastIndex() {
+	if st.lastAppliedIndexOnStart.Load() <= st.raft.LastIndex() {
 		// this should include empty and non empty node
 		st.openDatabase(ctx)
 	}
@@ -638,10 +640,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		panic("error proto un-marshalling log data")
 	}
 
-	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
-	// don't update the database. This can lead to dataloss for example if we drop then re-add a class.
-	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := st.lastAppliedIndexOnStart != 0 && l.Index <= st.lastAppliedIndexOnStart
 	defer func() {
 		st.lastAppliedIndex.Store(l.Index)
 		if ret.Error != nil {
@@ -656,6 +654,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 	}()
 
+	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
+	// don't update the database. This can lead to dataloss for example if we drop then re-add a class.
+	// If we don't have any last applied index on start, schema only is always false.
+	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
 	cmd.Version = l.Index
 	st.log.WithFields(logrus.Fields{
 		"log_type":        l.Type,
@@ -893,7 +895,7 @@ func (st *Store) reloadDBFromSnapshot() bool {
 			"last_store_log_applied_index": st.lastAppliedIndexOnStart,
 			"last_snapshot_index":          snapIndex,
 		}).Info("load local db from snapshot")
-		if st.lastAppliedIndexOnStart <= snapIndex {
+		if st.lastAppliedIndexOnStart.Load() <= snapIndex {
 			st.openDatabase(ctx)
 			return true
 		}
@@ -910,7 +912,7 @@ func (st *Store) reloadDBFromSnapshot() bool {
 	st.db.store.ReloadLocalDB(context.Background(), cs)
 
 	st.dbLoaded.Store(true)
-	st.lastAppliedIndexOnStart = 0
+	st.lastAppliedIndexOnStart.Store(0)
 	return true
 }
 
