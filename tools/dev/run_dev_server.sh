@@ -656,20 +656,6 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
-
-  local-bigram)
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-bigram \
-      ENABLE_MODULES="text2vec-bigram" \
-      go_run ./cmd/weaviate-server \
-        --scheme http \
-        --host "127.0.0.1" \
-        --port 8080 \
-        --read-timeout=600s \
-        --write-timeout=600s
-    ;;
-
-
   local-gpt4all)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
