@@ -12,11 +12,10 @@
 package searchparams
 
 import (
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"strings"
-
 )
 
 type NearVector struct {

@@ -41,15 +41,12 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 	return kw, nil
 }
 
-
-
 func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
 	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", a.params.ClassName)
 	}
 	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
-
 
 	kw.ChooseSearchableProperties(class)
 

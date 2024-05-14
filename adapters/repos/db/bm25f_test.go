@@ -114,7 +114,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vTrue,
 			},
-			//Test that bm25f handles this property being unsearchable
+			// Test that bm25f handles this property being unsearchable
 			{
 				Name:            "notSearchable",
 				DataType:        schema.DataTypeTextArray.PropString(),
