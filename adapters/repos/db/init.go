@@ -170,7 +170,8 @@ func fileExists(file string) (bool, error) {
 	return true, nil
 }
 
-func NewAtomicInt64(val int64) (aval atomic.Int64) {
+func NewAtomicInt64(val int64) *atomic.Int64 {
+	aval := &atomic.Int64{}
 	aval.Store(val)
-	return
+	return aval
 }
