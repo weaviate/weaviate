@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"fmt"
 )
 
 type NearVector struct {
@@ -63,12 +64,30 @@ func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName strin
 	return HasSearchableIndex(p)
 }
 
-func (k *KeywordRanking) ChooseSearchableProperties(class *models.Class) {
-	for _, prop := range class.Properties {
-		if HasSearchableIndex(prop) {
-			k.Properties = append(k.Properties, prop.Name)
+// GetPropertyByName returns the class by its name
+func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
+	for _, prop := range c.Properties {
+		// Check if the name of the property is the given name, that's the property we need
+		if prop.Name == strings.Split(propName, ".")[0] {
+			return prop, nil
 		}
 	}
+	return nil, fmt.Errorf("Property %v not found %v", propName, c.Class)
+}
+
+
+func (k *KeywordRanking) ChooseSearchableProperties(class *models.Class) {
+	var validProperties []string
+	for _, prop := range k.Properties {
+		property, err := GetPropertyByName(class, prop)
+		if err != nil {
+			continue
+		}
+		if HasSearchableIndex(property) {
+			validProperties = append(validProperties, prop)
+		}
+	}
+	k.Properties = validProperties
 }
 
 type WeightedSearchResult struct {
