@@ -91,7 +91,6 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
-      CONTEXTIONARY_URL=localhost:9999 \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       go_run ./cmd/weaviate-server \
@@ -117,7 +116,6 @@ case $CONFIG in
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         RAFT_BOOTSTRAP_EXPECT=3 \
-        CONTEXTIONARY_URL=localhost:9999 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary" \
         go_run ./cmd/weaviate-server \
@@ -140,7 +138,6 @@ case $CONFIG in
         CLUSTER_JOIN="localhost:7100" \
         RAFT_PORT="8306" \
         RAFT_INTERNAL_RPC_PORT="8307" \
-        CONTEXTIONARY_URL=localhost:9999 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary" \
         go_run ./cmd/weaviate-server \
