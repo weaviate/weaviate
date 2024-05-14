@@ -93,7 +93,6 @@ func (v *awsClient) VectorizeQuery(ctx context.Context, input []string,
 func (v *awsClient) vectorize(ctx context.Context, input []string, operation operationType, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
 	service := v.getService(config)
 	region := v.getRegion(config)
-	model := v.getModel(config)
 	endpoint := v.getEndpoint(config)
 	targetModel := v.getTargetModel(config)
 	targetVariant := v.getTargetVariant(config)
@@ -109,20 +108,7 @@ func (v *awsClient) vectorize(ctx context.Context, input []string, operation ope
 		"content-type": contentType,
 	}
 
-	if v.isBedrock(service) {
-		endpointUrl = v.buildBedrockUrlFn(service, region, model)
-		host, path, _ = extractHostAndPath(endpointUrl)
-
-		req, err := createRequestBody(model, input, operation)
-		if err != nil {
-			return nil, err
-		}
-
-		body, err = json.Marshal(req)
-		if err != nil {
-			return nil, errors.Wrapf(err, "marshal body")
-		}
-	} else if v.isSagemaker(service) {
+	if v.isSagemaker(service) {
 		endpointUrl = v.buildSagemakerUrlFn(service, region, endpoint)
 		host = "runtime." + service + "." + region + ".amazonaws.com"
 		path = "/endpoints/" + endpoint + "/invocations"
@@ -138,8 +124,6 @@ func (v *awsClient) vectorize(ctx context.Context, input []string, operation ope
 		if err != nil {
 			return nil, errors.Wrapf(err, "marshal body")
 		}
-	} else {
-		return nil, errors.Wrapf(err, "service error")
 	}
 
 	accessKey, err := v.getAwsAccessKey(ctx)
@@ -154,7 +138,6 @@ func (v *awsClient) vectorize(ctx context.Context, input []string, operation ope
 	if err != nil {
 		return nil, err
 	}
-
 	maxRetries := 5
 
 	if v.isBedrock(service) {
@@ -371,10 +354,6 @@ func (v *awsClient) getHeaderValue(ctx context.Context, header string) string {
 		return value[0]
 	}
 	return ""
-}
-
-func (v *awsClient) getModel(config ent.VectorizationConfig) string {
-	return config.Model
 }
 
 func (v *awsClient) getRegion(config ent.VectorizationConfig) string {
