@@ -19,9 +19,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
-	"strings"
 )
 
 func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, error) {
@@ -44,35 +41,7 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 	return kw, nil
 }
 
-// Indicates whether property should be indexed
-// Index holds document ids with property of/containing particular value
-// and number of its occurrences in that property
-// (index created using bucket of StrategyMapCollection)
-func HasSearchableIndex(prop *models.Property) bool {
-	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
-	case schema.DataTypeText, schema.DataTypeTextArray:
-		// by default property has searchable index only for text/text[] props
-		if prop.IndexSearchable == nil {
-			return true
-		}
-		return *prop.IndexSearchable
-	default:
-		return false
-	}
-}
 
-func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName string) bool {
-	if class == nil {
-		return false
-	}
-
-	propertyName := strings.Split(tentativePropertyName, "^")[0]
-	p, err := schema.GetPropertyByName(class, propertyName)
-	if err != nil {
-		return false
-	}
-	return HasSearchableIndex(p)
-}
 
 func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking) ([]*storobj.Object, []float32, error) {
 	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
@@ -81,15 +50,8 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 	}
 	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
 
-	if kw != nil && kw.Properties == nil {
-		validProps := make([]string, 0, len(kw.Properties))
-		for _, property := range kw.Properties {
-			if PropertyHasSearchableIndex(class, property) {
-				validProps = append(validProps, property)
-			}
-		}
-		kw.Properties = validProps
-	}
+
+	kw.ChooseSearchableProperties(class)
 
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, a.classSearcher,

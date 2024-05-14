@@ -11,6 +11,14 @@
 
 package searchparams
 
+import (
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"strings"
+
+)
+
 type NearVector struct {
 	Vector        []float32 `json:"vector"`
 	Certainty     float64   `json:"certainty"`
@@ -24,6 +32,44 @@ type KeywordRanking struct {
 	Properties             []string `json:"properties"`
 	Query                  string   `json:"query"`
 	AdditionalExplanations bool     `json:"additionalExplanations"`
+}
+
+// Indicates whether property should be indexed
+// Index holds document ids with property of/containing particular value
+// and number of its occurrences in that property
+// (index created using bucket of StrategyMapCollection)
+func HasSearchableIndex(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// by default property has searchable index only for text/text[] props
+		if prop.IndexSearchable == nil {
+			return true
+		}
+		return *prop.IndexSearchable
+	default:
+		return false
+	}
+}
+
+func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName string) bool {
+	if class == nil {
+		return false
+	}
+
+	propertyName := strings.Split(tentativePropertyName, "^")[0]
+	p, err := schema.GetPropertyByName(class, propertyName)
+	if err != nil {
+		return false
+	}
+	return HasSearchableIndex(p)
+}
+
+func (k *KeywordRanking) ChooseSearchableProperties(class *models.Class) {
+	for _, prop := range class.Properties {
+		if HasSearchableIndex(prop) {
+			k.Properties = append(k.Properties, prop.Name)
+		}
+	}
 }
 
 type WeightedSearchResult struct {

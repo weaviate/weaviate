@@ -125,15 +125,7 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 	}
 	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
 
-	if kw != nil && kw.Properties == nil {
-		validProps := make([]string, 0, len(kw.Properties))
-		for _, property := range kw.Properties {
-			if PropertyHasSearchableIndex(class, property) {
-				validProps = append(validProps, property)
-			}
-		}
-		kw.Properties = validProps
-	}
+	kw.ChooseSearchableProperties(class)
 
 	
 	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
