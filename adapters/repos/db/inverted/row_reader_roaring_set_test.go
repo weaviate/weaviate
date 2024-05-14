@@ -180,6 +180,22 @@ func TestRowReaderRoaringSet(t *testing.T) {
 				{"hhh", []uint64{11111111, 2222222, 33333333}},
 			},
 		},
+		{
+			name:     "not like '*b' value",
+			value:    "*b",
+			operator: filters.OperatorNotLike,
+			expected: []kvData{
+				{"bbb", []uint64{11, 22, 33}},
+			},
+		},
+		{
+			name:     "not like 'h*' value",
+			value:    "h*",
+			operator: filters.OperatorNotLike,
+			expected: []kvData{
+				{"hhh", []uint64{11111111, 2222222, 33333333}},
+			},
+		},
 	}
 
 	for _, tc := range testcases {
