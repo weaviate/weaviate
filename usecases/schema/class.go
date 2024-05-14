@@ -213,7 +213,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	}
 
 	initial := h.metaReader.ReadOnlyClass(className)
-	shardingState := &sharding.State{}
+	var shardingState *sharding.State
 
 	// first layer of defense is basic validation if class already exists
 	if initial != nil {

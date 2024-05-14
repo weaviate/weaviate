@@ -145,13 +145,15 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 	}
 
 	{ // add/remove missing shards
-		if incomingSS.PartitioningEnabled {
-			if err := m.updateIndexTenants(ctx, idx, incomingClass, incomingSS); err != nil {
-				return err
-			}
-		} else {
-			if err := m.updateIndexAddShards(ctx, idx, incomingClass, incomingSS); err != nil {
-				return err
+		if incomingSS != nil {
+			if incomingSS.PartitioningEnabled {
+				if err := m.updateIndexTenants(ctx, idx, incomingClass, incomingSS); err != nil {
+					return err
+				}
+			} else {
+				if err := m.updateIndexAddShards(ctx, idx, incomingClass, incomingSS); err != nil {
+					return err
+				}
 			}
 		}
 	}
