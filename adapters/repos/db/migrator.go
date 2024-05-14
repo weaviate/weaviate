@@ -186,7 +186,7 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 			}
 		}
 
-		old := idx.vectorIndexUserConfigs
+		old := idx.invertedIndexConfig
 		new := inverted.ConfigFromModel(incomingClass.InvertedIndexConfig)
 		if !reflect.DeepEqual(old, new) {
 			if err := idx.updateInvertedIndexConfig(ctx, new); err != nil {
