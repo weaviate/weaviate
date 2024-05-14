@@ -162,10 +162,21 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		}
 	}
 
-	{ // update index configs
+	{ // update inverted index config
+		old := idx.vectorIndexUserConfigs
+		new := inverted.ConfigFromModel(incomingClass.InvertedIndexConfig)
+		if !reflect.DeepEqual(old, new) {
+			if err := idx.updateInvertedIndexConfig(ctx, new); err != nil {
+				return fmt.Errorf("inverted index config: %w", err)
+			}
+		}
+	}
+
+	{ // update vector index configs
 		if schemaUC.HasTargetVectors(incomingClass) {
 			old := idx.vectorIndexUserConfigs
 			new := schemaUC.AsVectorIndexConfigs(incomingClass)
+
 			if !reflect.DeepEqual(old, new) {
 				if err := idx.updateVectorIndexConfigs(ctx, new); err != nil {
 					return fmt.Errorf("vector index configs update: %w", err)
@@ -175,18 +186,11 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 		} else {
 			old := idx.vectorIndexUserConfig
 			new := schemaUC.AsVectorIndexConfig(incomingClass)
+
 			if !reflect.DeepEqual(old, new) {
 				if err := idx.updateVectorIndexConfig(ctx, new); err != nil {
 					return fmt.Errorf("vector index config update: %w", err)
 				}
-			}
-		}
-
-		old := idx.vectorIndexUserConfigs
-		new := inverted.ConfigFromModel(incomingClass.InvertedIndexConfig)
-		if !reflect.DeepEqual(old, new) {
-			if err := idx.updateInvertedIndexConfig(ctx, new); err != nil {
-				return fmt.Errorf("inverted index config: %w", err)
 			}
 		}
 	}
