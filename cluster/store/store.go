@@ -641,26 +641,8 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to dataloss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := st.lastAppliedIndexOnStart != 0 && l.Index <= st.lastAppliedIndexOnStart
+	schemaOnly := l.Index <= st.lastAppliedIndexOnStart
 	defer func() {
-		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
-		// that means we're done doing schema only.
-		if st.lastAppliedIndexOnStart != 0 && l.Index == st.lastAppliedIndexOnStart {
-			st.log.WithFields(logrus.Fields{
-				"log_type":                     l.Type,
-				"log_name":                     l.Type.String(),
-				"log_index":                    l.Index,
-				"last_store_log_applied_index": st.lastAppliedIndexOnStart,
-			}).Debug("reloading local DB as RAFT and local DB are now caught up")
-			cs := make([]command.UpdateClassRequest, len(st.db.Schema.Classes))
-			i := 0
-			for _, v := range st.db.Schema.Classes {
-				cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
-				i++
-			}
-			st.db.store.ReloadLocalDB(context.Background(), cs)
-		}
-
 		st.lastAppliedIndex.Store(l.Index)
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
