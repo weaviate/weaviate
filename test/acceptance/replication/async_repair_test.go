@@ -98,7 +98,7 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	})
 
 	t.Run("restart node 3", func(t *testing.T) {
-		err = compose.StartAt(ctx, 3)
+		err := compose.StartAt(ctx, 3)
 		require.NoError(t, err)
 	})
 
@@ -129,7 +129,7 @@ func asyncRepairSimpleScenario(t *testing.T) {
 	})
 
 	t.Run("restart node 2", func(t *testing.T) {
-		err = compose.StartAt(ctx, 2)
+		err := compose.StartAt(ctx, 2)
 		require.NoError(t, err)
 	})
 

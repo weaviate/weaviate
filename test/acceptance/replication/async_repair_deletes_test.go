@@ -57,18 +57,15 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 2
-	paragraphCount := 2
+	itCount := 3
+	paragraphCount := 5
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
 		node := 1 + rand.Intn(clusterSize)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			err := compose.Stop(ctx, compose.GetWeaviateNode(node).Name(), nil)
-			require.NoError(t, err)
-
-			time.Sleep(10 * time.Second)
+			stopNodeAt(ctx, t, compose, node)
 		})
 
 		t.Run("upsert paragraphs", func(t *testing.T) {
@@ -93,14 +90,13 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-
-			restartNode(ctx, t, compose, clusterSize, node)
+			err := compose.StartAt(ctx, node)
+			require.NoError(t, err)
 		})
 	}
 
-	time.Sleep(5 * time.Second)
+	// wait for some time for async replication to repair missing object
+	time.Sleep(3 * time.Second)
 
 	objectNotDeletedAt := make(map[strfmt.UUID]int)
 
@@ -109,10 +105,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		node := 1 + rand.Intn(clusterSize)
 
 		t.Run(fmt.Sprintf("stop node %d", node), func(t *testing.T) {
-			err := compose.Stop(ctx, compose.GetWeaviateNode(node).Name(), nil)
-			require.NoError(t, err)
-
-			time.Sleep(10 * time.Second)
+			stopNodeAt(ctx, t, compose, node)
 		})
 
 		objectNotDeletedAt[id] = node
@@ -136,12 +129,13 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		helper.DeleteObjectCL(t, toDelete, replica.Quorum)
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-
-			restartNode(ctx, t, compose, clusterSize, node)
+			err := compose.StartAt(ctx, node)
+			require.NoError(t, err)
 		})
 	}
+
+	// wait for some time for async replication to repair missing object
+	time.Sleep(3 * time.Second)
 
 	t.Run("assert each node has all the objects at its latest version when object was not deleted", func(t *testing.T) {
 		for i, id := range paragraphIDs[:paragraphCount] {

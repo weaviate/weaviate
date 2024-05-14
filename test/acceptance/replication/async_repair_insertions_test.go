@@ -56,7 +56,7 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 3
+	itCount := 5
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
@@ -87,42 +87,18 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-
-			restartNode(ctx, t, compose, clusterSize, node)
+			err := compose.StartAt(ctx, node)
+			require.NoError(t, err)
 		})
 	}
 
-	time.Sleep(1 * time.Second)
+	// wait for some time for async replication to repair missing object
+	time.Sleep(3 * time.Second)
 
 	for n := 1; n <= clusterSize; n++ {
 		t.Run(fmt.Sprintf("assert node %d has all the objects", n), func(t *testing.T) {
 			count := countObjects(t, compose.GetWeaviateNode(n).URI(), paragraphClass.Class)
 			require.EqualValues(t, itCount*len(paragraphIDs), count)
 		})
-	}
-}
-
-func restartNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, clusterSize, node int) {
-	if node != 1 {
-		stopNodeAt(ctx, t, compose, node)
-		time.Sleep(10 * time.Second)
-
-		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(node).Name()))
-		time.Sleep(5 * time.Second) // wait for initialization
-	}
-
-	// since node1 is the gossip "leader", the other nodes must be stopped and restarted
-	// after node1 to re-facilitate internode communication
-
-	for n := clusterSize; n >= 1; n-- {
-		stopNodeAt(ctx, t, compose, n)
-		time.Sleep(10 * time.Second)
-	}
-
-	for n := 1; n <= clusterSize; n++ {
-		require.NoError(t, compose.Start(ctx, compose.GetWeaviateNode(n).Name()))
-		time.Sleep(5 * time.Second) // wait for initialization
 	}
 }

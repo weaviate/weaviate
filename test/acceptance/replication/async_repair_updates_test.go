@@ -56,7 +56,7 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 3
+	itCount := 5
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
@@ -88,14 +88,13 @@ func asyncRepairObjectUpdateScenario(t *testing.T) {
 		})
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
-			defer cancel()
-
-			restartNode(ctx, t, compose, clusterSize, node)
+			err := compose.StartAt(ctx, node)
+			require.NoError(t, err)
 		})
 	}
 
-	time.Sleep(1 * time.Second)
+	// wait for some time for async replication to repair missing object
+	time.Sleep(3 * time.Second)
 
 	for n := 1; n <= clusterSize; n++ {
 		t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", n), func(t *testing.T) {
