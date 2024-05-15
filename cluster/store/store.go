@@ -648,7 +648,8 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to dataloss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := st.justRecovered() && l.Index < st.lastAppliedIndexOnStart.Load()
+	// schemaOnly := st.justRecovered() && l.Index <= st.lastAppliedIndexOnStart.Load()
+	schemaOnly := false
 	defer func() {
 		st.lastAppliedIndex.Store(l.Index)
 		if ret.Error != nil {
