@@ -1639,33 +1639,6 @@
       ],
       "type": "object"
     },
-    "BatchMergeResponse": {
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/BatchMergeIndividualResult"
-      }
-    },
-    "BatchMergeIndividualResult": {
-      "type": "object",
-      "properties": {
-        "id": {
-          "description": "id of the given object",
-          "type": "string"
-        },
-        "error": {
-          "$ref": "#/definitions/BatchMergeError"
-        }
-      }
-    },
-    "BatchMergeError": {
-      "type": "object",
-      "description": "error if object failed to update",
-      "properties": {
-        "message": {
-          "type": "string"
-        }
-      }
-    },
     "BatchDelete": {
       "type": "object",
       "properties": {
@@ -3759,9 +3732,18 @@
         ],
         "responses": {
           "200": {
-            "description": "Successfully applied. No content provided.",
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
             "schema": {
-              "$ref": "#/definitions/BatchMergeResponse"
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ObjectsGetResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {

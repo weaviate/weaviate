@@ -152,7 +152,7 @@ func (req *PutReferenceInput) validateExistence(
 	ctx context.Context,
 	v *validation.Validator, tenant string, ref *crossref.Ref,
 ) error {
-	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
+	return v.ValidateCrossRefExistence(ctx, ref, "validate reference", tenant)
 }
 
 // validateNames validates class and property names

@@ -69,7 +69,21 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 func (h *batchObjectHandlers) mergeObjects(params batch.BatchObjectsMergeParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	return nil
+	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
+	if err != nil {
+		return batch.NewBatchObjectsMergeBadRequest().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	objs, err := h.manager.MergeObjects(params.HTTPRequest.Context(),
+		principal, params.Body.Objects, repl)
+	if err != nil {
+		// TODO: switch on error types
+		return batch.NewBatchObjectsMergeInternalServerError().
+			WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	return batch.NewBatchObjectsMergeOK().WithPayload(h.objectsResponse(objs))
 }
 
 func (h *batchObjectHandlers) objectsResponse(input objects.BatchObjects) []*models.ObjectsGetResponse {

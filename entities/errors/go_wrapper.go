@@ -16,9 +16,8 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/weaviate/weaviate/usecases/configbase"
-
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/configbase"
 )
 
 func GoWrapper(f func(), logger logrus.FieldLogger) {

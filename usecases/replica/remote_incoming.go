@@ -34,7 +34,8 @@ type RemoteIndexIncomingRepo interface {
 	// Write endpoints
 	ReplicateObject(ctx context.Context, shardName, requestID string, object *storobj.Object) SimpleResponse
 	ReplicateObjects(ctx context.Context, shardName, requestID string, objects []*storobj.Object, schemaVersion uint64) SimpleResponse
-	ReplicateUpdate(ctx context.Context, shardName, requestID string, mergeDoc *objects.MergeDocument) SimpleResponse
+	ReplicateUpdate(ctx context.Context, shardName, requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) SimpleResponse
+	ReplicateUpdates(ctx context.Context, shardName, requestID string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) SimpleResponse
 	ReplicateDeletion(ctx context.Context, shardName, requestID string, uuid strfmt.UUID) SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) SimpleResponse
 	ReplicateReferences(ctx context.Context, shardName, requestID string, refs []objects.BatchReference) SimpleResponse
@@ -86,7 +87,16 @@ func (rri *RemoteReplicaIncoming) ReplicateUpdate(ctx context.Context, indexName
 	if simpleResp != nil {
 		return *simpleResp
 	}
-	return index.ReplicateUpdate(ctx, shardName, requestID, mergeDoc)
+	return index.ReplicateUpdate(ctx, shardName, requestID, mergeDoc, schemaVersion)
+}
+
+func (rri *RemoteReplicaIncoming) ReplicateUpdates(ctx context.Context, indexName, shardName, requestID string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) SimpleResponse {
+	// return rri.repo.ReplicateUpdates(ctx, indexName, shardName, requestID, mergeDocs)
+	index, simpleResp := rri.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if simpleResp != nil {
+		return *simpleResp
+	}
+	return index.ReplicateUpdates(ctx, shardName, requestID, mergeDocs, schemaVersion)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexName,

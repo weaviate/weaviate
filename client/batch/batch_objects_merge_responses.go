@@ -44,6 +44,12 @@ func (o *BatchObjectsMergeReader) ReadResponse(response runtime.ClientResponse, 
 			return nil, err
 		}
 		return result, nil
+	case 400:
+		result := NewBatchObjectsMergeBadRequest()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 401:
 		result := NewBatchObjectsMergeUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -81,10 +87,10 @@ func NewBatchObjectsMergeOK() *BatchObjectsMergeOK {
 /*
 BatchObjectsMergeOK describes a response with status code 200, with default header values.
 
-Successfully applied. No content provided.
+Request succeeded, see response body to get detailed information about each batched item.
 */
 type BatchObjectsMergeOK struct {
-	Payload models.BatchMergeResponse
+	Payload []*models.ObjectsGetResponse
 }
 
 // IsSuccess returns true when this batch objects merge o k response has a 2xx status code
@@ -125,7 +131,7 @@ func (o *BatchObjectsMergeOK) String() string {
 	return fmt.Sprintf("[PATCH /batch/objects][%d] batchObjectsMergeOK  %+v", 200, o.Payload)
 }
 
-func (o *BatchObjectsMergeOK) GetPayload() models.BatchMergeResponse {
+func (o *BatchObjectsMergeOK) GetPayload() []*models.ObjectsGetResponse {
 	return o.Payload
 }
 
@@ -133,6 +139,74 @@ func (o *BatchObjectsMergeOK) readResponse(response runtime.ClientResponse, cons
 
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewBatchObjectsMergeBadRequest creates a BatchObjectsMergeBadRequest with default headers values
+func NewBatchObjectsMergeBadRequest() *BatchObjectsMergeBadRequest {
+	return &BatchObjectsMergeBadRequest{}
+}
+
+/*
+BatchObjectsMergeBadRequest describes a response with status code 400, with default header values.
+
+Malformed request.
+*/
+type BatchObjectsMergeBadRequest struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this batch objects merge bad request response has a 2xx status code
+func (o *BatchObjectsMergeBadRequest) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this batch objects merge bad request response has a 3xx status code
+func (o *BatchObjectsMergeBadRequest) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this batch objects merge bad request response has a 4xx status code
+func (o *BatchObjectsMergeBadRequest) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this batch objects merge bad request response has a 5xx status code
+func (o *BatchObjectsMergeBadRequest) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this batch objects merge bad request response a status code equal to that given
+func (o *BatchObjectsMergeBadRequest) IsCode(code int) bool {
+	return code == 400
+}
+
+// Code gets the status code for the batch objects merge bad request response
+func (o *BatchObjectsMergeBadRequest) Code() int {
+	return 400
+}
+
+func (o *BatchObjectsMergeBadRequest) Error() string {
+	return fmt.Sprintf("[PATCH /batch/objects][%d] batchObjectsMergeBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *BatchObjectsMergeBadRequest) String() string {
+	return fmt.Sprintf("[PATCH /batch/objects][%d] batchObjectsMergeBadRequest  %+v", 400, o.Payload)
+}
+
+func (o *BatchObjectsMergeBadRequest) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *BatchObjectsMergeBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
 		return err
 	}
 

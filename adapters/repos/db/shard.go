@@ -82,6 +82,7 @@ type ShardLike interface {
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
+	MergeObjectBatch(ctx context.Context, docs []*objects.BatchMergeDocument) []error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
@@ -126,6 +127,7 @@ type ShardLike interface {
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
 	prepareMergeObject(context.Context, string, *objects.MergeDocument) replica.SimpleResponse
+	prepareMergeObjects(context.Context, string, []*objects.BatchMergeDocument) replica.SimpleResponse
 	prepareDeleteObject(context.Context, string, strfmt.UUID) replica.SimpleResponse
 	prepareDeleteObjects(context.Context, string, []strfmt.UUID, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse

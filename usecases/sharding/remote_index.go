@@ -73,6 +73,8 @@ type RemoteIndexClient interface {
 		id strfmt.UUID, schemaVersion uint64) error
 	MergeObject(ctx context.Context, hostname, indexName, shardName string,
 		mergeDoc objects.MergeDocument, schemaVersion uint64) error
+	BatchMergeObjects(ctx context.Context, hostName, indexName, shardName string,
+		mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) []error
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
@@ -203,6 +205,24 @@ func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 	}
 
 	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc, schemaVersion)
+}
+
+func (ri *RemoteIndex) BatchMergeObjects(ctx context.Context, shardName string,
+	mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64,
+) []error {
+	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	if err != nil {
+		return duplicateErr(fmt.Errorf("class %s has no physical shard %q: %w",
+			ri.class, shardName, err), len(mergeDocs))
+	}
+
+	host, ok := ri.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return duplicateErr(fmt.Errorf("resolve node name %q to host",
+			owner), len(mergeDocs))
+	}
+
+	return ri.client.BatchMergeObjects(ctx, host, ri.class, shardName, mergeDocs, schemaVersion)
 }
 
 func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,

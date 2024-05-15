@@ -61,7 +61,7 @@ func batchPatchJourney(t *testing.T) {
 			require.Nil(t, err)
 			assert.Len(t, res.Payload, 20)
 			for _, r := range res.Payload {
-				assert.Nil(t, r.Error)
+				assert.Nil(t, r.Result.Errors)
 			}
 
 			for _, upd := range toUpdate {
@@ -82,11 +82,11 @@ func batchPatchJourney(t *testing.T) {
 		var (
 			existing         = testObjects[:10]
 			nonexisting      = createBatchPatchTestObjects(10)
-			existIDLookup    = make(map[string]struct{})
-			nonexistIDLookup = func() map[string]bool {
-				m := make(map[string]bool, len(nonexisting))
+			existIDLookup    = make(map[strfmt.UUID]struct{})
+			nonexistIDLookup = func() map[strfmt.UUID]bool {
+				m := make(map[strfmt.UUID]bool, len(nonexisting))
 				for _, obj := range nonexisting {
-					m[obj.ID.String()] = false
+					m[obj.ID] = false
 				}
 				return m
 			}()
@@ -98,7 +98,7 @@ func batchPatchJourney(t *testing.T) {
 		require.Len(t, res.Payload, 20)
 
 		for _, r := range res.Payload {
-			if r.Error != nil {
+			if r.Result.Errors != nil {
 				_, ok := nonexistIDLookup[r.ID]
 				require.True(t, ok)
 				nonexistIDLookup[r.ID] = true
@@ -133,8 +133,11 @@ func batchPatchJourney(t *testing.T) {
 		require.Len(t, resp.Payload, len(toUpdate))
 		for i, r := range resp.Payload {
 			assert.Equal(t, toUpdate[i].ID.String(), r.ID)
-			if assert.NotNil(t, r.Error) {
-				assert.Equal(t, "property \"doesNotExist\" does not exist on class \"BatchTest\"", r.Error.Message)
+			if assert.NotNil(t, r) {
+				require.NotNil(t, r.Result.Errors)
+				require.Len(t, r.Result.Errors.Error, 1)
+				msg := r.Result.Errors.Error[0].Message
+				assert.Equal(t, "property \"doesNotExist\" does not exist on class \"BatchTest\"", msg)
 			}
 		}
 	})

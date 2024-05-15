@@ -35,6 +35,8 @@ type replicator interface {
 		requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse
 	ReplicateUpdate(ctx context.Context, indexName, shardName,
 		requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse
+	ReplicateUpdates(ctx context.Context, indexName, shardName, requestID string,
+		mergeDocs []*objects.BatchMergeDocument) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
 		requestID string, uuid strfmt.UUID, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName, shardName,
@@ -154,6 +156,10 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			if r.Method == http.MethodDelete {
 				i.deleteObjects().ServeHTTP(w, r)
 				return
+			}
+
+			if r.Method == http.MethodPatch {
+				i.patchObjects().ServeHTTP(w, r)
 			}
 
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -284,7 +290,6 @@ func (i *replicatedIndices) postObject() http.Handler {
 		ct := r.Header.Get("content-type")
 
 		switch ct {
-
 		case IndicesPayloads.SingleObject.MIME():
 			i.postObjectSingle(w, r, index, shard, requestID, schemaVersion)
 			return
@@ -332,6 +337,51 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			return
 		}
 		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc, schemaVersion)
+		if localIndexNotReady(resp) {
+			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
+			return
+		}
+
+		b, err := json.Marshal(resp)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to marshal response: %+v, error: %v", resp, err),
+				http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(b)
+	})
+}
+
+func (i *replicatedIndices) patchObjects() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := regxObjects.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		requestID := r.URL.Query().Get(replica.RequestKey)
+		if requestID == "" {
+			http.Error(w, "request_id not provided", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		bodyBytes, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		mergeDocs, err := IndicesPayloads.BatchMergeDocList.Unmarshal(bodyBytes)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resp := i.shards.ReplicateUpdates(r.Context(), index, shard, requestID, mergeDocs)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

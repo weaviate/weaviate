@@ -28,7 +28,7 @@ import (
 const BatchObjectsMergeOKCode int = 200
 
 /*
-BatchObjectsMergeOK Successfully applied. No content provided.
+BatchObjectsMergeOK Request succeeded, see response body to get detailed information about each batched item.
 
 swagger:response batchObjectsMergeOK
 */
@@ -37,7 +37,7 @@ type BatchObjectsMergeOK struct {
 	/*
 	  In: Body
 	*/
-	Payload models.BatchMergeResponse `json:"body,omitempty"`
+	Payload []*models.ObjectsGetResponse `json:"body,omitempty"`
 }
 
 // NewBatchObjectsMergeOK creates BatchObjectsMergeOK with default headers values
@@ -47,13 +47,13 @@ func NewBatchObjectsMergeOK() *BatchObjectsMergeOK {
 }
 
 // WithPayload adds the payload to the batch objects merge o k response
-func (o *BatchObjectsMergeOK) WithPayload(payload models.BatchMergeResponse) *BatchObjectsMergeOK {
+func (o *BatchObjectsMergeOK) WithPayload(payload []*models.ObjectsGetResponse) *BatchObjectsMergeOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the batch objects merge o k response
-func (o *BatchObjectsMergeOK) SetPayload(payload models.BatchMergeResponse) {
+func (o *BatchObjectsMergeOK) SetPayload(payload []*models.ObjectsGetResponse) {
 	o.Payload = payload
 }
 
@@ -64,11 +64,56 @@ func (o *BatchObjectsMergeOK) WriteResponse(rw http.ResponseWriter, producer run
 	payload := o.Payload
 	if payload == nil {
 		// return empty array
-		payload = models.BatchMergeResponse{}
+		payload = make([]*models.ObjectsGetResponse, 0, 50)
 	}
 
 	if err := producer.Produce(rw, payload); err != nil {
 		panic(err) // let the recovery middleware deal with this
+	}
+}
+
+// BatchObjectsMergeBadRequestCode is the HTTP code returned for type BatchObjectsMergeBadRequest
+const BatchObjectsMergeBadRequestCode int = 400
+
+/*
+BatchObjectsMergeBadRequest Malformed request.
+
+swagger:response batchObjectsMergeBadRequest
+*/
+type BatchObjectsMergeBadRequest struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewBatchObjectsMergeBadRequest creates BatchObjectsMergeBadRequest with default headers values
+func NewBatchObjectsMergeBadRequest() *BatchObjectsMergeBadRequest {
+
+	return &BatchObjectsMergeBadRequest{}
+}
+
+// WithPayload adds the payload to the batch objects merge bad request response
+func (o *BatchObjectsMergeBadRequest) WithPayload(payload *models.ErrorResponse) *BatchObjectsMergeBadRequest {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the batch objects merge bad request response
+func (o *BatchObjectsMergeBadRequest) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *BatchObjectsMergeBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(400)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
 	}
 }
 

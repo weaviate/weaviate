@@ -81,6 +81,17 @@ func (db *DB) ReplicateUpdate(ctx context.Context, class,
 	return index.ReplicateUpdate(ctx, shard, requestID, mergeDoc)
 }
 
+func (db *DB) ReplicateUpdates(ctx context.Context, class, shard,
+	requestID string, mergeDocs []*objects.BatchMergeDocument,
+) replica.SimpleResponse {
+	index, pr := db.replicatedIndex(class)
+	if pr != nil {
+		return *pr
+	}
+
+	return index.ReplicateUpdates(ctx, shard, requestID, mergeDocs)
+}
+
 func (db *DB) ReplicateDeletion(ctx context.Context, class,
 	shard, requestID string, uuid strfmt.UUID,
 ) replica.SimpleResponse {
@@ -180,6 +191,14 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 		return *pr
 	}
 	return localShard.prepareMergeObject(ctx, requestID, doc)
+}
+
+func (i *Index) ReplicateUpdates(ctx context.Context, shard, requestID string, docs []*objects.BatchMergeDocument) replica.SimpleResponse {
+	localShard, pr := i.writableShard(shard)
+	if pr != nil {
+		return *pr
+	}
+	return localShard.prepareMergeObjects(ctx, requestID, docs)
 }
 
 func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID) replica.SimpleResponse {

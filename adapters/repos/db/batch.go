@@ -24,7 +24,86 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-type batchQueue struct {
+type batchMergeQueue struct {
+	mergeDocs     []*objects.BatchMergeDocument
+	originalIndex []int
+}
+
+func (db *DB) BatchMergeObjects(ctx context.Context, objs objects.BatchMergeDocuments,
+	repl *additional.ReplicationProperties,
+) (objects.BatchMergeDocuments, error) {
+	objectByClass := make(map[string]batchMergeQueue)
+	indexByClass := make(map[string]*Index)
+
+	if err := db.memMonitor.CheckAlloc(objs.EstimateMemoryRequirements()); err != nil {
+		return nil, fmt.Errorf("cannot process batch: %w", err)
+	}
+
+	for _, item := range objs {
+		if item.Err != nil {
+			// item has a validation error or another reason to ignore
+			continue
+		}
+		queue := objectByClass[item.Class]
+		queue.mergeDocs = append(queue.mergeDocs, item)
+		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
+		objectByClass[item.Class] = queue
+	}
+
+	// wrapped by func to acquire and safely release indexLock only for duration of loop
+	func() {
+		db.indexLock.RLock()
+		defer db.indexLock.RUnlock()
+
+		for class, queue := range objectByClass {
+			index, ok := db.indices[indexID(schema.ClassName(class))]
+			if !ok {
+				msg := fmt.Sprintf("could not find index for class %v. "+
+					"It might have been deleted in the meantime", class)
+				db.logger.Warn(msg)
+				for _, origIdx := range queue.originalIndex {
+					if origIdx >= len(objs) {
+						db.logger.Errorf(
+							"batch add queue index out of bounds. "+
+								"len(objs) == %d, queue.originalIndex == %d",
+							len(objs), origIdx)
+						break
+					}
+					objs[origIdx].Err = fmt.Errorf(msg)
+				}
+				continue
+			}
+			index.dropIndex.RLock()
+			indexByClass[class] = index
+		}
+	}()
+
+	// safely release remaining locks (in case of panic)
+	defer func() {
+		for _, index := range indexByClass {
+			if index != nil {
+				index.dropIndex.RUnlock()
+			}
+		}
+	}()
+
+	for class, index := range indexByClass {
+		queue := objectByClass[class]
+		errs := index.mergeObjectBatch(ctx, queue.mergeDocs, repl)
+		// remove index from map to skip releasing its lock in defer
+		indexByClass[class] = nil
+		index.dropIndex.RUnlock()
+		for i, err := range errs {
+			if err != nil {
+				objs[queue.originalIndex[i]].Err = err
+			}
+		}
+	}
+
+	return objs, nil
+}
+
+type batchPutQueue struct {
 	objects       []*storobj.Object
 	originalIndex []int
 }
@@ -32,11 +111,10 @@ type batchQueue struct {
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchObjects, error) {
-	objectByClass := make(map[string]batchQueue)
+	objectByClass := make(map[string]batchPutQueue)
 	indexByClass := make(map[string]*Index)
 
-	if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
-		db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
+	if err := db.memMonitor.CheckAlloc(objs.EstimateMemoryRequirements()); err != nil {
 		return nil, fmt.Errorf("cannot process batch: %w", err)
 	}
 
@@ -209,13 +287,4 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		Objects: deletedObjects,
 	}
 	return result, nil
-}
-
-func estimateBatchMemory(objs objects.BatchObjects) int64 {
-	var sum int64
-	for _, item := range objs {
-		sum += memwatch.EstimateObjectMemory(item.Object)
-	}
-
-	return sum
 }

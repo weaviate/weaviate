@@ -105,7 +105,18 @@ func (v *Validator) ValidateSingleRef(cref *models.SingleRef) (*crossref.Ref, er
 	return ref, nil
 }
 
-func (v *Validator) ValidateExistence(ctx context.Context, ref *crossref.Ref, errorVal string, tenant string) error {
+func (v *Validator) ValidateObjectExistence(ctx context.Context, class string, id strfmt.UUID, tenant string) error {
+	found, err := v.exists(ctx, class, id, v.replicationProps, tenant)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return fmt.Errorf("object %s/%s not found", class, id)
+	}
+	return nil
+}
+
+func (v *Validator) ValidateCrossRefExistence(ctx context.Context, ref *crossref.Ref, errorVal string, tenant string) error {
 	// locally check for object existence
 	ok, err := v.exists(ctx, ref.Class, ref.TargetID, v.replicationProps, tenant)
 	if err != nil {

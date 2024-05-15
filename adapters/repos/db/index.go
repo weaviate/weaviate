@@ -768,6 +768,83 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 	return parsed, nil
 }
 
+func (i *Index) mergeObjectBatch(ctx context.Context, docs []*objects.BatchMergeDocument,
+	replProps *additional.ReplicationProperties,
+) []error {
+	type objsAndPos struct {
+		mergeDocs []*objects.BatchMergeDocument
+		pos       []int
+	}
+	out := make([]error, len(docs))
+	if i.replicationEnabled() && replProps == nil {
+		replProps = defaultConsistency()
+	}
+
+	byShard := map[string]objsAndPos{}
+	for pos, obj := range docs {
+		if err := i.validateMultiTenancy(obj.Tenant); err != nil {
+			out[pos] = err
+			continue
+		}
+		shardName, err := i.determineObjectShard(obj.ID, obj.Tenant)
+		if err != nil {
+			out[pos] = err
+			continue
+		}
+
+		group := byShard[shardName]
+		group.mergeDocs = append(group.mergeDocs, obj)
+		group.pos = append(group.pos, pos)
+		byShard[shardName] = group
+	}
+
+	wg := &sync.WaitGroup{}
+	for shardName, group := range byShard {
+		shardName := shardName
+		group := group
+		wg.Add(1)
+		f := func() {
+			defer wg.Done()
+
+			defer func() {
+				err := recover()
+				if err != nil {
+					for pos := range group.pos {
+						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
+					}
+					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+					debug.PrintStack()
+				}
+			}()
+			var errs []error
+			if replProps != nil {
+				errs = i.replicator.MergeObjects(ctx, shardName, group.mergeDocs,
+					replica.ConsistencyLevel(replProps.ConsistencyLevel))
+			} else if i.localShard(shardName) == nil {
+				errs = i.remote.BatchMergeObjects(ctx, shardName, group.mergeDocs)
+			} else {
+				i.backupMutex.RLockGuard(func() error {
+					if shard := i.localShard(shardName); shard != nil {
+						errs = shard.MergeObjectBatch(ctx, group.mergeDocs)
+					} else {
+						errs = duplicateErr(errShardNotFound, len(group.mergeDocs))
+					}
+					return nil
+				})
+			}
+			for i, err := range errs {
+				desiredPos := group.pos[i]
+				out[desiredPos] = err
+			}
+		}
+		enterrors.GoWrapper(f, i.logger)
+	}
+
+	wg.Wait()
+
+	return out
+}
+
 // return value []error gives the error for the index with the positions
 // matching the inputs
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,

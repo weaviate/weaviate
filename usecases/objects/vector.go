@@ -56,6 +56,9 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 	return nil
 }
 
+type objectFinder func(ctx context.Context, class string, id strfmt.UUID,
+	props search.SelectProperties, addl additional.Properties, tenant string) (*search.Result, error)
+
 // TODO: remove this method and just pass m.vectorRepo.Object to
 // m.modulesProvider.UpdateVector when m.vectorRepo.ObjectByID
 // is finally removed

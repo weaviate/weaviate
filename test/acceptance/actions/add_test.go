@@ -17,10 +17,9 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
-
-	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/test/helper"
 )
 

@@ -14,19 +14,19 @@ package db
 import (
 	"context"
 	"fmt"
+	"github.com/pkg/errors"
 	"os"
 	"runtime/debug"
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/configbase"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/pkg/errors"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/configbase"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 // return value map[int]error gives the error for the index as it received it
@@ -60,7 +60,7 @@ func (s *Shard) putBatch(ctx context.Context,
 	// adds its jobs (that contain the respective object) to a single queue that is then processed by the workers.
 	// When the last batch finishes, all workers receive a shutdown signal and exit
 	batcher := newObjectsBatcher(s)
-	err := batcher.Objects(ctx, objects)
+	err := batcher.PutObjects(ctx, objects)
 
 	// block until all objects of batch have been added
 	batcher.wg.Wait()
@@ -75,13 +75,35 @@ func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []
 
 	batcher := newObjectsBatcher(s)
 
-	batcher.init(objects)
-	batcher.storeInObjectStore(ctx)
+	batcher.initPut(objects)
+	batcher.putInObjectStore(ctx)
 	batcher.markDeletedInVectorStorage(ctx)
 	batcher.storeAdditionalStorageWithAsyncQueue(ctx)
 	batcher.flushWALs(ctx)
 
-	return batcher.errs
+	return batcher.putErrors
+}
+
+func (s *Shard) MergeObjectBatch(ctx context.Context,
+	docs []*objects.BatchMergeDocument,
+) []error {
+	if s.isReadOnly() {
+		return []error{storagestate.ErrStatusReadOnly}
+	}
+
+	return s.mergeBatch(ctx, docs)
+}
+
+func (s *Shard) mergeBatch(ctx context.Context, docs []*objects.BatchMergeDocument) []error {
+	if asyncEnabled() {
+		// TODO
+	}
+
+	batcher := newObjectsBatcher(s)
+	err := batcher.MergeObjects(ctx, docs)
+
+	batcher.wg.Wait()
+	return err
 }
 
 // objectsBatcher is a helper type wrapping around an underlying shard that can
@@ -89,11 +111,15 @@ func (s *Shard) putBatchAsync(ctx context.Context, objects []*storobj.Object) []
 // operations)
 type objectsBatcher struct {
 	sync.Mutex
-	shard          ShardLike
-	statuses       map[strfmt.UUID]objectInsertStatus
-	errs           []error
+	shard ShardLike
+	// putErrors are the errors encountered while `put`ing a batch.
+	// This is not needed for `merge`, because `BatchMergeDocument`
+	// already contains an error property
+	putErrors      []error
+	putStatuses    map[strfmt.UUID]objectInsertStatus
 	duplicates     map[int]struct{}
 	objects        []*storobj.Object
+	mergeDocs      []*objects.BatchMergeDocument
 	wg             sync.WaitGroup
 	batchStartTime time.Time
 }
@@ -103,53 +129,57 @@ func newObjectsBatcher(s ShardLike) *objectsBatcher {
 }
 
 // Objects imports the specified objects in parallel in a batch-fashion
-func (ob *objectsBatcher) Objects(ctx context.Context,
+func (ob *objectsBatcher) PutObjects(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	beforeBatch := time.Now()
 	defer ob.shard.Metrics().BatchObject(beforeBatch, len(objects))
 
-	ob.init(objects)
-	ob.storeInObjectStore(ctx)
+	ob.initPut(objects)
+	ob.putInObjectStore(ctx)
 	ob.markDeletedInVectorStorage(ctx)
 	ob.storeAdditionalStorageWithWorkers(ctx)
 	ob.flushWALs(ctx)
-	return ob.errs
+	return ob.putErrors
 }
 
-func (ob *objectsBatcher) init(objects []*storobj.Object) {
+func (ob *objectsBatcher) MergeObjects(ctx context.Context,
+	docs []*objects.BatchMergeDocument,
+) []error {
+	ob.initMerge(docs)
+	ob.mergeInObjectStore(ctx)
+	return ob.putErrors
+}
+
+func (ob *objectsBatcher) initPut(objects []*storobj.Object) {
 	ob.objects = objects
-	ob.statuses = map[strfmt.UUID]objectInsertStatus{}
-	ob.errs = make([]error, len(objects))
+	ob.putStatuses = map[strfmt.UUID]objectInsertStatus{}
+	ob.putErrors = make([]error, len(objects))
 	ob.duplicates = findDuplicatesInBatchObjects(objects)
 }
 
-// storeInObjectStore performs all storage operations on the underlying
-// key/value store, this is they object-by-id store, the docID-lookup tables,
-// as well as all inverted indices.
-func (ob *objectsBatcher) storeInObjectStore(ctx context.Context) {
-	beforeObjectStore := time.Now()
+func (ob *objectsBatcher) initMerge(docs []*objects.BatchMergeDocument) {
+	ob.mergeDocs = docs
+}
 
-	errs := ob.storeSingleBatchInLSM(ctx, ob.objects)
+func (ob *objectsBatcher) mergeInObjectStore(ctx context.Context) {
+	errs := ob.mergeSingleBatchInLSM(ctx)
 	for i, err := range errs {
 		if err != nil {
 			ob.setErrorAtIndex(err, i)
 		}
 	}
-
-	ob.shard.Metrics().ObjectStore(beforeObjectStore)
 }
 
-func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
-	batch []*storobj.Object,
+func (ob *objectsBatcher) mergeSingleBatchInLSM(ctx context.Context,
 ) []error {
-	errs := make([]error, len(batch))
+	errs := make([]error, len(ob.mergeDocs))
 	errLock := &sync.Mutex{}
 
 	// if the context is expired fail all
 	if err := ctx.Err(); err != nil {
 		for i := range errs {
-			errs[i] = errors.Wrap(err, "begin batch")
+			errs[i] = fmt.Errorf("begin batch merge: %w", err)
 		}
 		return errs
 	}
@@ -157,7 +187,71 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	wg := &sync.WaitGroup{}
 	concurrencyLimit := make(chan struct{}, _NUMCPU)
 
-	for j, object := range batch {
+	for j, doc := range ob.mergeDocs {
+		wg.Add(1)
+		doc := doc
+		index := j
+		f := func() {
+			defer wg.Done()
+
+			// Acquire a semaphore to control the concurrency. Otherwise we would
+			// spawn one routine per object here. With very large batch sizes (e.g.
+			// 1000 or 10000+), this isn't helpuful and just leads to more lock
+			// contention down the line – especially when there's lots of text to be
+			// indexed in the inverted index.
+			concurrencyLimit <- struct{}{}
+			defer func() {
+				// Release the semaphore when the goroutine is done.
+				<-concurrencyLimit
+			}()
+
+			if err := ob.mergeObjectOfBatchInLSM(ctx, index, doc); err != nil {
+				errLock.Lock()
+				errs[index] = err
+				errLock.Unlock()
+			}
+		}
+		enterrors.GoWrapper(f, ob.shard.Index().logger)
+
+	}
+	wg.Wait()
+
+	return errs
+}
+
+// putInObjectStore performs all storage operations on the underlying
+// key/value store, this is they object-by-id store, the docID-lookup tables,
+// as well as all inverted indices.
+func (ob *objectsBatcher) putInObjectStore(ctx context.Context) {
+	beforeObjectPut := time.Now()
+
+	errs := ob.putSingleBatchInLSM(ctx)
+	for i, err := range errs {
+		if err != nil {
+			ob.setErrorAtIndex(err, i)
+		}
+	}
+
+	ob.shard.Metrics().ObjectStore(beforeObjectPut)
+}
+
+func (ob *objectsBatcher) putSingleBatchInLSM(ctx context.Context,
+) []error {
+	errs := make([]error, len(ob.objects))
+	errLock := &sync.Mutex{}
+
+	// if the context is expired fail all
+	if err := ctx.Err(); err != nil {
+		for i := range errs {
+			errs[i] = fmt.Errorf("begin batch: %w", err)
+		}
+		return errs
+	}
+
+	wg := &sync.WaitGroup{}
+	concurrencyLimit := make(chan struct{}, _NUMCPU)
+
+	for j, object := range ob.objects {
 		wg.Add(1)
 		object := object
 		index := j
@@ -175,7 +269,7 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 				<-concurrencyLimit
 			}()
 
-			if err := ob.storeObjectOfBatchInLSM(ctx, index, object); err != nil {
+			if err := ob.putObjectOfBatchInLSM(ctx, index, object); err != nil {
 				errLock.Lock()
 				errs[index] = err
 				errLock.Unlock()
@@ -189,7 +283,37 @@ func (ob *objectsBatcher) storeSingleBatchInLSM(ctx context.Context,
 	return errs
 }
 
-func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
+func (ob *objectsBatcher) mergeObjectOfBatchInLSM(ctx context.Context,
+	objectIndex int, mergeDoc *objects.BatchMergeDocument,
+) error {
+	if _, ok := ob.duplicates[objectIndex]; ok {
+		return nil
+	}
+	uuidParsed, err := uuid.Parse(mergeDoc.ID.String())
+	if err != nil {
+		return fmt.Errorf("invalid id: %w", err)
+	}
+
+	idBytes, err := uuidParsed.MarshalBinary()
+	if err != nil {
+		return err
+	}
+
+	_, err = ob.shard.mutableMergeObjectLSM(*mergeDoc.MergeDocument, idBytes)
+	if err != nil {
+		return err
+	}
+
+	// TODO: do we need this?
+	//ob.setStatusForID(status, mergeDoc.ID)
+
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("end store object %d of batch: %w", objectIndex, err)
+	}
+	return nil
+}
+
+func (ob *objectsBatcher) putObjectOfBatchInLSM(ctx context.Context,
 	objectIndex int, object *storobj.Object,
 ) error {
 	if _, ok := ob.duplicates[objectIndex]; ok {
@@ -197,7 +321,7 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 	}
 	uuidParsed, err := uuid.Parse(object.ID().String())
 	if err != nil {
-		return errors.Wrap(err, "invalid id")
+		return fmt.Errorf("invalid id: %w", err)
 	}
 
 	idBytes, err := uuidParsed.MarshalBinary()
@@ -213,7 +337,7 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 	ob.setStatusForID(status, object.ID())
 
 	if err := ctx.Err(); err != nil {
-		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
+		return fmt.Errorf("end store object %d of batch: %w", objectIndex, err)
 	}
 	return nil
 }
@@ -223,14 +347,14 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 func (ob *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UUID) {
 	ob.Lock()
 	defer ob.Unlock()
-	ob.statuses[id] = status
+	ob.putStatuses[id] = status
 }
 
 func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 	var docIDsToDelete []uint64
 	var positions []int
 	for pos, object := range ob.objects {
-		status := ob.statuses[object.ID()]
+		status := ob.putStatuses[object.ID()]
 		if status.docIDChanged {
 			docIDsToDelete = append(docIDsToDelete, status.oldDocID)
 			positions = append(positions, pos)
@@ -271,7 +395,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 	ob.batchStartTime = time.Now()
 
 	for i, object := range ob.objects {
-		status := ob.statuses[object.ID()]
+		status := ob.putStatuses[object.ID()]
 		if ob.shouldSkipInAdditionalStorage(i, status) {
 			continue
 		}
@@ -307,7 +431,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 	}
 
 	for i, object := range ob.objects {
-		status := ob.statuses[object.ID()]
+		status := ob.putStatuses[object.ID()]
 
 		if ob.shouldSkipInAdditionalStorage(i, status) {
 			continue
@@ -315,7 +439,7 @@ func (ob *objectsBatcher) storeAdditionalStorageWithAsyncQueue(ctx context.Conte
 
 		if shouldGeoIndex {
 			if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
-				ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), i)
+				ob.setErrorAtIndex(fmt.Errorf("update prop-specific indices: %w", err), i)
 				continue
 			}
 		}
@@ -402,7 +526,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 	}()
 
 	if err := ctx.Err(); err != nil {
-		ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+		ob.setErrorAtIndex(fmt.Errorf("insert to vector index: %w", err), index)
 		return
 	}
 
@@ -429,14 +553,14 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 		if ob.shard.hasTargetVectors() {
 			if len(object.Vectors) > 0 {
 				if err := ob.shard.updateVectorIndexesIgnoreDelete(object.Vectors, status); err != nil {
-					ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+					ob.setErrorAtIndex(fmt.Errorf("insert to vector index: %w", err), index)
 					return
 				}
 			}
 		} else {
 			if object.Vector != nil {
 				if err := ob.shard.updateVectorIndexIgnoreDelete(object.Vector, status); err != nil {
-					ob.setErrorAtIndex(errors.Wrap(err, "insert to vector index"), index)
+					ob.setErrorAtIndex(fmt.Errorf("insert to vector index: %w", err), index)
 					return
 				}
 			}
@@ -444,7 +568,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 	}
 
 	if err := ob.shard.updatePropertySpecificIndices(object, status); err != nil {
-		ob.setErrorAtIndex(errors.Wrap(err, "update prop-specific indices"), index)
+		ob.setErrorAtIndex(fmt.Errorf("update prop-specific indices: %w", err), index)
 		return
 	}
 }
@@ -454,7 +578,7 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 func (ob *objectsBatcher) hasErrorAtIndex(i int) bool {
 	ob.Lock()
 	defer ob.Unlock()
-	return ob.errs[i] != nil
+	return ob.putErrors[i] != nil
 }
 
 // setErrorAtIndex is thread-safe as it uses the underlying mutex to lock
@@ -462,7 +586,7 @@ func (ob *objectsBatcher) hasErrorAtIndex(i int) bool {
 func (ob *objectsBatcher) setErrorAtIndex(err error, index int) {
 	ob.Lock()
 	defer ob.Unlock()
-	ob.errs[index] = err
+	ob.putErrors[index] = err
 }
 
 // checkContext does nothing if the context is still active. But if the context
@@ -470,19 +594,18 @@ func (ob *objectsBatcher) setErrorAtIndex(err error, index int) {
 // the ctx error
 func (ob *objectsBatcher) checkContext(ctx context.Context) bool {
 	if err := ctx.Err(); err != nil {
-		for i, err := range ob.errs {
+		for i, err := range ob.putErrors {
 			if err == nil {
 				// already has an error, ignore
 				continue
 			}
 
-			ob.errs[i] = errors.Wrapf(err,
+			ob.putErrors[i] = errors.Wrapf(err,
 				"inverted indexing complete, about to start vector indexing")
 		}
 
 		return false
 	}
-
 	return true
 }
 

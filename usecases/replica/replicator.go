@@ -217,6 +217,41 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	return errs
 }
 
+func (r *Replicator) MergeObjects(ctx context.Context,
+	shard string,
+	docs []*objects.BatchMergeDocument,
+	l ConsistencyLevel,
+) []error {
+	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject), r.log)
+	op := func(ctx context.Context, host, requestID string) error {
+		resp, err := r.client.MergeObjects(ctx, host, r.class, shard, requestID, docs)
+		if err == nil {
+			err = resp.FirstError()
+		}
+		if err != nil {
+			return fmt.Errorf("%q: %w", host, err)
+		}
+		return nil
+	}
+	replyCh, level, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	if err != nil {
+		r.log.WithField("op", "push.many").WithField("class", r.class).
+			WithField("shard", shard).Error(err)
+		err = fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		errs := make([]error, len(docs))
+		for i := 0; i < len(docs); i++ {
+			errs[i] = err
+		}
+		return errs
+	}
+	errs := r.stream.readErrors(len(docs), level, replyCh)
+	if err := firstError(errs); err != nil {
+		r.log.WithField("op", "merge.many").WithField("class", r.class).
+			WithField("shard", shard).Error(errs)
+	}
+	return errs
+}
+
 func (r *Replicator) DeleteObjects(ctx context.Context,
 	shard string,
 	uuids []strfmt.UUID,

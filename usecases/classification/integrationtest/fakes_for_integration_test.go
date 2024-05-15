@@ -436,6 +436,10 @@ func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
+func (f *fakeRemoteClient) BatchMergeObjects(ctx context.Context, hostName, indexName, shardName string, mergeDocs []*objects.BatchMergeDocument) []error {
+	return nil
+}
+
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector []float32, targetVector string, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
@@ -544,6 +548,10 @@ func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, sh
 	return replica.SimpleResponse{}, nil
 }
 
+func (f *fakeReplicationClient) MergeObjects(ctx context.Context, host, index, shard, requestID string, mergeDocs []*objects.BatchMergeDocument) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+
 func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
@@ -564,7 +572,7 @@ func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, r
 	return replica.SimpleResponse{}, nil
 }
 
-func (c *fakeReplicationClient) Exists(ctx context.Context, host, index,
+func (f *fakeReplicationClient) Exists(ctx context.Context, host, index,
 	shard string, id strfmt.UUID,
 ) (bool, error) {
 	return false, nil
@@ -577,19 +585,19 @@ func (f *fakeReplicationClient) FetchObject(_ context.Context, host, index,
 	return objects.Replica{}, nil
 }
 
-func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
+func (f *fakeReplicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
+func (f *fakeReplicationClient) DigestObjects(ctx context.Context,
 	host, index, shard string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	return nil, nil
 }
 
-func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
+func (f *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
 	return nil, nil

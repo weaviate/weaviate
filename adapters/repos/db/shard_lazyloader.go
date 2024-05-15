@@ -201,6 +201,13 @@ func (l *LazyLoadShard) PutObjectBatch(ctx context.Context, objects []*storobj.O
 	return l.shard.PutObjectBatch(ctx, objects)
 }
 
+func (l *LazyLoadShard) MergeObjectBatch(ctx context.Context, docs []*objects.BatchMergeDocument) []error {
+	if err := l.Load(ctx); err != nil {
+		return []error{err}
+	}
+	return l.shard.MergeObjectBatch(ctx, docs)
+}
+
 func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -477,6 +484,11 @@ func (l *LazyLoadShard) preparePutObjects(ctx context.Context, shardID string, o
 func (l *LazyLoadShard) prepareMergeObject(ctx context.Context, shardID string, object *objects.MergeDocument) replica.SimpleResponse {
 	l.mustLoadCtx(ctx)
 	return l.shard.prepareMergeObject(ctx, shardID, object)
+}
+
+func (l *LazyLoadShard) prepareMergeObjects(ctx context.Context, shardID string, docs []*objects.BatchMergeDocument) replica.SimpleResponse {
+	l.mustLoadCtx(ctx)
+	return l.shard.prepareMergeObjects(ctx, shardID, docs)
 }
 
 func (l *LazyLoadShard) prepareDeleteObject(ctx context.Context, shardID string, id strfmt.UUID) replica.SimpleResponse {

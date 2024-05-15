@@ -335,6 +335,12 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
+func (c *RemoteIndex) BatchMergeObjects(ctx context.Context, hostName, indexName,
+	shardName string, mergeDocs []*objects.BatchMergeDocument,
+) []error {
+	panic("not implemented")
+}
+
 func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 	shardName string, ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {

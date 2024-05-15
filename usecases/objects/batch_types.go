@@ -19,6 +19,32 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
 
+type BatchMergeDocument struct {
+	*MergeDocument
+	OriginalIndex int
+	Err           error
+}
+
+type BatchMergeDocuments []*BatchMergeDocument
+
+func (b BatchMergeDocuments) EstimateMemoryRequirements() int64 {
+	var sum int64
+	for _, item := range b {
+		// Note: This is very much oversimplified. It assumes that we always need
+		// the footprint of the full vector and it assumes a fixed overhead of 30B
+		// per vector. In reality this depends on the HNSW settings - and possibly
+		// in the future we might have completely different index types.
+		//
+		// However, in the meantime this should be a fairly reasonable estimate, as
+		// it's not meant to fail exactly on the last available byte, but rather
+		// prevent OOM crashes. Given the fuzziness and async style of the
+		// memtrackinga somewhat decent estimate should be good enough.
+		sum += int64(len(item.Vector)*4 + 30)
+	}
+
+	return sum
+}
+
 // BatchObject is a helper type that groups all the info about one object in a
 // batch that belongs together, i.e. uuid, object body and error state.
 //
@@ -39,6 +65,24 @@ type BatchObject struct {
 // order from the original request. It can be turned into the expected response
 // type using the .Response() method
 type BatchObjects []BatchObject
+
+func (b BatchObjects) EstimateMemoryRequirements() int64 {
+	var sum int64
+	for _, item := range b {
+		// Note: This is very much oversimplified. It assumes that we always need
+		// the footprint of the full vector and it assumes a fixed overhead of 30B
+		// per vector. In reality this depends on the HNSW settings - and possibly
+		// in the future we might have completely different index types.
+		//
+		// However, in the meantime this should be a fairly reasonable estimate, as
+		// it's not meant to fail exactly on the last available byte, but rather
+		// prevent OOM crashes. Given the fuzziness and async style of the
+		// memtrackinga somewhat decent estimate should be good enough.
+		sum += int64(len(item.Object.Vector)*4 + 30)
+	}
+
+	return sum
+}
 
 // BatchReference is a helper type that groups all the info about one references in a
 // batch that belongs together, i.e. from, to, original index and error state
