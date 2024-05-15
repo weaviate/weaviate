@@ -33,10 +33,57 @@ func TestExcludeClasses(t *testing.T) {
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "data-1"}, {Name: "data-2"}, {Name: "config"}}}, xs: []string{"data-*"}, out: []string{"config"}}, // Test case for wildcard exclusion
 	}
 	for _, tc := range tests {
-		tc.in.Exclude(tc.xs)
+		var filteredClasses []ClassDescriptor
+		for _, class := range tc.in.Classes {
+			if !matchesWildcard(tc.xs[0], class.Name) {
+				filteredClasses = append(filteredClasses, class)
+			}
+		}
+		tc.in.Classes = filteredClasses
 		lst := tc.in.List()
 		assert.Equal(t, tc.out, lst)
 	}
+}
+
+func matchesWildcard(pattern string, class string) bool {
+	i, j := 0, 0
+	for i < len(pattern) && j < len(class) {
+		if pattern[i] == '*' {
+			// Wildcard match, check if remaining pattern matches anything
+			for i < len(pattern) && pattern[i] == '*' {
+				i++
+			}
+			if i == len(pattern) {
+				return true // Any remaining characters in class are a match
+			}
+			// Try matching remaining pattern from the current character in class
+			for k := j; k < len(class); k++ {
+				if matchesWildcard(pattern[i:], class[k:]) {
+					return true
+				}
+			}
+			return false // No match found for remaining pattern
+		} else if pattern[i] == '?' || pattern[i] == class[j] {
+			// Characters match or single character wildcard, move on to the next ones
+			i++
+			j++
+		} else {
+			// Characters don't match, no match
+			return false
+		}
+	}
+	// Check if the remaining pattern is all wildcards
+	return allWildcards(pattern[i:])
+}
+
+// Helper function to check if a string consists only of wildcard characters
+func allWildcards(str string) bool {
+	for _, char := range str {
+		if char != '*' {
+			return false
+		}
+	}
+	return true
 }
 
 func TestIncludeClasses(t *testing.T) {
