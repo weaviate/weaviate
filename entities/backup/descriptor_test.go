@@ -12,7 +12,6 @@
 package backup
 
 import (
-	"path/filepath"
 	"sort"
 	"testing"
 	"time"
@@ -471,83 +470,4 @@ func TestShardDescriptorClear(t *testing.T) {
 	}
 	s.ClearTemporary()
 	assert.Equal(t, want, s)
-}
-
-func TestWildcardFunctionality(t *testing.T) {
-	// Test case scenarios for wildcard functionality
-	tests := []struct {
-		name            string
-		classes         []string // Simulated list of class names
-		wildcardPattern string   // Wildcard pattern to match class names
-		expectedMatch   []string // Expected list of class names matching the pattern
-		expectedNoMatch []string // Expected list of class names not matching the pattern
-	}{
-		{
-			name:            "Exact match",
-			classes:         []string{"ClassA", "ClassB", "ClassC"},
-			wildcardPattern: "ClassB",
-			expectedMatch:   []string{"ClassB"},
-			expectedNoMatch: []string{"ClassA", "ClassC"},
-		},
-		{
-			name:            "Wildcard match",
-			classes:         []string{"ClassA", "ClassB", "ClassC"},
-			wildcardPattern: "Class*",
-			expectedMatch:   []string{"ClassA", "ClassB", "ClassC"},
-			expectedNoMatch: []string{},
-		},
-		{
-			name:            "Pattern match with character wildcard",
-			classes:         []string{"ClassA", "ClassB", "ClassC"},
-			wildcardPattern: "Class?",
-			expectedMatch:   []string{"ClassA", "ClassB", "ClassC"},
-			expectedNoMatch: []string{},
-		},
-		{
-			name:            "Pattern match with range wildcard",
-			classes:         []string{"Class1", "Class2", "Class3", "OtherClass"},
-			wildcardPattern: "Class[1-3]",
-			expectedMatch:   []string{"Class1", "Class2", "Class3"},
-			expectedNoMatch: []string{"OtherClass"},
-		},
-	}
-
-	// Iterate over test cases
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Simulate wildcard matching based on the pattern
-			matchedClasses := []string{}
-			for _, class := range tc.classes {
-				// Check if class matches the wildcard pattern
-				matched, err := filepath.Match(tc.wildcardPattern, class)
-				if err != nil {
-					t.Fatalf("Error matching wildcard pattern: %v", err)
-				}
-				if matched {
-					matchedClasses = append(matchedClasses, class)
-				}
-			}
-
-			// Assert that matched classes match the expected list
-			sort.Strings(matchedClasses)
-			sort.Strings(tc.expectedMatch)
-			assert.Equal(t, tc.expectedMatch, matchedClasses, "Matched classes mismatch")
-
-			// Assert that non-matched classes match the expected list
-			notMatchedClasses := []string{}
-			for _, class := range tc.classes {
-				// Check if class does not match the wildcard pattern
-				matched, err := filepath.Match(tc.wildcardPattern, class)
-				if err != nil {
-					t.Fatalf("Error matching wildcard pattern: %v", err)
-				}
-				if !matched {
-					notMatchedClasses = append(notMatchedClasses, class)
-				}
-			}
-			sort.Strings(notMatchedClasses)
-			sort.Strings(tc.expectedNoMatch)
-			assert.Equal(t, tc.expectedNoMatch, notMatchedClasses, "Non-matched classes mismatch")
-		})
-	}
 }
