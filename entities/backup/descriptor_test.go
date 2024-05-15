@@ -31,9 +31,7 @@ func TestExcludeClasses(t *testing.T) {
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{"a"}, out: []string{}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}, {Name: "4"}}}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}}}, xs: []string{"1", "3"}, out: []string{"2"}},
-
-		// {in: []BackupDescriptor{"1", "2", "3", "4"}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
-		// {in: []BackupDescriptor{"1", "2", "3"}, xs: []string{"1", "3"}, out: []string{"2"}},
+		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "data-1"}, {Name: "data-2"}, {Name: "config"}}}, xs: []string{"data-*"}, out: []string{"config"}}, // Test case for wildcard exclusion
 	}
 	for _, tc := range tests {
 		tc.in.Exclude(tc.xs)

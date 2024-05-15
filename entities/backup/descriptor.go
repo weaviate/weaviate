@@ -13,6 +13,7 @@ package backup
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -38,25 +39,53 @@ type DistributedBackupDescriptor struct {
 	Error         string                     `json:"error"`
 }
 
-// Function to check if a string matches a wildcard pattern
-func matchesWildcardPattern(s, pattern string) bool {
-	return strings.HasPrefix(s, pattern)
+// patternToRegexp converts a wildcard pattern to a regular expression string
+func patternToRegexp(pattern string) string {
+	return strings.ReplaceAll(pattern, "*", ".*") // Replace * with .* for matching any characters
 }
 
-// Predicate function to include classes based on wildcard pattern
-func includeByWildcard(s string, patterns []string) bool {
+// IsGloballyIncluded checks if a class name matches the given inclusion pattern
+func IsGloballyIncluded(className string, patterns []string) bool {
+	if len(patterns) == 0 {
+		return true // No patterns, include everything
+	}
 	for _, pattern := range patterns {
-		if matchesWildcardPattern(s, pattern) {
+		if matched, err := regexp.MatchString(patternToRegexp(pattern), className); err == nil && matched {
 			return true
 		}
 	}
 	return false
 }
 
-// Predicate function to exclude classes based on wildcard pattern
-func excludeByWildcard(s string, patterns []string) bool {
-	return !includeByWildcard(s, patterns)
+// IsGloballyExcluded checks if a class name matches the given exclusion pattern
+func IsGloballyExcluded(className string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matched, err := regexp.MatchString(patternToRegexp(pattern), className); err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
+
+// // Function to check if a string matches a wildcard pattern
+// func matchesWildcardPattern(s, pattern string) bool {
+// 	return strings.HasPrefix(s, pattern)
+// }
+
+// // Predicate function to include classes based on wildcard pattern
+// func includeByWildcard(s string, patterns []string) bool {
+// 	for _, pattern := range patterns {
+// 		if matchesWildcardPattern(s, pattern) {
+// 			return true
+// 		}
+// 	}
+// 	return false
+// }
+
+// // Predicate function to exclude classes based on wildcard pattern
+// func excludeByWildcard(s string, patterns []string) bool {
+// 	return !includeByWildcard(s, patterns)
+// }
 
 // Len returns how many nodes exist in d
 func (d *DistributedBackupDescriptor) Len() int {
@@ -120,7 +149,7 @@ func (d *DistributedBackupDescriptor) Include(classes []string) {
 		return
 	}
 	pred := func(s string) bool {
-		return includeByWildcard(s, classes)
+		return IsGloballyIncluded(s, classes)
 	}
 	d.Filter(pred)
 }
@@ -131,7 +160,7 @@ func (d *DistributedBackupDescriptor) Exclude(classes []string) {
 		return
 	}
 	pred := func(s string) bool {
-		return excludeByWildcard(s, classes)
+		return !IsGloballyExcluded(s, classes)
 	}
 	d.Filter(pred)
 }
@@ -308,7 +337,7 @@ func (d *BackupDescriptor) Include(classes []string) {
 		return
 	}
 	pred := func(s string) bool {
-		return includeByWildcard(s, classes)
+		return IsGloballyIncluded(s, classes)
 	}
 	d.Filter(pred)
 }
@@ -319,7 +348,7 @@ func (d *BackupDescriptor) Exclude(classes []string) {
 		return
 	}
 	pred := func(s string) bool {
-		return excludeByWildcard(s, classes)
+		return !IsGloballyExcluded(s, classes)
 	}
 	d.Filter(pred)
 }
