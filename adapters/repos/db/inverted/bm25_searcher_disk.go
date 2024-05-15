@@ -84,7 +84,7 @@ func (b *BM25Searcher) wandDiskMem(
 		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 	}
 
-	_, _, hasTombstones, hasMemtableWithData, err := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
+	_, _, _, hasTombstones, _, err := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -94,17 +94,10 @@ func (b *BM25Searcher) wandDiskMem(
 		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 	}
 
-	if hasMemtableWithData && !useWandDiskForced {
-		b.logger.Debug("BM25 search: found Memtable with data in bucket, falling back to memory search")
-		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
-	}
-
 	if hasTombstones {
 		b.logger.Debug("BM25 search: found tombstones in inverted index, using disk search as useWandDiskForced is set to true")
 	} else if hasMultipleProperties {
 		b.logger.Debug("BM25 search: multiple properties requested, using disk search as useWandDiskForced is set to true")
-	} else if hasMemtableWithData {
-		b.logger.Debug("BM25 search: found Memtable with data in bucket, using disk search as useWandDiskForced is set to true")
 	}
 
 	// wandDiskTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
@@ -114,10 +107,10 @@ func (b *BM25Searcher) wandDiskMem(
 }
 
 func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]string, duplicateBoostsByTokenization map[string][]int, propNamesByTokenization map[string][]string, propertyBoosts map[string]float32, averagePropLength float64, N float64, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
-	allSegments, propertySizes, _, _, _ := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
+	allSegments, memTables, propertySizes, _, _, _ := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
 
-	allObjects := make([][]*storobj.Object, len(allSegments))
-	allScores := make([][]float32, len(allSegments))
+	allObjects := make([][]*storobj.Object, len(allSegments)+len(memTables))
+	allScores := make([][]float32, len(allSegments)+len(memTables))
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
@@ -137,6 +130,44 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 				duplicateTextBoost := duplicateBoostsByTokenization[models.PropertyTokenizationWord][i]
 
 				singleTerms, err := segment.WandTerm([]byte(term), N, float64(duplicateTextBoost), float64(propertyBoosts[propName]), propertySizes[propName][term], filterDocIds)
+				if err == nil {
+					terms = append(terms, singleTerms)
+				}
+			}
+
+			flatTerms := terms
+			// wandDiskStats[0] += float64(len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+
+			resultsOriginalOrder := make([]Term, len(flatTerms))
+			copy(resultsOriginalOrder, flatTerms)
+
+			topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength)
+			indices := make([]map[uint64]int, 0)
+			objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
+
+			allObjects[myCurrentBucket] = objects
+			allScores[myCurrentBucket] = scores
+
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+	}
+
+	for memTable, propName := range memTables {
+		memTable := memTable
+		myCurrentBucket := currentBucket
+		currentBucket++
+		eg.Go(func() (err error) {
+			terms := make([]Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+			for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+				// pass i to the closure
+				i := i
+				term := term
+				duplicateTextBoost := duplicateBoostsByTokenization[models.PropertyTokenizationWord][i]
+				n := float64(propertySizes[propName][term])
+				singleTerms, _, err := memTable.CreateTerm(N, n, filterDocIds, term, propName, propertyBoosts, duplicateTextBoost, params.AdditionalExplanations)
 				if err == nil {
 					terms = append(terms, singleTerms)
 				}
@@ -341,3 +372,5 @@ func (b *BM25Searcher) rankMultiBucketWithDuplicates(allObjects [][]*storobj.Obj
 	return mergedObjects, mergedScores
 }
 */
+
+// Memtable

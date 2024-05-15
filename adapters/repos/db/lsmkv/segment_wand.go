@@ -65,6 +65,7 @@ func init() {
 type docPointerWithScore struct {
 	Frequency  float32
 	PropLength float32
+	Id         uint64
 }
 
 type Term struct {
@@ -837,8 +838,9 @@ func (s segment) GetTermTombstoneNonTombstone(key []byte) (uint64, uint64, error
 	}
 }
 
-func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[*segment]string, map[string]map[string]int64, bool, bool, error) {
+func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[*segment]string, map[*Memtable]string, map[string]map[string]int64, bool, bool, error) {
 	allSegments := make(map[*segment]string)
+	memTables := make(map[*Memtable]string)
 	propertySizes := make(map[string]map[string]int64, 100)
 	hasTombstones := false
 	hasMemtableWithData := false
@@ -847,7 +849,7 @@ func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]
 
 			bucket := store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 			if bucket == nil {
-				return nil, nil, false, false, fmt.Errorf("could not find bucket for property %v", propName)
+				return nil, nil, nil, false, false, fmt.Errorf("could not find bucket for property %v", propName)
 			}
 
 			propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
@@ -871,10 +873,33 @@ func (store *Store) GetAllSegmentsForTerms(propNamesByTokenization map[string][]
 					allSegments[segment] = propName
 				}
 			}
-			if (bucket.flushing != nil && bucket.flushing.Size() > 0) || (bucket.active != nil && bucket.active.Size() > 0) {
-				hasMemtableWithData = true
+			memtables := []*Memtable{bucket.active, bucket.flushing}
+			for _, memtable := range memtables {
+				if memtable != nil && memtable.Size() > 0 {
+					for _, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+						termBytes := []byte(term)
+						memtable.RLock()
+						_, err := memtable.getMap(termBytes)
+						if err != nil {
+							memtable.RUnlock()
+							continue
+						}
+
+						tombstone, nonTombstone, err := memtable.countTombstones(termBytes)
+						if err != nil {
+							memtable.RUnlock()
+							continue
+						}
+
+						propertySizes[propName][term] += int64(nonTombstone)
+						propertySizes[propName][term] -= int64(tombstone)
+						memTables[memtable] = propName
+						hasMemtableWithData = true
+						memtable.RUnlock()
+					}
+				}
 			}
 		}
 	}
-	return allSegments, propertySizes, hasTombstones, hasMemtableWithData, nil
+	return allSegments, memTables, propertySizes, hasTombstones, hasMemtableWithData, nil
 }
