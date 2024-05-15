@@ -112,6 +112,38 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				name:            "chat-bison@001",
 				generativeModel: "chat-bison@001",
 			},
+			{
+				name:            "gemini-1.5-pro-preview-0514",
+				generativeModel: "gemini-1.5-pro-preview-0514",
+			},
+			{
+				name:            "gemini-1.5-pro-preview-0409",
+				generativeModel: "gemini-1.5-pro-preview-0409",
+			},
+			{
+				name:            "gemini-1.5-flash-preview-0514",
+				generativeModel: "gemini-1.5-flash-preview-0514",
+			},
+			{
+				name:            "gemini-1.0-pro-002",
+				generativeModel: "gemini-1.0-pro-002",
+			},
+			{
+				name:            "gemini-1.0-pro-001",
+				generativeModel: "gemini-1.0-pro-001",
+			},
+			{
+				name:            "gemini-1.0-pro",
+				generativeModel: "gemini-1.0-pro",
+			},
+			{
+				name:            "gemini-1.0-pro-vision-001",
+				generativeModel: "gemini-1.0-pro-vision-001",
+			},
+			{
+				name:            "gemini-1.0-pro-vision",
+				generativeModel: "gemini-1.0-pro-vision",
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

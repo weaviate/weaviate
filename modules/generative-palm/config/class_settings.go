@@ -49,6 +49,14 @@ var supportedVertexAIModels = []string{
 	"chat-bison@002",
 	"chat-bison-32k@002",
 	"chat-bison@001",
+	"gemini-1.5-pro-preview-0514",
+	"gemini-1.5-pro-preview-0409",
+	"gemini-1.5-flash-preview-0514",
+	"gemini-1.0-pro-002",
+	"gemini-1.0-pro-001",
+	"gemini-1.0-pro",
+	"gemini-1.0-pro-vision-001",
+	"gemini-1.0-pro-vision",
 }
 
 var supportedGenerativeAIModels = []string{
