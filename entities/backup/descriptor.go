@@ -67,26 +67,6 @@ func IsGloballyExcluded(className string, patterns []string) bool {
 	return false
 }
 
-// // Function to check if a string matches a wildcard pattern
-// func matchesWildcardPattern(s, pattern string) bool {
-// 	return strings.HasPrefix(s, pattern)
-// }
-
-// // Predicate function to include classes based on wildcard pattern
-// func includeByWildcard(s string, patterns []string) bool {
-// 	for _, pattern := range patterns {
-// 		if matchesWildcardPattern(s, pattern) {
-// 			return true
-// 		}
-// 	}
-// 	return false
-// }
-
-// // Predicate function to exclude classes based on wildcard pattern
-// func excludeByWildcard(s string, patterns []string) bool {
-// 	return !includeByWildcard(s, patterns)
-// }
-
 // Len returns how many nodes exist in d
 func (d *DistributedBackupDescriptor) Len() int {
 	return len(d.Nodes)
