@@ -13,7 +13,6 @@ package traverser
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -25,10 +24,7 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 	groupsOrdered := []string{}
 	groups := map[string][]search.Result{}
 
-	fmt.Println("-----------------")
-	for i, result := range sr {
-		fmt.Println("result", i, result.ID, result.Dist, result.Vector, result.Object().Properties)
-
+	for _, result := range sr {
 		prop_i := result.Object().Properties
 		prop := prop_i.(map[string]interface{})
 		val, ok := prop[groupBy.Property].(string)
