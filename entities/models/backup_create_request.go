@@ -40,6 +40,12 @@ type BackupCreateRequest struct {
 
 	// List of classes to include in the backup creation process
 	Include []string `json:"include"`
+
+	// List of regular expressions (patterns) specifying classes to be included from the backup. Classes matching any of these patterns will be include in the backup creation process.
+	IncludePatterns []string `json:"include_patterns"`
+
+	// List of regular expressions (patterns) specifying classes to be excluded from the backup. Classes matching any of these patterns will be exclude in the backup creation process.
+	ExcludePatterns []string `json:"exclude_patterns"`
 }
 
 // Validate validates this backup create request

@@ -14,6 +14,8 @@ package backup
 import (
 	"fmt"
 	"time"
+
+	"regexp"
 )
 
 // NodeDescriptor contains data related to one participant in DBRO
@@ -93,35 +95,51 @@ func (d *DistributedBackupDescriptor) Filter(pred func(s string) bool) {
 	}
 }
 
-// Include only these classes and remove everything else
-func (d *DistributedBackupDescriptor) Include(classes []string) {
-	if len(classes) == 0 {
-		return
-	}
+// IncludeExcludeClasses return filter to includes or excludes classes based on the operation.
+func IncludeExcludeClasses(classes []string, regClasses []string, include bool) func(string) bool {
 	set := make(map[string]struct{}, len(classes))
 	for _, cls := range classes {
 		set[cls] = struct{}{}
 	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return ok
+
+	regRule := make([]*regexp.Regexp, len(regClasses))
+	for i, reg := range regClasses {
+		regRule[i] = regexp.MustCompile(reg)
 	}
+
+	pred := func(s string) bool {
+		// If exist in the exact match, return true for include, false for exclude
+		if _, ok := set[s]; ok {
+			return include
+		}
+		// If class match any regular expression, return true for include, false for exclude
+		for _, reg := range regRule {
+			if reg.MatchString(s) {
+				return include
+			}
+		}
+		// Return opposite of include for unmatched classes
+		return !include
+	}
+
+	return pred
+}
+
+// Include only these classes and remove everything else from d
+func (d *DistributedBackupDescriptor) Include(classes []string, regClasses []string) {
+	if len(classes) == 0 && len(regClasses) == 0 {
+		return
+	}
+	pred := IncludeExcludeClasses(classes, regClasses, true)
 	d.Filter(pred)
 }
 
 // Exclude removes classes from d
-func (d *DistributedBackupDescriptor) Exclude(classes []string) {
-	if len(classes) == 0 {
+func (d *DistributedBackupDescriptor) Exclude(classes []string, regClasses []string) {
+	if len(classes) == 0 && len(regClasses) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
-	pred := func(s string) bool {
-		_, ok := set[s]
-		return !ok
-	}
+	pred := IncludeExcludeClasses(classes, regClasses, false)
 	d.Filter(pred)
 }
 

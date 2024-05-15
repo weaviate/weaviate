@@ -92,11 +92,13 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:          params.Body.ID,
-		Backend:     params.Backend,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
-		Compression: compressionFromBCfg(params.Body.Config),
+		ID:              params.Body.ID,
+		Backend:         params.Backend,
+		Include:         params.Body.Include,
+		Exclude:         params.Body.Exclude,
+		IncludePatterns: params.Body.IncludePatterns,
+		ExcludePatterns: params.Body.ExcludePatterns,
+		Compression:     compressionFromBCfg(params.Body.Config),
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
