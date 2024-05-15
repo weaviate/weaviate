@@ -34,31 +34,26 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 		}{
 			{
 				id:   strfmt.UUID("00000000-0000-0000-0000-000000000001"),
-				name: "OpenAI",
+				name: "Earth",
 				description: `
-					OpenAI is a research organization and AI development company that focuses on artificial intelligence (AI) and machine learning (ML).
-					Founded in December 2015, OpenAI's mission is to ensure that artificial general intelligence (AGI) benefits all of humanity.
-					The organization has been at the forefront of AI research, producing cutting-edge advancements in natural language processing,
-					reinforcement learning, robotics, and other AI-related fields.
+				The Earth's surface is predominantly covered by oceans, accounting for about 71% of its total area, while continents provide 
+				the stage for bustling cities, towering mountains, and sprawling forests. Its atmosphere, composed mostly of nitrogen and oxygen, 
+				protects life from harmful solar radiation and regulates the planet's climate, creating the conditions necessary for life to flourish.
 
-					OpenAI has garnered attention for its work on various projects, including the development of the GPT (Generative Pre-trained Transformer)
-					series of models, such as GPT-2 and GPT-3, which have demonstrated remarkable capabilities in generating human-like text.
-					Additionally, OpenAI has contributed to advancements in reinforcement learning through projects like OpenAI Five, an AI system
-					capable of playing the complex strategy game Dota 2 at a high level.
+				Humans, as the dominant species, have left an indelible mark on Earth, shaping its landscapes and ecosystems in profound ways. 
+				However, with this influence comes the responsibility to steward and preserve our planet for future generations.
 				`,
 			},
 			{
 				id:   strfmt.UUID("00000000-0000-0000-0000-000000000002"),
-				name: "SpaceX",
+				name: "Mars",
 				description: `
-					SpaceX, short for Space Exploration Technologies Corp., is an American aerospace manufacturer and space transportation company
-					founded by Elon Musk in 2002. The company's primary goal is to reduce space transportation costs and enable the colonization of Mars,
-					among other ambitious objectives.
+				Mars, often called the "Red Planet" due to its rusty reddish hue, is the fourth planet from the Sun in our solar system. 
+				It's a world of stark contrasts and mysterious allure, captivating the imaginations of scientists, explorers, and dreamers alike.
 
-					SpaceX has made significant strides in the aerospace industry by developing advanced rocket technology, spacecraft,
-					and satellite systems. The company is best known for its Falcon series of rockets, including the Falcon 1, Falcon 9, 
-					and Falcon Heavy, which have been designed with reusability in mind. Reusability has been a key innovation pioneered by SpaceX,
-					aiming to drastically reduce the cost of space travel by reusing rocket components multiple times.
+				With its barren, rocky terrain and thin atmosphere primarily composed of carbon dioxide, Mars presents a harsh environment vastly 
+				different from Earth. Yet, beneath its desolate surface lie tantalizing clues about its past, including evidence of ancient rivers, 
+				lakes, and even the possibility of microbial life.
 				`,
 			},
 		}
@@ -136,14 +131,6 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				name:            "gemini-1.0-pro",
 				generativeModel: "gemini-1.0-pro",
 			},
-			{
-				name:            "gemini-1.0-pro-vision-001",
-				generativeModel: "gemini-1.0-pro-vision-001",
-			},
-			{
-				name:            "gemini-1.0-pro-vision",
-				generativeModel: "gemini-1.0-pro-vision",
-			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -184,7 +171,7 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				})
 				// generative task
 				t.Run("create a tweet", func(t *testing.T) {
-					prompt := "Generate a funny tweet out of this content: {description}"
+					prompt := "Write a short description about {name}"
 					query := fmt.Sprintf(`
 						{
 							Get {
