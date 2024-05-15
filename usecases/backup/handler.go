@@ -133,6 +133,12 @@ type BackupRequest struct {
 	// The same class cannot appear in both Include and Exclude in the same request
 	Exclude []string
 
+	// IncludePatterns is a list of regular expressions specifying additional classes to be included in the backup creation process. Classes matching any of these patterns will be included along with those listed in the 'include' field"
+	IncludePatterns []string
+
+	// ExcludePatterns is a list of regular expressions specifying additional classes to be excluded in the backup creation process. Classes matching any of these patterns will be excluded along with those listed in the 'exclude' field"
+	ExcludePatterns []string
+
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty
 	NodeMapping map[string]string
