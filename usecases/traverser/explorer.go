@@ -251,6 +251,10 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int) []search
 		return nil
 	}
 
+	if len(results) == 1 {
+		return results[0]
+	}
+
 	combinedResults := make(map[uint64]search.Result, len(results[0]))
 	for _, res := range results {
 		for _, r := range res {
@@ -277,7 +281,7 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int) []search
 		queue.Insert(id, res.Dist)
 	}
 	returnResults := make([]search.Result, 0, queue.Len())
-	for i := 0; i < queue.Len(); i++ {
+	for i := 0; i < limit; i++ {
 		item := queue.Pop()
 		returnResults = append(returnResults, combinedResults[item.ID])
 	}

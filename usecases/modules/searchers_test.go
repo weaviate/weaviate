@@ -68,12 +68,11 @@ func TestModulesWithSearchers(t *testing.T) {
 		)
 		p.Init(context.Background(), nil, logger)
 
-		res, targetVector, err := p.VectorFromSearchParam(context.Background(), "MyClass",
-			"nearGrape", nil, fakeFindVector, "")
+		res, err := p.VectorFromSearchParam(context.Background(), "MyClass", "", "",
+			"nearGrape", nil, fakeFindVector)
 
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
-		assert.Equal(t, "", targetVector)
 	})
 
 	t.Run("get a vector across classes", func(t *testing.T) {
