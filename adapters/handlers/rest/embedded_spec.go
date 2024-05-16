@@ -3227,7 +3227,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of classes to exclude from the backup creation process",
+          "description": "List of classes to exclude from the backup creation process, it could be exact class names or wildcard patterns",
           "type": "array",
           "items": {
             "type": "string"
@@ -3238,7 +3238,7 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of classes to include in the backup creation process",
+          "description": "List of classes to include in the backup creation process, it could be exact class names or wildcard patterns",
           "type": "array",
           "items": {
             "type": "string"
@@ -8775,7 +8775,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of classes to exclude from the backup creation process",
+          "description": "List of classes to exclude from the backup creation process, it could be exact class names or wildcard patterns",
           "type": "array",
           "items": {
             "type": "string"
@@ -8786,7 +8786,7 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of classes to include in the backup creation process",
+          "description": "List of classes to include in the backup creation process, it could be exact class names or wildcard patterns",
           "type": "array",
           "items": {
             "type": "string"

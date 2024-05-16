@@ -13,9 +13,8 @@ package backup
 
 import (
 	"fmt"
-	"time"
-
 	"regexp"
+	"time"
 )
 
 // NodeDescriptor contains data related to one participant in DBRO
@@ -95,52 +94,42 @@ func (d *DistributedBackupDescriptor) Filter(pred func(s string) bool) {
 	}
 }
 
-// IncludeExcludeClasses return filter to includes or excludes classes based on the operation.
-func IncludeExcludeClasses(classes []string, regClasses []string, include bool) func(string) bool {
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
-
-	regRule := make([]*regexp.Regexp, len(regClasses))
-	for i, reg := range regClasses {
-		regRule[i] = regexp.MustCompile(reg)
-	}
-
-	pred := func(s string) bool {
-		// If exist in the exact match, return true for include, false for exclude
-		if _, ok := set[s]; ok {
-			return include
-		}
-		// If class match any regular expression, return true for include, false for exclude
-		for _, reg := range regRule {
-			if reg.MatchString(s) {
-				return include
-			}
-		}
-		// Return opposite of include for unmatched classes
-		return !include
-	}
-
-	return pred
-}
-
-// Include only these classes and remove everything else from d
-func (d *DistributedBackupDescriptor) Include(classes []string, regClasses []string) {
-	if len(classes) == 0 && len(regClasses) == 0 {
+// Include only these classes and remove everything else
+func (d *DistributedBackupDescriptor) Include(classes []string) {
+	// If include is not set, skip the filter
+	if len(classes) == 0 {
 		return
 	}
-	pred := IncludeExcludeClasses(classes, regClasses, true)
+
+	pred := predBuilder(classes, true)
 	d.Filter(pred)
 }
 
 // Exclude removes classes from d
-func (d *DistributedBackupDescriptor) Exclude(classes []string, regClasses []string) {
-	if len(classes) == 0 && len(regClasses) == 0 {
+func (d *DistributedBackupDescriptor) Exclude(classes []string) {
+	if len(classes) == 0 {
 		return
 	}
-	pred := IncludeExcludeClasses(classes, regClasses, false)
+	pred := predBuilder(classes, false)
 	d.Filter(pred)
+}
+
+func predBuilder(classes []string, isInclude bool) func(s string) bool {
+	regRule := make([]*regexp.Regexp, len(classes))
+	for i, reg := range classes {
+		regRule[i] = regexp.MustCompile(reg)
+	}
+
+	pred := func(s string) bool {
+		// If class match any regular expression, return false
+		for _, reg := range regRule {
+			if reg.MatchString(s) {
+				return isInclude
+			}
+		}
+		return !isInclude
+	}
+	return pred
 }
 
 // ToMappedNodeName will return nodeName after applying d.NodeMapping translation on it.

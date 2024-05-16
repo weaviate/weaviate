@@ -32,20 +32,14 @@ type BackupCreateRequest struct {
 	// Custom configuration for the backup creation process
 	Config *BackupConfig `json:"config,omitempty"`
 
-	// List of classes to exclude from the backup creation process
+	// List of classes to exclude from the backup creation process, it could be exact class names or wildcard patterns
 	Exclude []string `json:"exclude"`
 
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// List of classes to include in the backup creation process
+	// List of classes to include in the backup creation process, it could be exact class names or wildcard patterns
 	Include []string `json:"include"`
-
-	// List of regular expressions (patterns) specifying classes to be included from the backup. Classes matching any of these patterns will be include in the backup creation process.
-	IncludePatterns []string `json:"include_patterns"`
-
-	// List of regular expressions (patterns) specifying classes to be excluded from the backup. Classes matching any of these patterns will be exclude in the backup creation process.
-	ExcludePatterns []string `json:"exclude_patterns"`
 }
 
 // Validate validates this backup create request

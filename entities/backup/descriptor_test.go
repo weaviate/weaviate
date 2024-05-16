@@ -30,9 +30,6 @@ func TestExcludeClasses(t *testing.T) {
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{"a"}, out: []string{}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}, {Name: "4"}}}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}}}, xs: []string{"1", "3"}, out: []string{"2"}},
-
-		// {in: []BackupDescriptor{"1", "2", "3", "4"}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
-		// {in: []BackupDescriptor{"1", "2", "3"}, xs: []string{"1", "3"}, out: []string{"2"}},
 	}
 	for _, tc := range tests {
 		tc.in.Exclude(tc.xs)
@@ -247,7 +244,7 @@ func TestDistributedBackup(t *testing.T) {
 	if n := d.Count(); n != 4 {
 		t.Errorf("#classes got:%v want:%v", n, 4)
 	}
-	d.Exclude([]string{"3", "4"}, []string{})
+	d.Exclude([]string{"3", "4"})
 	d.RemoveEmpty()
 	if n := d.Len(); n != 1 {
 		t.Errorf("#nodes got:%v want:%v", n, 2)
@@ -259,10 +256,9 @@ func TestDistributedBackup(t *testing.T) {
 
 func TestDistributedBackupExcludeClasses(t *testing.T) {
 	tests := []struct {
-		in    DistributedBackupDescriptor
-		xs    []string
-		regxs []string
-		out   []string
+		in  DistributedBackupDescriptor
+		xs  []string
+		out []string
 	}{
 		{
 			in:  DistributedBackupDescriptor{},
@@ -294,9 +290,8 @@ func TestDistributedBackupExcludeClasses(t *testing.T) {
 					"N2": {Classes: []string{"3", "4", "a"}},
 				},
 			},
-			xs:    []string{"2", "3"},
-			regxs: []string{"[a-zA-Z]", `\d{2}`},
-			out:   []string{"1", "4"},
+			xs:  []string{"[a-zA-Z]", "\\d{2}"},
+			out: []string{"1", "2", "3", "4"},
 		},
 		{
 			in: DistributedBackupDescriptor{
@@ -311,7 +306,7 @@ func TestDistributedBackupExcludeClasses(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc.in.Exclude(tc.xs, tc.regxs)
+		tc.in.Exclude(tc.xs)
 		lst := tc.in.Classes()
 		sort.Strings(lst)
 		assert.Equal(t, tc.out, lst)
@@ -320,10 +315,9 @@ func TestDistributedBackupExcludeClasses(t *testing.T) {
 
 func TestDistributedBackupIncludeClasses(t *testing.T) {
 	tests := []struct {
-		in    DistributedBackupDescriptor
-		xs    []string
-		regxs []string
-		out   []string
+		in  DistributedBackupDescriptor
+		xs  []string
+		out []string
 	}{
 		{
 			in:  DistributedBackupDescriptor{},
@@ -355,9 +349,8 @@ func TestDistributedBackupIncludeClasses(t *testing.T) {
 					"N2": {Classes: []string{"3", "4", "20", "30"}},
 				},
 			},
-			xs:    []string{"2", "3"},
-			regxs: []string{"[a-zA-Z]", "\\d{2}"},
-			out:   []string{"2", "20", "3", "30", "a"},
+			xs:  []string{"[a-zA-Z]", "\\d{2}"},
+			out: []string{"20", "30", "a"},
 		},
 		{
 			in: DistributedBackupDescriptor{
@@ -371,7 +364,7 @@ func TestDistributedBackupIncludeClasses(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		tc.in.Include(tc.xs, tc.regxs)
+		tc.in.Include(tc.xs)
 		lst := tc.in.Classes()
 		sort.Strings(lst)
 		assert.Equal(t, tc.out, lst)

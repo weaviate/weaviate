@@ -1005,28 +1005,14 @@
           "$ref": "#/definitions/BackupConfig"
         },
         "include": {
-          "description": "List of classes to include in the backup creation process",
+          "description": "List of classes to include in the backup creation process, it could be exact class names or wildcard patterns",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "exclude": {
-          "description": "List of classes to exclude from the backup creation process",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "include_patterns": {
-          "description": "List of regular expressions specifying additional classes to be included in the backup creation process. Classes matching any of these patterns will be included along with those listed in the 'include' field",
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "exclude_patterns": {
-          "description": "List of regular expressions specifying additional classes to be excluded in the backup creation process. Classes matching any of these patterns will be excluded along with those listed in the 'exclude' field",
+          "description": "List of classes to exclude from the backup creation process, it could be exact class names or wildcard patterns",
           "type": "array",
           "items": {
             "type": "string"
