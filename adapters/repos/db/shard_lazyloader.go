@@ -504,6 +504,13 @@ func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) re
 	return l.shard.abortReplication(ctx, shardID)
 }
 
+func (l *LazyLoadShard) reinit(ctx context.Context) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.reinit(ctx)
+}
+
 func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.WriteCloser, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err

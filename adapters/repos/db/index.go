@@ -556,7 +556,7 @@ type IndexConfig struct {
 	MemtablesMaxActiveSeconds int
 	MaxSegmentSize            int64
 	HNSWMaxLogSize            int64
-	ReplicationFactor         *atomic.Int64
+	ReplicationFactor         int64
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
 
@@ -693,7 +693,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) replicationEnabled() bool {
-	return i.Config.ReplicationFactor.Load() > 1
+	return i.Config.ReplicationFactor > 1
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which

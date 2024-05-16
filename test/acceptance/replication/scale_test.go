@@ -29,11 +29,12 @@ import (
 )
 
 func multiShardScaleOut(t *testing.T) {
+	t.Skip("Skip until https://github.com/weaviate/weaviate/issues/4840 is resolved")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	compose, err := docker.New().
-		With3NodeCluster().
+		WithWeaviateCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -98,20 +99,17 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("assert paragraphs were scaled out", func(t *testing.T) {
-		// shard.ObjectCount is eventually consistent, see Bucket::CountAsync()
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			n := getNodes(t, compose.GetWeaviate().URI())
-			var shardsFound int
-			for _, node := range n.Nodes {
-				for _, shard := range node.Shards {
-					if shard.Class == paragraphClass.Class {
-						assert.EqualValues(collect, int64(10), shard.ObjectCount)
-						shardsFound++
-					}
+		n := getNodes(t, compose.GetWeaviate().URI())
+		var shardsFound int
+		for _, node := range n.Nodes {
+			for _, shard := range node.Shards {
+				if shard.Class == paragraphClass.Class {
+					assert.EqualValues(t, 10, shard.ObjectCount)
+					shardsFound++
 				}
 			}
-			assert.Equal(collect, 2, shardsFound)
-		}, 10*time.Second, 100*time.Millisecond)
+		}
+		assert.Equal(t, 2, shardsFound)
 	})
 
 	t.Run("scale out articles", func(t *testing.T) {
@@ -121,24 +119,24 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("assert articles were scaled out", func(t *testing.T) {
-		// shard.ObjectCount is eventually consistent, see Bucket::CountAsync()
-		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-			n := getNodes(t, compose.GetWeaviate().URI())
-			var shardsFound int
-			for _, node := range n.Nodes {
-				for _, shard := range node.Shards {
-					if shard.Class == articleClass.Class {
-						assert.EqualValues(collect, int64(10), shard.ObjectCount)
-						shardsFound++
-					}
+		n := getNodes(t, compose.GetWeaviate().URI())
+		var shardsFound int
+		for _, node := range n.Nodes {
+			for _, shard := range node.Shards {
+				if shard.Class == articleClass.Class {
+					assert.EqualValues(t, 10, shard.ObjectCount)
+					shardsFound++
 				}
 			}
-			assert.Equal(collect, 2, shardsFound)
-		}, 10*time.Second, 100*time.Millisecond)
+		}
+		assert.Equal(t, 2, shardsFound)
 	})
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
 		stopNodeAt(ctx, t, compose, 2)
+		// TODO-RAFT : we need to avoid any sleeps, come back and remove it
+		// sleep 2 sec to make sure data not affected by EC issue
+		time.Sleep(2 * time.Second)
 		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		assert.Len(t, p, 10)
 		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)

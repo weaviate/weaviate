@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -95,7 +94,7 @@ func (db *DB) init(ctx context.Context) error {
 				TrackVectorDimensions:     db.config.TrackVectorDimensions,
 				AvoidMMap:                 db.config.AvoidMMap,
 				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
-				ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
+				ReplicationFactor:         class.ReplicationConfig.Factor,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
@@ -168,10 +167,4 @@ func fileExists(file string) (bool, error) {
 		return false, err
 	}
 	return true, nil
-}
-
-func NewAtomicInt64(val int64) *atomic.Int64 {
-	aval := &atomic.Int64{}
-	aval.Store(val)
-	return aval
 }

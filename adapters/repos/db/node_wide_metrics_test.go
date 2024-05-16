@@ -28,16 +28,14 @@ func TestShardActivity(t *testing.T) {
 		indices: map[string]*Index{
 			"Col1": {
 				Config: IndexConfig{
-					ClassName:         "Col1",
-					ReplicationFactor: NewAtomicInt64(1),
+					ClassName: "Col1",
 				},
 				partitioningEnabled: true,
 				shards:              shardMap{},
 			},
 			"NonMT": {
 				Config: IndexConfig{
-					ClassName:         "NonMT",
-					ReplicationFactor: NewAtomicInt64(1),
+					ClassName: "NonMT",
 				},
 				partitioningEnabled: false,
 				shards:              shardMap{},

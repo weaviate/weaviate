@@ -258,7 +258,6 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			RootPath:            tmpDir,
 			ClassName:           schema.ClassName(class.Class),
 			QueryMaximumResults: maxResults,
-			ReplicationFactor:   NewAtomicInt64(1),
 		},
 		invertedIndexConfig:   iic,
 		vectorIndexUserConfig: vic,

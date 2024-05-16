@@ -102,11 +102,6 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		req.Class.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
 	}
-
-	if err := e.migrator.UpdateReplicationFactor(ctx, className, req.Class.ReplicationConfig.Factor); err != nil {
-		return fmt.Errorf("replication index update: %w", err)
-	}
-
 	return nil
 }
 
