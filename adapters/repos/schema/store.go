@@ -120,6 +120,9 @@ func initBoltDB(filePath string, version int, cfg *config) (*bolt.DB, error) {
 }
 
 // Open the underlying DB
+// Deprecated: instead schema now is persistent via RAFT
+// see : cluster package
+// Load and save are left to support backward compatibility
 func (r *store) Open() (err error) {
 	if err := os.MkdirAll(r.homeDir, 0o777); err != nil {
 		return fmt.Errorf("create root directory %q: %w", r.homeDir, err)
@@ -189,19 +192,6 @@ func (r *store) migrate(filePath string, from, to int) (err error) {
 	return nil
 }
 
-// saveSchemaV1 might be needed to migrate from v2 to v0
-func (r *store) saveSchemaV1(schema ucs.State) error {
-	schemaJSON, err := json.Marshal(schema)
-	if err != nil {
-		return fmt.Errorf("marshal schema state to json: %w", err)
-	}
-
-	return r.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(schemaBucket)
-		return b.Put(schemaKey, schemaJSON)
-	})
-}
-
 // loadSchemaV1 is needed to migrate from v0 to v2
 func (r *store) loadSchemaV1() (*ucs.State, error) {
 	var schemaJSON []byte
@@ -222,32 +212,6 @@ func (r *store) loadSchemaV1() (*ucs.State, error) {
 	}
 
 	return &state, nil
-}
-
-// UpdateClass if it exists, otherwise return an error.
-func (r *store) UpdateClass(_ context.Context, data ucs.ClassPayload) error {
-	classKey := encodeClassName(data.Name)
-	f := func(tx *bolt.Tx) error {
-		b := tx.Bucket(schemaBucket).Bucket(classKey)
-		if b == nil {
-			return fmt.Errorf("class not found")
-		}
-		return r.updateClass(b, data)
-	}
-	return r.db.Update(f)
-}
-
-// NewClass creates a new class if it doesn't exist, otherwise return an error
-func (r *store) NewClass(_ context.Context, data ucs.ClassPayload) error {
-	classKey := encodeClassName(data.Name)
-	f := func(tx *bolt.Tx) error {
-		b, err := tx.Bucket(schemaBucket).CreateBucket(classKey)
-		if err != nil {
-			return err
-		}
-		return r.updateClass(b, data)
-	}
-	return r.db.Update(f)
 }
 
 func (r *store) updateClass(b *bolt.Bucket, data ucs.ClassPayload) error {
@@ -274,65 +238,6 @@ func (r *store) updateClass(b *bolt.Bucket, data ucs.ClassPayload) error {
 	}
 
 	return appendShards(b, data.Shards, make([]byte, 1, 68))
-}
-
-// DeleteClass class
-func (r *store) DeleteClass(_ context.Context, class string) error {
-	classKey := encodeClassName(class)
-	f := func(tx *bolt.Tx) error {
-		err := tx.Bucket(schemaBucket).DeleteBucket(classKey)
-		if err != nil && !errors.Is(err, bolt.ErrBucketNotFound) {
-			return err
-		}
-		return nil
-	}
-	return r.db.Update(f)
-}
-
-// NewShards add new shards to an existing class
-func (r *store) NewShards(_ context.Context, class string, shards []ucs.KeyValuePair) error {
-	classKey := encodeClassName(class)
-	f := func(tx *bolt.Tx) error {
-		b := tx.Bucket(schemaBucket).Bucket(classKey)
-		if b == nil {
-			return fmt.Errorf("class not found")
-		}
-		return appendShards(b, shards, make([]byte, 1, 68))
-	}
-	return r.db.Update(f)
-}
-
-// Update shards updates (replaces) shards of existing class
-// Error is returned if class or shard does not exist
-func (r *store) UpdateShards(_ context.Context, class string, shards []ucs.KeyValuePair) error {
-	classKey := encodeClassName(class)
-	f := func(tx *bolt.Tx) error {
-		b := tx.Bucket(schemaBucket).Bucket(classKey)
-		if b == nil {
-			return fmt.Errorf("class not found")
-		}
-		keyBuf := make([]byte, 1, 68)
-		if !existShards(b, shards, keyBuf) {
-			return fmt.Errorf("shard not found")
-		}
-		return appendShards(b, shards, keyBuf)
-	}
-	return r.db.Update(f)
-}
-
-// DeleteShards of a specific class
-//
-//	If the class or a shard does not exist then nothing is done and a nil error is returned
-func (r *store) DeleteShards(_ context.Context, class string, shards []string) error {
-	classKey := encodeClassName(class)
-	f := func(tx *bolt.Tx) error {
-		b := tx.Bucket(schemaBucket).Bucket(classKey)
-		if b == nil {
-			return nil
-		}
-		return deleteShards(b, shards, make([]byte, 1, 68))
-	}
-	return r.db.Update(f)
 }
 
 // Load loads the complete schema from the persistent storage
@@ -513,19 +418,6 @@ func saveConfig(root *bolt.Bucket, cfg config) error {
 	return nil
 }
 
-func existShards(b *bolt.Bucket, shards []ucs.KeyValuePair, keyBuf []byte) bool {
-	keyBuf[0] = eTypeShard
-	for _, pair := range shards {
-		kLen := len(pair.Key) + 1
-		keyBuf = append(keyBuf, pair.Key...)
-		if val := b.Get(keyBuf[:kLen]); val == nil {
-			return false
-		}
-		keyBuf = keyBuf[:1]
-	}
-	return true
-}
-
 func appendShards(b *bolt.Bucket, shards []ucs.KeyValuePair, key []byte) error {
 	key[0] = eTypeShard
 	for _, pair := range shards {
@@ -535,19 +427,6 @@ func appendShards(b *bolt.Bucket, shards []ucs.KeyValuePair, key []byte) error {
 			return err
 		}
 		key = key[:1]
-	}
-	return nil
-}
-
-func deleteShards(b *bolt.Bucket, shards []string, keyBuf []byte) error {
-	keyBuf[0] = eTypeShard
-	for _, name := range shards {
-		kLen := len(name) + 1
-		keyBuf = append(keyBuf, name...)
-		if err := b.Delete(keyBuf[:kLen]); err != nil {
-			return err
-		}
-		keyBuf = keyBuf[:1]
 	}
 	return nil
 }
@@ -567,8 +446,6 @@ func copyFile(dst, src string) error {
 	}
 	return os.WriteFile(dst, data, 0o644)
 }
-
-// var _ = schemauc.Repo(&Repo{})
 
 func createClassPayload(class *models.Class,
 	shardingState *sharding.State,
