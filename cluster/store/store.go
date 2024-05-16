@@ -252,8 +252,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
-	if st.lastAppliedIndexOnStart.Load() <= st.raft.LastIndex() {
-		// this should include empty and non empty node
+	if st.lastAppliedIndexOnStart.Load() == 0 {
+		// empty node
 		st.openDatabase(ctx)
 	}
 
@@ -647,14 +647,14 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if l.Index == st.lastAppliedIndexOnStart.Load() {
+		if !st.dbLoaded.Load() && l.Index >= st.lastAppliedIndexOnStart.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
 				"log_index":                    l.Index,
 				"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
 			}).Debug("reloading local DB as RAFT and local DB are now caught up")
-			st.reloadDBFromSchema()
+			st.openDatabase(context.Background())
 		}
 		st.lastAppliedIndex.Store(l.Index)
 
