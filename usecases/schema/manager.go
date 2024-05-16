@@ -138,32 +138,15 @@ func (s State) EqualEnough(other *State) bool {
 
 // SchemaStore is responsible for persisting the schema
 // by providing support for both partial and complete schema updates
+// Deprecated: instead schema now is persistent via RAFT
+// see : usecase/schema/handler.go & cluster/store/store.go
+// Load and save are left to support backward compatibility
 type SchemaStore interface {
 	// Save saves the complete schema to the persistent storage
 	Save(ctx context.Context, schema State) error
 
 	// Load loads the complete schema from the persistent storage
 	Load(context.Context) (State, error)
-
-	// NewClass creates a new class if it doesn't exists, otherwise return an error
-	NewClass(context.Context, ClassPayload) error
-
-	// UpdateClass if it exists, otherwise return an error
-	UpdateClass(context.Context, ClassPayload) error
-
-	// DeleteClass deletes class
-	DeleteClass(ctx context.Context, class string) error
-
-	// NewShards creates new shards of an existing class
-	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
-
-	// UpdateShards updates (replaces) shards of on existing class
-	// Error is returned if class or shard does not exist
-	UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error
-
-	// DeleteShards deletes shards from a class
-	// If the class or a shard does not exist then nothing is done and a nil error is returned
-	DeleteShards(ctx context.Context, class string, shards []string) error
 }
 
 // KeyValuePair is used to serialize shards updates
