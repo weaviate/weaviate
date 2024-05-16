@@ -922,6 +922,11 @@ func (st *Store) reloadDBFromSchema() {
 	st.dbLock.Lock()
 	defer st.dbLock.Unlock()
 
+	if st.lastAppliedIndexOnStart.Load() == 0 {
+		// don't reload if it was reloaded
+		return
+	}
+
 	classes := st.db.Schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
