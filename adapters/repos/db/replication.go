@@ -327,6 +327,12 @@ func (i *Index) overwriteObjects(ctx context.Context,
 		}
 		// valid update
 		found, err := s.ObjectByID(ctx, data.ID, nil, additional.Properties{})
+		if err == nil && found == nil {
+			// TODO: current case for locally deleted objects
+			// explicit Deleted error may be preferred but changing ObjectByID
+			// implies a global impact
+			continue
+		}
 		var curUpdateTime int64 // 0 means object doesn't exist on this node
 		if found != nil {
 			curUpdateTime = found.LastUpdateTimeUnix()
