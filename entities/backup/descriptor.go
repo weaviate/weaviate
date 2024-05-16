@@ -95,8 +95,27 @@ func (d *DistributedBackupDescriptor) Filter(pred func(s string) bool) {
 	}
 }
 
-// IncludeExcludeClasses return filter to includes or excludes classes based on the operation.
-func IncludeExcludeClasses(classes []string, regClasses []string, include bool) func(string) bool {
+// Include only these classes and remove everything else
+func (d *DistributedBackupDescriptor) Include(classes []string, regClasses []string) {
+	// If neither include nor include_patterns is set, skip the filter
+	if len(classes) == 0 && len(regClasses) == 0 {
+		return
+	}
+
+	pred := predBuilder(classes, regClasses, true)
+	d.Filter(pred)
+}
+
+// Exclude removes classes from d
+func (d *DistributedBackupDescriptor) Exclude(classes []string, regClasses []string) {
+	if len(classes) == 0 && len(regClasses) == 0 {
+		return
+	}
+	pred := predBuilder(classes, regClasses, false)
+	d.Filter(pred)
+}
+
+func predBuilder(classes []string, regClasses []string, isInclude bool) func(s string) bool {
 	set := make(map[string]struct{}, len(classes))
 	for _, cls := range classes {
 		set[cls] = struct{}{}
@@ -108,39 +127,19 @@ func IncludeExcludeClasses(classes []string, regClasses []string, include bool) 
 	}
 
 	pred := func(s string) bool {
-		// If exist in the exact match, return true for include, false for exclude
+		// If exist in the exact match, return false
 		if _, ok := set[s]; ok {
-			return include
+			return isInclude
 		}
-		// If class match any regular expression, return true for include, false for exclude
+		// If class match any regular expression, return false
 		for _, reg := range regRule {
 			if reg.MatchString(s) {
-				return include
+				return isInclude
 			}
 		}
-		// Return opposite of include for unmatched classes
-		return !include
+		return !isInclude
 	}
-
 	return pred
-}
-
-// Include only these classes and remove everything else from d
-func (d *DistributedBackupDescriptor) Include(classes []string, regClasses []string) {
-	if len(classes) == 0 && len(regClasses) == 0 {
-		return
-	}
-	pred := IncludeExcludeClasses(classes, regClasses, true)
-	d.Filter(pred)
-}
-
-// Exclude removes classes from d
-func (d *DistributedBackupDescriptor) Exclude(classes []string, regClasses []string) {
-	if len(classes) == 0 && len(regClasses) == 0 {
-		return
-	}
-	pred := IncludeExcludeClasses(classes, regClasses, false)
-	d.Filter(pred)
 }
 
 // ToMappedNodeName will return nodeName after applying d.NodeMapping translation on it.
