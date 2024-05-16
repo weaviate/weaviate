@@ -50,25 +50,25 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		if err != nil {
 			return nil, err
 		}
-		targetVector, err := t.nearParamsVector.targetFromParams(ctx,
+		targetVectors, err := t.nearParamsVector.targetFromParams(ctx,
 			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant)
 		if err != nil {
 			return nil, err
 		}
 
-		//targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
-		//	className, targetVector)
-		//if err != nil {
-		//	return nil, err
-		//}
-
-		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
-			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant, targetVector[0])
+		targetVectors, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(),
+			className, targetVectors)
 		if err != nil {
 			return nil, err
 		}
 
-		params.TargetVector = targetVector[0]
+		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
+			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant, targetVectors[0])
+		if err != nil {
+			return nil, err
+		}
+
+		params.TargetVector = targetVectors[0]
 		params.SearchVector = searchVector
 
 		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
@@ -81,16 +81,19 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	}
 
 	if params.Hybrid != nil && params.Hybrid.Vector == nil && params.Hybrid.Query != "" {
-		targetVector := ""
+		var targetVectors []string
 		if len(params.Hybrid.TargetVectors) == 1 {
-			targetVector = params.Hybrid.TargetVectors[0]
+			targetVectors = params.Hybrid.TargetVectors[:1]
 		}
-		targetVector, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(), params.ClassName.String(), targetVector)
+		targetVectors, err = t.targetVectorParamHelper.GetTargetVectorOrDefault(t.schemaGetter.GetSchemaSkipAuth(), params.ClassName.String(), targetVectors)
 		if err != nil {
 			return nil, err
 		}
-
-		params.TargetVector = targetVector
+		if len(targetVectors) == 0 {
+			params.TargetVector = ""
+		} else {
+			params.TargetVector = targetVectors[0]
+		}
 
 		certainty := t.nearParamsVector.extractCertaintyFromParams(params.NearVector,
 			params.NearObject, params.ModuleParams, params.Hybrid)

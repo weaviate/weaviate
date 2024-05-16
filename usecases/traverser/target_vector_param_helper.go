@@ -25,21 +25,23 @@ func NewTargetParamHelper() *TargetVectorParamHelper {
 	return &TargetVectorParamHelper{}
 }
 
-func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error) {
-	if targetVector == "" {
+func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className string, targetVectors []string) ([]string, error) {
+	if len(targetVectors) == 0 {
 		class := sch.FindClassByName(schema.ClassName(className))
 
 		if len(class.VectorConfig) > 1 {
-			return "", fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
+			return []string{}, fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
 		}
 
 		if len(class.VectorConfig) == 1 {
 			for name := range class.VectorConfig {
-				return name, nil
+				return []string{name}, nil
 			}
 		}
+
+		return []string{""}, nil
 	}
-	return targetVector, nil
+	return targetVectors, nil
 }
 
 func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParams) []string {

@@ -220,11 +220,11 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
-	//targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
-	//	params.ClassName, targetVector)
-	//if err != nil {
-	//	return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
-	//}
+	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
+		params.ClassName, targetVectors)
+	if err != nil {
+		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
+	}
 
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(_NUMCPU * 2)
@@ -243,12 +243,15 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	}
 
 	res := e.combineResults(ress, params.Pagination.Limit)
-	return res, searchVectors[0], nil
+	if len(searchVectors) > 0 {
+		return res, searchVectors[0], nil
+	}
+	return res, []float32{}, nil
 }
 
 func (e *Explorer) combineResults(results [][]search.Result, limit int) []search.Result {
 	if len(results) == 0 {
-		return nil
+		return []search.Result{}
 	}
 
 	if len(results) == 1 {

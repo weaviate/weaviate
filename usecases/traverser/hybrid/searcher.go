@@ -67,7 +67,7 @@ type modulesProvider interface {
 }
 
 type targetVectorParamHelper interface {
-	GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error)
+	GetTargetVectorOrDefault(sch schema.Schema, className string, targetVector []string) ([]string, error)
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
@@ -250,9 +250,9 @@ func decideSearchVector(ctx context.Context,
 		return vector, nil
 	} else {
 		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
+			targetVectors, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
+				class, targetVectors)
 			targetVector := getTargetVector(targetVectors)
-			targetVector, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
-				class, targetVector)
 			if err != nil {
 				return nil, err
 			}

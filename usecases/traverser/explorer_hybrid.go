@@ -76,21 +76,21 @@ func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e 
 	params.Group = nil
 	params.GroupBy = nil
 
-	targetVector := ""
+	var targetVectors []string
 	if len(params.HybridSearch.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.TargetVectors[0]
+		targetVectors = params.HybridSearch.TargetVectors[:1]
 	}
 	// Subsearch takes precedence over the top level
 	if len(nearVecParams.TargetVectors) > 0 {
-		targetVector = nearVecParams.TargetVectors[0]
+		targetVectors = nearVecParams.TargetVectors[:1]
 	}
 
-	targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
+	targetVectors, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVectors)
 	if err != nil {
 		return nil, "", err
 	}
 
-	params.NearVector.TargetVectors = []string{targetVector}
+	params.NearVector.TargetVectors = targetVectors
 
 	// TODO confirm that targetVectos is being passed through as part of the params
 	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
@@ -150,21 +150,21 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 
 	subSearchParams.WithDistance = params.HybridSearch.NearTextParams.WithDistance
 
-	targetVector := ""
+	var targetVectors []string
 	if len(params.HybridSearch.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.TargetVectors[0]
+		targetVectors = params.HybridSearch.TargetVectors[:1]
 	}
 	// Subsearch takes precedence over the top level
 	if len(params.HybridSearch.NearTextParams.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
+		targetVectors = params.HybridSearch.NearTextParams.TargetVectors[:1]
 	}
 
-	targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
+	targetVectors, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVectors)
 	if err != nil {
 		return nil, "", err
 	}
 
-	subSearchParams.TargetVectors = []string{targetVector} // TODO support multiple target vectors
+	subSearchParams.TargetVectors = targetVectors // TODO support multiple target vectors
 
 	subsearchWrap := params
 	if subsearchWrap.ModuleParams == nil {
@@ -201,14 +201,14 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var results [][]*search.Result
 	var weights []float64
 	var names []string
-	var targetVector string
+	var targetVectors []string
 
 	if params.HybridSearch.NearTextParams != nil && params.HybridSearch.NearVectorParams != nil {
 		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
 	}
 
 	if len(params.HybridSearch.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.TargetVectors[0]
+		targetVectors = params.HybridSearch.TargetVectors[:1]
 	}
 
 	origParams := params
@@ -244,7 +244,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = append(results, res)
 			names = append(names, name)
 		} else {
-			targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
+			targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVectors)
 			if err != nil {
 				return nil, err
 			}
@@ -255,6 +255,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			}
 			if len(params.HybridSearch.Vector) == 0 {
 				var err error
+				targetVector := ""
+				if len(targetVectors) > 0 {
+					targetVector = targetVectors[0]
+				}
 				params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
 				if err != nil {
 					return nil, err
