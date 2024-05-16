@@ -599,6 +599,16 @@ func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shar
 		}
 		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
 	}
+	class := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
+	if class == nil {
+		return "", fmt.Errorf("class %q not found in schema", i.Config.ClassName)
+	}
+	if class.MultiTenancyConfig.AutoTenantCreation {
+		err := fmt.Errorf(
+			"%w: %q, if expecting this tenant to be created with autoTenantCreation, "+
+				"this feature only works with batch insertion", errTenantNotFound, tenant)
+		return "", objects.NewErrMultiTenancy(err)
+	}
 	return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 }
 
