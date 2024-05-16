@@ -255,6 +255,10 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		// this should include empty and non empty node
 		st.openDatabase(ctx)
 	}
+	// if empty node report ready
+	if st.lastAppliedIndexOnStart.Load() == 0 {
+		st.dbLoaded.Store(true)
+	}
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
@@ -615,10 +619,10 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
-// Apply log is invoked once a log entry is committed.
-// It returns a value which will be made available in the
-// ApplyFuture returned by Raft.Apply method if that
-// method was called on the same Raft node as the FSM.
+// Apply is called once a log entry is committed by a majority of the cluster.
+// Apply should apply the log to the FSM. Apply must be deterministic and
+// produce the same result on all peers in the cluster.
+// The returned value is returned to the client as the ApplyFuture.Response.
 func (st *Store) Apply(l *raft.Log) interface{} {
 	ret := Response{Version: l.Index}
 	st.log.WithFields(logrus.Fields{
@@ -640,7 +644,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	}
 
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
-	// don't update the database. This can lead to dataloss for example if we drop then re-add a class.
+	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
 	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
 	defer func() {
@@ -653,16 +657,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"log_index":                    l.Index,
 				"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
 			}).Debug("reloading local DB as RAFT and local DB are now caught up")
-			cs := make([]command.UpdateClassRequest, len(st.db.Schema.Classes))
-			i := 0
-			for _, v := range st.db.Schema.Classes {
-				cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
-				i++
-			}
-			st.db.store.ReloadLocalDB(context.Background(), cs)
+			st.reloadDBFromSchema()
 		}
-
 		st.lastAppliedIndex.Store(l.Index)
+
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
 				"log_type":      l.Type,
@@ -732,6 +730,18 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	return ret
 }
 
+// Snapshot returns an FSMSnapshot used to: support log compaction, to
+// restore the FSM to a previous state, or to bring out-of-date followers up
+// to a recent log index.
+//
+// The Snapshot implementation should return quickly, because Apply can not
+// be called while Snapshot is running. Generally this means Snapshot should
+// only capture a pointer to the state, and any expensive IO should happen
+// as part of FSMSnapshot.Persist.
+//
+// Apply and Snapshot are always called from the same thread, but Apply will
+// be called concurrently with FSMSnapshot.Persist. This means the FSM should
+// be implemented to allow for concurrent updates while a snapshot is happening.
 func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 	st.log.Info("persisting snapshot")
 	return st.db.Schema, nil
@@ -891,7 +901,6 @@ func (st *Store) openDatabase(ctx context.Context) {
 		panic("error restoring database")
 	}
 
-	st.dbLoaded.Store(true)
 	st.log.WithField("n", st.db.Schema.len()).Info("database has been successfully loaded")
 }
 
@@ -901,8 +910,12 @@ func (st *Store) openDatabase(ctx context.Context) {
 //
 // In specific scenarios where the follower's state is too far behind the leader's log,
 // the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
-func (st *Store) reloadDBFromSnapshot() bool {
-	ctx := context.Background()
+func (st *Store) reloadDBFromSnapshot() (success bool) {
+	defer func() {
+		if success {
+			st.reloadDBFromSchema()
+		}
+	}()
 
 	if !st.dbLoaded.CompareAndSwap(true, false) {
 		// the snapshot already includes the state from the raft log
@@ -912,25 +925,25 @@ func (st *Store) reloadDBFromSnapshot() bool {
 			"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
 			"last_snapshot_index":          snapIndex,
 		}).Info("load local db from snapshot")
-		if st.lastAppliedIndexOnStart.Load() <= snapIndex {
-			st.openDatabase(ctx)
-			return true
-		}
-		return false
+		return st.lastAppliedIndexOnStart.Load() <= snapIndex
 	}
+	return true
+}
 
-	st.log.Info("reload local db: update schema ...")
-	cs := make([]command.UpdateClassRequest, len(st.db.Schema.Classes))
+func (st *Store) reloadDBFromSchema() {
+	classes := st.db.Schema.MetaClasses()
+
+	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
-	for _, v := range st.db.Schema.Classes {
+	for _, v := range classes {
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
-	st.db.store.ReloadLocalDB(context.Background(), cs)
 
+	st.log.Info("reload local db: update schema ...")
+	st.db.store.ReloadLocalDB(context.Background(), cs)
 	st.dbLoaded.Store(true)
 	st.lastAppliedIndexOnStart.Store(0)
-	return true
 }
 
 type Response struct {

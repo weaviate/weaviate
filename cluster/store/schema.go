@@ -348,6 +348,13 @@ func (s *schema) States() map[string]ClassState {
 	return cs
 }
 
+func (s *schema) MetaClasses() map[string]*metaClass {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.Classes
+}
+
 func (s *schema) clear() {
 	s.Lock()
 	defer s.Unlock()
