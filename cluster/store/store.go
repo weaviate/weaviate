@@ -256,6 +256,10 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		// this should include empty and non empty node
 		st.openDatabase(ctx)
 	}
+	// if empty node report ready
+	if st.lastAppliedIndexOnStart.Load() == 0 {
+		st.dbLoaded.Store(true)
+	}
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
@@ -643,11 +647,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := l.Index <= st.lastAppliedIndexOnStart.Load()
+	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if l.Index == st.lastAppliedIndexOnStart.Load() {
+		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index == st.lastAppliedIndexOnStart.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
@@ -898,7 +902,6 @@ func (st *Store) openDatabase(ctx context.Context) {
 		panic("error restoring database")
 	}
 
-	st.dbLoaded.Store(true)
 	st.log.WithField("n", st.db.Schema.len()).Info("database has been successfully loaded")
 }
 
@@ -908,8 +911,12 @@ func (st *Store) openDatabase(ctx context.Context) {
 //
 // In specific scenarios where the follower's state is too far behind the leader's log,
 // the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
-func (st *Store) reloadDBFromSnapshot() bool {
-	ctx := context.Background()
+func (st *Store) reloadDBFromSnapshot() (success bool) {
+	defer func() {
+		if success {
+			st.reloadDBFromSchema()
+		}
+	}()
 
 	if !st.dbLoaded.CompareAndSwap(true, false) {
 		// the snapshot already includes the state from the raft log
@@ -919,13 +926,8 @@ func (st *Store) reloadDBFromSnapshot() bool {
 			"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
 			"last_snapshot_index":          snapIndex,
 		}).Info("load local db from snapshot")
-		if st.lastAppliedIndexOnStart.Load() <= snapIndex {
-			st.openDatabase(ctx)
-			return true
-		}
-		return false
+		return st.lastAppliedIndexOnStart.Load() <= snapIndex
 	}
-	st.reloadDBFromSchema()
 	return true
 }
 
