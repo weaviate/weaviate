@@ -40,7 +40,7 @@ func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props 
 		return nil, err
 	}
 
-	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetErrNotFound(idBytes)
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetErrDeleted(idBytes)
 	if err != nil {
 		return nil, err
 	}

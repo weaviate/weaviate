@@ -338,7 +338,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	return b.disk.get(key)
 }
 
-func (b *Bucket) GetErrNotFound(key []byte) ([]byte, error) {
+func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
