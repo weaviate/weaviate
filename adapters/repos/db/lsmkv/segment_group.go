@@ -228,6 +228,38 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	return nil, nil
 }
 
+func (sg *SegmentGroup) getErrNotFound(key []byte) ([]byte, error) {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	return sg.getWithUpperSegmentBoundaryErrNotFound(key, len(sg.segments)-1)
+}
+
+func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrNotFound(key []byte, topMostSegment int) ([]byte, error) {
+	// assumes "replace" strategy
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	for i := topMostSegment; i >= 0; i-- {
+		v, err := sg.segments[i].get(key)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			if errors.Is(err, lsmkv.Deleted) {
+				return nil, err
+			}
+
+			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
+		}
+
+		return v, nil
+	}
+
+	return nil, nil
+}
+
 func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()

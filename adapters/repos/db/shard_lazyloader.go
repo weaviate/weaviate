@@ -190,6 +190,13 @@ func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props se
 	return l.shard.ObjectByID(ctx, id, props, additional)
 }
 
+func (l *LazyLoadShard) ObjectByIDErrNotFound(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ObjectByIDErrNotFound(ctx, id, props, additional)
+}
+
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	if err := l.Load(ctx); err != nil {
 		return false, err

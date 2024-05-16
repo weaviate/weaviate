@@ -20,7 +20,9 @@ import (
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -326,11 +328,8 @@ func (i *Index) overwriteObjects(ctx context.Context,
 			continue
 		}
 		// valid update
-		found, err := s.ObjectByID(ctx, data.ID, nil, additional.Properties{})
-		if err == nil && found == nil {
-			// TODO: current case for locally deleted objects
-			// explicit Deleted error may be preferred but changing ObjectByID
-			// implies a global impact
+		found, err := s.ObjectByIDErrNotFound(ctx, data.ID, nil, additional.Properties{})
+		if err != nil && errors.Is(err, lsmkv.Deleted) {
 			continue
 		}
 		var curUpdateTime int64 // 0 means object doesn't exist on this node
