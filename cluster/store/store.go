@@ -155,6 +155,7 @@ type Store struct {
 
 	nodeID        string
 	host          string
+	dbLock        sync.Mutex
 	db            *localDB
 	log           *logrus.Logger
 	logLevel      string
@@ -918,14 +919,19 @@ func (st *Store) reloadDBFromSnapshot() bool {
 }
 
 func (st *Store) reloadDBFromSchema() {
+	st.dbLock.Lock()
+	defer st.dbLock.Unlock()
+
 	classes := st.db.Schema.MetaClasses()
-	st.log.Info("reload local db: update schema ...")
-	cs := make([]command.UpdateClassRequest, st.db.Schema.len())
+
+	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
+
+	st.log.Info("reload local db: update schema ...")
 	st.db.store.ReloadLocalDB(context.Background(), cs)
 	st.dbLoaded.Store(true)
 	st.lastAppliedIndexOnStart.Store(0)
