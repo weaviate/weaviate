@@ -779,7 +779,7 @@ func (p *Provider) getTargetVector(class *models.Class, params interface{}) ([]s
 			}
 		}
 	}
-	return []string{}, nil
+	return []string{""}, nil
 }
 
 func (p *Provider) getModuleNameForTargetVector(class *models.Class, targetVector string) string {
