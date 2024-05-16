@@ -649,7 +649,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index >= st.lastAppliedIndexOnStart.Load() {
+		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index == st.lastAppliedIndexOnStart.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
