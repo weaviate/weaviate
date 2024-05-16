@@ -644,25 +644,20 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// If we don't have any last applied index on start, schema only is always false.
 	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
 	defer func() {
+		st.lastAppliedIndex.Store(l.Index)
+
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index == st.lastAppliedIndexOnStart.Load() {
+		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index >= st.lastAppliedIndexOnStart.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
 				"log_index":                    l.Index,
 				"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
 			}).Debug("reloading local DB as RAFT and local DB are now caught up")
-			cs := make([]command.UpdateClassRequest, len(st.db.Schema.Classes))
-			i := 0
-			for _, v := range st.db.Schema.Classes {
-				cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
-				i++
-			}
-			st.db.store.ReloadLocalDB(context.Background(), cs)
+			st.reloadDBFromSchema()
 		}
 
-		st.lastAppliedIndex.Store(l.Index)
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
 				"log_type":      l.Type,
@@ -918,19 +913,22 @@ func (st *Store) reloadDBFromSnapshot() bool {
 		}
 		return false
 	}
+	st.reloadDBFromSchema()
+	return true
+}
 
+func (st *Store) reloadDBFromSchema() {
+	classes := st.db.Schema.MetaClasses()
 	st.log.Info("reload local db: update schema ...")
-	cs := make([]command.UpdateClassRequest, len(st.db.Schema.Classes))
+	cs := make([]command.UpdateClassRequest, st.db.Schema.len())
 	i := 0
-	for _, v := range st.db.Schema.Classes {
+	for _, v := range classes {
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
 	st.db.store.ReloadLocalDB(context.Background(), cs)
-
 	st.dbLoaded.Store(true)
 	st.lastAppliedIndexOnStart.Store(0)
-	return true
 }
 
 type Response struct {
