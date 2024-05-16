@@ -310,7 +310,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
-		return nil, nil
+		return nil, lsmkv.Deleted
 	}
 
 	if err != lsmkv.NotFound {
@@ -327,7 +327,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
-			return nil, nil
+			return nil, lsmkv.Deleted
 		}
 
 		if err != lsmkv.NotFound {
@@ -389,7 +389,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
-		return nil, buffer, nil
+		return nil, nil, lsmkv.Deleted
 	}
 
 	if err != lsmkv.NotFound {
@@ -406,7 +406,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
-			return nil, buffer, nil
+			return nil, nil, lsmkv.Deleted
 		}
 
 		if err != lsmkv.NotFound {

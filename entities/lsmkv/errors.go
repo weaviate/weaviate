@@ -13,9 +13,10 @@ package lsmkv
 
 import (
 	"errors"
+	"fmt"
 )
 
 var (
 	NotFound = errors.New("not found")
-	Deleted  = errors.New("deleted")
+	Deleted  = fmt.Errorf("%w: deleted", NotFound)
 )

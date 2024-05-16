@@ -216,7 +216,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 			}
 
 			if errors.Is(err, lsmkv.Deleted) {
-				return nil, nil
+				return nil, lsmkv.Deleted
 			}
 
 			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
@@ -244,7 +244,7 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 			}
 
 			if errors.Is(err, lsmkv.Deleted) {
-				return nil, nil, nil
+				return nil, nil, lsmkv.Deleted
 			}
 
 			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
