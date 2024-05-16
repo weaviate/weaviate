@@ -64,8 +64,8 @@ func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []stri
 			return
 		}
 
-		distancerTypes[vectorConfig.DistanceName()] = struct{}{}
-		classDistanceConfigs[class.Class] = vectorConfig.DistanceName()
+		distancerTypes[vectorConfig[0].DistanceName()] = struct{}{}
+		classDistanceConfigs[class.Class] = vectorConfig[0].DistanceName()
 	}
 
 	if len(distancerTypes) != 1 {
@@ -102,14 +102,16 @@ func (t *Traverser) validateGetDistanceParams(params dto.GetParams) error {
 		return fmt.Errorf("failed to find class '%s' in schema", params.ClassName)
 	}
 
-	targetVector := t.targetVectorParamHelper.GetTargetVectorFromParams(params)
-	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, []string{targetVector})
+	targetVectors := t.targetVectorParamHelper.GetTargetVectorsFromParams(params)
+	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
 	if err != nil {
 		return err
 	}
 
-	if dn := vectorConfig.DistanceName(); dn != common.DistanceCosine {
-		return certaintyUnsupportedError(dn)
+	for _, conf := range vectorConfig {
+		if dn := conf.DistanceName(); dn != common.DistanceCosine {
+			return certaintyUnsupportedError(dn)
+		}
 	}
 
 	return nil

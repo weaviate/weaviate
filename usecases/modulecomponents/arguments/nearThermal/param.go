@@ -35,6 +35,10 @@ func (n NearThermalParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
+func (n NearThermalParams) SupportMultiTargetVector() bool {
+	return false
+}
+
 func (n NearThermalParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }

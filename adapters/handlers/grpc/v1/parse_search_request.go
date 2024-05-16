@@ -406,7 +406,7 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string
 	if targetVectors != nil && len(*targetVectors) == 0 && len(class.VectorConfig) > 1 {
 		return nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 	}
-	if targetVectors != nil && len(*targetVectors) > 1 {
+	if targetVectors != nil && len(*targetVectors) > 1 && req.NearText == nil {
 		return nil, fmt.Errorf("cannot provide multiple target vectors when searching, only one is allowed")
 	}
 	return targetVectors, nil
@@ -758,12 +758,16 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 			return props, errors.Wrap(err, "get vector index config from class")
 		}
 
-		// certainty is only compatible with cosine distance
-		if vectorIndex.DistanceName() == common.DistanceCosine && prop.Certainty {
-			props.Certainty = true
-		} else {
-			props.Certainty = false
+		certainty := false
+		for _, conf := range vectorIndex {
+			if conf.DistanceName() == common.DistanceCosine && prop.Certainty {
+				certainty = true
+			} else {
+				certainty = false
+				break // all vector indexes must be cosine for certainty
+			}
 		}
+		props.Certainty = certainty
 	}
 
 	return props, nil

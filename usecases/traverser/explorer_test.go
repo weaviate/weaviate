@@ -2759,15 +2759,18 @@ func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className, in
 	panic("not implemented")
 }
 
-func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className,
-	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn, tenant string,
-) ([]float32, string, error) {
+func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
-	targetVector := ""
 	vec, err := vectorForParams(ctx, params, "", findVectorFn, nil)
-	return vec, targetVector, err
+	return vec, err
+}
+
+func (p *fakeModulesProvider) TargetsFromSearchParam(className string, params interface{}) ([]string, error) {
+	targetVector := ""
+	return []string{targetVector}, nil
 }
 
 func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Context,

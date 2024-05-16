@@ -33,6 +33,7 @@ type NearParam interface {
 	GetDistance() float64
 	GetTargetVectors() []string
 	SimilarityMetricProvided() bool
+	SupportMultiTargetVector() bool
 }
 
 // ValidateFn validates a given module param

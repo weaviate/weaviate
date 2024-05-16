@@ -42,30 +42,30 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 	return targetVector, nil
 }
 
-func (t *TargetVectorParamHelper) GetTargetVectorFromParams(params dto.GetParams) string {
+func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParams) []string {
 	if params.NearObject != nil && len(params.NearObject.TargetVectors) == 1 {
-		return params.NearObject.TargetVectors[0]
+		return params.NearObject.TargetVectors
 	}
 	if params.NearVector != nil && len(params.NearVector.TargetVectors) == 1 {
-		return params.NearVector.TargetVectors[0]
+		return params.NearVector.TargetVectors
 	}
 	if params.HybridSearch != nil {
 		if len(params.HybridSearch.TargetVectors) == 1 {
-			return params.HybridSearch.TargetVectors[0]
+			return params.HybridSearch.TargetVectors
 		}
 		if params.HybridSearch.NearTextParams != nil && len(params.HybridSearch.NearTextParams.TargetVectors) == 1 {
-			return params.HybridSearch.NearTextParams.TargetVectors[0]
+			return params.HybridSearch.NearTextParams.TargetVectors
 		}
 		if params.HybridSearch.NearVectorParams != nil && len(params.HybridSearch.NearVectorParams.TargetVectors) == 1 {
-			return params.HybridSearch.NearVectorParams.TargetVectors[0]
+			return params.HybridSearch.NearVectorParams.TargetVectors
 		}
 	}
 	if len(params.ModuleParams) > 0 {
-		for _, moduleParam := range params.ModuleParams {
-			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && len(nearParam.GetTargetVectors()) == 1 {
-				return nearParam.GetTargetVectors()[0]
+		for name, moduleParam := range params.ModuleParams {
+			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && (len(nearParam.GetTargetVectors()) == 1 || name == "nearText") {
+				return nearParam.GetTargetVectors()
 			}
 		}
 	}
-	return ""
+	return []string{}
 }

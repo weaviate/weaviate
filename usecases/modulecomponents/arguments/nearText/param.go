@@ -52,6 +52,10 @@ func (n NearTextParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
+func (n NearTextParams) SupportMultiTargetVector() bool {
+	return true
+}
+
 func (n NearTextParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }
@@ -72,11 +76,6 @@ func (n NearTextParams) Validate() error {
 	if n.Certainty != 0 && n.WithDistance {
 		return errors.Errorf(
 			"nearText cannot provide both distance and certainty")
-	}
-
-	if len(n.TargetVectors) > 1 {
-		return errors.Errorf(
-			"nearText.targetVectors cannot provide more than 1 target vector value")
 	}
 
 	return nil

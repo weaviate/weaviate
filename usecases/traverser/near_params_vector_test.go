@@ -270,13 +270,13 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 				modulesProvider: &fakeModulesProvider{},
 				search:          &fakeNearParamsSearcher{},
 			}
-			got, targetVector, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "")
+			got, targetVector, err := e.targetFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("nearParamsVector.vectorFromParams() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("nearParamsVector.targetFromParams() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("nearParamsVector.vectorFromParams() = %v, want %v", got, tt.want)
+				t.Errorf("nearParamsVector.targetFromParams() = %v, want %v", got, tt.want)
 			}
 			assert.Equal(t, "", targetVector)
 		})

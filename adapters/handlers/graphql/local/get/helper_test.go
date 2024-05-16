@@ -160,6 +160,10 @@ func (n nearCustomTextParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
+func (n nearCustomTextParams) SupportMultiTargetVector() bool {
+	return false
+}
+
 func (n nearCustomTextParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }

@@ -14,7 +14,11 @@ package traverser
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strings"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -39,6 +43,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
 
+var _NUMCPU = runtime.GOMAXPROCS(0)
+
 // Explorer is a helper construct to perform vector-based searches. It does not
 // contain monitoring or authorization checks. It should thus never be directly
 // used by an API, but through a Traverser.
@@ -60,8 +66,9 @@ type explorerMetrics interface {
 type ModulesProvider interface {
 	ValidateSearchParam(name string, value interface{}, className string) error
 	CrossClassValidateSearchParam(name string, value interface{}) error
-	VectorFromSearchParam(ctx context.Context, className string, param string,
-		params interface{}, findVectorFn modulecapabilities.FindVectorFn, tenant string) ([]float32, string, error)
+	VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+		findVectorFn modulecapabilities.FindVectorFn) ([]float32, error)
+	TargetsFromSearchParam(className string, params interface{}) ([]string, error)
 	CrossClassVectorFromSearchParam(ctx context.Context, param string,
 		params interface{}, findVectorFn modulecapabilities.FindVectorFn) ([]float32, string, error)
 	GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
@@ -208,30 +215,97 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, []float32, error) {
-	searchVector, targetVector, err := e.vectorFromParams(ctx, params)
+	targetVectors, err := e.targetFromParams(ctx, params)
 	if err != nil {
 		return nil, nil, errors.Errorf("explorer: get class: vectorize params: %v", err)
 	}
 
-	targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
-		params.ClassName, targetVector)
-	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
-	}
-	params.TargetVector = targetVector
-	params.SearchVector = searchVector
+	//targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(),
+	//	params.ClassName, targetVector)
+	//if err != nil {
+	//	return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
+	//}
 
-	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
+	eg := enterrors.NewErrorGroupWrapper(e.logger)
+	eg.SetLimit(_NUMCPU * 2)
+	ress := make([][]search.Result, len(targetVectors))
+	searchVectors := make([][]float32, len(targetVectors))
+	for i, targetVector := range targetVectors {
+		index := i
+		f := func() error {
+			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectors)
+		}
+		eg.Go(f)
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	res := e.combineResults(ress, params.Pagination.Limit)
+	return res, searchVectors[0], nil
+}
+
+func (e *Explorer) combineResults(results [][]search.Result, limit int) []search.Result {
+	if len(results) == 0 {
+		return nil
+	}
+
+	combinedResults := make(map[uint64]search.Result, len(results[0]))
+	for _, res := range results {
+		for _, r := range res {
+			id := *(r.DocID)
+			if _, ok := combinedResults[id]; !ok {
+				combinedResults[id] = r
+			} else {
+				tmp := combinedResults[id]
+				tmp.Score += r.Score
+				tmp.SecondarySortValue += r.SecondarySortValue
+				tmp.Dist += r.Dist
+				tmp.Certainty += r.Certainty
+				combinedResults[id] = tmp
+			}
+		}
+	}
+	if limit > len(combinedResults) {
+		limit = len(combinedResults)
+	}
+
+	queue := priorityqueue.NewMin[float32](limit)
+
+	for id, res := range combinedResults {
+		queue.Insert(id, res.Dist)
+	}
+	returnResults := make([]search.Result, 0, queue.Len())
+	for i := 0; i < queue.Len(); i++ {
+		item := queue.Pop()
+		returnResults = append(returnResults, combinedResults[item.ID])
+	}
+
+	return returnResults
+}
+
+func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectors [][]float32) error {
+	paramsForTarget := params
+	paramsForTarget.TargetVector = targetVector
+	searchVector, err := e.vectorFromParamsForTaget(ctx, params, targetVector)
+	if err != nil {
+		return errors.Errorf("explorer: get class: get search vector: %v", err)
+	}
+
+	paramsForTarget.SearchVector = searchVector
+
+	if len(paramsForTarget.AdditionalProperties.ModuleParams) > 0 || paramsForTarget.Group != nil {
 		// if a module-specific additional prop is set, assume it needs the vector
 		// present for backward-compatibility. This could be improved by actually
 		// asking the module based on specific conditions
 		// if a group is set, vectors are needed
-		params.AdditionalProperties.Vector = true
+		paramsForTarget.AdditionalProperties.Vector = true
 	}
 
-	res, err := e.searcher.VectorSearch(ctx, params)
+	res, err := e.searcher.VectorSearch(ctx, paramsForTarget)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		return errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -239,14 +313,14 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		for i := range res {
 			scores[i] = res[i].Dist
 		}
-		cutOff := autocut.Autocut(scores, params.Pagination.Autocut)
+		cutOff := autocut.Autocut(scores, paramsForTarget.Pagination.Autocut)
 		res = res[:cutOff]
 	}
 
 	if params.Group != nil {
-		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
+		grouped, err := grouper.New(e.logger).Group(res, paramsForTarget.Group.Strategy, paramsForTarget.Group.Force)
 		if err != nil {
-			return nil, nil, errors.Errorf("grouper: %v", err)
+			return errors.Errorf("grouper: %v", err)
 		}
 
 		res = grouped
@@ -256,13 +330,14 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
 			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
 		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
+			return errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
-
 	e.trackUsageGet(res, params)
 
-	return res, searchVector, nil
+	results[index] = res
+	searchVectors[index] = searchVector
+	return nil
 }
 
 func MinInt(ints ...int) int {
@@ -633,11 +708,18 @@ func (e *Explorer) validateExploreParams(params ExploreParams) error {
 	return nil
 }
 
-func (e *Explorer) vectorFromParams(ctx context.Context,
+func (e *Explorer) targetFromParams(ctx context.Context,
 	params dto.GetParams,
-) ([]float32, string, error) {
-	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
+) ([]string, error) {
+	return e.nearParamsVector.targetFromParams(ctx, params.NearVector,
 		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
+}
+
+func (e *Explorer) vectorFromParamsForTaget(ctx context.Context,
+	params dto.GetParams, target string,
+) ([]float32, error) {
+	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
+		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, target)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
@@ -707,12 +789,12 @@ func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
-	targetVector := e.targetParamHelper.GetTargetVectorFromParams(params)
-	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, []string{targetVector})
+	targetVector := e.targetParamHelper.GetTargetVectorsFromParams(params)
+	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, targetVector)
 	if err != nil {
 		return err
 	}
-	if dn := vectorConfig.DistanceName(); dn != common.DistanceCosine {
+	if dn := vectorConfig[0].DistanceName(); dn != common.DistanceCosine {
 		return certaintyUnsupportedError(dn)
 	}
 

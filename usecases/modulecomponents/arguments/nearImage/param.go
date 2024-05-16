@@ -35,6 +35,10 @@ func (n NearImageParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
+func (n NearImageParams) SupportMultiTargetVector() bool {
+	return false
+}
+
 func (n NearImageParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }
