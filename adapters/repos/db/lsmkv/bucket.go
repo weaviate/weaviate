@@ -310,7 +310,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
-		return nil, lsmkv.Deleted
+		return nil, err
 	}
 
 	if err != lsmkv.NotFound {
@@ -327,7 +327,7 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
-			return nil, lsmkv.Deleted
+			return nil, err
 		}
 
 		if err != lsmkv.NotFound {
@@ -389,7 +389,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 	if errors.Is(err, lsmkv.Deleted) {
 		// deleted in the mem-table (which is always the latest) means we don't
 		// have to check the disk segments, return nil now
-		return nil, nil, lsmkv.Deleted
+		return nil, nil, err
 	}
 
 	if err != lsmkv.NotFound {
@@ -406,7 +406,7 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the now most recent memtable  means we don't have to check
 			// the disk segments, return nil now
-			return nil, nil, lsmkv.Deleted
+			return nil, nil, err
 		}
 
 		if err != lsmkv.NotFound {
@@ -428,29 +428,23 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	var out []value
 
 	v, err := b.disk.getCollection(key)
-	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	out = v
 
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
-		if err != nil {
-			if err != nil && err != lsmkv.NotFound {
-				return nil, err
-			}
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
 		out = append(out, v...)
 
 	}
 
 	v, err = b.active.getCollection(key)
-	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	if len(v) > 0 {
 		// skip the expensive append operation if there was no memtable
@@ -620,10 +614,8 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	segments := [][]MapPair{}
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
-	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 
 	for i := range disk {
@@ -647,21 +639,16 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
-		if err != nil {
-			if err != nil && err != lsmkv.NotFound {
-				return nil, err
-			}
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
-
 		segments = append(segments, v)
 	}
 
 	// before = time.Now()
 	v, err := b.active.getMap(key)
-	if err != nil {
-		if err != nil && err != lsmkv.NotFound {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	segments = append(segments, v)
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))

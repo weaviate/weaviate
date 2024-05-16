@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -74,6 +75,9 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	for i, id := range ids {
 		bytes, err := bucket.Get(id)
 		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				continue
+			}
 			return nil, err
 		}
 
@@ -104,6 +108,9 @@ func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 
 	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
 	if err != nil {
+		if errors.Is(err, lsmkv.Deleted) {
+			return false, nil
+		}
 		return false, errors.Wrap(err, "read request")
 	}
 
@@ -405,6 +412,9 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get(idBytes)
 	if err != nil {
+		if errors.Is(err, lsmkv.Deleted) {
+			return nil
+		}
 		return errors.Wrap(err, "unexpected error on previous lookup")
 	}
 

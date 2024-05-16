@@ -211,12 +211,11 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	for i := topMostSegment; i >= 0; i-- {
 		v, err := sg.segments[i].get(key)
 		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				return nil, err
+			}
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
-			}
-
-			if errors.Is(err, lsmkv.Deleted) {
-				return nil, lsmkv.Deleted
 			}
 
 			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
@@ -239,12 +238,11 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 	for i := len(sg.segments) - 1; i >= 0; i-- {
 		v, err, allocatedBuff := sg.segments[i].getBySecondaryIntoMemory(pos, key, buffer)
 		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				return nil, nil, err
+			}
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
-			}
-
-			if errors.Is(err, lsmkv.Deleted) {
-				return nil, nil, lsmkv.Deleted
 			}
 
 			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
@@ -266,6 +264,9 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				return nil, err
+			}
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
@@ -294,6 +295,9 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				return nil, err
+			}
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}

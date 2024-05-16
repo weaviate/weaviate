@@ -17,8 +17,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	kv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -37,6 +39,9 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get([]byte(idBytes))
 	if err != nil {
+		if errors.Is(err, kv.Deleted) {
+			return nil
+		}
 		return fmt.Errorf("unexpected error on previous lookup: %w", err)
 	}
 
@@ -85,6 +90,9 @@ func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv
 	bucket = s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get(uid)
 	if err != nil {
+		if errors.Is(err, kv.Deleted) {
+			return bucket, nil, uid, 0, nil
+		}
 		return nil, nil, uid, 0, fmt.Errorf("get previous object: %w", err)
 	}
 
