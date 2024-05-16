@@ -32,7 +32,7 @@ jobs:
         run: ./test/run.sh --integration-only
   Push-Docker:    
     name: push-docker
-    runs-on: ubuntu-latest-8-cores
+    runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v4
