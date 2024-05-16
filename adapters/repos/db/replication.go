@@ -328,7 +328,7 @@ func (i *Index) overwriteObjects(ctx context.Context,
 			continue
 		}
 		// valid update
-		found, err := s.ObjectByIDErrNotFound(ctx, data.ID, nil, additional.Properties{})
+		found, err := s.ObjectByIDErrDeleted(ctx, data.ID, nil, additional.Properties{})
 		if err != nil && errors.Is(err, lsmkv.Deleted) {
 			continue
 		}
