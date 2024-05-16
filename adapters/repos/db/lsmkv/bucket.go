@@ -376,7 +376,7 @@ func (b *Bucket) GetErrNotFound(key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.getErrNotFound(key)
+	return b.disk.getErrDeleted(key)
 }
 
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket

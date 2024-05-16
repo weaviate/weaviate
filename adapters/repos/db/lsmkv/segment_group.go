@@ -228,14 +228,14 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	return nil, nil
 }
 
-func (sg *SegmentGroup) getErrNotFound(key []byte) ([]byte, error) {
+func (sg *SegmentGroup) getErrDeleted(key []byte) ([]byte, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
-	return sg.getWithUpperSegmentBoundaryErrNotFound(key, len(sg.segments)-1)
+	return sg.getWithUpperSegmentBoundaryErrDeleted(key, len(sg.segments)-1)
 }
 
-func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrNotFound(key []byte, topMostSegment int) ([]byte, error) {
+func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMostSegment int) ([]byte, error) {
 	// assumes "replace" strategy
 
 	// start with latest and exit as soon as something is found, thus making sure
