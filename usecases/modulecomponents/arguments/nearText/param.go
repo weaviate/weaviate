@@ -52,10 +52,6 @@ func (n NearTextParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
-func (n NearTextParams) SupportMultiTargetVector() bool {
-	return true
-}
-
 func (n NearTextParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }

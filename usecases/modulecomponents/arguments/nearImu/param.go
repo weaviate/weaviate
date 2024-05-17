@@ -35,10 +35,6 @@ func (n NearIMUParams) SimilarityMetricProvided() bool {
 	return n.Certainty != 0 || n.WithDistance
 }
 
-func (n NearIMUParams) SupportMultiTargetVector() bool {
-	return false
-}
-
 func (n NearIMUParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }

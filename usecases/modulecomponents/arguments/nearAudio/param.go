@@ -23,10 +23,6 @@ type NearAudioParams struct {
 	TargetVectors []string
 }
 
-func (n NearAudioParams) SupportMultiTargetVector() bool {
-	return false
-}
-
 func (n NearAudioParams) GetCertainty() float64 {
 	return n.Certainty
 }

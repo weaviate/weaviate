@@ -768,7 +768,7 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 }
 
 func (p *Provider) getTargetVector(class *models.Class, params interface{}) ([]string, error) {
-	if nearParam, ok := params.(modulecapabilities.NearParam); ok && (len(nearParam.GetTargetVectors()) == 1 || (nearParam.SupportMultiTargetVector() && len(nearParam.GetTargetVectors()) > 0)) {
+	if nearParam, ok := params.(modulecapabilities.NearParam); ok && len(nearParam.GetTargetVectors()) >= 1 {
 		return nearParam.GetTargetVectors(), nil
 	}
 	if class != nil {

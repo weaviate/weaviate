@@ -56,7 +56,7 @@ func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParam
 	}
 	if len(params.ModuleParams) > 0 {
 		for _, moduleParam := range params.ModuleParams {
-			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && (len(nearParam.GetTargetVectors()) == 1 || (nearParam.SupportMultiTargetVector() && len(nearParam.GetTargetVectors()) > 0)) {
+			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && len(nearParam.GetTargetVectors()) >= 1 {
 				return nearParam.GetTargetVectors()
 			}
 		}

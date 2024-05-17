@@ -39,10 +39,6 @@ func (n NearVideoParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }
 
-func (n NearVideoParams) SupportMultiTargetVector() bool {
-	return false
-}
-
 func validateNearVideoFn(param interface{}) error {
 	nearVideo, ok := param.(*NearVideoParams)
 	if !ok {
