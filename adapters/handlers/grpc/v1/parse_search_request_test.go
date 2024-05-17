@@ -370,7 +370,7 @@ func TestGRPCRequest(t *testing.T) {
 			error: true,
 		},
 		{
-			name: "Vectors throws error if more than one target vectors are given",
+			name: "Vectors does not throw error if more than one target vectors are given",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass,
 				Metadata:   &pb.MetadataRequest{Vector: true},
@@ -380,8 +380,16 @@ func TestGRPCRequest(t *testing.T) {
 					TargetVectors: []string{"custom", "first"},
 				},
 			},
-			out:   dto.GetParams{},
-			error: true,
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					Vector:        []float32{1, 2, 3},
+					TargetVectors: []string{"custom", "first"},
+				},
+			}, error: false,
 		},
 		{
 			name: "Properties return all nonref values with new default logic",
