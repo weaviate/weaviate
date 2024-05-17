@@ -318,6 +318,13 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	ctx := context.Background()
 
 	buf := make([]byte, 8)
+
+	q.Logger.WithFields(logrus.Fields{
+		"real_checkpoint":      checkpoint,
+		"overriden_checkpoint": 0,
+	}).Warn("overriding checkpoint to force reindex")
+
+	checkpoint = 0
 	for i := checkpoint; i < maxDocID; i++ {
 		binary.LittleEndian.PutUint64(buf, i)
 
