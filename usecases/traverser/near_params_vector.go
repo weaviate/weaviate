@@ -59,7 +59,7 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 	}
 
 	if nearVector != nil {
-		targetVector := []string{""}
+		var targetVector []string
 		if len(nearVector.TargetVectors) >= 1 {
 			targetVector = nearVector.TargetVectors
 		}
@@ -67,7 +67,7 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 	}
 
 	if nearObject != nil {
-		targetVector := []string{""}
+		var targetVector []string
 		if len(nearObject.TargetVectors) >= 1 {
 			targetVector = nearObject.TargetVectors
 		}
