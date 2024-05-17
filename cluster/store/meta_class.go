@@ -39,7 +39,7 @@ func (m *metaClass) ClassInfo() (ci ClassInfo) {
 	defer m.RUnlock()
 	ci.Exists = true
 	ci.Properties = len(m.Class.Properties)
-	ci.MultiTenancy, _ = m.MultiTenancyConfig()
+	ci.MultiTenancy, _ = m.multiTenancyConfigUnprotected()
 	ci.ReplicationFactor = 1
 	if m.Class.ReplicationConfig != nil && m.Class.ReplicationConfig.Factor > 1 {
 		ci.ReplicationFactor = int(m.Class.ReplicationConfig.Factor)
@@ -63,6 +63,20 @@ func (m *metaClass) MultiTenancyConfig() (mc models.MultiTenancyConfig, v uint64
 	}
 	m.RLock()
 	defer m.RUnlock()
+	if m.Class.MultiTenancyConfig == nil {
+		return
+	}
+
+	return *m.Class.MultiTenancyConfig, m.version()
+}
+
+// multiTenancyConfigUnprotected returns the multi tenancy config without
+// locking. It assumes that it is called from a routine that already has a
+// lock.
+func (m *metaClass) multiTenancyConfigUnprotected() (mc models.MultiTenancyConfig, v uint64) {
+	if m == nil {
+		return
+	}
 	if m.Class.MultiTenancyConfig == nil {
 		return
 	}
