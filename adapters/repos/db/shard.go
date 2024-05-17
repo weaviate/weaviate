@@ -65,6 +65,8 @@ import (
 
 const IdLockPoolSize = 128
 
+var errAlreadyShutdown = errors.New("already shut or dropped")
+
 type ShardLike interface {
 	Index() *Index                                                                      // Get the parent index
 	Name() string                                                                       // Get the shard name
@@ -429,8 +431,8 @@ func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vector
 				ShardName:            s.name,
 				ClassName:            s.index.Config.ClassName.String(),
 				PrometheusMetrics:    s.promMetrics,
-				VectorForIDThunk:     s.vectorByIndexID,
-				TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+				VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
 				DistanceProvider:     distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
@@ -495,8 +497,8 @@ func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vector
 			ShardName:            s.name,
 			ClassName:            s.index.Config.ClassName.String(),
 			PrometheusMetrics:    s.promMetrics,
-			VectorForIDThunk:     s.vectorByIndexID,
-			TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+			VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
@@ -1139,7 +1141,7 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	defer s.shutdownLock.RUnlock()
 
 	if s.shut {
-		return func() {}, fmt.Errorf("shard %q already shut or dropped", s.name)
+		return func() {}, errAlreadyShutdown
 	}
 
 	s.inUseCounter.Add(1)
@@ -1182,7 +1184,7 @@ func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
 	defer s.shutdownLock.Unlock()
 
 	if s.shut {
-		return false, fmt.Errorf("shard %q already shut or dropped", s.name)
+		return false, errAlreadyShutdown
 	}
 
 	if s.inUseCounter.Load() == 0 {

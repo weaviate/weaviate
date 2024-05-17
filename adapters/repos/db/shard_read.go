@@ -141,12 +141,12 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	return obj, nil
 }
 
-func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
+func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 	keyBuf := make([]byte, 8)
-	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf})
+	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector)
 }
 
-func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice) ([]float32, error) {
+func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
@@ -161,7 +161,7 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	}
 
 	container.Buff = newBuff
-	return storobj.VectorFromBinary(bytes, container.Slice)
+	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
 }
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,

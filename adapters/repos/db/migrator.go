@@ -368,9 +368,12 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				idx.shards.LoadAndDelete(name)
 
 				if err := shard.Shutdown(ctx); err != nil {
-					ec.Add(err)
-					idx.logger.WithField("action", "shutdown_shard").
-						WithField("shard", shard.ID()).Error(err)
+					if !errors.Is(err, errAlreadyShutdown) {
+						ec.Add(err)
+						idx.logger.WithField("action", "shutdown_shard").
+							WithField("shard", shard.ID()).Error(err)
+					}
+					m.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
 				}
 				return nil
 			})

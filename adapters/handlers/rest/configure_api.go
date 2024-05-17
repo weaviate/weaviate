@@ -45,7 +45,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
-	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	rStore "github.com/weaviate/weaviate/cluster/store"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
@@ -262,11 +261,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-	// TODO: configure http transport for efficient intra-cluster comm
-	schemaTxClient := clients.NewClusterSchema(appState.ClusterHttpClient)
-	schemaTxPersistence := txstore.NewStore(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-
 	/// TODO-RAFT START
 	//
 	server2port, err := parseNode2Port(appState)
@@ -328,8 +322,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, schemaTxClient,
-		schemaTxPersistence, scaler,
+		appState.Modules, appState.Cluster, scaler,
 	)
 	if err != nil {
 		appState.Logger.
@@ -1080,6 +1073,10 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
+	if config.Profiling.Disabled {
+		return
+	}
+
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {

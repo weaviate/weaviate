@@ -22,6 +22,7 @@ function main() {
   run_benchmark=false
   run_module_only_backup_tests=false
   run_module_except_backup_tests=false
+  run_cleanup=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -40,6 +41,7 @@ function main() {
           --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
           --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
+          --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
               "Options:"\
               "--unit-only | -u"\
@@ -125,7 +127,7 @@ function main() {
     ./test/acceptance_with_python/run.sh
     echo_green "Python tests successful"
   fi
-  
+
   if $only_module; then
     mod=${only_module_value//--only-module-/}
     echo_green "Running module acceptance tests for $mod..."
@@ -137,7 +139,7 @@ function main() {
         return 1
       fi
       echo_green "Module acceptance tests for $mod successful"
-    done    
+    done
   fi
   if $run_module_tests; then
     echo_green "Running module acceptance tests..."
@@ -145,6 +147,10 @@ function main() {
     echo_green "Weaviate image successfully built, run module tests..."
     run_module_tests "$@"
     echo_green "Module acceptance tests successful"
+  fi
+  if $run_cleanup; then
+    echo_green "Cleaning up all running docker containers..."
+    docker rm -f $(docker ps -a -q)
   fi
   echo "Done!"
 }
