@@ -82,6 +82,13 @@ func TestRepositoryMigrate(t *testing.T) {
 	schema := ucs.NewState(3)
 	addClass(&schema, "C1", 0, 1, 0)
 	addClass(&schema, "C2", 0, 3, 3)
+	t.Run("SaveOldSchema", func(t *testing.T) {
+		repo, _ := newRepo(dirName, 0, logger)
+		defer repo.Close()
+		if err := repo.saveSchemaV1(schema); err != nil {
+			t.Fatalf("save all schema: %v", err)
+		}
+	})
 	t.Run("LoadOldchema", func(t *testing.T) {
 		repo, err := newRepo(dirName, -1, logger)
 		if err != nil {
@@ -201,30 +208,6 @@ func addClass(schema *ucs.State, name string, start, nProps, nShards int) (*mode
 	schema.ObjectSchema.Classes = append(schema.ObjectSchema.Classes, &cls)
 	schema.ShardingState[name] = &ss
 	return &cls, &ss
-}
-
-func deleteClass(schema *ucs.State, name string) {
-	idx := -1
-	for i, cls := range schema.ObjectSchema.Classes {
-		if cls.Class == name {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
-		return
-	}
-	schema.ObjectSchema.Classes = append(schema.ObjectSchema.Classes[:idx], schema.ObjectSchema.Classes[idx+1:]...)
-	delete(schema.ShardingState, name)
-}
-
-func (r *store) asserEqualSchema(t *testing.T, expected ucs.State, msg string) {
-	t.Helper()
-	actual, err := r.Load(context.Background())
-	if err != nil {
-		t.Fatalf("load schema: %s: %v", msg, err)
-	}
-	assert.Equal(t, expected, actual)
 }
 
 func newRepo(homeDir string, version int, logger logrus.FieldLogger) (*store, error) {
