@@ -368,12 +368,6 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string
 	var targetVectors *[]string
 	if hs := req.HybridSearch; hs != nil {
 		targetVectors = &hs.TargetVectors
-		if hs.NearText != nil {
-			targetVectors = &hs.NearText.TargetVectors
-		}
-		if hs.NearVector != nil {
-			targetVectors = &hs.NearVector.TargetVectors
-		}
 	}
 	if na := req.NearAudio; na != nil {
 		targetVectors = &na.TargetVectors
@@ -406,7 +400,7 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string
 	if targetVectors != nil && len(*targetVectors) == 0 && len(class.VectorConfig) > 1 {
 		return nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 	}
-	if targetVectors != nil && len(*targetVectors) > 1 && (req.NearText == nil && req.NearVector == nil) {
+	if targetVectors != nil && len(*targetVectors) > 1 && (req.NearText == nil && req.NearVector == nil && req.HybridSearch == nil) {
 		return nil, fmt.Errorf("cannot provide multiple target vectors when searching, only one is allowed")
 	}
 	return targetVectors, nil
