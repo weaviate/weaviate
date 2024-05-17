@@ -60,8 +60,8 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 
 	if nearVector != nil {
 		var targetVector []string
-		if len(nearVector.TargetVectors) == 1 {
-			targetVector = nearVector.TargetVectors[:1]
+		if len(nearVector.TargetVectors) >= 1 {
+			targetVector = nearVector.TargetVectors
 		}
 		return targetVector, nil
 	}

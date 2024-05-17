@@ -48,7 +48,7 @@ func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParam
 	if params.NearObject != nil && len(params.NearObject.TargetVectors) == 1 {
 		return params.NearObject.TargetVectors
 	}
-	if params.NearVector != nil && len(params.NearVector.TargetVectors) == 1 {
+	if params.NearVector != nil && len(params.NearVector.TargetVectors) >= 1 {
 		return params.NearVector.TargetVectors
 	}
 	if params.HybridSearch != nil {
@@ -63,8 +63,8 @@ func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParam
 		}
 	}
 	if len(params.ModuleParams) > 0 {
-		for name, moduleParam := range params.ModuleParams {
-			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && (len(nearParam.GetTargetVectors()) == 1 || name == "nearText") {
+		for _, moduleParam := range params.ModuleParams {
+			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && (len(nearParam.GetTargetVectors()) == 1 || (nearParam.SupportMultiTargetVector() && len(nearParam.GetTargetVectors()) > 0)) {
 				return nearParam.GetTargetVectors()
 			}
 		}

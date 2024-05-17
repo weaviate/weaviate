@@ -406,7 +406,7 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string
 	if targetVectors != nil && len(*targetVectors) == 0 && len(class.VectorConfig) > 1 {
 		return nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 	}
-	if targetVectors != nil && len(*targetVectors) > 1 && req.NearText == nil {
+	if targetVectors != nil && len(*targetVectors) > 1 && (req.NearText == nil && req.NearVector == nil) {
 		return nil, fmt.Errorf("cannot provide multiple target vectors when searching, only one is allowed")
 	}
 	return targetVectors, nil
