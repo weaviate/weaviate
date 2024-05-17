@@ -45,7 +45,7 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 }
 
 func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParams) []string {
-	if params.NearObject != nil && len(params.NearObject.TargetVectors) == 1 {
+	if params.NearObject != nil && len(params.NearObject.TargetVectors) >= 1 {
 		return params.NearObject.TargetVectors
 	}
 	if params.NearVector != nil && len(params.NearVector.TargetVectors) >= 1 {

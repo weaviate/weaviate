@@ -59,7 +59,7 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 	}
 
 	if nearVector != nil {
-		var targetVector []string
+		targetVector := []string{""}
 		if len(nearVector.TargetVectors) >= 1 {
 			targetVector = nearVector.TargetVectors
 		}
@@ -67,12 +67,11 @@ func (v *nearParamsVector) targetFromParams(ctx context.Context,
 	}
 
 	if nearObject != nil {
-		_, targetVector, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant)
-		if err != nil {
-			return nil, errors.Errorf("nearObject params: %v", err)
+		targetVector := []string{""}
+		if len(nearObject.TargetVectors) >= 1 {
+			targetVector = nearObject.TargetVectors
 		}
-
-		return []string{targetVector}, nil
+		return targetVector, nil
 	}
 
 	// either nearObject or nearVector or module search param has to be set,
@@ -306,7 +305,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	}
 
 	targetVector := ""
-	if len(params.TargetVectors) == 1 {
+	if len(params.TargetVectors) >= 1 {
 		targetVector = params.TargetVectors[0]
 	}
 
