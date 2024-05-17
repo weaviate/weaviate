@@ -57,10 +57,7 @@ func (n NearTextParams) SupportMultiTargetVector() bool {
 }
 
 func (n NearTextParams) GetTargetVectors() []string {
-	if len(n.TargetVectors) > 0 {
-		return n.TargetVectors
-	}
-	return []string{""}
+	return n.TargetVectors
 }
 
 func (n NearTextParams) Validate() error {
