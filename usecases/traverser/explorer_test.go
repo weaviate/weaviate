@@ -138,7 +138,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			t.Run("vector search must be called with right params", func(t *testing.T) {
 				assert.NotNil(t, err)
 				assert.Nil(t, res)
-				assert.Contains(t, err.Error(), "explorer: get class: vectorize params: nearObject params: empty id and beacon")
+				assert.Contains(t, err.Error(), "explorer: get class: get search vector: nearObject params: empty id and beacon")
 			})
 		})
 
@@ -169,7 +169,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			t.Run("vector search must be called with right params", func(t *testing.T) {
 				assert.NotNil(t, err)
 				assert.Nil(t, res)
-				assert.Contains(t, err.Error(), "explorer: get class: vectorize params: nearObject params: empty id and beacon")
+				assert.Contains(t, err.Error(), "explorer: get class: get search vector: nearObject params: empty id and beacon")
 			})
 		})
 	})
