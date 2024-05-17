@@ -226,14 +226,27 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
 
+	res, searchVectors, err := e.concurrentTargetVectorSearch(ctx, targetVectors, params, nil)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
+	}
+
+	if len(searchVectors) > 0 {
+		return res, searchVectors[0], nil
+	}
+	return res, []float32{}, nil
+}
+
+func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVectors []string, params dto.GetParams, searchVector []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	ress := make([][]search.Result, len(targetVectors))
-	searchVectors := make([][]float32, len(targetVectors))
+	searchVectorsReturn := make([][]float32, len(targetVectors))
 	for i, targetVector := range targetVectors {
 		index := i
+		targetVector := targetVector
 		f := func() error {
-			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectors)
+			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectorsReturn, searchVector)
 		}
 		eg.Go(f)
 	}
@@ -243,10 +256,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	}
 
 	res := e.combineResults(ress, params.Pagination.Limit)
-	if len(searchVectors) > 0 {
-		return res, searchVectors[0], nil
-	}
-	return res, []float32{}, nil
+	return res, searchVectorsReturn, nil
 }
 
 func (e *Explorer) combineResults(results [][]search.Result, limit int) []search.Result {
@@ -292,15 +302,17 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int) []search
 	return returnResults
 }
 
-func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectors [][]float32) error {
+func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParams []*searchparams.NearVector) error {
+	// params need to be copied, because the searchvector is unique per target
 	paramsForTarget := params
 	paramsForTarget.TargetVector = targetVector
-	searchVector, err := e.vectorFromParamsForTaget(ctx, params, targetVector)
+	paramsForTarget.AdditionalProperties = params.AdditionalProperties
+	paramsForTarget.Pagination = params.Pagination
+	var err error
+	paramsForTarget.SearchVector, err = e.vectorFromParamsForTaget(ctx, searchVectorParams[index], params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVector)
 	if err != nil {
 		return errors.Errorf("explorer: get class: get search vector: %v", err)
 	}
-
-	paramsForTarget.SearchVector = searchVector
 
 	if len(paramsForTarget.AdditionalProperties.ModuleParams) > 0 || paramsForTarget.Group != nil {
 		// if a module-specific additional prop is set, assume it needs the vector
@@ -335,7 +347,7 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
+			params.AdditionalProperties.ModuleParams, paramsForTarget.SearchVector, params.ModuleParams)
 		if err != nil {
 			return errors.Errorf("explorer: get class: extend: %v", err)
 		}
@@ -343,7 +355,7 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 	e.trackUsageGet(res, params)
 
 	results[index] = res
-	searchVectors[index] = searchVector
+	searchVectorsReturn[index] = paramsForTarget.SearchVector
 	return nil
 }
 
@@ -723,10 +735,9 @@ func (e *Explorer) targetFromParams(ctx context.Context,
 }
 
 func (e *Explorer) vectorFromParamsForTaget(ctx context.Context,
-	params dto.GetParams, target string,
+	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string,
 ) ([]float32, error) {
-	return e.nearParamsVector.vectorFromParams(ctx, params.NearVector,
-		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, target)
+	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
