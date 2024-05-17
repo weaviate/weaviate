@@ -72,7 +72,7 @@ A Weaviate vector database can search text, images, or a combination of both. Fa
 
 Here are some examples that show how Weaviate integrates with other AI and ML tools:
 
-### Use Weaviate with third part embeddings 
+### Use Weaviate with third party embeddings 
 
 - [Cohere](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-cohere) ([blogpost](https://txt.cohere.com/embedding-archives-wikipedia/))
 - [Hugging Face](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface)
@@ -81,12 +81,12 @@ Here are some examples that show how Weaviate integrates with other AI and ML to
 ### Use Weaviate as a document store 
 
 - [DocArray](https://docarray.jina.ai/advanced/document-store/weaviate/)
-- [Haystack](https://docs.haystack.deepset.ai/reference/document-store-api#weaviatedocumentstore) ([blogpost](https://www.deepset.ai/weaviate-vector-search-engine-integration))
+- [Haystack](https://docs.haystack.deepset.ai/reference/integrations-weaviate#weaviatedocumentstore) ([blogpost](https://www.deepset.ai/weaviate-vector-search-engine-integration))
 
 ### Use Weaviate as a memory backend
 
 - [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT/blob/master/docs/configuration/memory.md#weaviate-setup) ([blogpost](https://weaviate.io/blog/autogpt-and-weaviate))
-- [LangChain](https://python.langchain.com/docs/ecosystem/integrations/weaviate) ([blogpost](https://weaviate.io/blog/combining-langchain-and-weaviate))
+- [LangChain](https://python.langchain.com/docs/integrations/providers/weaviate) ([blogpost](https://weaviate.io/blog/combining-langchain-and-weaviate))
 - [LlamaIndex](https://gpt-index.readthedocs.io/en/latest/how_to/integrations/vector_stores.html) ([blogpost](https://weaviate.io/blog/llamaindex-and-weaviate))
 - [OpenAI - ChatGPT retrieval plugin](https://github.com/openai/chatgpt-retrieval-plugin/blob/main/docs/providers/weaviate/setup.md)
 
