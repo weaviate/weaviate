@@ -192,6 +192,19 @@ func (r *store) migrate(filePath string, from, to int) (err error) {
 	return nil
 }
 
+// saveSchemaV1 might be needed to migrate from v2 to v0
+func (r *store) saveSchemaV1(schema ucs.State) error {
+	schemaJSON, err := json.Marshal(schema)
+	if err != nil {
+		return fmt.Errorf("marshal schema state to json: %w", err)
+	}
+
+	return r.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(schemaBucket)
+		return b.Put(schemaKey, schemaJSON)
+	})
+}
+
 // loadSchemaV1 is needed to migrate from v0 to v2
 func (r *store) loadSchemaV1() (*ucs.State, error) {
 	var schemaJSON []byte
