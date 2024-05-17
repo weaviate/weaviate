@@ -26,7 +26,7 @@ var (
 	VectorsCompressedBucketLSM = "vectors_compressed"
 	VectorsBucketLSM           = "vectors"
 	DimensionsBucketLSM        = "dimensions"
-	mergemode = "prefix"
+	mergemode                  = "prefix"
 )
 
 func makeByteEncodedPropertyPostfix(propertyName string, propertyIds *tracker.JsonPropertyIdTracker) []byte {
@@ -120,8 +120,6 @@ func MatchesPropertyKey(byteEncodedPropertyId []byte, postfixed_key []byte) bool
 	}
 }
 
-
-
 func unMakePropertyKeyPostfix(byteEncodedPropertyId []byte, postfixed_key []byte) []byte {
 	// For postfix propid
 	out := make([]byte, len(postfixed_key)-len(byteEncodedPropertyId))
@@ -145,8 +143,6 @@ func UnMakePropertyKey(byteEncodedPropertyId []byte, key []byte) []byte {
 		return unMakePropertyKeyPostfix(byteEncodedPropertyId, key)
 	}
 }
-
-
 
 func BucketFromPropertyName(propertyName string) []byte {
 	return []byte(fmt.Sprintf("property_%s", propertyName))

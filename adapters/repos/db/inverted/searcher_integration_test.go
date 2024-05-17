@@ -62,7 +62,7 @@ func TestObjects(t *testing.T) {
 		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-		"searchable_properties",
+			"searchable_properties",
 			lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName)),
 			lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(propName)))
@@ -90,10 +90,10 @@ func TestObjects(t *testing.T) {
 				DocID: docIDCounter,
 			}
 			docIDCounter++
-			tr, err :=  tracker.NewJsonPropertyIdTracker(dirName+"-property-ids")
+			tr, err := tracker.NewJsonPropertyIdTracker(dirName + "-property-ids")
 			require.Nil(t, err)
 
-			putObject(t, store, &obj, propName, []byte(prop),tr)
+			putObject(t, store, &obj, propName, []byte(prop), tr)
 			tests[i] = testCase{
 				targetChar: targetChar,
 				object:     &obj,
@@ -103,7 +103,7 @@ func TestObjects(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
-	tr,err:= tracker.NewJsonPropertyIdTracker(dirName+"testobjtracker")
+	tr, err := tracker.NewJsonPropertyIdTracker(dirName + "testobjtracker")
 	require.Nil(t, err)
 
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, tr, nil,
@@ -112,7 +112,7 @@ func TestObjects(t *testing.T) {
 
 	t.Run("run tests", func(t *testing.T) {
 		t.Run("NotEqual", func(t *testing.T) {
-			//t.Parallel()
+			// t.Parallel()
 			for _, test := range tests {
 				filter := &filters.LocalFilter{Root: &filters.Clause{
 					Operator: filters.OperatorNotEqual,
@@ -208,8 +208,6 @@ func TestDocIDs(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
-
-
 	sch := createSchema()
 	searcher := NewSearcher(logger, store, sch.GetClass, nil, tr, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -279,7 +277,6 @@ func putObject(t *testing.T, store *lsmkv.Store, obj *storobj.Object, propName s
 	b, err := obj.MarshalBinary()
 	require.Nil(t, err)
 
-
 	keyBuf := bytes.NewBuffer(nil)
 	binary.Write(keyBuf, binary.LittleEndian, &obj.DocID)
 	docIDBytes := keyBuf.Bytes()
@@ -289,7 +286,7 @@ func putObject(t *testing.T, store *lsmkv.Store, obj *storobj.Object, propName s
 	require.Nil(t, err)
 
 	propBucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
-	propBucket,err := lsmkv.FetchMeABucket(store, "searchable_properties", propBucketName, propName,propids)
+	propBucket, err := lsmkv.FetchMeABucket(store, "searchable_properties", propBucketName, propName, propids)
 	require.Nil(t, err)
 	mergedKey := helpers.MakePropertyKey(propBucket.PropertyPrefix(), data)
 	err = propBucket.MapSet(mergedKey, pairPropWithFreq(obj.DocID, 1, float32(len(mergedKey))))

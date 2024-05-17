@@ -32,7 +32,6 @@ func NewJsonPropertyIdTracker(path string) (*JsonPropertyIdTracker, error) {
 		PropertyIds: make(map[string]uint64),
 		LastId:      0,
 		Initialised: true,
-
 	}
 
 	// read the file into memory

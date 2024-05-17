@@ -445,15 +445,15 @@ func (i *Index) addProperty(ctx context.Context, props []*models.Property) error
 			return nil
 		})
 
-	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.createPropertyIndex(ctx, eg, props)
-		return nil
-	})
+		i.ForEachShard(func(key string, shard ShardLike) error {
+			shard.createPropertyIndex(ctx, eg, props)
+			return nil
+		})
 
-	if err := eg.Wait(); err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
-	}
-	return nil
+		if err := eg.Wait(); err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
+		}
+		return nil
 	} else {
 		return i.ForEachShard(func(key string, shard ShardLike) error {
 			err := shard.createPropertyIndex(ctx, nil, props)
