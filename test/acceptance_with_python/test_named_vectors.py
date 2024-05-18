@@ -76,6 +76,8 @@ def test_hybrid_search_with_multiple_target_vectors(collection_factory: Collecti
 
     # first two objects are a perfect fit, but their order is not guaranteed
     assert sorted([obj.uuid for obj in direct.objects[:2]]) == sorted([uuid1, uuid2])
+    assert direct.objects[2].uuid == uuid3
+
     assert direct.objects[0].metadata.score == 1
     assert direct.objects[1].metadata.score == 1
     assert direct.objects[2].metadata.score == 0
@@ -93,3 +95,18 @@ def test_hybrid_search_with_multiple_target_vectors(collection_factory: Collecti
     assert nearTextSubSearch.objects[0].metadata.score > 0.5  # only vector search part has result
     assert nearTextSubSearch.objects[1].metadata.score > 0.5
     assert nearTextSubSearch.objects[2].metadata.score == 0
+
+    obj1 = collection.query.fetch_object_by_id(uuid1, include_vector=True)
+    nearVectorSubSearch = collection.query.hybrid(
+        "something else",
+        vector=wvc.query.HybridVector.near_vector(obj1.vector["title1"]),
+        target_vector=["title1", "title2"],
+        return_metadata=wvc.query.MetadataQuery.full(),
+    )
+    assert len(nearVectorSubSearch.objects) == 3
+
+    # first two objects are a perfect fit for vector search, but their order is not guaranteed
+    assert sorted([obj.uuid for obj in nearVectorSubSearch.objects[:2]]) == sorted([uuid1, uuid2])
+    assert nearVectorSubSearch.objects[0].metadata.score > 0.5  # only vector search part has result
+    assert nearVectorSubSearch.objects[1].metadata.score > 0.5
+    assert nearVectorSubSearch.objects[2].metadata.score == 0
