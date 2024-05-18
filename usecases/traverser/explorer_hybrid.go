@@ -78,6 +78,9 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	params.GroupBy = nil
 
 	partialResults, searchVectors, err := e.concurrentTargetVectorSearch(ctx, targetVectors, params, searchVector)
+	if err != nil {
+		return nil, "", err
+	}
 	var vector []float32
 	if len(searchVectors) > 0 {
 		vector = searchVectors[0]
@@ -213,7 +216,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				names = append(names, name)
 			}
 		} else if params.HybridSearch.NearVectorParams != nil {
-			res, name, err := denseSearch(ctx, e, params, "nearVector", targetVectors, nil)
+			searchVectors := make([]*searchparams.NearVector, len(targetVectors))
+			for i, targetVector := range targetVectors {
+				searchVectors[i] = params.HybridSearch.NearVectorParams
+				searchVectors[i].TargetVectors = []string{targetVector}
+			}
+			res, name, err := denseSearch(ctx, e, params, "nearVector", targetVectors, searchVectors)
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 				return nil, err
