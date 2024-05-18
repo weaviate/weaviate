@@ -113,7 +113,7 @@ type NearTextParams struct {
 }
 */
 // Do a nearText search.  The results will be used in the hybrid algorithm
-func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, targetVectors []string) ([]*search.Result, string, error) {
 	var subSearchParams nearText2.NearTextParams
 
 	subSearchParams.Values = params.HybridSearch.NearTextParams.Values
@@ -135,20 +135,6 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 
 	subSearchParams.WithDistance = params.HybridSearch.NearTextParams.WithDistance
 
-	var targetVectors []string
-	if len(params.HybridSearch.TargetVectors) > 0 {
-		targetVectors = params.HybridSearch.TargetVectors[:1]
-	}
-	// Subsearch takes precedence over the top level
-	if len(params.HybridSearch.NearTextParams.TargetVectors) > 0 {
-		targetVectors = params.HybridSearch.NearTextParams.TargetVectors[:1]
-	}
-
-	targetVectors, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVectors)
-	if err != nil {
-		return nil, "", err
-	}
-
 	subSearchParams.TargetVectors = targetVectors // TODO support multiple target vectors
 
 	subsearchWrap := params
@@ -161,11 +147,17 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	subsearchWrap.HybridSearch = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
-	partial_results, vector, err := e.getClassVectorSearch(ctx, subsearchWrap)
+	partialResults, vectors, err := e.concurrentTargetVectorSearch(ctx, targetVectors, subsearchWrap, nil)
 	if err != nil {
 		return nil, "", err
 	}
-	results, err := e.searchResultsToGetResponseWithType(ctx, partial_results, vector, params)
+
+	var vector []float32
+	if len(vectors) > 0 {
+		vector = vectors[0]
+	}
+
+	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
 	if err != nil {
 		return nil, "", err
 	}
@@ -211,7 +203,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// 3. (Default) Do a vector search with the default parameters (the old hybrid search)
 	if (params.HybridSearch.Alpha) > 0 {
 		if params.HybridSearch.NearTextParams != nil {
-			res, name, err := nearTextSubSearch(ctx, e, params)
+			res, name, err := nearTextSubSearch(ctx, e, params, targetVectors)
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
 				return nil, err

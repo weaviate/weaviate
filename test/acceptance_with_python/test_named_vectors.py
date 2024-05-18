@@ -80,11 +80,16 @@ def test_hybrid_search_with_multiple_target_vectors(collection_factory: Collecti
     assert direct.objects[1].metadata.score == 1
     assert direct.objects[2].metadata.score == 0
 
-    # nearTextSubSearch = collection.query.hybrid(
-    #     "something else",
-    #     vector=wvc.query.HybridVector.near_text("apple sandwich"),
-    #     target_vector=["title", "content"],
-    #     return_metadata=wvc.query.MetadataQuery.full(),
-    # )
-    # assert len(nearTextSubSearch.objects) == 2
-    # assert sorted([obj.uuid for obj in nearTextSubSearch.objects]) == sorted([uuid1, uuid2])
+    nearTextSubSearch = collection.query.hybrid(
+        "something else",
+        vector=wvc.query.HybridVector.near_text("apple sandwich"),
+        target_vector=["title1", "title2"],
+        return_metadata=wvc.query.MetadataQuery.full(),
+    )
+    assert len(nearTextSubSearch.objects) == 3
+
+    # first two objects are a perfect fit for vector search, but their order is not guaranteed
+    assert sorted([obj.uuid for obj in nearTextSubSearch.objects[:2]]) == sorted([uuid1, uuid2])
+    assert nearTextSubSearch.objects[0].metadata.score > 0.5  # only vector search part has result
+    assert nearTextSubSearch.objects[1].metadata.score > 0.5
+    assert nearTextSubSearch.objects[2].metadata.score == 0

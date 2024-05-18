@@ -237,7 +237,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return res, []float32{}, nil
 }
 
-func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVectors []string, params dto.GetParams, searchVector []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
+func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVectors []string, params dto.GetParams, searchVectors []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(_NUMCPU * 2)
 	ress := make([][]search.Result, len(targetVectors))
@@ -246,6 +246,10 @@ func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVecto
 		index := i
 		targetVector := targetVector
 		f := func() error {
+			var searchVector *searchparams.NearVector
+			if searchVectors != nil && len(searchVectors) == len(targetVectors) {
+				searchVector = searchVectors[index]
+			}
 			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectorsReturn, searchVector)
 		}
 		eg.Go(f)
@@ -302,14 +306,22 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int) []search
 	return returnResults
 }
 
-func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParams []*searchparams.NearVector) error {
+func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParam *searchparams.NearVector) error {
 	// params need to be copied, because the searchvector is unique per target
 	paramsForTarget := params
 	paramsForTarget.TargetVector = targetVector
 	paramsForTarget.AdditionalProperties = params.AdditionalProperties
 	paramsForTarget.Pagination = params.Pagination
+	paramsForTarget.ModuleParams = params.ModuleParams
+
+	if params.NearVector != nil {
+		paramsForTarget.NearVector = params.NearVector
+	} else {
+		paramsForTarget.NearVector = searchVectorParam
+	}
+
 	var err error
-	paramsForTarget.SearchVector, err = e.vectorFromParamsForTaget(ctx, searchVectorParams[index], params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVector)
+	paramsForTarget.SearchVector, err = e.vectorFromParamsForTaget(ctx, paramsForTarget.NearVector, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVector)
 	if err != nil {
 		return errors.Errorf("explorer: get class: get search vector: %v", err)
 	}
