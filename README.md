@@ -59,7 +59,7 @@ Weaviate doesn't just power lightning-fast vector searches. Other superpowers in
   - Weaviate is a fast, flexible vector database
   - Use your own ML model or third party models
   - Run locally or with an inference service
-  
+
 - **Data Scientists**
 
    - Seamless handover of Machine Learning models to engineers and MLOps

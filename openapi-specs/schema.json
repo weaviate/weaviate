@@ -438,6 +438,11 @@
           "description": "Nonexistent tenants should (not) be created implicitly",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "autoTenantActivation": {
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },

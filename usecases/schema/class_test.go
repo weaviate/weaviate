@@ -1254,6 +1254,80 @@ func Test_UpdateClass(t *testing.T) {
 				},
 				expectedError: nil,
 			},
+			{
+				name: "try to turn MT on when it was previously off",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: false,
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
+					},
+				},
+				expectedError: fmt.Errorf("enabling multi-tenancy for an existing class is not supported"),
+			},
+			{
+				name: "try to turn MT off when it was previously on",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: false,
+					},
+				},
+				expectedError: fmt.Errorf("disabling multi-tenancy for an existing class is not supported"),
+			},
+			{
+				name: "change auto tenant creation after creating the class",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled:            true,
+						AutoTenantCreation: true,
+					},
+				},
+				expectedError: nil,
+			},
+			{
+				name: "change auto tenant activation after creating the class",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled:              true,
+						AutoTenantActivation: true,
+					},
+				},
+				expectedError: nil,
+			},
 		}
 
 		for _, test := range tests {
@@ -1459,4 +1533,68 @@ func classWithDefaultsSet(t *testing.T, name string) *models.Class {
 	class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 
 	return class
+}
+
+func Test_AddClass_MultiTenancy(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("with MT enabled and no optional settings", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		class := models.Class{
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Class:              "NewClass",
+			Vectorizer:         "none",
+		}
+
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		c, _, err := handler.AddClass(ctx, nil, &class)
+		require.Nil(t, err)
+		assert.False(t, schema.AutoTenantCreationEnabled(c))
+		assert.False(t, schema.AutoTenantActivationEnabled(c))
+	})
+
+	t.Run("with MT enabled and all optional settings", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		class := models.Class{
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled:              true,
+				AutoTenantCreation:   true,
+				AutoTenantActivation: true,
+			},
+			Class:      "NewClass",
+			Vectorizer: "none",
+		}
+
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		c, _, err := handler.AddClass(ctx, nil, &class)
+		require.Nil(t, err)
+		assert.True(t, schema.AutoTenantCreationEnabled(c))
+		assert.True(t, schema.AutoTenantActivationEnabled(c))
+	})
+
+	t.Run("with MT disabled, but auto tenant creation on", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		class := models.Class{
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, AutoTenantCreation: true},
+			Class:              "NewClass",
+			Vectorizer:         "none",
+		}
+
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		_, _, err := handler.AddClass(ctx, nil, &class)
+		require.NotNil(t, err)
+	})
+
+	t.Run("with MT disabled, but auto tenant activation on", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		class := models.Class{
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, AutoTenantActivation: true},
+			Class:              "NewClass",
+			Vectorizer:         "none",
+		}
+
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		_, _, err := handler.AddClass(ctx, nil, &class)
+		require.NotNil(t, err)
+	})
 }

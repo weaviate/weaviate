@@ -42,7 +42,7 @@ case $CONFIG in
   local-single-node)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \ 
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       ENABLE_MODULES="backup-filesystem" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -177,7 +177,7 @@ case $CONFIG in
         --port 8080 \
         --read-timeout=600s \
         --write-timeout=600s
-    ;;  
+    ;;
   local-qna)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -677,7 +677,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  *) 
+  *)
     echo "Invalid config" 2>&1
     exit 1
     ;;
