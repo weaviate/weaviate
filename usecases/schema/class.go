@@ -555,6 +555,10 @@ func (h *Handler) validateCanAddClass(
 		return err
 	}
 
+	if err := validateMT(class); err != nil {
+		return err
+	}
+
 	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
 		return err
 	}
@@ -682,6 +686,19 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	}
 }
 
+func validateMT(class *models.Class) error {
+	enabled := schema.MultiTenancyEnabled(class)
+	if !enabled && schema.AutoTenantCreationEnabled(class) {
+		return fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
+	}
+
+	if !enabled && schema.AutoTenantActivationEnabled(class) {
+		return fmt.Errorf("can't enable autoTenantActivation on a non-multi-tenant class")
+	}
+
+	return nil
+}
+
 // validateUpdatingMT validates toggling MT and returns whether mt is enabled
 func validateUpdatingMT(current, update *models.Class) (enabled bool, err error) {
 	enabled = schema.MultiTenancyEnabled(current)
@@ -691,10 +708,10 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 		} else {
 			err = fmt.Errorf("enabling multi-tenancy for an existing class is not supported")
 		}
+	} else {
+		err = validateMT(update)
 	}
-	if !enabled && schema.AutoTenantCreationEnabled(update) {
-		err = fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
-	}
+
 	return
 }
 
