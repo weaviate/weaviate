@@ -60,7 +60,7 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg modu
 	text := v.objectVectorizer.Texts(ctx, object, icheck)
 	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
 		ApiEndpoint: icheck.ApiEndpoint(),
-		Model:       icheck.ModelID(),
+		Model:       icheck.Model(),
 	})
 	if err != nil {
 		return nil, err

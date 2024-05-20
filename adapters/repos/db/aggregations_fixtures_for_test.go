@@ -36,6 +36,25 @@ var productClass = &models.Class{
 	},
 }
 
+func boolRef(b bool) *bool {
+	return &b
+}
+
+var notIndexedClass = &models.Class{
+	Class:               "NotIndexedClass",
+	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+	InvertedIndexConfig: invertedConfig(),
+	Properties: []*models.Property{
+		{
+			Name:            "name",
+			DataType:        schema.DataTypeText.PropString(),
+			Tokenization:    models.PropertyTokenizationWhitespace,
+			IndexFilterable: boolRef(false),
+			IndexInverted:   boolRef(false),
+		},
+	},
+}
+
 var companyClass = &models.Class{
 	Class:               "AggregationsTestCompany",
 	VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
