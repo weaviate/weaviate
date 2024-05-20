@@ -251,12 +251,23 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					searchVectors[i].TargetVectors = []string{targetVector}
 				}
 				res, name, err := denseSearch(ctx, e, params, "nearVector", targetVectors, searchVectors)
+				var filteredDenseResults []*search.Result
+
+				if params.AcceptannceThreshold.MaxVectorDistance != 0 {
+					for _, result := range res {
+						if result.Dist > params.AcceptannceThreshold.MaxVectorDistance {
+							filteredDenseResults = append(filteredDenseResults, result)
+						}
+					}
+				} else {
+					filteredDenseResults = res
+				}
 				if err != nil {
 					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 					return err
 				}
 				weights[0] = params.HybridSearch.Alpha
-				results[0] = res
+				results[0] = filteredDenseResults
 				names[0] = name
 			} else {
 				sch := e.schemaGetter.GetSchemaSkipAuth()
@@ -308,12 +319,24 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			// If the user has given any weight to the keyword search, do a keyword search
 			params := keywordParams
 			sparseResults, name, err := sparseSearch(ctx, e, params)
+			var filteredSparseResults []*search.Result
+
+			// Filter those results where score is less than minimum hybrid score
+			if params.AcceptannceThreshold.MinHybridScore != 0 {
+				for _, result := range sparseResults {
+					if result.Score < params.AcceptannceThreshold.MinHybridScore {
+						filteredSparseResults = append(filteredSparseResults, result)
+					}
+				}
+			} else {
+				filteredSparseResults = sparseResults
+			}
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")
 				return err
 			} else {
 				weights[len(weights)-1] = 1 - params.HybridSearch.Alpha
-				results[len(weights)-1] = sparseResults
+				results[len(weights)-1] = filteredSparseResults
 				names[len(weights)-1] = name
 			}
 

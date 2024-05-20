@@ -62,4 +62,5 @@ type GetParams struct {
 	ReplicationProperties   *additional.ReplicationProperties
 	Tenant                  string
 	IsRefOrigin             bool // is created by ref filter
+	AcceptannceThreshold    *filters.AcceptanceThreshold
 }
