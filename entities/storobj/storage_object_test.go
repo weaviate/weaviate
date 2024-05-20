@@ -12,6 +12,7 @@
 package storobj
 
 import (
+	"crypto/rand"
 	"fmt"
 	"testing"
 	"time"
@@ -699,4 +700,59 @@ func TestVectorFromBinary(t *testing.T) {
 	outVector3, err := VectorFromBinary(asBinary, nil, "vector3")
 	require.Nil(t, err)
 	assert.Equal(t, vector3, outVector3)
+}
+
+func TestStorageInvalidObjectMarshalling(t *testing.T) {
+	t.Run("invalid className", func(t *testing.T) {
+		invalidClassName := make([]byte, maxClassNameLength+1)
+		rand.Read(invalidClassName[:])
+
+		invalidObj := FromObject(
+			&models.Object{
+				Class:              string(invalidClassName),
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			},
+			nil,
+			nil,
+		)
+
+		_, err := invalidObj.MarshalBinary()
+		require.ErrorContains(t, err, "could not marshal 'className' max length exceeded")
+	})
+
+	t.Run("invalid vector", func(t *testing.T) {
+		invalidObj := FromObject(
+			&models.Object{
+				Class:              "classA",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			},
+			make([]float32, maxVectorLength+1),
+			nil,
+		)
+
+		_, err := invalidObj.MarshalBinary()
+		require.ErrorContains(t, err, "could not marshal 'vector' max length exceeded")
+	})
+
+	t.Run("invalid named vector size", func(t *testing.T) {
+		invalidObj := FromObject(
+			&models.Object{
+				Class:              "classA",
+				CreationTimeUnix:   123456,
+				LastUpdateTimeUnix: 56789,
+				ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			},
+			nil,
+			models.Vectors{
+				"vector1": make(models.Vector, maxVectorLength+1),
+			},
+		)
+
+		_, err := invalidObj.MarshalBinary()
+		require.ErrorContains(t, err, "could not marshal 'vector' max length exceeded")
+	})
 }
