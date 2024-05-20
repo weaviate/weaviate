@@ -38,7 +38,7 @@ func startOllama(ctx context.Context, networkName, hostname, model string) (*Doc
 	port := nat.Port("11434/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
-			Image:    "ollama/ollama:0.1.30",
+			Image:    "ollama/ollama:0.1.33",
 			Hostname: hostname,
 			Networks: []string{networkName},
 			NetworkAliases: map[string][]string{

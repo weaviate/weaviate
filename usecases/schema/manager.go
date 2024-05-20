@@ -15,9 +15,11 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -344,14 +346,14 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 }
 
 func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
-	// TODO-RAFT: we always query the leader
-	// we need to make sure what is the side effect of
-	// if the leader says "tenant is HOT", but locally
-	// it's still COLD.
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
 	status, _, err := m.metaWriter.QueryTenantsShards(class, tenants...)
-	return status, err
+	if !m.AllowImplicitTenantActivation(class) || err != nil {
+		return status, err
+	}
+
+	return m.activateTenantIfInactive(class, status)
 }
 
 // OptimisticTenantStatus tries to query the local state first. It is
@@ -404,6 +406,52 @@ func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[strin
 	return map[string]string{
 		tenant: status,
 	}, nil
+}
+
+func (m *Manager) activateTenantIfInactive(class string,
+	status map[string]string,
+) (map[string]string, error) {
+	req := &api.UpdateTenantsRequest{
+		Tenants: make([]*api.Tenant, 0, len(status)),
+	}
+
+	for tenant, s := range status {
+		if s != models.TenantActivityStatusHOT {
+			req.Tenants = append(req.Tenants,
+				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
+		}
+	}
+
+	if len(req.Tenants) == 0 {
+		// nothing to do, all tenants are already HOT
+		return status, nil
+	}
+
+	_, err := m.metaWriter.UpdateTenants(class, req)
+	if err != nil {
+		names := make([]string, len(req.Tenants))
+		for i, t := range req.Tenants {
+			names[i] = t.Name
+		}
+
+		return nil, fmt.Errorf("implicit activation of tenants %s: %w", strings.Join(names, ", "), err)
+	}
+
+	for _, t := range req.Tenants {
+		status[t.Name] = models.TenantActivityStatusHOT
+	}
+
+	return status, nil
+}
+
+func (m *Manager) AllowImplicitTenantActivation(class string) bool {
+	allow := false
+	m.metaReader.Read(class, func(c *models.Class, _ *sharding.State) error {
+		allow = schema.AutoTenantActivationEnabled(c)
+		return nil
+	})
+
+	return allow
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
