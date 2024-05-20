@@ -6,7 +6,7 @@ CONFIG=${1:-local-development}
 cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || exit 1
 
 export GO111MODULE=on
-export LOG_LEVEL=${LOG_LEVEL:-"info"}
+export LOG_LEVEL=${LOG_LEVEL:-"debug"}
 export LOG_FORMAT=${LOG_FORMAT:-"text"}
 export PROMETHEUS_MONITORING_ENABLED=${PROMETHEUS_MONITORING_ENABLED:-"true"}
 export GO_BLOCK_PROFILE_RATE=${GO_BLOCK_PROFILE_RATE:-"20"}

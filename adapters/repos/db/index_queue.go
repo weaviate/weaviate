@@ -24,6 +24,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -72,6 +73,8 @@ type IndexQueue struct {
 
 		chans []chan struct{}
 	}
+
+	lastPushed atomic.Pointer[time.Time]
 }
 
 type vectorDescriptor struct {
@@ -100,6 +103,9 @@ type IndexQueueOptions struct {
 
 	// Maximum number of chunks to send to the workers in a single tick.
 	MaxChunksPerTick int
+
+	// Enable throttling of the indexing process.
+	Throttle bool
 }
 
 type batchIndexer interface {
@@ -168,6 +174,9 @@ func NewIndexQueue(
 	if v, _ := strconv.Atoi(os.Getenv("ASYNC_MAX_CHUNKS_PER_TICK")); v > 0 {
 		opts.MaxChunksPerTick = v
 	}
+	if configbase.Enabled(os.Getenv("ASYNC_THROTTLING")) {
+		opts.Throttle = true
+	}
 
 	q := IndexQueue{
 		shardID:           shardID,
@@ -218,7 +227,7 @@ func (q *IndexQueue) Close() error {
 
 	q.wait(ctx)
 
-	q.Logger.Info("index queue closed")
+	q.Logger.Debug("index queue closed")
 
 	return nil
 }
@@ -231,6 +240,9 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	if q.ctx.Err() != nil {
 		return errors.New("index queue closed")
 	}
+
+	now := time.Now()
+	q.lastPushed.Store(&now)
 
 	q.queue.Add(vectors)
 	return nil
@@ -382,7 +394,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		WithField("took", time.Since(start)).
 		WithField("shard_id", q.shardID).
 		WithField("target_vector", q.targetVector).
-		Info("enqueued vectors from last indexed checkpoint")
+		Debug("enqueued vectors from last indexed checkpoint")
 
 	return nil
 }
@@ -398,7 +410,7 @@ func (q *IndexQueue) Drop() error {
 		return q.checkpoints.Delete(q.shardID, q.targetVector)
 	}
 
-	q.Logger.Info("index queue dropped")
+	q.Logger.Debug("index queue dropped")
 
 	return nil
 }
@@ -430,7 +442,18 @@ func (q *IndexQueue) indexer() {
 				continue
 			}
 
-			chunksSent := q.pushToWorkers(maxPerTick)
+			lastPushed := q.lastPushed.Load()
+			var chunksSent int
+			if !q.Throttle || lastPushed == nil || time.Since(*lastPushed) > time.Second {
+				// send at most maxPerTick chunks at a time, without waiting for them to be indexed
+				chunksSent = q.pushToWorkers(maxPerTick, false)
+			} else {
+				// send only one batch at a time and wait for it to be indexed
+				// to avoid competing for resources with the inverted index.
+				// This ensures the resources are used for storing / queueing vectors in priority.
+				chunksSent = q.pushToWorkers(1, true)
+			}
+
 			q.logStats(chunksSent)
 		case <-q.ctx.Done():
 			// stop the ticker
@@ -440,7 +463,7 @@ func (q *IndexQueue) indexer() {
 	}
 }
 
-func (q *IndexQueue) pushToWorkers(max int) int {
+func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
 	chunks := q.queue.dequeue(max)
 	if len(chunks) == 0 {
 		return 0
@@ -470,9 +493,7 @@ func (q *IndexQueue) pushToWorkers(max int) int {
 		}
 
 		if len(ids) == 0 {
-			// might be very verbose if the queue is full of deleted vectors.
-			// change to Debug if needed
-			q.Logger.Info("all vectors in the chunk are deleted. skipping")
+			q.Logger.Debug("all vectors in the chunk are deleted. skipping")
 			continue
 		}
 
@@ -498,6 +519,10 @@ func (q *IndexQueue) pushToWorkers(max int) int {
 	q.doneChans.Unlock()
 
 	q.queue.persistCheckpoint(minID)
+
+	if wait {
+		q.wait(q.ctx)
+	}
 
 	return len(chunks)
 }
@@ -532,7 +557,7 @@ func (q *IndexQueue) logStats(chunksSent int) {
 		WithField("queue_size", qSize).
 		WithField("chunks_sent", chunksSent).
 		WithField("chunks_ready", ready).
-		Info("queue stats")
+		Debug("queue stats")
 }
 
 // SearchByVector performs the search through the index first, then uses brute force to
@@ -636,16 +661,16 @@ func (q *IndexQueue) checkCompressionSettings() bool {
 // pause indexing and wait for the workers to finish their current tasks
 // related to this queue.
 func (q *IndexQueue) pauseIndexing() {
-	q.Logger.Info("pausing indexing, waiting for the current tasks to finish")
+	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
 	q.paused.Store(true)
 	q.wait(context.Background())
-	q.Logger.Info("indexing paused")
+	q.Logger.Debug("indexing paused")
 }
 
 // resume indexing
 func (q *IndexQueue) resumeIndexing() {
 	q.paused.Store(false)
-	q.Logger.Info("indexing resumed")
+	q.Logger.Debug("indexing resumed")
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int,
