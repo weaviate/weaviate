@@ -28,6 +28,11 @@ type Pagination struct {
 	Autocut int
 }
 
+type AcceptanceThreshold struct {
+	MinHybridScore    float32
+	MaxVectorDistance float32
+}
+
 // ExtractPaginationFromArgs gets the limit key out of a map. Not specific to
 // GQL, but can be used from GQL
 func ExtractPaginationFromArgs(args map[string]interface{}) (*Pagination, error) {

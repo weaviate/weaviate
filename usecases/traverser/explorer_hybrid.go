@@ -92,7 +92,7 @@ func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e 
 
 	params.NearVector.TargetVectors = []string{targetVector}
 
-	// TODO confirm that targetVectos is being passed through as part of the params
+	// TODO confirm that targetVector is being passed through as part of the params
 	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
 	if err != nil {
 		return nil, "", err
@@ -236,12 +236,25 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			}
 		} else if params.HybridSearch.NearVectorParams != nil {
 			res, name, err := denseSearch(ctx, params.HybridSearch.NearVectorParams, e, params, "nearVector")
+
+			var filteredDenseResults []*search.Result
+
+			if params.AcceptannceThreshold.MaxVectorDistance != 0 {
+				for _, result := range res {
+					if result.Dist > params.AcceptannceThreshold.MaxVectorDistance {
+						filteredDenseResults = append(filteredDenseResults, result)
+					}
+				}
+			} else {
+				filteredDenseResults = res
+			}
+
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 				return nil, err
 			}
 			weights = append(weights, params.HybridSearch.Alpha)
-			results = append(results, res)
+			results = append(results, filteredDenseResults)
 			names = append(names, name)
 		} else {
 			targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
@@ -285,12 +298,26 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// If the user has given any weight to the keyword search, do a keyword search
 	if 1-params.HybridSearch.Alpha > 0 {
 		sparseResults, name, err := sparseSearch(ctx, e, params)
+
+		var filteredSparseResults []*search.Result
+
+		// Filter those results where score is less than minimum hybrid score
+		if params.AcceptannceThreshold.MinHybridScore != 0 {
+			for _, result := range sparseResults {
+				if result.Score < params.AcceptannceThreshold.MinHybridScore {
+					filteredSparseResults = append(filteredSparseResults, result)
+				}
+			}
+		} else {
+			filteredSparseResults = sparseResults
+		}
+
 		if err != nil {
 			e.logger.WithField("action", "hybrid").WithError(err).Error("sparseSearch failed")
 			return nil, err
 		} else {
 			weights = append(weights, 1-params.HybridSearch.Alpha)
-			results = append(results, sparseResults)
+			results = append(results, filteredSparseResults)
 			names = append(names, name)
 		}
 	}
