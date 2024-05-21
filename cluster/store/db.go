@@ -114,6 +114,7 @@ func (db *localDB) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaO
 		meta.Class.VectorConfig = u.VectorConfig
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
+		meta.Class.Description = u.Description
 		meta.ClassVersion = cmd.Version
 		if req.State != nil {
 			meta.Sharding = *req.State
