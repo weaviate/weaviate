@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -189,13 +190,31 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 	defer h.tombstoneLock.Unlock()
 
 	deleteList = helpers.NewAllowList()
+
+	// If we have a very high number of tombstones, we run into scaling issues.
+	// Simply operations, such as copying lists require a lot of memory
+	// allocations, etc.
+	//
+	// In addition, the cycle would run too long, preventing feedback. With a
+	// hard limit like this, we do risk that we create connections that will need
+	// to be touched again in the next cycle, but this is a tradeoff we're
+	// willing to make.
+	maxTomstonesPerCycle := 1_000_000
+
+	elementsOnList := 0
 	for id := range h.tombstones {
+		if elementsOnList >= maxTomstonesPerCycle {
+			// we've reached the limit of tombstones we want to process in one
+			break
+		}
+
 		if lenOfNodes <= id {
 			// we're trying to delete an id outside the possible range, nothing to do
 			continue
 		}
 
 		deleteList.Insert(id)
+		elementsOnList++
 	}
 
 	if deleteList.IsEmpty() {
@@ -223,8 +242,10 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		}
 	}()
 
-	h.metrics.StartCleanup(1)
-	defer h.metrics.EndCleanup(1)
+	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
+	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
+
+	start := time.Now()
 
 	h.resetLock.Lock()
 	resetCtx := h.resetCtx
@@ -241,6 +262,18 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	}
 
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
+
+	h.tombstoneLock.Lock()
+	total_tombstones := len(h.tombstones)
+	h.tombstoneLock.Unlock()
+
+	h.logger.WithFields(logrus.Fields{
+		"action":              "tombstone_cleanup_begin",
+		"class":               h.className,
+		"shard":               h.shardName,
+		"tombstones_in_cycle": deleteList.Len(),
+		"tombstones_total":    total_tombstones,
+	}).Infof("class %s: shard %s: starting tombstone cleanup", h.className, h.shardName)
 
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
@@ -264,6 +297,18 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 
 	if _, err := h.resetIfEmpty(); err != nil {
 		return executed, err
+	}
+
+	if executed {
+		took := time.Since(start)
+		h.logger.WithFields(logrus.Fields{
+			"action":              "tombstone_cleanup_complete",
+			"class":               h.className,
+			"shard":               h.shardName,
+			"tombstones_in_cycle": deleteList.Len(),
+			"tombstones_total":    total_tombstones,
+			"duration":            took,
+		}).Infof("class %s: shard %s: completed tombstone cleanup in %s", h.className, h.shardName, took)
 	}
 
 	return executed, nil
@@ -347,6 +392,16 @@ LOOP:
 	for i := 0; i < size; i++ {
 		select {
 		case ch <- uint64(i):
+			if i%1_000_000 == 0 {
+				h.logger.WithFields(logrus.Fields{
+					"class":           h.className,
+					"shard":           h.shardName,
+					"total_nodes":     size,
+					"processed_nodes": i,
+				}).
+					// should be debug, but while testing keeping it at info
+					Infof("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
+			}
 		case <-ctx.Done():
 			// before https://github.com/weaviate/weaviate/issues/4615 the context
 			// would not be canceled if a routine panicked. However, with the fix, it is
