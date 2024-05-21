@@ -335,10 +335,46 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
+func errorRepeated(err error, count int) []error {
+	out := make([]error, count)
+	for i := range out {
+		out[i] = err
+	}
+	return out
+}
 func (c *RemoteIndex) BatchMergeObjects(ctx context.Context, hostName, indexName,
-	shardName string, mergeDocs []*objects.BatchMergeDocument,
+	shardName string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64,
 ) []error {
-	panic("not implemented")
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	url := url.URL{
+		Scheme:   "http",
+		Host:     hostName,
+		Path:     fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName),
+		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
+	}
+
+	body, err := clusterapi.IndicesPayloads.BatchMergeDocList.Marshal(mergeDocs)
+	if err != nil {
+		return duplicateErr(fmt.Errorf("encode request: %w", err), len(mergeDocs))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), nil)
+	if err != nil {
+		return duplicateErr(fmt.Errorf("create http request: %w", err), len(mergeDocs))
+	}
+	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
+
+	var resp []error
+	decode := func(data []byte) error {
+		resp = clusterapi.IndicesPayloads.ErrorList.Unmarshal(data)
+		return nil
+	}
+
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode); err != nil {
+		return duplicateErr(err, len(mergeDocs))
+	}
+
+	return resp
 }
 
 func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,

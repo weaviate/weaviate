@@ -208,7 +208,7 @@ func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
-func (f *fakeRemoteClient) BatchMergeObjects(ctx context.Context, hostName, indexName, shardName string, mergeDocs []*objects.BatchMergeDocument) []error {
+func (f *fakeRemoteClient) BatchMergeObjects(ctx context.Context, hostName, indexName, shardName string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) []error {
 	return nil
 }
 
@@ -316,7 +316,7 @@ func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, sh
 	return replica.SimpleResponse{}, nil
 }
 
-func (f *fakeReplicationClient) MergeObjects(ctx context.Context, host, index, shard, requestID string, mergeDocs []*objects.BatchMergeDocument) (replica.SimpleResponse, error) {
+func (f *fakeReplicationClient) MergeObjects(ctx context.Context, host, index, shard, requestID string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
