@@ -146,6 +146,11 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
 
+	leftSegment.CompactionMutex.Lock()
+	defer leftSegment.CompactionMutex.Unlock()
+	rightSegment.CompactionMutex.Lock()
+	defer rightSegment.CompactionMutex.Unlock()
+
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 
 	f, err := os.Create(path)

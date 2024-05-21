@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 
 	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
@@ -52,6 +53,8 @@ type segment struct {
 	// the net addition this segment adds with respect to all previous segments
 	calcCountNetAdditions bool // see bucket for more datails
 	countNetAdditions     int
+
+	CompactionMutex *sync.RWMutex
 }
 
 type diskIndex interface {
@@ -108,6 +111,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
+	compactionMutex := &sync.RWMutex{}
+
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
@@ -126,6 +131,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		mmapContents:          mmapContents,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
+		CompactionMutex:       compactionMutex,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime

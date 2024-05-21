@@ -122,6 +122,8 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 		myCurrentBucket := currentBucket
 		currentBucket++
 		eg.Go(func() (err error) {
+			segment.CompactionMutex.RLock()
+			defer segment.CompactionMutex.RUnlock()
 			terms := make([]Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 			for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
 				// pass i to the closure
