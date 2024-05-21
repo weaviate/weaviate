@@ -116,8 +116,8 @@ func (bml BitmapLayers) Merge() (BitmapLayer, error) {
 	left, right := bml[0], bml[1]
 
 	additions := left.Additions.Clone()
-	additions.Or(right.Additions)
 	additions.AndNot(right.Deletions)
+	additions.Or(right.Additions)
 
 	deletions := left.Deletions.Clone()
 	deletions.AndNot(right.Additions)
