@@ -336,7 +336,10 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
 					if h.getEntrypoint() != deletedID {
-						h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+						if _, err := h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
+							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
+								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+						}
 					}
 				}
 			}
