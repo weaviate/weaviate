@@ -78,6 +78,10 @@ Here are some examples that show how Weaviate integrates with other AI and ML to
 - [Hugging Face](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface)
 - [OpenAI](https://github.com/openai/openai-cookbook/tree/main/examples/vector_databases/weaviate)
 
+### Use Weaviate with third party AI platforms
+
+- [MindsDB](https://docs.mindsdb.com/integrations/vector-db-integrations/weaviate)
+
 ### Use Weaviate as a document store 
 
 - [DocArray](https://docarray.jina.ai/advanced/document-store/weaviate/)
