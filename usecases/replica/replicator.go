@@ -220,11 +220,11 @@ func (r *Replicator) PutObjects(ctx context.Context,
 func (r *Replicator) MergeObjects(ctx context.Context,
 	shard string,
 	docs []*objects.BatchMergeDocument,
-	l ConsistencyLevel,
+	l ConsistencyLevel, schemaVersion uint64,
 ) []error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
-		resp, err := r.client.MergeObjects(ctx, host, r.class, shard, requestID, docs)
+		resp, err := r.client.MergeObjects(ctx, host, r.class, shard, requestID, docs, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
 		}

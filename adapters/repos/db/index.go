@@ -818,8 +818,7 @@ func (i *Index) mergeObjectBatch(ctx context.Context, docs []*objects.BatchMerge
 			}()
 			var errs []error
 			if replProps != nil {
-				errs = i.replicator.MergeObjects(ctx, shardName, group.mergeDocs,
-					replica.ConsistencyLevel(replProps.ConsistencyLevel))
+				errs = i.replicator.MergeObjects(ctx, shardName, group.mergeDocs, replica.ConsistencyLevel(replProps.ConsistencyLevel),
 			} else if i.localShard(shardName) == nil {
 				errs = i.remote.BatchMergeObjects(ctx, shardName, group.mergeDocs)
 			} else {
