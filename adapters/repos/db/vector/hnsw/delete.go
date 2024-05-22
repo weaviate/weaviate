@@ -199,11 +199,10 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 	// hard limit like this, we do risk that we create connections that will need
 	// to be touched again in the next cycle, but this is a tradeoff we're
 	// willing to make.
-	maxTomstonesPerCycle := 100_000
 
 	elementsOnList := 0
 	for id := range h.tombstones {
-		if elementsOnList >= maxTomstonesPerCycle {
+		if elementsOnList >= maxTombstonesPerCycle() {
 			// we've reached the limit of tombstones we want to process in one
 			break
 		}
@@ -342,6 +341,16 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 	}
 
 	return true, nil
+}
+
+func maxTombstonesPerCycle() int {
+	if v := os.Getenv("TOMBSTONE_DELETION_LIMIT_PER_CYCLE"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err == nil && asInt > 0 {
+			return asInt
+		}
+	}
+	return 1_000_000
 }
 
 func tombstoneDeletionConcurrency() int {
