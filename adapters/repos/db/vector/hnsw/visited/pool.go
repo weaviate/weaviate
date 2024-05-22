@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/errors"
 )
 
 type Stats struct {
@@ -56,7 +57,7 @@ func NewPool(size int, listSetSize int) *Pool {
 	p.logger = logrus.New().WithField("component", "visited_pool")
 	p.closeStats = make(chan struct{})
 
-	go func() {
+	errors.GoWrapper(func() {
 		t := time.NewTicker(d)
 		defer t.Stop()
 
@@ -73,7 +74,7 @@ func NewPool(size int, listSetSize int) *Pool {
 				}).Info("visited pool stats")
 			}
 		}
-	}()
+	}, p.logger)
 
 	return p
 }
@@ -107,7 +108,7 @@ func (p *Pool) Return(l ListSet) {
 			WithField("n", n).
 			WithField("min", p.listSetSize).
 			WithField("max", p.listSetSize*11/10).
-			Warn("list is too large to be stored in the pool")
+			Warn("list returned to the pool is too large or too small")
 		return
 	}
 	l.Reset()
