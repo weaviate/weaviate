@@ -251,6 +251,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
+
+	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+
 	if st.lastAppliedIndexOnStart.Load() <= st.raft.LastIndex() {
 		// this should include empty and non empty node
 		st.openDatabase(ctx)
@@ -259,8 +262,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if st.lastAppliedIndexOnStart.Load() == 0 {
 		st.dbLoaded.Store(true)
 	}
-
-	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":           st.raft.AppliedIndex(),
@@ -415,7 +416,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	st.log.Info("closing data store ...")
 	if err := st.db.Close(ctx); err != nil {
-		return fmt.Errorf(" close database: %w", err)
+		return fmt.Errorf("close database: %w", err)
 	}
 
 	return nil
@@ -442,9 +443,8 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 		case <-t.C:
 			if st.dbLoaded.Load() {
 				return nil
-			} else {
-				st.log.Info("waiting for database to be restored")
 			}
+			st.log.Info("waiting for database to be restored")
 		}
 	}
 }
@@ -466,12 +466,12 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 		case <-ticker.C:
 			if idx = st.lastAppliedIndex.Load(); idx >= version {
 				return nil
-			} else {
-				st.log.WithFields(logrus.Fields{
-					"got":  idx,
-					"want": version,
-				}).Debug("wait for update version")
 			}
+			st.log.WithFields(logrus.Fields{
+				"got":  idx,
+				"want": version,
+			}).Debug("wait for update version")
+
 		}
 	}
 }
@@ -648,9 +648,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// If we don't have any last applied index on start, schema only is always false.
 	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
 	defer func() {
+		st.lastAppliedIndex.Store(l.Index)
+
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index == st.lastAppliedIndexOnStart.Load() {
+		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index >= st.lastAppliedIndexOnStart.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
@@ -659,7 +661,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			}).Debug("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
 		}
-		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
