@@ -359,6 +359,47 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	return b.disk.get(key)
 }
 
+func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	v, err := b.active.get(key)
+	if err == nil {
+		// item found and no error, return and stop searching, since the strategy
+		// is replace
+		return v, nil
+	}
+	if errors.Is(err, lsmkv.Deleted) {
+		// deleted in the mem-table (which is always the latest) means we don't
+		// have to check the disk segments, return nil now
+		return nil, err
+	}
+
+	if err != lsmkv.NotFound {
+		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
+	}
+
+	if b.flushing != nil {
+		v, err := b.flushing.get(key)
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return v, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			// deleted in the now most recent memtable  means we don't have to check
+			// the disk segments, return nil now
+			return nil, err
+		}
+
+		if err != lsmkv.NotFound {
+			panic("unsupported error in bucket.Get")
+		}
+	}
+
+	return b.disk.getErrDeleted(key)
+}
+
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
 // can have an infinite number of secondary keys. Specify the secondary key
 // position as the first argument.

@@ -204,9 +204,10 @@ type GRPC struct {
 }
 
 type Profiling struct {
-	BlockProfileRate     int `json:"blockProfileRate" yaml:"blockProfileRate"`
-	MutexProfileFraction int `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
-	Port                 int `json:"port" yaml:"port"`
+	BlockProfileRate     int  `json:"blockProfileRate" yaml:"blockProfileRate"`
+	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
+	Disabled             bool `json:"disabled" yaml:"disabled"`
+	Port                 int  `json:"port" yaml:"port"`
 }
 
 type Persistence struct {
@@ -285,7 +286,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

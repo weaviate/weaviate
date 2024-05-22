@@ -200,7 +200,6 @@ type Index struct {
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *esync.KeyLocker
 	shardInUseLocks  *esync.KeyRWLocker
-	modules          *modules.Provider
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -599,6 +598,16 @@ func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shar
 			return tenant, nil
 		}
 		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+	}
+	class := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
+	if class == nil {
+		return "", fmt.Errorf("class %q not found in schema", i.Config.ClassName)
+	}
+	if class.MultiTenancyConfig.AutoTenantCreation {
+		err := fmt.Errorf(
+			"%w: %q, if expecting this tenant to be created with autoTenantCreation, "+
+				"this feature only works with batch insertion", errTenantNotFound, tenant)
+		return "", objects.NewErrMultiTenancy(err)
 	}
 	return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
 }
@@ -1939,7 +1948,7 @@ func (i *Index) aggregate(ctx context.Context,
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
-	params aggregation.Params,
+	params aggregation.Params, mods interface{},
 ) (*aggregation.Result, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
@@ -1947,7 +1956,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	}
 	defer release()
 
-	return shard.Aggregate(ctx, params, i.modules)
+	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
 }
 
 func (i *Index) drop() error {

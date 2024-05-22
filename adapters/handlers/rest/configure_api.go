@@ -322,7 +322,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader())
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
@@ -1063,6 +1063,10 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
+	if config.Profiling.Disabled {
+		return
+	}
+
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {
