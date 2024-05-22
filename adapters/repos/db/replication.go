@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
