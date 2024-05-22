@@ -33,6 +33,7 @@ type Pool struct {
 	listSets    []ListSet
 	stats       Stats
 	closeStats  chan struct{}
+	logger      *logrus.Entry
 }
 
 // NewPool creates a new pool with specified size.
@@ -52,7 +53,7 @@ func NewPool(size int, listSetSize int) *Pool {
 		d = 10 * time.Second
 	}
 
-	logger := logrus.New().WithField("component", "visited_pool")
+	p.logger = logrus.New().WithField("component", "visited_pool")
 	p.closeStats = make(chan struct{})
 
 	go func() {
@@ -64,7 +65,7 @@ func NewPool(size int, listSetSize int) *Pool {
 			case <-p.closeStats:
 				return
 			case <-t.C:
-				logger.WithFields(logrus.Fields{
+				p.logger.WithFields(logrus.Fields{
 					"return_too_large": p.stats.ReturnTooLarge.Load(),
 					"return_stored":    p.stats.ReturnStored.Load(),
 					"borrow_reused":    p.stats.BorrowReused.Load(),
@@ -102,6 +103,11 @@ func (p *Pool) Return(l ListSet) {
 	n := l.Len()
 	if n < p.listSetSize || n > p.listSetSize*11/10 { // 11/10 could be tuned
 		p.stats.ReturnTooLarge.Add(1)
+		p.logger.
+			WithField("n", n).
+			WithField("min", p.listSetSize).
+			WithField("max", p.listSetSize*11/10).
+			Warn("list is too large to be stored in the pool")
 		return
 	}
 	l.Reset()
@@ -123,5 +129,8 @@ func (p *Pool) Destroy() {
 
 	p.listSets = nil
 
-	close(p.closeStats)
+	if p.closeStats != nil {
+		close(p.closeStats)
+		p.closeStats = nil
+	}
 }
