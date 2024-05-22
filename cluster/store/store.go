@@ -255,8 +255,10 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	// safely open DB after RAFT was init. DB will be protected on Apply until it catches up.
 	st.openDatabase(ctx)
 
+	snapIndex := snapshotIndex(st.snapshotStore)
+
 	// if empty node report ready
-	if st.lastAppliedIndexOnStart.Load() == 0 {
+	if st.lastAppliedIndexOnStart.Load() == 0 && snapIndex == 0 {
 		st.dbLoaded.Store(true)
 	}
 
@@ -267,7 +269,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"raft_last_index":              st.raft.LastIndex(),
 		"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
 		"last_store_applied_index":     st.lastAppliedIndex.Load(),
-		"last_snapshot_index":          snapshotIndex(st.snapshotStore),
+		"last_snapshot_index":          snapIndex,
 	}).Info("raft node constructed")
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
