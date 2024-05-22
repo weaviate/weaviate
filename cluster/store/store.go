@@ -257,12 +257,12 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	snapIndex := snapshotIndex(st.snapshotStore)
 
+	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+
 	// if empty node report ready
 	if st.lastAppliedIndexOnStart.Load() == 0 && snapIndex == 0 {
 		st.dbLoaded.Store(true)
 	}
-
-	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":           st.raft.AppliedIndex(),
@@ -653,10 +653,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		panic("error proto un-marshalling log data")
 	}
 
-	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
-	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
-	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
@@ -684,6 +680,12 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	}()
 
 	cmd.Version = l.Index
+
+	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
+	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
+	// If we don't have any last applied index on start, schema only is always false.
+	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
+
 	st.log.WithFields(logrus.Fields{
 		"log_type":        l.Type,
 		"log_name":        l.Type.String(),
