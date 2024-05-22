@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
@@ -98,9 +100,8 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 		dist, ok, err = n.distancer.DistanceToNode(id)
 	}
 	if err != nil {
-		// not an error we could recover from - fail!
-		return math.MaxFloat32, errors.Wrapf(err,
-			"calculate distance between insert node and entrypoint")
+		return math.MaxFloat32, fmt.Errorf(
+			"calculate distance between insert node and entrypoint: %w", err)
 	}
 	if !ok {
 		return math.MaxFloat32, nil
@@ -138,7 +139,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 
 		dist, err := n.processNode(id)
 		if err != nil {
-			return err
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				// node was deleted in the meantime
+				continue
+			} else {
+				return err
+			}
 		}
 		if results.Len() >= top && dist < results.Top().Dist {
 			results.Pop()
