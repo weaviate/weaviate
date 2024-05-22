@@ -129,8 +129,5 @@ func (p *Pool) Destroy() {
 
 	p.listSets = nil
 
-	if p.closeStats != nil {
-		close(p.closeStats)
-		p.closeStats = nil
-	}
+	close(p.closeStats)
 }
