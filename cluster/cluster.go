@@ -17,8 +17,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/store"
-	"github.com/weaviate/weaviate/cluster/transport"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -29,9 +29,9 @@ type Service struct {
 	raftAddr string
 	config   *store.Config
 
-	client     *transport.Client
-	rpcService *transport.Service
-	logger     *logrus.Logger
+	rpcClient *rpc.Client
+	rpcServer *rpc.Server
+	logger    *logrus.Logger
 
 	// closing channels
 	closeBootstrapper chan struct{}
@@ -40,16 +40,16 @@ type Service struct {
 
 func New(cfg store.Config) *Service {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
-	cl := transport.NewClient(transport.NewRPCResolver(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize)
+	cl := rpc.NewClient(rpc.NewResolver(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize)
 	fsm := store.New(cfg)
-	server := store.NewService(&fsm, cl)
+	raftService := store.NewService(&fsm, cl)
 	return &Service{
-		Service:  server,
+		Service:  raftService,
 		raftAddr: fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
 
 		config:            &cfg,
-		client:            cl,
-		rpcService:        transport.New(&fsm, server, addr, cfg.Logger, cfg.RaftRPCMessageMaxSize),
+		rpcClient:         cl,
+		rpcServer:         rpc.NewServer(&fsm, raftService, addr, cfg.Logger, cfg.RaftRPCMessageMaxSize),
 		logger:            cfg.Logger,
 		closeBootstrapper: make(chan struct{}),
 		closeWaitForDB:    make(chan struct{}),
@@ -60,7 +60,7 @@ func New(cfg store.Config) *Service {
 // bootstrap the Raft node, and restore the database state
 func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 	c.logger.WithField("servers", c.config.ServerName2PortMap).Info("open cluster service")
-	if err := c.rpcService.Open(); err != nil {
+	if err := c.rpcServer.Open(); err != nil {
 		return fmt.Errorf("start rpc service: %w", err)
 	}
 
@@ -69,7 +69,7 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 	}
 
 	bs := store.NewBootstrapper(
-		c.client,
+		c.rpcClient,
 		c.config.NodeID,
 		c.raftAddr,
 		c.config.AddrResolver,
@@ -99,18 +99,18 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeWaitForDB <- struct{}{}
 	}, c.logger)
 
+	c.logger.Info("closing raft FSM store ...")
 	if err := c.Service.Close(ctx); err != nil {
 		return err
 	}
 
 	c.logger.Info("closing raft-rpc client ...")
-
-	if err := c.client.Close(); err != nil {
+	if err := c.rpcClient.Close(); err != nil {
 		return err
 	}
 
 	c.logger.Info("closing raft-rpc server ...")
-	c.rpcService.Close()
+	c.rpcServer.Close()
 	return nil
 }
 
