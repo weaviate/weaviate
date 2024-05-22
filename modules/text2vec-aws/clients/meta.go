@@ -11,7 +11,7 @@
 
 package clients
 
-func (v *aws) MetaInfo() (map[string]interface{}, error) {
+func (v *awsClient) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "AWS Module",
 		"documentationHref": "https://cloud.google.com/vertex-ai/docs/generative-ai/embeddings/get-text-embeddings",

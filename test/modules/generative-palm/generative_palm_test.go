@@ -15,22 +15,50 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
 func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
-		companies := companies.Companies()
+		planets := []struct {
+			ID                strfmt.UUID
+			Name, Description string
+		}{
+			{
+				ID:   strfmt.UUID("00000000-0000-0000-0000-000000000001"),
+				Name: "Earth",
+				Description: `
+				The Earth's surface is predominantly covered by oceans, accounting for about 71% of its total area, while continents provide 
+				the stage for bustling cities, towering mountains, and sprawling forests. Its atmosphere, composed mostly of nitrogen and oxygen, 
+				protects life from harmful solar radiation and regulates the planet's climate, creating the conditions necessary for life to flourish.
+
+				Humans, as the dominant species, have left an indelible mark on Earth, shaping its landscapes and ecosystems in profound ways. 
+				However, with this influence comes the responsibility to steward and preserve our planet for future generations.
+				`,
+			},
+			{
+				ID:   strfmt.UUID("00000000-0000-0000-0000-000000000002"),
+				Name: "Mars",
+				Description: `
+				Mars, often called the "Red Planet" due to its rusty reddish hue, is the fourth planet from the Sun in our solar system. 
+				It's a world of stark contrasts and mysterious allure, captivating the imaginations of scientists, explorers, and dreamers alike.
+
+				With its barren, rocky terrain and thin atmosphere primarily composed of carbon dioxide, Mars presents a harsh environment vastly 
+				different from Earth. Yet, beneath its desolate surface lie tantalizing clues about its past, including evidence of ancient rivers, 
+				lakes, and even the possibility of microbial life.
+				`,
+			},
+		}
 		// Define class
-		className := "CompaniesGenerativeTest"
+		className := "PlanetsGenerativeTest"
 		class := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
@@ -79,6 +107,30 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				name:            "chat-bison@001",
 				generativeModel: "chat-bison@001",
 			},
+			{
+				name:            "gemini-1.5-pro-preview-0514",
+				generativeModel: "gemini-1.5-pro-preview-0514",
+			},
+			{
+				name:            "gemini-1.5-pro-preview-0409",
+				generativeModel: "gemini-1.5-pro-preview-0409",
+			},
+			{
+				name:            "gemini-1.5-flash-preview-0514",
+				generativeModel: "gemini-1.5-flash-preview-0514",
+			},
+			{
+				name:            "gemini-1.0-pro-002",
+				generativeModel: "gemini-1.0-pro-002",
+			},
+			{
+				name:            "gemini-1.0-pro-001",
+				generativeModel: "gemini-1.0-pro-001",
+			},
+			{
+				name:            "gemini-1.0-pro",
+				generativeModel: "gemini-1.0-pro",
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -93,7 +145,7 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					for _, company := range companies {
+					for _, company := range planets {
 						obj := &models.Object{
 							Class: class.Class,
 							ID:    company.ID,
@@ -107,7 +159,7 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 					}
 				})
 				t.Run("check objects existence", func(t *testing.T) {
-					for _, company := range companies {
+					for _, company := range planets {
 						t.Run(company.ID.String(), func(t *testing.T) {
 							obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
 							require.NoError(t, err)
@@ -119,7 +171,7 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				})
 				// generative task
 				t.Run("create a tweet", func(t *testing.T) {
-					prompt := "Generate a funny tweet out of this content: {description}"
+					prompt := "Write a short description about {name}"
 					query := fmt.Sprintf(`
 						{
 							Get {

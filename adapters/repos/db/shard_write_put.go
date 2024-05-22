@@ -43,26 +43,6 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
-	if s.hasTargetVectors() {
-		if len(object.Vectors) > 0 {
-			for targetVector, vector := range object.Vectors {
-				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-					if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
-						return errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, object.ID())
-					}
-				}
-			}
-		}
-	} else {
-		if object.Vector != nil {
-			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-			err := s.vectorIndex.ValidateBeforeInsert(object.Vector)
-			if err != nil {
-				return errors.Wrapf(err, "Validate vector index for %s", object.ID())
-			}
-		}
-	}
-
 	status, err := s.putObjectLSM(object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
@@ -231,13 +211,32 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 }
 
 func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
-) (objectInsertStatus, error) {
+) (status objectInsertStatus, err error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
+	if s.hasTargetVectors() {
+		if len(obj.Vectors) > 0 {
+			for targetVector, vector := range obj.Vectors {
+				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+					if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
+						return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
+					}
+				}
+			}
+		}
+	} else {
+		if obj.Vector != nil {
+			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+			err := s.vectorIndex.ValidateBeforeInsert(obj.Vector)
+			if err != nil {
+				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+			}
+		}
+	}
+
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	var prevObj *storobj.Object
-	var status objectInsertStatus
 
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
 	// to determine if it is insert or an update.

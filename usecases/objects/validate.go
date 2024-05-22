@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -34,6 +35,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	}
 	defer unlock()
 
+	ctx = classcache.ContextWithClassCache(ctx)
 	err = m.validateObjectAndNormalizeNames(ctx, principal, repl, obj, nil)
 	if err != nil {
 		return NewErrInvalidUserInput("invalid object: %v", err)

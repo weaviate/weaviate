@@ -79,6 +79,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 			return nil, nil, inverted.NewMissingSearchableIndexError(property)
 		}
 	}
+
 	class := b.getClass(className.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
