@@ -376,7 +376,16 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 }
 
 // StoreSchemaV1() is responsible for saving new schema (RAFT) to boltDB
-func (st *Store) StoreSchemaV1() error {
+func (st *Store) StoreSchemaV1(cmd *command.ApplyRequest) error {
+	req := &command.ApplyRequest{}
+	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", errBadRequest, err)
+	}
+
+	if err := st.VersionedSchemaReader().WaitForUpdate(context.Background(), req.Version); err != nil {
+		return err
+	}
+
 	return st.saveLegacySchema(st.db.Schema.States())
 }
 
@@ -648,8 +657,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// If we don't have any last applied index on start, schema only is always false.
 	schemaOnly := l.Index <= st.lastAppliedIndexOnStart.Load()
 	defer func() {
-		st.lastAppliedIndex.Store(l.Index)
-
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
 		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index == st.lastAppliedIndexOnStart.Load() {
@@ -661,6 +668,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			}).Debug("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
 		}
+		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
@@ -714,7 +722,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		ret.Error = st.db.DeleteTenants(&cmd, schemaOnly)
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
-		ret.Error = st.StoreSchemaV1()
+		ret.Error = st.StoreSchemaV1(&cmd)
 
 	default:
 		// This could occur when a new command has been introduced in a later app version
@@ -944,7 +952,6 @@ func (st *Store) reloadDBFromSchema() {
 	st.log.Info("reload local db: update schema ...")
 	st.db.store.ReloadLocalDB(context.Background(), cs)
 	st.dbLoaded.Store(true)
-	st.lastAppliedIndexOnStart.Store(0)
 }
 
 type Response struct {
