@@ -252,14 +252,14 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
 
-	if st.lastAppliedIndexOnStart.Load() <= st.raft.LastIndex() {
-		// this should include empty and non empty node
-		st.openDatabase(ctx)
-	}
+	// safely open DB after RAFT was init. DB will be protected on Apply until it catches up.
+	st.openDatabase(ctx)
+
 	// if empty node report ready
 	if st.lastAppliedIndexOnStart.Load() == 0 {
 		st.dbLoaded.Store(true)
 	}
+
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
