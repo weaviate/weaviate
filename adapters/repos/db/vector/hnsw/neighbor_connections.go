@@ -202,6 +202,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
+				n.graph.pools.visitedListsLock.RLock()
+				n.graph.pools.visitedLists.Return(visited)
+				n.graph.pools.visitedListsLock.RUnlock()
 				return err
 			}
 		}
