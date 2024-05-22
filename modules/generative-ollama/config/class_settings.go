@@ -20,12 +20,12 @@ import (
 
 const (
 	apiEndpointProperty = "apiEndpoint"
-	modelIDProperty     = "modelId"
+	modelProperty       = "model"
 )
 
 const (
 	DefaultApiEndpoint = "http://localhost:11434"
-	DefaultModelID     = "llama3"
+	DefaultModel       = "llama3"
 )
 
 type classSettings struct {
@@ -45,9 +45,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.ApiEndpoint() == "" {
 		return errors.New("apiEndpoint cannot be empty")
 	}
-	model := ic.ModelID()
+	model := ic.Model()
 	if model == "" {
-		return errors.New("modelId cannot be empty")
+		return errors.New("model cannot be empty")
 	}
 	return nil
 }
@@ -60,6 +60,6 @@ func (ic *classSettings) ApiEndpoint() string {
 	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
 }
 
-func (ic *classSettings) ModelID() string {
-	return ic.getStringProperty(modelIDProperty, DefaultModelID)
+func (ic *classSettings) Model() string {
+	return ic.getStringProperty(modelProperty, DefaultModel)
 }

@@ -41,7 +41,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"modelId": "mistral",
+					"model": "mistral",
 				},
 			},
 			wantApiEndpoint: "http://localhost:11434",
@@ -52,10 +52,10 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "empty model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"modelId": "",
+					"model": "",
 				},
 			},
-			wantErr: errors.New("modelId cannot be empty"),
+			wantErr: errors.New("model cannot be empty"),
 		},
 	}
 	for _, tt := range tests {
@@ -66,7 +66,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, tt.wantErr.Error(), err.Error())
 			} else {
-				assert.Equal(t, tt.wantModel, ic.ModelID())
+				assert.Equal(t, tt.wantModel, ic.Model())
 			}
 		})
 	}
