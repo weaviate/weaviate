@@ -30,7 +30,7 @@ type batchMergeQueue struct {
 }
 
 func (db *DB) BatchMergeObjects(ctx context.Context, objs objects.BatchMergeDocuments,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchMergeDocuments, error) {
 	objectByClass := make(map[string]batchMergeQueue)
 	indexByClass := make(map[string]*Index)
@@ -89,7 +89,7 @@ func (db *DB) BatchMergeObjects(ctx context.Context, objs objects.BatchMergeDocu
 
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
-		errs := index.mergeObjectBatch(ctx, queue.mergeDocs, repl)
+		errs := index.mergeObjectBatch(ctx, queue.mergeDocs, repl, schemaVersion)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()

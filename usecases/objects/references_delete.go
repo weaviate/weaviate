@@ -135,7 +135,7 @@ func (req *DeleteReferenceInput) validate(
 		return nil, 0, err
 	}
 
-	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
+	vclasses, err := sm.GetCachedClassMap(ctx, principal, req.Class)
 	if err != nil {
 		return nil, 0, err
 	}

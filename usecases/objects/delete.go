@@ -59,7 +59,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, class)
+	vclasses, err := m.schemaManager.GetCachedClassMap(ctx, principal, class)
 	if err != nil {
 		return fmt.Errorf("could not get class %s: %w", class, err)
 	}

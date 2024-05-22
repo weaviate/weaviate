@@ -41,21 +41,26 @@ func (b *BatchManager) MergeObjects(ctx context.Context, principal *models.Princ
 	}
 	defer unlock()
 
-	return b.mergeObjects(ctx, principal, objects, repl)
+	class, err := b.schemaManager.GetCachedClass(ctx, principal, objects[0].Class)
+	if err != nil {
+		return nil, NewErrInternal("merge objects: %v", err)
+	}
+	schemaVersion := class.Version
+
+	return b.mergeObjects(ctx, principal, objects, repl, schemaVersion)
 }
 
 func (b *BatchManager) mergeObjects(ctx context.Context, principal *models.Principal,
-	objects []*models.Object, repl *additional.ReplicationProperties,
+	objects []*models.Object, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchObjects, error) {
 	if len(objects) == 0 {
 		return nil, fmt.Errorf("cannot be empty, need at least one object for batching")
 	}
-
 	res, err := b.prepareObjectsMerge(ctx, principal, objects, repl)
 
 	beforePersistence := time.Now()
 	defer b.metrics.BatchOp("total_persistence_level", beforePersistence.UnixNano())
-	if res, err = b.vectorRepo.BatchMergeObjects(ctx, res, repl); err != nil {
+	if res, err = b.vectorRepo.BatchMergeObjects(ctx, res, repl, schemaVersion); err != nil {
 		return nil, NewErrInternal("batch objects: %#v", err)
 	}
 

@@ -112,7 +112,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
+	vclasses, err := m.schemaManager.GetCachedClassMap(ctx, principal, object.Class)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +154,7 @@ func (m *Manager) validateSchema(ctx context.Context,
 		return nil, err
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, obj.Class)
+	vclasses, err := m.schemaManager.GetCachedClassMap(ctx, principal, obj.Class)
 	if err != nil {
 		return nil, err
 	}

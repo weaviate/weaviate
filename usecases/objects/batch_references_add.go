@@ -250,7 +250,7 @@ func getReferenceClasses(ctx context.Context,
 		return
 	}
 
-	vclasses, err := schemaManager.GetCachedClass(ctx, principal, classFrom)
+	vclasses, err := schemaManager.GetCachedClassMap(ctx, principal, classFrom)
 	if err != nil {
 		err = fmt.Errorf("get source class %q: %w", classFrom, err)
 		return

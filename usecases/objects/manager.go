@@ -55,9 +55,13 @@ type schemaManager interface {
 		name string, consistency bool,
 	) (*models.Class, uint64, error)
 
-	// GetCachedClass extracts class from context. If class was not set it is fetched first
-	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string,
+	// GetCachedClassMap extracts classes from context. If classes were not set it is fetched first
+	GetCachedClassMap(ctx context.Context, principal *models.Principal, names ...string,
 	) (map[string]versioned.Class, error)
+
+	// GetCachedClass extracts class from context. If class was not set it is fetched first
+	GetCachedClass(ctx context.Context, principal *models.Principal, name string,
+		) (versioned.Class, error)
 
 	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error

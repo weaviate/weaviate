@@ -36,7 +36,7 @@ type replicator interface {
 	ReplicateUpdate(ctx context.Context, indexName, shardName,
 		requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse
 	ReplicateUpdates(ctx context.Context, indexName, shardName, requestID string,
-		mergeDocs []*objects.BatchMergeDocument) replica.SimpleResponse
+		mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
 		requestID string, uuid strfmt.UUID, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName, shardName,
@@ -381,7 +381,13 @@ func (i *replicatedIndices) patchObjects() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateUpdates(r.Context(), index, shard, requestID, mergeDocs)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		resp := i.shards.ReplicateUpdates(r.Context(), index, shard, requestID, mergeDocs, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

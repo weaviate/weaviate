@@ -59,7 +59,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/*",
 		},
 		{
-			methodName:       "GetCachedClass",
+			methodName:       "GetCachedClassMap",
 			additionalArgs:   []interface{}{"classname"},
 			expectedVerb:     "list",
 			expectedResource: "schema/*",

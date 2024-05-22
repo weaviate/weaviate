@@ -35,8 +35,8 @@ type Replicator interface {
 		object *storobj.Object) replica.SimpleResponse
 	ReplicateObjects(ctx context.Context, shardName, requestID string,
 		objects []*storobj.Object) replica.SimpleResponse
-	ReplicateUpdate(ctx context.Context, shard, requestID string,
-		doc *objects.MergeDocument) replica.SimpleResponse
+	ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument) replica.SimpleResponse
+	ReplicateUpdates(ctx context.Context, class, shard, requestID string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
 		uuid strfmt.UUID) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string,
@@ -72,25 +72,25 @@ func (db *DB) ReplicateObjects(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateUpdate(ctx context.Context, class,
-	shard, requestID string, mergeDoc *objects.MergeDocument,
+	shard, requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateUpdate(ctx, shard, requestID, mergeDoc)
+	return index.ReplicateUpdate(ctx, shard, requestID, mergeDoc, schemaVersion)
 }
 
 func (db *DB) ReplicateUpdates(ctx context.Context, class, shard,
-	requestID string, mergeDocs []*objects.BatchMergeDocument,
+	requestID string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateUpdates(ctx, shard, requestID, mergeDocs)
+	return index.ReplicateUpdates(ctx, shard, requestID, mergeDocs, schemaVersion)
 }
 
 func (db *DB) ReplicateDeletion(ctx context.Context, class,
@@ -186,7 +186,7 @@ func (i *Index) ReplicateObject(ctx context.Context, shard, requestID string, ob
 	return localShard.preparePutObject(ctx, requestID, object)
 }
 
-func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument) replica.SimpleResponse {
+func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, doc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
@@ -194,7 +194,7 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 	return localShard.prepareMergeObject(ctx, requestID, doc)
 }
 
-func (i *Index) ReplicateUpdates(ctx context.Context, shard, requestID string, docs []*objects.BatchMergeDocument) replica.SimpleResponse {
+func (i *Index) ReplicateUpdates(ctx context.Context, shard, requestID string, docs []*objects.BatchMergeDocument, schemaVersion uint64) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr

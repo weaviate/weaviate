@@ -150,7 +150,7 @@ func (m *objectMergeValidator) validateInputs(updates *models.Object) error {
 }
 
 func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
-	updates *models.Object, repl *additional.ReplicationProperties, schemaVersion uint64,
+	updates *models.Object, repl *additional.ReplicationProperties,
 ) *Error {
 	mergeValidator := &objectMergeValidator{
 		config:            m.config,
@@ -165,6 +165,15 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return err
 	}
+
+	class, er := m.schemaManager.GetCachedClass(ctx, principal, updates.Class)
+	if er != nil {
+		return &Error{"schemaManager.GetCachedClass", StatusInternalServerError, err}
+	}
+
+	schemaVersion := class.Version
+
+
 
 	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, schemaVersion)
 }
@@ -230,7 +239,7 @@ func mergeObjectSchemaAndVectorize(ctx context.Context, className string,
 	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
 	merger merger,
 ) (*models.Object, error) {
-	vclasses, err := merger.schemaManager.GetCachedClass(ctx, principal, className)
+	vclasses, err := merger.schemaManager.GetCachedClassMap(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}

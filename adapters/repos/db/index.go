@@ -212,6 +212,29 @@ func (i *Index) GetShards() []ShardLike {
 	return out
 }
 
+func (i *Index) IsLocalShard(shardName string) bool {
+	shards := i.GetShards()
+	for _, shard := range shards {
+		if shard.Name() == shardName {
+			return true
+		}
+	}
+	return false
+}
+
+func (i *Index) GetShardByName(shardName string) (ShardLike, error) {
+	if !i.IsLocalShard(shardName) {
+		return nil, ErrShardNotFound
+	}
+	shards := i.GetShards()
+	for _, shard := range shards {
+		if shard.Name() == shardName {
+			return shard, nil
+		}
+	}
+	return nil, ErrShardNotFound
+}
+
 func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }
@@ -778,7 +801,7 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 }
 
 func (i *Index) mergeObjectBatch(ctx context.Context, docs []*objects.BatchMergeDocument,
-	replProps *additional.ReplicationProperties,
+	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
 	type objsAndPos struct {
 		mergeDocs []*objects.BatchMergeDocument
@@ -827,16 +850,19 @@ func (i *Index) mergeObjectBatch(ctx context.Context, docs []*objects.BatchMerge
 			}()
 			var errs []error
 			if replProps != nil {
-				errs = i.replicator.MergeObjects(ctx, shardName, group.mergeDocs, replica.ConsistencyLevel(replProps.ConsistencyLevel),
-			} else if i.localShard(shardName) == nil {
-				errs = i.remote.BatchMergeObjects(ctx, shardName, group.mergeDocs)
+				errs = i.replicator.MergeObjects(ctx, shardName, group.mergeDocs, replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+			} else if i.IsLocalShard(shardName) {
+				errs = i.remote.BatchMergeObjects(ctx, shardName, group.mergeDocs, schemaVersion)
 			} else {
 				i.backupMutex.RLockGuard(func() error {
-					if shard := i.localShard(shardName); shard != nil {
+					if i.IsLocalShard(shardName) {
+						shard , err := i.GetShardByName(shardName)
+					if  err ==nil && shard != nil {
 						errs = shard.MergeObjectBatch(ctx, group.mergeDocs)
 					} else {
-						errs = duplicateErr(errShardNotFound, len(group.mergeDocs))
+						errs = duplicateErr(errors.New("shard not found"), len(group.mergeDocs))
 					}
+				}
 					return nil
 				})
 			}
