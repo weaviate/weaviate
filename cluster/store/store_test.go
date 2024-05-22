@@ -450,7 +450,7 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				// m.indexer.On("AddClass", mock.Anything).Return(nil)
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
@@ -500,7 +500,7 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("RestoreClassDir", cls.Class).Return(nil)
-				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				// m.indexer.On("AddClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 			doAfter: func(ms *MockStore) error {
@@ -565,7 +565,7 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
+				// m.indexer.On("DeleteClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 			doAfter: func(ms *MockStore) error {
@@ -610,7 +610,7 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.store.db.Schema.addClass(cls, ss, 1)
-				m.indexer.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
+				// m.indexer.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 			doAfter: func(ms *MockStore) error {
@@ -641,7 +641,7 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
-				m.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+				// m.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 		},
@@ -671,7 +671,7 @@ func TestStoreApply(t *testing.T) {
 					Physical: map[string]sharding.Physical{"T1": {}},
 				}, 1)
 
-				m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+				// m.indexer.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				if _, ok := ms.store.db.Schema.Classes["C1"].Sharding.Physical["T1"]; !ok {
@@ -730,7 +730,7 @@ func TestStoreApply(t *testing.T) {
 					Status:         models.TenantActivityStatusHOT,
 				}}}
 				m.store.db.Schema.addClass(cls, ss, 1)
-				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				// m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -773,7 +773,7 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.store.db.Schema.addClass(cls, &sharding.State{Physical: map[string]sharding.Physical{"T1": {}}}, 1)
-				m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+				// m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				if len(ms.store.db.Schema.Classes["C1"].Sharding.Physical) != 0 {
