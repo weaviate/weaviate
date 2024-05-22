@@ -84,118 +84,124 @@ func (b *BM25Searcher) wandDiskMem(
 		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 	}
 
-	_, _, _, hasTombstones, _, err := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if hasTombstones && !useWandDiskForced {
-		b.logger.Debug("BM25 search: found tombstones in inverted index, falling back to memory search")
-		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
-	}
-
-	if hasTombstones {
-		b.logger.Debug("BM25 search: found tombstones in inverted index, using disk search as useWandDiskForced is set to true")
-	} else if hasMultipleProperties {
-		b.logger.Debug("BM25 search: multiple properties requested, using disk search as useWandDiskForced is set to true")
-	}
-
-	// wandDiskTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
-	// wandTimesId++
-	// startTime = float64(time.Now().UnixNano()) / 1e6
 	return b.wandDiskScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 }
 
 func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]string, duplicateBoostsByTokenization map[string][]int, propNamesByTokenization map[string][]string, propertyBoosts map[string]float32, averagePropLength float64, N float64, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
-	allSegments, memTables, propertySizes, _, _, _ := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
+	memTables, err := b.store.GetMemtablesForTerms(propNamesByTokenization, queryTermsByTokenization)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	allObjects := make([][]*storobj.Object, len(allSegments)+len(memTables))
-	allScores := make([][]float32, len(allSegments)+len(memTables))
+	segments, err := b.store.GetSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for segment := range segments {
+		segment.CompactionMutex.RLock()
+		defer segment.CompactionMutex.RUnlock()
+	}
+
+	propertySizes, _, err := b.store.GetAllSegmentStats(segments, memTables, propNamesByTokenization, queryTermsByTokenization)
+	if err != nil {
+		return nil, nil, err
+	}
+	// segments, memTables, propertySizes, _, _, _ := b.store.GetAllSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
+
+	allObjects := make([][]*storobj.Object, len(segments)+len(memTables))
+	allScores := make([][]float32, len(segments)+len(memTables))
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
 	currentBucket := 0
-	for segment, propName := range allSegments {
-		segment := segment
-		propName := propName
-		myCurrentBucket := currentBucket
-		currentBucket++
-		eg.Go(func() (err error) {
-			segment.CompactionMutex.RLock()
-			defer segment.CompactionMutex.RUnlock()
-			terms := make([]Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
-			for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
-				// pass i to the closure
-				i := i
-				term := term
-				duplicateTextBoost := duplicateBoostsByTokenization[models.PropertyTokenizationWord][i]
-
-				singleTerms, err := segment.WandTerm([]byte(term), N, float64(duplicateTextBoost), float64(propertyBoosts[propName]), propertySizes[propName][term], filterDocIds)
-				if err == nil {
-					terms = append(terms, singleTerms)
+	for segment, propNames := range segments {
+		for _, propName := range propNames {
+			segment := segment
+			propName := propName
+			myCurrentBucket := currentBucket
+			currentBucket++
+			eg.Go(func() (err error) {
+				if segment.Closing {
+					b.logger.Infof("segment closing\n")
+					return nil
 				}
-			}
+				terms := make([]Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+				for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+					// pass i to the closure
+					i := i
+					term := term
+					duplicateTextBoost := duplicateBoostsByTokenization[models.PropertyTokenizationWord][i]
 
-			flatTerms := terms
-			// wandDiskStats[0] += float64(len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+					singleTerms, err := segment.WandTerm([]byte(term), N, float64(duplicateTextBoost), float64(propertyBoosts[propName]), propertySizes[propName][term], filterDocIds)
+					if err == nil {
+						terms = append(terms, singleTerms)
+					}
+				}
 
-			resultsOriginalOrder := make([]Term, len(flatTerms))
-			copy(resultsOriginalOrder, flatTerms)
+				flatTerms := terms
+				// wandDiskStats[0] += float64(len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 
-			topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength)
-			indices := make([]map[uint64]int, 0)
-			objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
+				resultsOriginalOrder := make([]Term, len(flatTerms))
+				copy(resultsOriginalOrder, flatTerms)
 
-			allObjects[myCurrentBucket] = objects
-			allScores[myCurrentBucket] = scores
+				topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength)
+				indices := make([]map[uint64]int, 0)
+				objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
 
-			if err != nil {
-				return err
-			}
-			return nil
-		})
+				allObjects[myCurrentBucket] = objects
+				allScores[myCurrentBucket] = scores
+
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+		}
 	}
 
-	for memTable, propName := range memTables {
-		memTable := memTable
-		myCurrentBucket := currentBucket
-		currentBucket++
-		eg.Go(func() (err error) {
-			terms := make([]Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
-			for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
-				// pass i to the closure
-				i := i
-				term := term
-				duplicateTextBoost := duplicateBoostsByTokenization[models.PropertyTokenizationWord][i]
-				n := float64(propertySizes[propName][term])
-				singleTerms, _, err := memTable.CreateTerm(N, n, filterDocIds, term, propName, propertyBoosts, duplicateTextBoost, params.AdditionalExplanations)
-				if err == nil {
-					terms = append(terms, singleTerms)
+	for memTable, propNames := range memTables {
+		for _, propName := range propNames {
+			memTable := memTable
+			myCurrentBucket := currentBucket
+			currentBucket++
+			eg.Go(func() (err error) {
+				terms := make([]Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+				for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+					// pass i to the closure
+					i := i
+					term := term
+					duplicateTextBoost := duplicateBoostsByTokenization[models.PropertyTokenizationWord][i]
+					n := float64(propertySizes[propName][term])
+					singleTerms, _, err := memTable.CreateTerm(N, n, filterDocIds, term, propName, propertyBoosts, duplicateTextBoost, params.AdditionalExplanations)
+					if err == nil {
+						terms = append(terms, singleTerms)
+					}
 				}
-			}
 
-			flatTerms := terms
-			// wandDiskStats[0] += float64(len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+				flatTerms := terms
+				// wandDiskStats[0] += float64(len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 
-			resultsOriginalOrder := make([]Term, len(flatTerms))
-			copy(resultsOriginalOrder, flatTerms)
+				resultsOriginalOrder := make([]Term, len(flatTerms))
+				copy(resultsOriginalOrder, flatTerms)
 
-			topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength)
-			indices := make([]map[uint64]int, 0)
-			objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
+				topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength)
+				indices := make([]map[uint64]int, 0)
+				objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
 
-			allObjects[myCurrentBucket] = objects
-			allScores[myCurrentBucket] = scores
+				allObjects[myCurrentBucket] = objects
+				allScores[myCurrentBucket] = scores
 
-			if err != nil {
-				return err
-			}
-			return nil
-		})
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+		}
 	}
 
-	err := eg.Wait()
+	err = eg.Wait()
 	if err != nil {
 		return nil, nil, err
 	}

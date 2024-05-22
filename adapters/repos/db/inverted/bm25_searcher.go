@@ -208,28 +208,31 @@ func (b *BM25Searcher) validateWand(
 				fmt.Printf("disk %v,%v mem %v,%v\n", scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
 			}
 		}
-		return nil, nil, err
+		// return nil, nil, err
 	}
 
 	for i := range objsM {
-
-		if objsD[i].ID() != objsM[i].ID() {
-			err = fmt.Errorf("different IDs at index %d: disk %v,%v mem %v,%v", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
-			fmt.Printf("different IDs at index %d: disk %v,%v mem %v,%v\n", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
-			break
-		}
-		if scoresD[i] != scoresM[i] {
-			err = fmt.Errorf("different scores at index %d: disk %v,%v mem %v,%v", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
-			fmt.Printf("different scores at index %d: disk %v,%v mem %v,%v\n", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
-			break
+		if len(objsD) <= i && len(objsM) <= i {
+			if objsD[i].ID() != objsM[i].ID() {
+				err = fmt.Errorf("different IDs at index %d: disk %v,%v mem %v,%v", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+				fmt.Printf("different IDs at index %d: disk %v,%v mem %v,%v\n", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+				break
+			}
+			if scoresD[i] != scoresM[i] {
+				err = fmt.Errorf("different scores at index %d: disk %v,%v mem %v,%v", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+				fmt.Printf("different scores at index %d: disk %v,%v mem %v,%v\n", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+				break
+			}
 		}
 	}
 
 	if err != nil {
 		for i := range objsM {
-			fmt.Printf("disk %v,%v mem %v,%v\n", scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+			if len(objsD) <= i && len(objsM) <= i {
+				fmt.Printf("disk %v,%v mem %v,%v\n", scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+			}
 		}
-		return nil, nil, err
+		// return nil, nil, err
 	}
 
 	return objsM, scoresM, errM

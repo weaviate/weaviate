@@ -55,6 +55,7 @@ type segment struct {
 	countNetAdditions     int
 
 	CompactionMutex *sync.RWMutex
+	Closing         bool
 }
 
 type diskIndex interface {

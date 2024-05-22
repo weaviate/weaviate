@@ -146,11 +146,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
 
-	leftSegment.CompactionMutex.Lock()
-	defer leftSegment.CompactionMutex.Unlock()
-	rightSegment.CompactionMutex.Lock()
-	defer rightSegment.CompactionMutex.Unlock()
-
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 
 	f, err := os.Create(path)
@@ -273,6 +268,13 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	leftSegment := sg.segments[old1]
 	rightSegment := sg.segments[old2]
+
+	leftSegment.CompactionMutex.Lock()
+	defer leftSegment.CompactionMutex.Unlock()
+	rightSegment.CompactionMutex.Lock()
+	defer rightSegment.CompactionMutex.Unlock()
+	leftSegment.Closing = true
+	rightSegment.Closing = true
 
 	if err := leftSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
