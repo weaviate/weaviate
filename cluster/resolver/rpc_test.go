@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rpc
+package resolver
 
 import (
 	"fmt"
@@ -22,19 +22,19 @@ import (
 
 func TestRPCResolver(t *testing.T) {
 	rpcPort := 8081
-	_, err := NewResolver(false, rpcPort).Address("localhost123")
+	_, err := NewRpc(false, rpcPort).Address("localhost123")
 	addErr := &net.AddrError{}
 	assert.ErrorAs(t, err, &addErr)
 
-	rAddr, err := NewResolver(false, rpcPort).Address("localhost:123")
+	rAddr, err := NewRpc(false, rpcPort).Address("localhost:123")
 	assert.Nil(t, err)
 	assert.Equal(t, rAddr, fmt.Sprintf("localhost:%d", rpcPort))
 
-	_, err = NewResolver(true, rpcPort).Address("localhost:not_a_port")
+	_, err = NewRpc(true, rpcPort).Address("localhost:not_a_port")
 	numErr := &strconv.NumError{}
 	assert.ErrorAs(t, err, &numErr)
 
-	rAddr, err = NewResolver(true, rpcPort).Address("localhost:123")
+	rAddr, err = NewRpc(true, rpcPort).Address("localhost:123")
 	assert.Nil(t, err)
 	assert.Equal(t, "localhost:124", rAddr)
 }

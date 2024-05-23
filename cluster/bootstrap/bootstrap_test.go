@@ -9,18 +9,23 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package bootstrap
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+var errAny = errors.New("any error")
 
 func TestBootStrapper(t *testing.T) {
 	ctx := context.Background()
@@ -95,12 +100,13 @@ func TestBootStrapper(t *testing.T) {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
 			m := &MockJoiner{}
-			b := NewBootstrapper(m, "RID", "ADDR", &MockAddressResolver{func(id string) string { return id }}, test.isReady)
+			b := NewBootstrapper(m, "RID", "ADDR", fakes.NewMockAddressResolver(func(id string) string { return id }), test.isReady)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
 			test.doBefore(m)
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
-			err := b.Do(ctx, test.servers, NewMockLogger(t).Logger, test.voter, make(chan struct{}))
+			logger, _ := logrustest.NewNullLogger()
+			err := b.Do(ctx, test.servers, logger, test.voter, make(chan struct{}))
 			cancel()
 			if test.success && err != nil {
 				t.Errorf("%s: %v", test.name, err)

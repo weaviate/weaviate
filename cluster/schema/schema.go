@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package schema
 
 import (
 	"errors"
@@ -25,9 +25,9 @@ import (
 )
 
 var (
-	errClassNotFound = errors.New("class not found")
-	errClassExists   = errors.New("class already exists")
-	errShardNotFound = errors.New("shard not found")
+	ErrClassExists   = errors.New("class already exists")
+	ErrClassNotFound = errors.New("class not found")
+	ErrShardNotFound = errors.New("shard not found")
 )
 
 type ClassInfo struct {
@@ -83,7 +83,7 @@ func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
 func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return errClassNotFound
+		return ErrClassNotFound
 	}
 	return meta.RLockGuard(reader)
 }
@@ -155,7 +155,7 @@ func (s *schema) ReadOnlySchema() models.Schema {
 func (s *schema) ShardOwner(class, shard string) (string, uint64, error) {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return "", 0, errClassNotFound
+		return "", 0, ErrClassNotFound
 	}
 
 	return meta.ShardOwner(shard)
@@ -174,7 +174,7 @@ func (s *schema) ShardFromUUID(class string, uuid []byte) (string, uint64) {
 func (s *schema) ShardReplicas(class, shard string) ([]string, uint64, error) {
 	meta := s.metaClass(class)
 	if meta == nil {
-		return nil, 0, errClassNotFound
+		return nil, 0, ErrClassNotFound
 	}
 	return meta.ShardReplicas(shard)
 }
@@ -229,7 +229,7 @@ func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo,
 	meta := s.Classes[class]
 	info := s.Classes[class].ClassInfo()
 	if meta == nil {
-		return false, nil, ClassInfo{}, errClassNotFound
+		return false, nil, ClassInfo{}, ErrClassNotFound
 	}
 	if !info.MultiTenancy.Enabled {
 		return false, nil, ClassInfo{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
@@ -242,7 +242,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 	defer s.Unlock()
 	_, exists := s.Classes[cls.Class]
 	if exists {
-		return errClassExists
+		return ErrClassExists
 	}
 
 	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v}
@@ -256,7 +256,7 @@ func (s *schema) updateClass(name string, f func(*metaClass) error) error {
 
 	meta := s.Classes[name]
 	if meta == nil {
-		return errClassNotFound
+		return ErrClassNotFound
 	}
 	return meta.LockGuard(f)
 }
@@ -273,7 +273,7 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 
 	meta := s.Classes[class]
 	if meta == nil {
-		return errClassNotFound
+		return ErrClassNotFound
 	}
 	return meta.AddProperty(v, props...)
 }
@@ -353,14 +353,6 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	defer s.RUnlock()
 
 	return s.Classes
-}
-
-func (s *schema) clear() {
-	s.Lock()
-	defer s.Unlock()
-	for k := range s.Classes {
-		delete(s.Classes, k)
-	}
 }
 
 func makeTenant(name, status string) *models.Tenant {

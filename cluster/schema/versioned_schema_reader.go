@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package schema
 
 import (
 	"context"
@@ -20,35 +20,31 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// versionedSchema is utilized to query the schema based on a specific update version. Serving as a thin wrapper around
+// VersionedSchemaReader is utilized to query the schema based on a specific update version. Serving as a thin wrapper around
 // the original schema, it segregates waiting logic from the actual operation.
 // It waits until it finds an update at least as up-to-date as the specified version.
 // Note that updates may take some time to propagate to the follower, hence this process might take time.
-type versionedSchema struct { // TODO TEST
+type VersionedSchemaReader struct { // TODO TEST
 	schema        *schema
 	WaitForUpdate func(ctx context.Context, version uint64) error
 }
 
-func (s versionedSchema) ClassInfo(ctx context.Context,
+func (s VersionedSchemaReader) ClassInfo(ctx context.Context,
 	class string,
 	v uint64,
 ) (ClassInfo, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"ClassInfo"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("ClassInfo"))
 	defer t.ObserveDuration()
 
 	err := s.WaitForUpdate(ctx, v)
 	return s.schema.ClassInfo(class), err
 }
 
-func (s versionedSchema) MultiTenancy(ctx context.Context,
+func (s VersionedSchemaReader) MultiTenancy(ctx context.Context,
 	class string,
 	v uint64,
 ) (models.MultiTenancyConfig, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"MultiTenancy"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("MultiTenancy"))
 	defer t.ObserveDuration()
 
 	if info := s.schema.ClassInfo(class); info.Exists {
@@ -59,14 +55,11 @@ func (s versionedSchema) MultiTenancy(ctx context.Context,
 }
 
 // Read performs a read operation `reader` on the specified class and sharding state
-func (s versionedSchema) Read(ctx context.Context,
+func (s VersionedSchemaReader) Read(ctx context.Context,
 	class string, v uint64,
-	reader func(*models.Class,
-		*sharding.State) error,
+	reader func(*models.Class, *sharding.State) error,
 ) error {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"Read"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("Read"))
 	defer t.ObserveDuration()
 
 	if err := s.WaitForUpdate(ctx, v); err != nil {
@@ -78,13 +71,11 @@ func (s versionedSchema) Read(ctx context.Context,
 
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
-func (s versionedSchema) ReadOnlyClass(ctx context.Context,
+func (s VersionedSchemaReader) ReadOnlyClass(ctx context.Context,
 	class string,
 	v uint64,
 ) (*models.Class, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"ReadOnlyClass"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("ReadOnlyClass"))
 	defer t.ObserveDuration()
 
 	err := s.WaitForUpdate(ctx, v)
@@ -93,13 +84,11 @@ func (s versionedSchema) ReadOnlyClass(ctx context.Context,
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (s versionedSchema) ShardOwner(ctx context.Context,
+func (s VersionedSchemaReader) ShardOwner(ctx context.Context,
 	class, shard string,
 	v uint64,
 ) (string, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"ShardOwner"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("ShardOwner"))
 	defer t.ObserveDuration()
 
 	err := s.WaitForUpdate(ctx, v)
@@ -111,12 +100,10 @@ func (s versionedSchema) ShardOwner(ctx context.Context,
 }
 
 // ShardFromUUID returns shard name of the provided uuid
-func (s versionedSchema) ShardFromUUID(ctx context.Context,
+func (s VersionedSchemaReader) ShardFromUUID(ctx context.Context,
 	class string, uuid []byte, v uint64,
 ) (string, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"ShardFromUUID"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("ShardFromUUID"))
 	defer t.ObserveDuration()
 
 	err := s.WaitForUpdate(ctx, v)
@@ -125,13 +112,11 @@ func (s versionedSchema) ShardFromUUID(ctx context.Context,
 }
 
 // ShardReplicas returns the replica nodes of a shard
-func (s versionedSchema) ShardReplicas(
+func (s VersionedSchemaReader) ShardReplicas(
 	ctx context.Context, class, shard string,
 	v uint64,
 ) ([]string, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"ShardReplicas"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("ShardReplicas"))
 	defer t.ObserveDuration()
 
 	err := s.WaitForUpdate(ctx, v)
@@ -143,12 +128,10 @@ func (s versionedSchema) ShardReplicas(
 }
 
 // TenantShard returns shard name for the provided tenant and its activity status
-func (s versionedSchema) TenantsShards(ctx context.Context,
+func (s VersionedSchemaReader) TenantsShards(ctx context.Context,
 	v uint64, class string, tenants ...string,
 ) (map[string]string, uint64, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"TenantsShards"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("TenantsShards"))
 	defer t.ObserveDuration()
 
 	err := s.WaitForUpdate(ctx, v)
@@ -156,15 +139,21 @@ func (s versionedSchema) TenantsShards(ctx context.Context,
 	return status, version, err
 }
 
-func (s versionedSchema) CopyShardingState(ctx context.Context,
+func (s VersionedSchemaReader) CopyShardingState(ctx context.Context,
 	class string, v uint64,
 ) (*sharding.State, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues(
-			"CopyShardingState"))
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaWaitForVersion.WithLabelValues("CopyShardingState"))
 	defer t.ObserveDuration()
 
 	err := s.WaitForUpdate(ctx, v)
 	ss, _ := s.schema.CopyShardingState(class)
 	return ss, err
+}
+
+func (s VersionedSchemaReader) Len() int { return s.schema.len() }
+
+// ClassEqual returns the name of an existing class with a similar name, and "" otherwise
+// strings.EqualFold is used to compare classes
+func (s VersionedSchemaReader) ClassEqual(name string) string {
+	return s.schema.ClassEqual(name)
 }
