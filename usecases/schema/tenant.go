@@ -19,7 +19,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -216,7 +216,7 @@ func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
 	return ts, h.metaReader.Read(class, f)
 }
 
-func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {
+func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 	info := h.metaReader.ClassInfo(class)
 	if !info.Exists {
 		return info, fmt.Errorf("class %q: %w", class, ErrNotFound)
