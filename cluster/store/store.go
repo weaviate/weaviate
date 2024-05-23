@@ -776,14 +776,11 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	}
 	st.log.Info("successfully restored schema from snapshot")
 
-	if st.reloadDBFromSnapshot() {
-		st.log.WithField("n", st.db.Schema.len()).
-			Info("successfully reloaded indexes from snapshot")
-	}
+	st.reloadDBFromSchema()
 
-	if st.raft != nil {
-		st.lastAppliedIndex.Store(st.raft.AppliedIndex())
-	}
+	st.log.WithField("n", st.db.Schema.len()).Info("successfully reloaded indexes from snapshot")
+
+	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	return nil
 }
@@ -914,29 +911,6 @@ func (st *Store) openDatabase(ctx context.Context) {
 	}
 
 	st.log.WithField("n", st.db.Schema.len()).Info("database has been successfully loaded")
-}
-
-// reloadDBFromSnapshot reloads the node's local db. If the db is already loaded, it will be reloaded.
-// If a snapshot exists and its is up to date with the log, it will be loaded.
-// Otherwise, the database will be loaded when the node synchronizes its state with the leader.
-//
-// In specific scenarios where the follower's state is too far behind the leader's log,
-// the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
-func (st *Store) reloadDBFromSnapshot() bool {
-	defer st.reloadDBFromSchema()
-
-	if !st.dbLoaded.CompareAndSwap(true, false) {
-		// the snapshot already includes the state from the raft log
-		snapIndex := snapshotIndex(st.snapshotStore)
-		st.log.WithFields(logrus.Fields{
-			"last_applied_index":           st.lastAppliedIndex.Load(),
-			"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
-			"last_snapshot_index":          snapIndex,
-		}).Info("load local db from snapshot")
-		return st.lastAppliedIndexOnStart.Load() <= snapIndex
-	}
-
-	return true
 }
 
 func (st *Store) reloadDBFromSchema() {
