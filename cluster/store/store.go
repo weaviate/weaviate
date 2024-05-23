@@ -780,7 +780,9 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 
 	st.log.WithField("n", st.db.Schema.len()).Info("successfully reloaded indexes from snapshot")
 
-	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+	if st.raft != nil {
+		st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+	}
 
 	return nil
 }
