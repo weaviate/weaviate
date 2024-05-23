@@ -922,12 +922,8 @@ func (st *Store) openDatabase(ctx context.Context) {
 //
 // In specific scenarios where the follower's state is too far behind the leader's log,
 // the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
-func (st *Store) reloadDBFromSnapshot() (success bool) {
-	defer func() {
-		if success {
-			st.reloadDBFromSchema()
-		}
-	}()
+func (st *Store) reloadDBFromSnapshot() bool {
+	defer st.reloadDBFromSchema()
 
 	if !st.dbLoaded.CompareAndSwap(true, false) {
 		// the snapshot already includes the state from the raft log
@@ -939,6 +935,7 @@ func (st *Store) reloadDBFromSnapshot() (success bool) {
 		}).Info("load local db from snapshot")
 		return st.lastAppliedIndexOnStart.Load() <= snapIndex
 	}
+
 	return true
 }
 
