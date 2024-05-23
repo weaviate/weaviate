@@ -1105,7 +1105,7 @@ func (i *indices) postShard() http.Handler {
 func (i *indices) putShardReinit() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpShardReinit.FindStringSubmatch(r.URL.Path)
-		fmt.Println(args)
+
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return

@@ -17,9 +17,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -38,7 +38,7 @@ func New() *HuggingFaceModule {
 }
 
 type HuggingFaceModule struct {
-	vectorizer                   text2vecbase.TextVectorizer
+	vectorizer                   text2vecbase.TextVectorizerBatch
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
 	searcher                     modulecapabilities.Searcher
@@ -95,7 +95,7 @@ func (m *HuggingFaceModule) initVectorizer(ctx context.Context, timeout time.Dur
 	apiKey := os.Getenv("HUGGINGFACE_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
-	m.vectorizer = vectorizer.New(client)
+	m.vectorizer = vectorizer.New(client, logger)
 	m.metaProvider = client
 
 	return nil
@@ -114,7 +114,7 @@ func (m *HuggingFaceModule) RootHandler() http.Handler {
 func (m *HuggingFaceModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg, ent.NewClassSettings(cfg))
 }
 
 func (m *HuggingFaceModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
@@ -122,7 +122,8 @@ func (m *HuggingFaceModule) VectorizableProperties(cfg moduletools.ClassConfig) 
 }
 
 func (m *HuggingFaceModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
+	vecs, errs := m.vectorizer.ObjectBatch(ctx, objs, skipObject, cfg)
+	return vecs, nil, errs
 }
 
 func (m *HuggingFaceModule) MetaInfo() (map[string]interface{}, error) {

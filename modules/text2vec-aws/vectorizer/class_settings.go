@@ -46,6 +46,7 @@ var availableAWSServices = []string{
 
 var availableAWSBedrockModels = []string{
 	"amazon.titan-embed-text-v1",
+	"amazon.titan-embed-text-v2:0",
 	"cohere.embed-english-v3",
 	"cohere.embed-multilingual-v3",
 }

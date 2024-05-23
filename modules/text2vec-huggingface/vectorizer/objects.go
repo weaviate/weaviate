@@ -13,6 +13,11 @@ package vectorizer
 
 import (
 	"context"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -20,59 +25,31 @@ import (
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
-type Vectorizer struct {
-	client           Client
-	objectVectorizer *objectsvectorizer.ObjectVectorizer
-}
+const (
+	MaxObjectsPerBatch = 100 // https://docs.cohere.com/reference/embed
+	MaxTimePerBatch    = float64(10)
+)
 
-func New(client Client) *Vectorizer {
-	return &Vectorizer{
-		client:           client,
-		objectVectorizer: objectsvectorizer.New(),
+func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
+	batchTokenizer := func(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig, objectVectorizer *objectsvectorizer.ObjectVectorizer) ([]string, []int, bool, error) {
+		texts := make([]string, len(objects))
+		tokenCounts := make([]int, len(objects))
+		icheck := ent.NewClassSettings(cfg)
+
+		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
+		skipAll := true
+		for i := range texts {
+			if skipObject[i] {
+				continue
+			}
+			skipAll = false
+			text := objectVectorizer.Texts(ctx, objects[i], icheck)
+			texts[i] = text
+			tokenCounts[i] = 0
+		}
+		return texts, tokenCounts, skipAll, nil
 	}
-}
-
-type Client interface {
-	Vectorize(ctx context.Context, input string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
-	VectorizeQuery(ctx context.Context, input string,
-		config ent.VectorizationConfig) (*ent.VectorizationResult, error)
-}
-
-// IndexCheck returns whether a property of a class should be indexed
-type ClassSettings interface {
-	PropertyIndexed(property string) bool
-	VectorizePropertyName(propertyName string) bool
-	VectorizeClassName() bool
-	EndpointURL() string
-	PassageModel() string
-	QueryModel() string
-	OptionWaitForModel() bool
-	OptionUseGPU() bool
-	OptionUseCache() bool
-}
-
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object, cfg)
-	return vec, nil, err
-}
-
-func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
-) ([]float32, error) {
-	icheck := NewClassSettings(cfg)
-	text := v.objectVectorizer.Texts(ctx, object, icheck)
-
-	res, err := v.client.Vectorize(ctx, text, ent.VectorizationConfig{
-		EndpointURL:  icheck.EndpointURL(),
-		Model:        icheck.PassageModel(),
-		WaitForModel: icheck.OptionWaitForModel(),
-		UseGPU:       icheck.OptionUseGPU(),
-		UseCache:     icheck.OptionUseCache(),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return res.Vector, nil
+	// there does not seem to be a limit
+	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger), batchTokenizer)
 }

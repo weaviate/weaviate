@@ -20,7 +20,9 @@ import (
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -253,12 +255,34 @@ func (i *Index) IncomingCreateShard(ctx context.Context, className string, shard
 func (i *Index) IncomingReinitShard(ctx context.Context,
 	shardName string,
 ) error {
-	shard, err := i.getOrInitLocalShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("shard %q does not exist locally", shardName)
+	shard := func() ShardLike {
+		i.shardInUseLocks.Lock(shardName)
+		defer i.shardInUseLocks.Unlock(shardName)
+
+		return i.shards.Load(shardName)
+	}()
+
+	if shard != nil {
+		err := func() error {
+			i.shardCreateLocks.Lock(shardName)
+			defer i.shardCreateLocks.Unlock(shardName)
+
+			i.shards.LoadAndDelete(shardName)
+
+			if err := shard.Shutdown(ctx); err != nil {
+				if !errors.Is(err, errAlreadyShutdown) {
+					return err
+				}
+			}
+			return nil
+		}()
+		if err != nil {
+			return err
+		}
 	}
 
-	return shard.reinit(ctx)
+	_, err := i.getOrInitLocalShard(ctx, shardName)
+	return err
 }
 
 func (s *Shard) filePutter(ctx context.Context,
@@ -278,31 +302,6 @@ func (s *Shard) filePutter(ctx context.Context,
 	}
 
 	return f, nil
-}
-
-func (s *Shard) reinit(ctx context.Context) error {
-	if err := s.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown shard: %w", err)
-	}
-
-	if err := s.initNonVector(ctx, nil); err != nil {
-		return fmt.Errorf("reinit non-vector: %w", err)
-	}
-
-	if s.hasTargetVectors() {
-		if err := s.initTargetVectors(ctx); err != nil {
-			return fmt.Errorf("reinit vector: %w", err)
-		}
-	} else {
-		if err := s.initLegacyVector(ctx); err != nil {
-			return fmt.Errorf("reinit vector: %w", err)
-		}
-	}
-
-	s.initCycleCallbacks()
-	s.initDimensionTracking()
-
-	return nil
 }
 
 // OverwriteObjects if their state didn't change in the meantime
@@ -325,7 +324,10 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 		// valid update
-		found, err := s.ObjectByID(ctx, data.ID, nil, additional.Properties{})
+		found, err := s.ObjectByIDErrDeleted(ctx, data.ID, nil, additional.Properties{})
+		if err != nil && errors.Is(err, lsmkv.Deleted) {
+			continue
+		}
 		var curUpdateTime int64 // 0 means object doesn't exist on this node
 		if found != nil {
 			curUpdateTime = found.LastUpdateTimeUnix()

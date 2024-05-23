@@ -72,7 +72,7 @@ type SearchRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// required
+	//required
 	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// parameters
 	Tenant           string            `protobuf:"bytes,10,opt,name=tenant,proto3" json:"tenant,omitempty"`
@@ -103,7 +103,7 @@ type SearchRequest struct {
 	NearImu      *NearIMUSearch     `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
 	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
 	Uses_125Api bool `protobuf:"varint,101,opt,name=uses_125_api,json=uses125Api,proto3" json:"uses_125_api,omitempty"`
 }
@@ -315,7 +315,7 @@ func (x *SearchRequest) GetRerank() *Rerank {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *SearchRequest) GetUses_123Api() bool {
 	if x != nil {
 		return x.Uses_123Api
@@ -780,15 +780,14 @@ type Hybrid struct {
 	Properties []string `protobuf:"bytes,2,rep,name=properties,proto3" json:"properties,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector        []float32         `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vector_bytes
 	Alpha         float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"`
 	FusionType    Hybrid_FusionType `protobuf:"varint,5,opt,name=fusion_type,json=fusionType,proto3,enum=weaviate.v1.Hybrid_FusionType" json:"fusion_type,omitempty"`
 	VectorBytes   []byte            `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
 	TargetVectors []string          `protobuf:"bytes,7,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"`
-	NearText      *NearTextSearch   `protobuf:"bytes,8,opt,name=near_text,json=nearText,proto3" json:"near_text,omitempty"`
-	NearVector    *NearVector       `protobuf:"bytes,9,opt,name=near_vector,json=nearVector,proto3" json:"near_vector,omitempty"`
-	GroupBy       *GroupBy          `protobuf:"bytes,10,opt,name=group_by,json=groupBy,proto3" json:"group_by,omitempty"`
+	NearText      *NearTextSearch   `protobuf:"bytes,8,opt,name=near_text,json=nearText,proto3" json:"near_text,omitempty"`       // target_vector in msg is ignored and should not be set for hybrid
+	NearVector    *NearVector       `protobuf:"bytes,9,opt,name=near_vector,json=nearVector,proto3" json:"near_vector,omitempty"` // same as above. Use the target vector in the hybrid message
 }
 
 func (x *Hybrid) Reset() {
@@ -837,7 +836,7 @@ func (x *Hybrid) GetProperties() []string {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *Hybrid) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -883,13 +882,6 @@ func (x *Hybrid) GetNearText() *NearTextSearch {
 func (x *Hybrid) GetNearVector() *NearVector {
 	if x != nil {
 		return x.NearVector
-	}
-	return nil
-}
-
-func (x *Hybrid) GetGroupBy() *GroupBy {
-	if x != nil {
-		return x.GroupBy
 	}
 	return nil
 }
@@ -1415,7 +1407,6 @@ type BM25 struct {
 
 	Query      string   `protobuf:"bytes,1,opt,name=query,proto3" json:"query,omitempty"`
 	Properties []string `protobuf:"bytes,2,rep,name=properties,proto3" json:"properties,omitempty"`
-	GroupBy    *GroupBy `protobuf:"bytes,3,opt,name=group_by,json=groupBy,proto3" json:"group_by,omitempty"`
 }
 
 func (x *BM25) Reset() {
@@ -1460,13 +1451,6 @@ func (x *BM25) GetQuery() string {
 func (x *BM25) GetProperties() []string {
 	if x != nil {
 		return x.Properties
-	}
-	return nil
-}
-
-func (x *BM25) GetGroupBy() *GroupBy {
-	if x != nil {
-		return x.GroupBy
 	}
 	return nil
 }
@@ -1549,7 +1533,7 @@ type NearVector struct {
 
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector        []float32 `protobuf:"fixed32,1,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vector_bytes
 	Certainty     *float64  `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance      *float64  `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
@@ -1589,7 +1573,7 @@ func (*NearVector) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{17}
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -2074,7 +2058,7 @@ type MetadataResult struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector                    []float32  `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"`
 	CreationTimeUnix          int64      `protobuf:"varint,3,opt,name=creation_time_unix,json=creationTimeUnix,proto3" json:"creation_time_unix,omitempty"`
 	CreationTimeUnixPresent   bool       `protobuf:"varint,4,opt,name=creation_time_unix_present,json=creationTimeUnixPresent,proto3" json:"creation_time_unix_present,omitempty"`
@@ -2138,7 +2122,7 @@ func (x *MetadataResult) GetId() string {
 	return ""
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *MetadataResult) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -2298,22 +2282,22 @@ type PropertiesResult struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	NonRefProperties *structpb.Struct       `protobuf:"bytes,1,opt,name=non_ref_properties,json=nonRefProperties,proto3" json:"non_ref_properties,omitempty"`
 	RefProps         []*RefPropertiesResult `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
 	TargetCollection string                 `protobuf:"bytes,3,opt,name=target_collection,json=targetCollection,proto3" json:"target_collection,omitempty"`
 	Metadata         *MetadataResult        `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	NumberArrayProperties []*NumberArrayProperties `protobuf:"bytes,5,rep,name=number_array_properties,json=numberArrayProperties,proto3" json:"number_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	IntArrayProperties []*IntArrayProperties `protobuf:"bytes,6,rep,name=int_array_properties,json=intArrayProperties,proto3" json:"int_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TextArrayProperties []*TextArrayProperties `protobuf:"bytes,7,rep,name=text_array_properties,json=textArrayProperties,proto3" json:"text_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	BooleanArrayProperties []*BooleanArrayProperties `protobuf:"bytes,8,rep,name=boolean_array_properties,json=booleanArrayProperties,proto3" json:"boolean_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	ObjectProperties []*ObjectProperties `protobuf:"bytes,9,rep,name=object_properties,json=objectProperties,proto3" json:"object_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	ObjectArrayProperties []*ObjectArrayProperties `protobuf:"bytes,10,rep,name=object_array_properties,json=objectArrayProperties,proto3" json:"object_array_properties,omitempty"`
 	NonRefProps           *Properties              `protobuf:"bytes,11,opt,name=non_ref_props,json=nonRefProps,proto3" json:"non_ref_props,omitempty"`
 	RefPropsRequested     bool                     `protobuf:"varint,12,opt,name=ref_props_requested,json=refPropsRequested,proto3" json:"ref_props_requested,omitempty"`
@@ -2351,7 +2335,7 @@ func (*PropertiesResult) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{26}
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetNonRefProperties() *structpb.Struct {
 	if x != nil {
 		return x.NonRefProperties
@@ -2380,7 +2364,7 @@ func (x *PropertiesResult) GetMetadata() *MetadataResult {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
 	if x != nil {
 		return x.NumberArrayProperties
@@ -2388,7 +2372,7 @@ func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
 	if x != nil {
 		return x.IntArrayProperties
@@ -2396,7 +2380,7 @@ func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
 	if x != nil {
 		return x.TextArrayProperties
@@ -2404,7 +2388,7 @@ func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties {
 	if x != nil {
 		return x.BooleanArrayProperties
@@ -2412,7 +2396,7 @@ func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
 	if x != nil {
 		return x.ObjectProperties
@@ -2420,7 +2404,7 @@ func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetObjectArrayProperties() []*ObjectArrayProperties {
 	if x != nil {
 		return x.ObjectArrayProperties
@@ -3187,36 +3171,34 @@ var file_v1_search_get_proto_depIdxs = []int32{
 	0,  // 22: weaviate.v1.Hybrid.fusion_type:type_name -> weaviate.v1.Hybrid.FusionType
 	9,  // 23: weaviate.v1.Hybrid.near_text:type_name -> weaviate.v1.NearTextSearch
 	18, // 24: weaviate.v1.Hybrid.near_vector:type_name -> weaviate.v1.NearVector
-	2,  // 25: weaviate.v1.Hybrid.group_by:type_name -> weaviate.v1.GroupBy
-	29, // 26: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
-	29, // 27: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
-	2,  // 28: weaviate.v1.BM25.group_by:type_name -> weaviate.v1.GroupBy
-	6,  // 29: weaviate.v1.RefPropertiesRequest.properties:type_name -> weaviate.v1.PropertiesRequest
-	5,  // 30: weaviate.v1.RefPropertiesRequest.metadata:type_name -> weaviate.v1.MetadataRequest
-	25, // 31: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
-	24, // 32: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
-	25, // 33: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
-	22, // 34: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply
-	23, // 35: weaviate.v1.GroupByResult.generative:type_name -> weaviate.v1.GenerativeReply
-	27, // 36: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
-	26, // 37: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
-	32, // 38: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
-	33, // 39: weaviate.v1.PropertiesResult.non_ref_properties:type_name -> google.protobuf.Struct
-	28, // 40: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
-	26, // 41: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
-	34, // 42: weaviate.v1.PropertiesResult.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
-	35, // 43: weaviate.v1.PropertiesResult.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
-	36, // 44: weaviate.v1.PropertiesResult.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
-	37, // 45: weaviate.v1.PropertiesResult.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
-	38, // 46: weaviate.v1.PropertiesResult.object_properties:type_name -> weaviate.v1.ObjectProperties
-	39, // 47: weaviate.v1.PropertiesResult.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
-	40, // 48: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
-	27, // 49: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
-	50, // [50:50] is the sub-list for method output_type
-	50, // [50:50] is the sub-list for method input_type
-	50, // [50:50] is the sub-list for extension type_name
-	50, // [50:50] is the sub-list for extension extendee
-	0,  // [0:50] is the sub-list for field type_name
+	29, // 25: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
+	29, // 26: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
+	6,  // 27: weaviate.v1.RefPropertiesRequest.properties:type_name -> weaviate.v1.PropertiesRequest
+	5,  // 28: weaviate.v1.RefPropertiesRequest.metadata:type_name -> weaviate.v1.MetadataRequest
+	25, // 29: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
+	24, // 30: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
+	25, // 31: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
+	22, // 32: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply
+	23, // 33: weaviate.v1.GroupByResult.generative:type_name -> weaviate.v1.GenerativeReply
+	27, // 34: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
+	26, // 35: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
+	32, // 36: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
+	33, // 37: weaviate.v1.PropertiesResult.non_ref_properties:type_name -> google.protobuf.Struct
+	28, // 38: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
+	26, // 39: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
+	34, // 40: weaviate.v1.PropertiesResult.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
+	35, // 41: weaviate.v1.PropertiesResult.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
+	36, // 42: weaviate.v1.PropertiesResult.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
+	37, // 43: weaviate.v1.PropertiesResult.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
+	38, // 44: weaviate.v1.PropertiesResult.object_properties:type_name -> weaviate.v1.ObjectProperties
+	39, // 45: weaviate.v1.PropertiesResult.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
+	40, // 46: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
+	27, // 47: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
+	48, // [48:48] is the sub-list for method output_type
+	48, // [48:48] is the sub-list for method input_type
+	48, // [48:48] is the sub-list for extension type_name
+	48, // [48:48] is the sub-list for extension extendee
+	0,  // [0:48] is the sub-list for field type_name
 }
 
 func init() { file_v1_search_get_proto_init() }

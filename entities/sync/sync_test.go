@@ -25,9 +25,32 @@ func mutexLocked(m *sync.Mutex) bool {
 	return state.Int()&mLocked == mLocked
 }
 
-func TestSyncLockUnlock(t *testing.T) {
+func rwMutexLocked(m *sync.RWMutex) bool {
+	// can not RLock
+	rlocked := m.TryRLock()
+	if rlocked {
+		defer m.RUnlock()
+	}
+	return !rlocked
+}
+
+func rwMutexRLocked(m *sync.RWMutex) bool {
+	// can not Lock, but can RLock
+	locked := m.TryLock()
+	if locked {
+		defer m.Unlock()
+		return false
+	}
+	rlocked := m.TryRLock()
+	if rlocked {
+		defer m.RUnlock()
+	}
+	return rlocked
+}
+
+func TestKeyLockerLockUnlock(t *testing.T) {
 	r := require.New(t)
-	s := New()
+	s := NewKeyLocker()
 
 	s.Lock("t1")
 	lock, _ := s.m.Load("t1")
@@ -44,4 +67,49 @@ func TestSyncLockUnlock(t *testing.T) {
 	s.Unlock("t2")
 	lock, _ = s.m.Load("t2")
 	r.False(mutexLocked(lock.(*sync.Mutex)))
+}
+
+func TestKeyRWLockerLockUnlock(t *testing.T) {
+	r := require.New(t)
+	s := NewKeyRWLocker()
+
+	s.Lock("t1")
+	lock, _ := s.m.Load("t1")
+	r.True(rwMutexLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+
+	s.Unlock("t1")
+	lock, _ = s.m.Load("t1")
+	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+
+	s.Lock("t2")
+	lock, _ = s.m.Load("t2")
+	r.True(rwMutexLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+
+	s.Unlock("t2")
+	lock, _ = s.m.Load("t2")
+	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+
+	s.RLock("t1")
+	lock, _ = s.m.Load("t1")
+	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
+	r.True(rwMutexRLocked(lock.(*sync.RWMutex)))
+
+	s.RUnlock("t1")
+	lock, _ = s.m.Load("t1")
+	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+
+	s.RLock("t2")
+	lock, _ = s.m.Load("t2")
+	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
+	r.True(rwMutexRLocked(lock.(*sync.RWMutex)))
+
+	s.RUnlock("t2")
+	lock, _ = s.m.Load("t2")
+	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
 }

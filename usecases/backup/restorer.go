@@ -219,7 +219,7 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	if err := meta.Validate(meta.Version > version1); err != nil {
 		return nil, nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
-	if v := meta.Version; v > Version {
+	if v := meta.Version; v[0] > Version[0] {
 		return nil, nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.List()

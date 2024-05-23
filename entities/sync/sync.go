@@ -17,15 +17,16 @@ import (
 
 // KeyLocker it is a thread safe wrapper of sync.Map
 // Usage: it's used in order to lock specific key in a map
-// to synchronizes concurrent access to a code block.
-// locker.Lock(id)
-// defer locker.Unlock(id)
+// to synchronize concurrent access to a code block.
+//
+//	locker.Lock(id)
+//	defer locker.Unlock(id)
 type KeyLocker struct {
 	m sync.Map
 }
 
-// New creates Keylocker
-func New() *KeyLocker {
+// NewKeyLocker creates Keylocker
+func NewKeyLocker() *KeyLocker {
 	return &KeyLocker{
 		m: sync.Map{},
 	}
@@ -44,9 +45,68 @@ func (s *KeyLocker) Lock(ID string) {
 }
 
 // Unlock it unlocks a specific item by it's ID
-// and it will delete it from the shared locks map
 func (s *KeyLocker) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
 	iLock := iLocks.(*sync.Mutex)
 	iLock.Unlock()
+}
+
+// KeyRWLocker it is a thread safe wrapper of sync.Map
+// Usage: it's used in order to lock/rlock specific key in a map
+// to synchronize concurrent access to a code block.
+//
+//	locker.Lock(id)
+//	defer locker.Unlock(id)
+//
+// or
+//
+//	locker.RLock(id)
+//	defer locker.RUnlock(id)
+type KeyRWLocker struct {
+	m sync.Map
+}
+
+// NewKeyLocker creates Keylocker
+func NewKeyRWLocker() *KeyRWLocker {
+	return &KeyRWLocker{
+		m: sync.Map{},
+	}
+}
+
+// Lock it locks a specific bucket by it's ID
+// to hold ant concurrent access to that specific item
+//
+//	do not forget calling Unlock() after locking it.
+func (s *KeyRWLocker) Lock(ID string) {
+	iLock := &sync.RWMutex{}
+	iLocks, _ := s.m.LoadOrStore(ID, iLock)
+
+	iLock = iLocks.(*sync.RWMutex)
+	iLock.Lock()
+}
+
+// Unlock it unlocks a specific item by it's ID
+func (s *KeyRWLocker) Unlock(ID string) {
+	iLocks, _ := s.m.Load(ID)
+	iLock := iLocks.(*sync.RWMutex)
+	iLock.Unlock()
+}
+
+// RLock it rlocks a specific bucket by it's ID
+// to hold ant concurrent access to that specific item
+//
+//	do not forget calling RUnlock() after rlocking it.
+func (s *KeyRWLocker) RLock(ID string) {
+	iLock := &sync.RWMutex{}
+	iLocks, _ := s.m.LoadOrStore(ID, iLock)
+
+	iLock = iLocks.(*sync.RWMutex)
+	iLock.RLock()
+}
+
+// RUnlock it runlocks a specific item by it's ID
+func (s *KeyRWLocker) RUnlock(ID string) {
+	iLocks, _ := s.m.Load(ID)
+	iLock := iLocks.(*sync.RWMutex)
+	iLock.RUnlock()
 }

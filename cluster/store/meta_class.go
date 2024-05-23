@@ -39,7 +39,11 @@ func (m *metaClass) ClassInfo() (ci ClassInfo) {
 	defer m.RUnlock()
 	ci.Exists = true
 	ci.Properties = len(m.Class.Properties)
-	ci.MultiTenancy, _ = m.MultiTenancyConfig()
+	if m.Class.MultiTenancyConfig == nil {
+		ci.MultiTenancy = models.MultiTenancyConfig{}
+	} else {
+		ci.MultiTenancy = *m.Class.MultiTenancyConfig
+	}
 	ci.ReplicationFactor = 1
 	if m.Class.ReplicationConfig != nil && m.Class.ReplicationConfig.Factor > 1 {
 		ci.ReplicationFactor = int(m.Class.ReplicationConfig.Factor)

@@ -35,6 +35,29 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
+func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetErrDeleted(idBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, nil
+	}
+
+	obj, err := storobj.FromBinary(bytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal object")
+	}
+
+	return obj, nil
+}
+
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	s.activityTracker.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()

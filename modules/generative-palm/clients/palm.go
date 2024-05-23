@@ -88,9 +88,31 @@ var (
 	HIGH harmProbability = "HIGH"
 )
 
+var (
+	FINISH_REASON_UNSPECIFIED_EXPLANATION        = "The finish reason is unspecified."
+	FINISH_REASON_STOP_EXPLANATION               = "Natural stop point of the model or provided stop sequence."
+	FINISH_REASON_MAX_TOKENS_EXPLANATION         = "The maximum number of tokens as specified in the request was reached."
+	FINISH_REASON_SAFETY_EXPLANATION             = "The token generation was stopped as the response was flagged for safety reasons. NOTE: When streaming the Candidate.content will be empty if content filters blocked the output."
+	FINISH_REASON_RECITATION_EXPLANATION         = "The token generation was stopped as the response was flagged for unauthorized citations."
+	FINISH_REASON_OTHER_EXPLANATION              = "All other reasons that stopped the token generation"
+	FINISH_REASON_BLOCKLIST_EXPLANATION          = "The token generation was stopped as the response was flagged for the terms which are included from the terminology blocklist."
+	FINISH_REASON_PROHIBITED_CONTENT_EXPLANATION = "The token generation was stopped as the response was flagged for the prohibited contents."
+	FINISH_REASON_SPII_EXPLANATION               = "The token generation was stopped as the response was flagged for Sensitive Personally Identifiable Information (SPII) contents."
+
+	FINISH_REASON_UNSPECIFIED        = "FINISH_REASON_UNSPECIFIED"
+	FINISH_REASON_STOP               = "STOP"
+	FINISH_REASON_MAX_TOKENS         = "MAX_TOKENS"
+	FINISH_REASON_SAFETY             = "SAFETY"
+	FINISH_REASON_RECITATION         = "RECITATION"
+	FINISH_REASON_OTHER              = "OTHER"
+	FINISH_REASON_BLOCKLIST          = "BLOCKLIST"
+	FINISH_REASON_PROHIBITED_CONTENT = "PROHIBITED_CONTENT"
+	FINISH_REASON_SPII               = "SPII"
+)
+
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string {
 	if useGenerativeAI {
 		// Generative AI endpoints, for more context check out this link:
 		// https://developers.generativeai.google/models/language#model_variations
@@ -100,13 +122,18 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) strin
 		}
 		return "https://generativelanguage.googleapis.com/v1beta2/models/chat-bison-001:generateMessage"
 	}
+	if strings.HasPrefix(modelID, "gemini") {
+		// Vertex AI support for Gemini models: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini
+		urlTemplate := "https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:generateContent"
+		return fmt.Sprintf(urlTemplate, region, projectID, region, modelID)
+	}
 	urlTemplate := "https://%s/v1/projects/%s/locations/us-central1/publishers/google/models/%s:predict"
 	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
 }
 
 type palm struct {
 	apiKey     string
-	buildUrlFn func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string
+	buildUrlFn func(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string
 	httpClient *http.Client
 	logger     logrus.FieldLogger
 }
@@ -147,7 +174,7 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 		modelID = settings.EndpointID()
 	}
 
-	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, settings.ApiEndpoint(), settings.ProjectID(), modelID)
+	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, settings.ApiEndpoint(), settings.ProjectID(), modelID, settings.Region())
 	input := v.getPayload(useGenerativeAIEndpoint, prompt, settings)
 
 	body, err := json.Marshal(input)
@@ -161,7 +188,7 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
-	apiKey, err := v.getApiKey(ctx)
+	apiKey, err := v.getApiKey(ctx, useGenerativeAIEndpoint)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Google API Key")
 	}
@@ -188,6 +215,9 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 			return v.parseGenerateContentResponse(res.StatusCode, bodyBytes)
 		}
 		return v.parseGenerateMessageResponse(res.StatusCode, bodyBytes)
+	}
+	if strings.HasPrefix(modelID, "gemini") {
+		return v.parseGenerateContentResponse(res.StatusCode, bodyBytes)
 	}
 	return v.parseResponse(res.StatusCode, bodyBytes)
 }
@@ -221,8 +251,11 @@ func (v *palm) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*
 		return nil, err
 	}
 
-	if len(resBody.Candidates) > 0 && len(resBody.Candidates[0].Content.Parts) > 0 {
-		return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text)
+	if len(resBody.Candidates) > 0 {
+		if len(resBody.Candidates[0].Content.Parts) > 0 {
+			return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text)
+		}
+		return nil, fmt.Errorf(v.decodeFinishReason(resBody.Candidates[0].FinishReason))
 	}
 
 	return &generativemodels.GenerateResponse{
@@ -280,43 +313,7 @@ func (v *palm) useGenerativeAIEndpoint(apiEndpoint string) bool {
 func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.ClassSettings) any {
 	if useGenerativeAI {
 		if strings.HasPrefix(settings.ModelID(), "gemini") {
-			input := generateContentRequest{
-				Contents: []content{
-					{
-						Role: "user",
-						Parts: []part{
-							{
-								Text: prompt,
-							},
-						},
-					},
-				},
-				GenerationConfig: &generationConfig{
-					Temperature:    settings.Temperature(),
-					TopP:           settings.TopP(),
-					TopK:           settings.TopK(),
-					CandidateCount: 1,
-				},
-				SafetySettings: []safetySetting{
-					{
-						Category:  HarmCategoryHarassment,
-						Threshold: BlockMediumAndAbove,
-					},
-					{
-						Category:  HarmCategoryHate_speech,
-						Threshold: BlockMediumAndAbove,
-					},
-					{
-						Category:  HarmCategoryDangerous_content,
-						Threshold: BlockMediumAndAbove,
-					},
-					{
-						Category:  HarmCategoryDangerous_content,
-						Threshold: BlockMediumAndAbove,
-					},
-				},
-			}
-			return input
+			return v.getGeminiPayload(prompt, settings)
 		}
 		input := generateMessageRequest{
 			Prompt: &generateMessagePrompt{
@@ -333,6 +330,9 @@ func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.C
 		}
 		return input
 	}
+	if strings.HasPrefix(settings.ModelID(), "gemini") {
+		return v.getGeminiPayload(prompt, settings)
+	}
 	input := generateInput{
 		Instances: []instance{
 			{
@@ -348,6 +348,42 @@ func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.C
 			MaxOutputTokens: settings.TokenLimit(),
 			TopP:            settings.TopP(),
 			TopK:            settings.TopK(),
+		},
+	}
+	return input
+}
+
+func (v *palm) getGeminiPayload(prompt string, settings config.ClassSettings) any {
+	input := generateContentRequest{
+		Contents: []content{
+			{
+				Role: "user",
+				Parts: []part{
+					{
+						Text: prompt,
+					},
+				},
+			},
+		},
+		GenerationConfig: &generationConfig{
+			Temperature:    settings.Temperature(),
+			TopP:           settings.TopP(),
+			TopK:           settings.TopK(),
+			CandidateCount: 1,
+		},
+		SafetySettings: []safetySetting{
+			{
+				Category:  HarmCategoryHarassment,
+				Threshold: BlockMediumAndAbove,
+			},
+			{
+				Category:  HarmCategoryHate_speech,
+				Threshold: BlockMediumAndAbove,
+			},
+			{
+				Category:  HarmCategoryDangerous_content,
+				Threshold: BlockMediumAndAbove,
+			},
 		},
 	}
 	return input
@@ -377,7 +413,16 @@ func (v *palm) generateForPrompt(textProperties map[string]string, prompt string
 	return prompt, nil
 }
 
-func (v *palm) getApiKey(ctx context.Context) (string, error) {
+func (v *palm) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
+	if useGenerativeAIEndpoint {
+		if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Studio-Api-Key"); apiKeyValue != "" {
+			return apiKeyValue, nil
+		}
+	} else {
+		if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Vertex-Api-Key"); apiKeyValue != "" {
+			return apiKeyValue, nil
+		}
+	}
 	if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Api-Key"); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
@@ -388,7 +433,7 @@ func (v *palm) getApiKey(ctx context.Context) (string, error) {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key " +
+		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key or X-Google-Vertex-Api-Key or X-Google-Studio-Api-Key " +
 		"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 }
 
@@ -403,6 +448,31 @@ func (v *palm) getValueFromContext(ctx context.Context, key string) string {
 		return apiKey[0]
 	}
 	return ""
+}
+
+func (v *palm) decodeFinishReason(reason string) string {
+	switch reason {
+	case FINISH_REASON_UNSPECIFIED:
+		return FINISH_REASON_UNSPECIFIED_EXPLANATION
+	case FINISH_REASON_STOP:
+		return FINISH_REASON_STOP_EXPLANATION
+	case FINISH_REASON_MAX_TOKENS:
+		return FINISH_REASON_MAX_TOKENS_EXPLANATION
+	case FINISH_REASON_SAFETY:
+		return FINISH_REASON_SAFETY_EXPLANATION
+	case FINISH_REASON_RECITATION:
+		return FINISH_REASON_RECITATION_EXPLANATION
+	case FINISH_REASON_OTHER:
+		return FINISH_REASON_OTHER_EXPLANATION
+	case FINISH_REASON_BLOCKLIST:
+		return FINISH_REASON_BLOCKLIST_EXPLANATION
+	case FINISH_REASON_PROHIBITED_CONTENT:
+		return FINISH_REASON_PROHIBITED_CONTENT_EXPLANATION
+	case FINISH_REASON_SPII:
+		return FINISH_REASON_SPII_EXPLANATION
+	default:
+		return fmt.Sprintf("unregonized finis reason: %s", reason)
+	}
 }
 
 type generateInput struct {

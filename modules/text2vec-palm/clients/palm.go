@@ -99,7 +99,7 @@ func (v *palm) vectorize(ctx context.Context, input []string, taskType taskType,
 		return nil, errors.Wrap(err, "create POST request")
 	}
 
-	apiKey, err := v.getApiKey(ctx)
+	apiKey, err := v.getApiKey(ctx, useGenerativeAIEndpoint)
 	if err != nil {
 		return nil, errors.Wrapf(err, "Google API Key")
 	}
@@ -179,7 +179,16 @@ func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
 	return nil
 }
 
-func (v *palm) getApiKey(ctx context.Context) (string, error) {
+func (v *palm) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
+	if useGenerativeAIEndpoint {
+		if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Studio-Api-Key"); apiKeyValue != "" {
+			return apiKeyValue, nil
+		}
+	} else {
+		if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Vertex-Api-Key"); apiKeyValue != "" {
+			return apiKeyValue, nil
+		}
+	}
 	if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Api-Key"); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
@@ -190,7 +199,7 @@ func (v *palm) getApiKey(ctx context.Context) (string, error) {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key " +
+		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key or X-Google-Vertex-Api-Key or X-Google-Studio-Api-Key " +
 		"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 }
 

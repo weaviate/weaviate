@@ -208,6 +208,13 @@ func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props se
 	return l.shard.ObjectByID(ctx, id, props, additional)
 }
 
+func (l *LazyLoadShard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ObjectByIDErrDeleted(ctx, id, props, additional)
+}
+
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	if err := l.Load(ctx); err != nil {
 		return false, err
@@ -502,13 +509,6 @@ func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, m
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
 	l.mustLoad()
 	return l.shard.abortReplication(ctx, shardID)
-}
-
-func (l *LazyLoadShard) reinit(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.reinit(ctx)
 }
 
 func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.WriteCloser, error) {

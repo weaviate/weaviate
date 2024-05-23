@@ -43,7 +43,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 
 		tke, err := tiktoken.EncodingForModel(icheck.Model())
 		if err != nil { // fail all objects as they all have the same model
-			return nil, nil, false, err
+			tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
 		}
 
 		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker

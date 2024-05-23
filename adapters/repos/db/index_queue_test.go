@@ -601,7 +601,7 @@ func TestIndexQueue(t *testing.T) {
 
 	t.Run("compression", func(t *testing.T) {
 		var idx mockBatchIndexer
-		called := make(chan struct{})
+		called := make(chan struct{}, 1)
 		idx.shouldCompress = true
 		idx.threshold = 4
 		idx.alreadyIndexed.Store(6)
@@ -613,7 +613,7 @@ func TestIndexQueue(t *testing.T) {
 				callback()
 			}()
 
-			close(called)
+			called <- struct{}{}
 			return nil
 		}
 

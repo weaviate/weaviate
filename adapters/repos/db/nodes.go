@@ -291,7 +291,7 @@ func (db *DB) localNodeStatistics() (*models.Statistics, error) {
 		IsVoter:                 stats["is_voter"].(bool),
 		Open:                    stats["open"].(bool),
 		Bootstrapped:            stats["bootstrapped"].(bool),
-		InitialLastAppliedIndex: stats["initial_last_applied_index"].(uint64),
+		InitialLastAppliedIndex: stats["last_store_log_applied_index"].(uint64),
 		DbLoaded:                stats["db_loaded"].(bool),
 		Candidates:              stats["candidates"],
 		Raft:                    raft,

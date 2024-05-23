@@ -63,7 +63,7 @@ type RemoteIndexIncomingRepo interface {
 		additional additional.Properties,
 	) ([]*storobj.Object, []float32, error)
 	IncomingAggregate(ctx context.Context, shardName string,
-		params aggregation.Params) (*aggregation.Result, error)
+		params aggregation.Params, modules interface{}) (*aggregation.Result, error)
 
 	IncomingFindUUIDs(ctx context.Context, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
@@ -85,14 +85,16 @@ type RemoteIndexIncomingRepo interface {
 }
 
 type RemoteIndexIncoming struct {
-	repo   RemoteIncomingRepo
-	schema RemoteIncomingSchema
+	repo    RemoteIncomingRepo
+	schema  RemoteIncomingSchema
+	modules interface{}
 }
 
-func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema) *RemoteIndexIncoming {
+func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema, modules interface{}) *RemoteIndexIncoming {
 	return &RemoteIndexIncoming{
-		repo:   repo,
-		schema: schema,
+		repo:    repo,
+		schema:  schema,
+		modules: modules,
 	}
 }
 
@@ -207,7 +209,7 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 		return &aggregation.Result{}, nil
 	}
 
-	return index.IncomingAggregate(ctx, shardName, params)
+	return index.IncomingAggregate(ctx, shardName, params, rii.modules)
 }
 
 func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,

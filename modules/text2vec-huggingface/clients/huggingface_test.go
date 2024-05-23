@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
 func TestClient(t *testing.T) {
@@ -37,19 +38,19 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			logger:     nullLogger(),
 		}
-		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+		expected := &modulecomponents.VectorizationResult{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{
-				Model:        "sentence-transformers/gtr-t5-xxl",
-				WaitForModel: false,
-				UseGPU:       false,
-				UseCache:     true,
-				EndpointURL:  server.URL,
-			})
+		res, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+			fakeClassConfig{classConfig: map[string]interface{}{
+				"Model":        "sentence-transformers/gtr-t5-xxl",
+				"endpointURL":  server.URL,
+				"WaitForModel": false,
+				"UseGPU":       false,
+				"UseCache":     true,
+			}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -65,10 +66,8 @@ func TestClient(t *testing.T) {
 		}
 		ctx, cancel := context.WithDeadline(context.Background(), time.Now())
 		defer cancel()
-
-		_, err := c.Vectorize(ctx, "This is my text", ent.VectorizationConfig{
-			EndpointURL: server.URL,
-		})
+		_, _, err := c.Vectorize(ctx, []string{"This is my text"},
+			fakeClassConfig{classConfig: map[string]interface{}{"endpointURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "context deadline exceeded")
@@ -85,10 +84,8 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			logger:     nullLogger(),
 		}
-		_, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{
-				EndpointURL: server.URL,
-			})
+		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+			fakeClassConfig{classConfig: map[string]interface{}{"endpointURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to HuggingFace failed with status: 500 error: nope, not gonna happen estimated time: 20")
@@ -105,19 +102,20 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Huggingface-Api-Key", []string{"some-key"})
 
-		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
+		expected := &modulecomponents.VectorizationResult{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
 			Dimensions: 3,
 		}
-		res, err := c.Vectorize(ctxWithValue, "This is my text",
-			ent.VectorizationConfig{
-				Model:        "sentence-transformers/gtr-t5-xxl",
-				WaitForModel: true,
-				UseGPU:       false,
-				UseCache:     true,
-				EndpointURL:  server.URL,
-			})
+
+		res, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+			fakeClassConfig{classConfig: map[string]interface{}{
+				"Model":        "sentence-transformers/gtr-t5-xxl",
+				"endpointURL":  server.URL,
+				"WaitForModel": true,
+				"UseGPU":       false,
+				"UseCache":     true,
+			}})
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -137,12 +135,11 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Huggingface-Api-Key", []string{""})
 
-		_, err := c.Vectorize(ctxWithValue, "This is my text",
-			ent.VectorizationConfig{
-				Model:       "sentence-transformers/gtr-t5-xxl",
-				EndpointURL: server.URL,
-			})
-
+		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
+			fakeClassConfig{classConfig: map[string]interface{}{
+				"Model":       "sentence-transformers/gtr-t5-xxl",
+				"endpointURL": server.URL,
+			}})
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "failed with status: 401 error: A valid user or organization token is required")
 	})
@@ -158,10 +155,8 @@ func TestClient(t *testing.T) {
 			httpClient: &http.Client{},
 			logger:     nullLogger(),
 		}
-		_, err := c.Vectorize(context.Background(), "This is my text",
-			ent.VectorizationConfig{
-				EndpointURL: server.URL,
-			})
+		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+			fakeClassConfig{classConfig: map[string]interface{}{"endpointURL": server.URL}})
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "connection to HuggingFace failed with status: 500 error: with warnings "+

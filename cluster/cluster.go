@@ -72,7 +72,9 @@ func (c *Service) Open(ctx context.Context, db store.Indexer) error {
 		c.client,
 		c.config.NodeID,
 		c.raftAddr,
-		c.config.AddrResolver)
+		c.config.AddrResolver,
+		c.Service.Ready,
+	)
 
 	bCtx, bCancel := context.WithTimeout(ctx, c.config.BootstrapTimeout)
 	defer bCancel()

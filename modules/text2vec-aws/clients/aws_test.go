@@ -35,7 +35,7 @@ func TestClient(t *testing.T) {
 		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "access_key",
@@ -66,7 +66,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine - Sagemaker", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "access_key",
@@ -101,7 +101,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "access_key",
@@ -126,7 +126,7 @@ func TestClient(t *testing.T) {
 		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "access_key",
@@ -158,7 +158,7 @@ func TestClient(t *testing.T) {
 		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "",
@@ -186,7 +186,7 @@ func TestClient(t *testing.T) {
 		t.Skip("Skipping this test for now")
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "123",
@@ -282,7 +282,7 @@ func TestVectorize(t *testing.T) {
 		awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID_AMAZON")
 		awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_AMAZON")
 
-		aws := New(awsAccessKeyID, awsSecretAccessKey, 60*time.Second, nil)
+		aws := New(awsAccessKeyID, awsSecretAccessKey, "sessionToken", 60*time.Second, nil)
 
 		_, err := aws.Vectorize(ctx, input, config)
 		if err != nil {
@@ -301,7 +301,7 @@ func TestVectorize(t *testing.T) {
 		awsAccessKeyID := os.Getenv("AWS_ACCESS_KEY_ID_COHERE")
 		awsSecretAccessKey := os.Getenv("AWS_SECRET_ACCESS_KEY_COHERE")
 
-		aws := New(awsAccessKeyID, awsSecretAccessKey, 60*time.Second, nil)
+		aws := New(awsAccessKeyID, awsSecretAccessKey, "sessionToken", 60*time.Second, nil)
 
 		_, err := aws.Vectorize(ctx, input, config)
 		if err != nil {

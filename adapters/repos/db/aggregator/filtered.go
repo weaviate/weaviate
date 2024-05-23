@@ -124,6 +124,9 @@ func (fa *filteredAggregator) bm25Objects(ctx context.Context, kw *searchparams.
 		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", fa.params.ClassName)
 	}
 	cfg := inverted.ConfigFromModel(class.InvertedIndexConfig)
+
+	kw.ChooseSearchableProperties(class)
+
 	objs, scores, err := inverted.NewBM25Searcher(cfg.BM25, fa.store, fa.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, fa.classSearcher,
 		fa.GetPropertyLengthTracker(), fa.logger, fa.shardVersion,

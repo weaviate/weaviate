@@ -16,10 +16,9 @@ enum TenantActivityStatus {
 
 message TenantsGetRequest {
   string collection = 1;
-  bool is_consistent = 2;
   // we might need to add a tenant-cursor api at some point, make this easily extendable
   oneof params {
-    TenantNames names = 3;
+    TenantNames names = 2;
   };
 }
 

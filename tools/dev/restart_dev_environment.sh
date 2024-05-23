@@ -64,7 +64,7 @@ fi
 
 docker compose -f $DOCKER_COMPOSE_FILE down --remove-orphans
 
-rm -rf data-weaviate-0 data-weaviate-1 data-weaviate-2 connector_state.json schema_state.json
+rm -rf data data-weaviate-0 data-weaviate-1 data-weaviate-2  backups-weaviate-0 backups-weaviate-1 backups-weaviate-2 connector_state.json schema_state.json
 
 docker compose -f $DOCKER_COMPOSE_FILE up -d "${ADDITIONAL_SERVICES[@]}"
 

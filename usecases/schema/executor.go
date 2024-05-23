@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -23,9 +24,12 @@ import (
 )
 
 type executor struct {
-	store           metaReader
-	migrator        Migrator
-	callbacks       []func(updatedSchema schema.Schema)
+	store    metaReader
+	migrator Migrator
+
+	callbacksLock sync.RWMutex
+	callbacks     []func(updatedSchema schema.Schema)
+
 	logger          logrus.FieldLogger
 	restoreClassDir func(string) error
 }
@@ -98,6 +102,11 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		req.Class.InvertedIndexConfig); err != nil {
 		return errors.Wrap(err, "inverted index config")
 	}
+
+	if err := e.migrator.UpdateReplicationFactor(ctx, className, req.Class.ReplicationConfig.Factor); err != nil {
+		return fmt.Errorf("replication index update: %w", err)
+	}
+
 	return nil
 }
 
@@ -223,6 +232,9 @@ func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList
 }
 
 func (e *executor) rebuildGQL(s models.Schema) {
+	e.callbacksLock.RLock()
+	defer e.callbacksLock.RUnlock()
+
 	for _, cb := range e.callbacks {
 		cb(schema.Schema{
 			Objects: &s,
@@ -238,5 +250,8 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 // type update callback. The callbacks will be called any time we persist a
 // schema update
 func (e *executor) RegisterSchemaUpdateCallback(callback func(updatedSchema schema.Schema)) {
+	e.callbacksLock.Lock()
+	defer e.callbacksLock.Unlock()
+
 	e.callbacks = append(e.callbacks, callback)
 }

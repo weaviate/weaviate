@@ -29,8 +29,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestShard_UpdateStatus(t *testing.T) {
@@ -171,7 +173,7 @@ func TestShard_ParallelBatches(t *testing.T) {
 	r := getRandomSeed()
 	batches := make([][]*storobj.Object, 4)
 	for i := range batches {
-		batches[i] = createRandomObjects(r, "TestClass", 1000)
+		batches[i] = createRandomObjects(r, "TestClass", 1000, 4)
 	}
 	totalObjects := 1000 * len(batches)
 	ctx := testCtx()
@@ -189,5 +191,35 @@ func TestShard_ParallelBatches(t *testing.T) {
 	wg.Wait()
 
 	require.Equal(t, totalObjects, int(shd.Counter().Get()))
+	require.Nil(t, idx.drop())
+}
+
+func TestShard_InvalidVectorBatches(t *testing.T) {
+	ctx := testCtx()
+
+	class := &models.Class{Class: "TestClass"}
+
+	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false)
+
+	testShard(t, context.Background(), class.Class)
+
+	r := getRandomSeed()
+
+	batchSize := 1000
+
+	validBatch := createRandomObjects(r, class.Class, batchSize, 4)
+
+	shd.PutObjectBatch(ctx, validBatch)
+	require.Equal(t, batchSize, int(shd.Counter().Get()))
+
+	invalidBatch := createRandomObjects(r, class.Class, batchSize, 5)
+
+	errs := shd.PutObjectBatch(ctx, invalidBatch)
+	require.Len(t, errs, batchSize)
+	for _, err := range errs {
+		require.ErrorContains(t, err, "new node has a vector with length 5. Existing nodes have vectors with length 4")
+	}
+	require.Equal(t, batchSize, int(shd.Counter().Get()))
+
 	require.Nil(t, idx.drop())
 }

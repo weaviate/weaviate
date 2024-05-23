@@ -32,6 +32,7 @@ type joiner interface {
 type Bootstrapper struct {
 	joiner       joiner
 	addrResolver addressResolver
+	isStoreReady func() bool
 
 	localRaftAddr string
 	localNodeID   string
@@ -41,7 +42,7 @@ type Bootstrapper struct {
 }
 
 // NewBootstrapper constructs a new bootsrapper
-func NewBootstrapper(joiner joiner, raftID, raftAddr string, r addressResolver) *Bootstrapper {
+func NewBootstrapper(joiner joiner, raftID, raftAddr string, r addressResolver, isStoreReady func() bool) *Bootstrapper {
 	return &Bootstrapper{
 		joiner:        joiner,
 		addrResolver:  r,
@@ -49,6 +50,7 @@ func NewBootstrapper(joiner joiner, raftID, raftAddr string, r addressResolver) 
 		jitter:        time.Second,
 		localNodeID:   raftID,
 		localRaftAddr: raftAddr,
+		isStoreReady:  isStoreReady,
 	}
 }
 
@@ -65,19 +67,45 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
+			if b.isStoreReady() {
+				lg.WithField("action", "bootstrap").Info("node reporting ready, node has probably recovered cluster from raft config. Exiting bootstrap process")
+				return nil
+			}
+
+			// If we have found no other server, there is nobody to contact
+			if len(servers) == 0 {
+				continue
+			}
+
 			// try to join an existing cluster
-			if leader, err := b.join(ctx, servers, voter); err == nil {
-				lg.WithField("leader", leader).Info("successfully joined cluster")
+			if leader, err := b.join(ctx, servers, voter); err != nil {
+				lg.WithFields(logrus.Fields{
+					"servers": servers,
+					"action":  "bootstrap",
+					"voter":   voter,
+				}).WithError(err).Warning("failed to join cluster, will notify next if voter")
+			} else {
+				lg.WithFields(logrus.Fields{
+					"action": "bootstrap",
+					"leader": leader,
+				}).Info("successfully joined cluster")
 				return nil
 			}
 
 			if voter {
 				// notify other servers about readiness of this node to be joined
 				if err := b.notify(ctx, servers); err != nil {
-					lg.WithField("servers", servers).WithError(err).Error("notify all peers")
+					lg.WithFields(logrus.Fields{
+						"action":  "bootstrap",
+						"servers": servers,
+					}).WithError(err).Error("notify all peers")
+					continue
 				}
+				lg.WithFields(logrus.Fields{
+					"action":  "bootstrap",
+					"servers": servers,
+				}).Info("notified peers this node is ready to join as voter")
 			}
-
 		}
 	}
 }
@@ -86,6 +114,11 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 func (b *Bootstrapper) join(ctx context.Context, servers []string, voter bool) (leader string, err error) {
 	var resp *cmd.JoinPeerResponse
 	req := &cmd.JoinPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr, Voter: voter}
+	// For each server, try to join.
+	// If we have no error then we have a leader
+	// If we have an error check for err == NOT_FOUND and leader != "" -> we contacted a non-leader node part of the
+	// cluster, let's join the leader.
+	// If no server allows us to join a cluster, return an error
 	for _, addr := range servers {
 		resp, err = b.joiner.Join(ctx, addr, req)
 		if err == nil {

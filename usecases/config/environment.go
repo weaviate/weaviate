@@ -31,6 +31,7 @@ const (
 	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
 	DefaultRaftBootstrapTimeout = 90
 	DefaultRaftBootstrapExpect  = 1
+	DefaultRaftDir              = "raft"
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -178,6 +179,28 @@ func FromEnv(config *Config) error {
 
 	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
 		config.AvoidMmap = true
+	}
+
+	if v := os.Getenv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_LSM_MAX_SEGMENT_SIZE: %w", err)
+		}
+
+		config.Persistence.LSMMaxSegmentSize = parsed
+	} else {
+		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
+	}
+
+	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_HNSW_MAX_LOG_SIZE: %w", err)
+		}
+
+		config.Persistence.HNSWMaxLogSize = parsed
+	} else {
+		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
 	clusterCfg, err := parseClusterConfig()
@@ -465,6 +488,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_SNAPSHOT_THRESHOLD",
 		func(val int) { cfg.SnapshotThreshold = uint64(val) },
 		8192, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
+		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
+		10,
 	); err != nil {
 		return cfg, err
 	}

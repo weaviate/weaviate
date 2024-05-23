@@ -131,6 +131,15 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.New("wrong OpenAI model name, available model names are: [ada babbage curie davinci text-embedding-3-small text-embedding-3-large]"),
 		},
 		{
+			name: "third party provider",
+			cfg: &fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":   "model-that-openai-does-not-have",
+					"baseURL": "https://something-else.com",
+				},
+			},
+		},
+		{
 			name: "wrong properties",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{

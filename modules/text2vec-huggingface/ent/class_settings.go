@@ -9,11 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package ent
 
 import (
 	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -71,11 +70,7 @@ func (cs *classSettings) OptionUseCache() bool {
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
-	return cs.BaseClassSettings.Validate(class)
-}
-
-func (cs *classSettings) validateClassSettings() error {
-	if err := cs.BaseClassSettings.ValidateClassSettings(); err != nil {
+	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
 
