@@ -387,7 +387,7 @@ func (st *Store) StoreSchemaV1(cmd *command.ApplyRequest) error {
 		return err
 	}
 
-	return st.saveLegacySchema(st.db.Schema.States())
+	return st.saveLegacySchema(st.VersionedSchemaReader().schema.States())
 }
 
 func (st *Store) Close(ctx context.Context) error {
