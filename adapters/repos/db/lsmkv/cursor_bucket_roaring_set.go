@@ -12,8 +12,6 @@
 package lsmkv
 
 import (
-	"fmt"
-
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -57,10 +55,7 @@ func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	b.flushLock.RLock()
 
-	// TODO move to helper func
-	if err := checkStrategyRoaringSet(b.strategy); err != nil {
-		panic(fmt.Sprintf("CursorRoaringSet() called on strategy other than '%s'", StrategyRoaringSet))
-	}
+	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 
 	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
 
