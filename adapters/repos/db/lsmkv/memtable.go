@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -28,6 +29,7 @@ type Memtable struct {
 	keyMap             *binarySearchTreeMap
 	primaryIndex       *binarySearchTree
 	roaringSet         *roaringset.BinarySearchTree
+	roaringSetRange    *roaringsetrange.Memtable
 	commitlog          *commitLogger
 	size               uint64
 	path               string
@@ -49,6 +51,7 @@ func newMemtable(path string, strategy string,
 		keyMap:           &binarySearchTreeMap{},
 		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
 		roaringSet:       &roaringset.BinarySearchTree{},
+		roaringSetRange:  roaringsetrange.NewMemtable(),
 		commitlog:        cl,
 		path:             path,
 		strategy:         strategy,
