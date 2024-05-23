@@ -224,8 +224,8 @@ func (s *schema) len() int {
 }
 
 func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo, error) {
-	s.Lock()
-	defer s.Unlock()
+	s.RLock()
+	defer s.RUnlock()
 	meta := s.Classes[class]
 	info := s.Classes[class].ClassInfo()
 	if meta == nil {
