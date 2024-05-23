@@ -141,6 +141,7 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 			Objects: &models.Schema{
 				Classes: []*models.Class{
 					productClass,
+					notIndexedClass,
 					companyClass,
 					arrayTypesClass,
 					customerClass,
@@ -159,6 +160,8 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				migrator.AddClass(context.Background(), arrayTypesClass, schemaGetter.shardState))
 			require.Nil(t,
 				migrator.AddClass(context.Background(), customerClass, schemaGetter.shardState))
+			require.Nil(t,
+				migrator.AddClass(context.Background(), notIndexedClass, schemaGetter.shardState))
 		})
 
 		schemaGetter.schema = schema
@@ -168,6 +171,20 @@ func prepareCompanyTestSchemaAndData(repo *DB,
 				t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
 					fixture := models.Object{
 						Class:      productClass.Class,
+						ID:         productsIds[i],
+						Properties: schema,
+					}
+					require.Nil(t,
+						repo.PutObject(context.Background(), &fixture, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil, 0))
+				})
+			}
+		})
+
+		t.Run("import products into notIndexed class", func(t *testing.T) {
+			for i, schema := range products {
+				t.Run(fmt.Sprintf("importing product %d", i), func(t *testing.T) {
+					fixture := models.Object{
+						Class:      notIndexedClass.Class,
 						ID:         productsIds[i],
 						Properties: schema,
 					}

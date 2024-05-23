@@ -43,6 +43,9 @@ func TestExecutor(t *testing.T) {
 	cls := &models.Class{
 		Class:             "A",
 		VectorIndexConfig: flat.NewDefaultUserConfig(),
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor: 1,
+		},
 	}
 	store.On("ReadOnlySchema").Return(models.Schema{})
 	store.On("ReadOnlyClass", "A", mock.Anything).Return(cls)

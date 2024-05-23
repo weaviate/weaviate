@@ -52,12 +52,13 @@ type Store struct {
 // there.
 func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup) (*Store, error) {
 	s := &Store{
-		dir:              dir,
-		rootDir:          rootDir,
-		bucketsByName:    map[string]*Bucket{},
-		bucketByNameLock: make(map[string]*sync.Mutex),
-		logger:           logger,
-		metrics:          metrics,
+		dir:           dir,
+		rootDir:       rootDir,
+		bucketsByName: map[string]*Bucket{},
+		bucketsLocks:  wsync.NewKeyLocker(),
+		bcreator:      NewBucketCreator(),
+		logger:        logger,
+		metrics:       metrics,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 

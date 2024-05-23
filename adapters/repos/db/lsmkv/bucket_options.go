@@ -155,6 +155,13 @@ func WithCalcCountNetAdditions(calcCountNetAdditions bool) BucketOption {
 	}
 }
 
+func WithMaxSegmentSize(maxSegmentSize int64) BucketOption {
+	return func(b *Bucket) error {
+		b.maxSegmentSize = maxSegmentSize
+		return nil
+	}
+}
+
 /*
 Background for this option:
 

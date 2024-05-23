@@ -64,6 +64,7 @@ type Migrator interface {
 	InvertedReindex(ctx context.Context, taskNames ...string) error
 
 	AdjustFilterablePropSettings(ctx context.Context) error
+	UpdateReplicationFactor(ctx context.Context, className string, factor int64) error
 	WaitForStartup(context.Context) error
 	Shutdown(context.Context) error
 }
