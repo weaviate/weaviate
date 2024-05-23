@@ -21,10 +21,10 @@ import (
 )
 
 var dotByteImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {
-	var sum uint16
+	var sum uint32
 
 	for i := range a {
-		sum += uint16(a[i]) * uint16(b[i])
+		sum += uint32(a[i]) * uint32(b[i])
 	}
 
 	return uint32(sum)
@@ -132,18 +132,20 @@ func TestCompareDotProductImplementations(t *testing.T) {
 }
 
 func testDotProductByteFixedValue(t *testing.T, size uint, dotFn func(x []uint8, y []uint8) uint32) {
-	vec1 := make([]uint8, size)
-	vec2 := make([]uint8, size)
-	for i := range vec1 {
-		vec1[i] = 1
-		vec2[i] = 1
-	}
-	res := dotFn(vec1, vec2)
+	for num := 0; num < 255; num++ {
+		vec1 := make([]uint8, size)
+		vec2 := make([]uint8, size)
+		for i := range vec1 {
+			vec1[i] = uint8(num)
+			vec2[i] = uint8(num)
+		}
+		res := dotFn(vec1, vec2)
 
-	resControl := dotByteImpl(vec1, vec2)
-	if uint32(resControl) != res {
-		t.Logf("for dim: %d -> want: %d, got: %d", size, resControl, res)
-		t.Fail()
+		resControl := dotByteImpl(vec1, vec2)
+		if uint32(resControl) != res {
+			t.Logf("for dim: %d -> want: %d, got: %d", size, resControl, res)
+			t.Fail()
+		}
 	}
 }
 
@@ -158,8 +160,11 @@ func testDotProductByteRandomValue(t *testing.T, size uint, dotFn func(x []byte,
 		vec1 := make([]byte, size)
 		vec2 := make([]byte, size)
 		for j := range vec1 {
-			vec1[j] = byte(r.Uint32() % 256)
-			vec2[j] = byte(r.Uint32() % 256)
+			rand1 := byte(r.Uint32() % 256)
+			rand2 := byte(r.Uint32() % 256)
+
+			vec1[j] = rand1
+			vec2[j] = rand2
 		}
 	}
 
