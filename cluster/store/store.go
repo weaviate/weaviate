@@ -776,7 +776,9 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	}
 	st.log.Info("successfully restored schema from snapshot")
 
-	st.reloadDBFromSchema()
+	if snapshotIndex(st.snapshotStore) >= st.lastAppliedIndexOnStart.Load() {
+		st.reloadDBFromSchema()
+	}
 
 	st.log.WithField("n", st.db.Schema.len()).Info("successfully reloaded indexes from snapshot")
 
