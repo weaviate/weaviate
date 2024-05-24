@@ -220,6 +220,9 @@ func New(cfg Config) Store {
 
 func (st *Store) IsVoter() bool { return st.voter }
 func (st *Store) ID() string    { return st.nodeID }
+func (st *Store) isEmptyNode() bool {
+	return st.lastAppliedIndexOnStart.Load() == 0 && snapshotIndex(st.snapshotStore) == 0
+}
 
 // Open opens this store and marked as such.
 // It constructs a new Raft node using the provided configuration.
@@ -256,7 +259,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		st.openDatabase(ctx)
 	}
 	// if empty node report ready
-	if st.lastAppliedIndexOnStart.Load() == 0 {
+	isEmptyNode := st.isEmptyNode()
+	if isEmptyNode {
 		st.dbLoaded.Store(true)
 	}
 
@@ -272,7 +276,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
 	// However, we believe that 1 day should be more than sufficient.
-	go st.onLeaderFound(time.Hour * 24)
+	if isEmptyNode {
+		go st.onLeaderFound(time.Hour * 24)
+	}
 
 	return nil
 }
@@ -646,7 +652,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
+	schemaOnly := l.Index <= st.lastAppliedIndexOnStart.Load()
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
