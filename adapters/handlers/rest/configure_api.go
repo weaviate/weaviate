@@ -705,20 +705,19 @@ func registerModules(appState *state.State) error {
 		modrerankervoyageai.Name,
 	}
 
-	enabledModules := map[string]bool{}
+	defaultModules := append(defaultVectorizers, defaultGenerative...)
+	defaultModules = append(defaultModules, defaultOthers...)
+
 	var modules []string
 
 	if len(appState.ServerConfig.Config.EnableModules) > 0 {
 		modules = strings.Split(appState.ServerConfig.Config.EnableModules, ",")
-	} else {
-		modules = []string{}
 	}
 
 	// Concatenate modules with default modules
-	modules = append(modules, defaultVectorizers...)
-	modules = append(modules, defaultGenerative...)
-	modules = append(modules, defaultOthers...)
+	modules = append(modules, defaultModules...)
 
+	enabledModules := map[string]bool{}
 	for _, module := range modules {
 		enabledModules[strings.TrimSpace(module)] = true
 	}
