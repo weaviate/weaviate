@@ -437,7 +437,13 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 
 		success, err := n.tryEpCandidate(candidate)
 		if err != nil {
-			return err
+			var e storobj.ErrNotFound
+			if !errors.As(err, &e) {
+				return err
+			}
+
+			// node was deleted in the meantime
+			// ignore the error and try the next candidate
 		}
 
 		if success {
@@ -477,9 +483,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		dist, ok, err = n.distancer.DistanceToNode(candidate)
 	}
 	if err != nil {
-		// not an error we could recover from - fail!
-		return false, errors.Wrapf(err,
-			"calculate distance between insert node and entrypoint")
+		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
 	}
 	if !ok {
 		return false, nil
