@@ -47,11 +47,11 @@ import (
 //	0-8                 | uint64 indicating the total length of the node,
 //	                    | this is used in cursors to identify the next node.
 //	8-16                | uint64 length indicator for additions
-//	                    | len([]uint64)*size(uint64) -> x
-//	16-(x+16)           | additions bitmap
+//	                    | len(additions)*size(uint64) -> x
+//	16-(x+16)           | additions []uint64
 //	(x+16)-(x+24)       | uint64 length indicator for deletions
-//	                    | len([]uint64)*size(uint64) -> y
-//	(x+24)-(x+y+24)     | deletions bitmap
+//	                    | len(deletions)*size(uint64) -> y
+//	(x+24)-(x+y+24)     | deletions []uint64
 //	(x+y+24)-(x+y+28)   | uint32 length indicator for primary key length -> z
 //	(x+y+28)-(x+y+z+28) | primary key
 type SegmentNodeList struct {
