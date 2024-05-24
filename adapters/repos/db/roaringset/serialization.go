@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// Deprecated: SegmentNode is deprecated and replaced by SegmentNodeList.
+// Do not use: SegmentNode was replaced by SegmentNodeList.
 // It is kept for backwards compatibility when reading SegmentNode WALs
 // from disk and may be removed in the future.
 //
