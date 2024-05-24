@@ -80,7 +80,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		params.Certainty = certainty
 	}
 
-	if params.Hybrid != nil && params.Hybrid.Vector == nil && params.Hybrid.Query != "" {
+	if params.Hybrid != nil && params.Hybrid.Vector == nil {
 		var targetVectors []string
 		if len(params.Hybrid.TargetVectors) == 1 {
 			targetVectors = params.Hybrid.TargetVectors[:1]

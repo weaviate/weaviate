@@ -209,6 +209,7 @@ func TestGRPCRequest(t *testing.T) {
 						Certainty:   &one,
 						Distance:    &one,
 					},
+					TargetVectors: []string{"custom"},
 				},
 			},
 			out: dto.GetParams{
@@ -227,6 +228,7 @@ func TestGRPCRequest(t *testing.T) {
 						Distance:     1.0,
 						WithDistance: true,
 					},
+					TargetVectors: []string{"custom"},
 				},
 			},
 			error: false,
