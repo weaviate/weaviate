@@ -110,10 +110,10 @@ func (p *commitloggerParser) parseRoaringSetNodeV2() error {
 		return err
 	}
 
-	return p.parseRoaringSetNodeSimple(reader)
+	return p.parseRoaringSetNodeList(reader)
 }
 
-func (p *commitloggerParser) parseRoaringSetNodeSimple(reader io.Reader) error {
+func (p *commitloggerParser) parseRoaringSetNodeList(reader io.Reader) error {
 	lenBuf := make([]byte, 8)
 	if _, err := io.ReadFull(reader, lenBuf); err != nil {
 		return errors.Wrap(err, "read segment len")
