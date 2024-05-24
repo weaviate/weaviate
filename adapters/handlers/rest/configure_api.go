@@ -81,6 +81,7 @@ import (
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -681,27 +682,27 @@ func registerModules(appState *state.State) error {
 
 	// Default modules
 	defaultVectorizers := []string{
-		"text2vec-aws",
-		"text2vec-cohere",
-		"text2vec-huggingface",
-		"text2vec-jina",
-		"text2vec-octo",
-		"text2vec-openai",
-		"text2vec-palm",
-		"text2vec-voyageai",
+		modtext2vecaws.Name,
+		modcohere.Name,
+		modhuggingface.Name,
+		modjinaai.Name,
+		modoctoai.Name,
+		modopenai.Name,
+		modtext2vecpalm.Name,
+		modvoyageai.Name,
 	}
 	defaultGenerative := []string{
-		"generative-anyscale",
-		"generative-aws",
-		"generative-cohere",
-		"generative-mistral",
-		"generative-octoai",
-		"generative-openai",
-		"generative-palm",
+		modgenerativeanyscale.Name,
+		modgenerativeaws.Name,
+		modgenerativecohere.Name,
+		modgenerativemistral.Name,
+		modgenerativeoctoai.Name,
+		modgenerativeopenai.Name,
+		modgenerativepalm.Name,
 	}
 	defaultOthers := []string{
-		"reranker-cohere",
-		"reranker-voyageai",
+		modrerankercohere.Name,
+		modrerankervoyageai.Name,
 	}
 
 	enabledModules := map[string]bool{}
