@@ -66,6 +66,11 @@ func (m *Memtable) flush() error {
 			return err
 		}
 
+	case StrategyRoaringSetRange:
+		if keys, err = m.flushDataRoaringSetRange(w); err != nil {
+			return err
+		}
+
 	case StrategyMapCollection:
 		if keys, err = m.flushDataMap(w); err != nil {
 			return err
