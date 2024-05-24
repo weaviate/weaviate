@@ -120,7 +120,7 @@ func (db *DB) CommitReplication(class,
 ) interface{} {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
-		return nil
+		return *pr
 	}
 
 	return index.CommitReplication(shard, requestID)
