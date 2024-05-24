@@ -20,6 +20,7 @@ type AllowList interface {
 	Insert(ids ...uint64)
 	Contains(id uint64) bool
 	DeepCopy() AllowList
+	WrapCopy() AllowList
 	Slice() []uint64
 
 	IsEmpty() bool
@@ -64,6 +65,13 @@ func (al *bitmapAllowList) Contains(id uint64) bool {
 
 func (al *bitmapAllowList) DeepCopy() AllowList {
 	return NewAllowListFromBitmapDeepCopy(al.bm)
+}
+
+func (al *bitmapAllowList) WrapCopy() AllowList {
+	return &wrappedAllowList{
+		wAllowList: al,
+		allowList:  NewAllowList(),
+	}
 }
 
 func (al *bitmapAllowList) Slice() []uint64 {
