@@ -53,9 +53,9 @@ func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 }
 
 func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
-	b.flushLock.RLock()
-
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
+
+	b.flushLock.RLock()
 
 	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
 
