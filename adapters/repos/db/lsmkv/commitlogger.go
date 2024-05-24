@@ -183,7 +183,7 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 	return cl.writeEntry(CommitTypeCollection, cl.bufNode.Bytes())
 }
 
-func (cl *commitLogger) add(node *roaringset.SegmentNodeSimple) error {
+func (cl *commitLogger) add(node *roaringset.SegmentNodeList) error {
 	if cl.paused {
 		return nil
 	}

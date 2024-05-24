@@ -160,7 +160,7 @@ func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
 }
 
 func (m *Memtable) roaringSetAddCommitLog(key []byte, additions []uint64, deletions []uint64) error {
-	if node, err := roaringset.NewSegmentNodeSimple(key, additions, deletions); err != nil {
+	if node, err := roaringset.NewSegmentNodeList(key, additions, deletions); err != nil {
 		return errors.Wrap(err, "create node for commit log")
 	} else if err := m.commitlog.add(node); err != nil {
 		return errors.Wrap(err, "add node to commit log")

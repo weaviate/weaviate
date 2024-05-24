@@ -26,13 +26,13 @@ func TestSimpleSerialization_HappyPath(t *testing.T) {
 	deletions := []uint64{5, 7}
 	key := []byte("my-key")
 
-	sn, err := NewSegmentNodeSimple(key, additions, deletions)
+	sn, err := NewSegmentNodeList(key, additions, deletions)
 	require.Nil(t, err)
 
 	buf := sn.ToBuffer()
 	assert.Equal(t, sn.Len(), uint64(len(buf)))
 
-	newSN := NewSegmentNodeSimpleFromBuffer(buf)
+	newSN := NewSegmentNodeListFromBuffer(buf)
 	assert.Equal(t, newSN.Len(), uint64(len(buf)))
 
 	// without copying
@@ -61,7 +61,7 @@ func TestSimpleSerialization_InitializingFromBufferTooLarge(t *testing.T) {
 	deletions := []uint64{5, 7}
 	key := []byte("my-key")
 
-	sn, err := NewSegmentNodeSimple(key, additions, deletions)
+	sn, err := NewSegmentNodeList(key, additions, deletions)
 	require.Nil(t, err)
 
 	buf := sn.ToBuffer()
@@ -70,7 +70,7 @@ func TestSimpleSerialization_InitializingFromBufferTooLarge(t *testing.T) {
 	bufTooLarge := make([]byte, 3*len(buf))
 	copy(bufTooLarge, buf)
 
-	newSN := NewSegmentNodeSimpleFromBuffer(bufTooLarge)
+	newSN := NewSegmentNodeListFromBuffer(bufTooLarge)
 	// assert that the buffer self reports the useful length, not the length of
 	// the initialization buffer
 	assert.Equal(t, newSN.Len(), uint64(len(buf)))
@@ -82,7 +82,7 @@ func TestSimpleSerialization_InitializingFromBufferTooLarge(t *testing.T) {
 func TestSimpleSerialization_UnhappyPath(t *testing.T) {
 	t.Run("with primary key that's too long", func(t *testing.T) {
 		key := make([]byte, math.MaxUint32+3)
-		_, err := NewSegmentNodeSimple(key, nil, nil)
+		_, err := NewSegmentNodeList(key, nil, nil)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "key too long")
@@ -99,7 +99,7 @@ func TestSimpleSerialization_KeyIndexAndWriteTo(t *testing.T) {
 	deletions := []uint64{5, 7}
 	key := []byte("my-key")
 
-	sn, err := NewSegmentNodeSimple(key, additions, deletions)
+	sn, err := NewSegmentNodeList(key, additions, deletions)
 	require.Nil(t, err)
 
 	keyIndex, err := sn.KeyIndexAndWriteTo(buf, offset)
@@ -108,7 +108,7 @@ func TestSimpleSerialization_KeyIndexAndWriteTo(t *testing.T) {
 	res := buf.Bytes()
 	assert.Equal(t, keyIndex.ValueEnd, len(res))
 
-	newSN := NewSegmentNodeSimpleFromBuffer(res[keyIndex.ValueStart:keyIndex.ValueEnd])
+	newSN := NewSegmentNodeListFromBuffer(res[keyIndex.ValueStart:keyIndex.ValueEnd])
 	newAdditions := newSN.Additions()
 	assert.True(t, slices.Index(newAdditions, 4) != -1)
 	assert.False(t, slices.Index(newAdditions, 5) != -1)

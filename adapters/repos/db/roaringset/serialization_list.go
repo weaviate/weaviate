@@ -21,52 +21,55 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// SegmentNode stores one Key-Value pair (without its index) in
-// the LSM Segment.  It uses a single []byte internally. As a result there is
-// no decode step required at runtime. Instead you can use
+// SegmentNodeList is inspired by the roaringset.SegmentNode, keeping the
+// same fuctionality, but stores lists of []uint64 instead of bitmaps.
+// It stores one Key-Value pair (without its index) in the LSM Segment.
+// As with SegmentNode, it uses a single []byte internally. As a result
+// there is no decode step required at runtime. Instead you can use
 //
-//   - [*SegmentNodeSimple.Additions]
-//   - [*SegmentNodeSimple.AdditionsWithCopy]
-//   - [*SegmentNodeSimple.Deletions]
-//   - [*SegmentNodeSimple.DeletionsWithCopy]
-//   - [*SegmentNodeSimple.PrimaryKey]
+//   - [*SegmentNodeList.Additions]
+//   - [*SegmentNodeList.AdditionsWithCopy]
+//   - [*SegmentNodeList.Deletions]
+//   - [*SegmentNodeList.DeletionsWithCopy]
+//   - [*SegmentNodeList.PrimaryKey]
 //
 // to access the contents. Those helpers in turn do not require a decoding
-// step. The accessor methods that return Roaring Bitmaps only point to
-// existing memory (methods without WithCopy suffix), or in the worst case copy
-// one byte slice (methods with WithCopy suffix).
+// step. Instead of returning Roaring Bitmaps, it returns []uint64 slices.
+// This makes the indexing time much faster, as we don't have to create the
+// roaring bitmaps for each insert. It also makes it smaller on disk, as we
+// don't have to store the roaring bitmap, but only the list of uint64s.
 //
-// This makes the SegmentNode very fast to access at query time, even when it
-// contains a large amount of data.
-//
-// The internal structure of the data is:
+// The internal structure of the data is close to the original SegmentNode,
+// storing []uint64 instead of roaring bitmaps. The structure is as follows:
 //
 //	byte begin-start    | description
 //	--------------------|-----------------------------------------------------
 //	0-8                 | uint64 indicating the total length of the node,
 //	                    | this is used in cursors to identify the next node.
-//	8-16                | uint64 length indicator for additions sraor bm -> x
+//	8-16                | uint64 length indicator for additions
+//	                    | len([]uint64)*size(uint64) -> x
 //	16-(x+16)           | additions bitmap
-//	(x+16)-(x+24)       | uint64 length indicator for deletions sroar bm -> y
+//	(x+16)-(x+24)       | uint64 length indicator for deletions
+//	                    | len([]uint64)*size(uint64) -> y
 //	(x+24)-(x+y+24)     | deletions bitmap
 //	(x+y+24)-(x+y+28)   | uint32 length indicator for primary key length -> z
 //	(x+y+28)-(x+y+z+28) | primary key
-type SegmentNodeSimple struct {
+type SegmentNodeList struct {
 	data []byte
 }
 
-// Len indicates the total length of the [SegmentNode]. When reading multiple
+// Len indicates the total length of the [SegmentNodeList]. When reading multiple
 // segments back-2-back, such as in a cursor situation, the offset of element
 // (n+1) is the offset of element n + Len()
-func (sn *SegmentNodeSimple) Len() uint64 {
+func (sn *SegmentNodeList) Len() uint64 {
 	return binary.LittleEndian.Uint64(sn.data[0:8])
 }
 
-// Additions returns the additions roaring bitmap with shared state. Only use
+// Additions returns the additions []uint64 with shared state. Only use
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
-// you can't guarantee that, instead use [*SegmentNodeSimple.AdditionsWithCopy].
-func (sn *SegmentNodeSimple) Additions() []uint64 {
+// you can't guarantee that, instead use [*SegmentNodeList.AdditionsWithCopy].
+func (sn *SegmentNodeList) Additions() []uint64 {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
@@ -77,13 +80,13 @@ func (sn *SegmentNodeSimple) Additions() []uint64 {
 	return results
 }
 
-// AdditionsWithCopy returns the additions roaring bitmap without sharing state. It
+// AdditionsWithCopy returns the additions []uint64 without sharing state. It
 // creates a copy of the underlying buffer. This is safe to use indefinitely,
-// but much slower than [*SegmentNodeSimple.Additions] as it requires copying all the
+// but much slower than [*SegmentNodeList.Additions] as it requires copying all the
 // memory. If you know that you will only need the contents of the node for a
 // duration of time where a lock is held that prevents compactions, it is more
-// efficient to use [*SegmentNodeSimple.Additions].
-func (sn *SegmentNodeSimple) AdditionsWithCopy() []uint64 {
+// efficient to use [*SegmentNodeList.Additions].
+func (sn *SegmentNodeList) AdditionsWithCopy() []uint64 {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
@@ -94,11 +97,11 @@ func (sn *SegmentNodeSimple) AdditionsWithCopy() []uint64 {
 	return results
 }
 
-// Deletions returns the deletions roaring bitmap with shared state. Only use
+// Deletions returns the deletions []uint64 with shared state. Only use
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur. If
-// you can't guarantee that, instead use [*SegmentNodeSimple.DeletionsWithCopy].
-func (sn *SegmentNodeSimple) Deletions() []uint64 {
+// you can't guarantee that, instead use [*SegmentNodeList.DeletionsWithCopy].
+func (sn *SegmentNodeList) Deletions() []uint64 {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
@@ -110,13 +113,13 @@ func (sn *SegmentNodeSimple) Deletions() []uint64 {
 	return results
 }
 
-// DeletionsWithCopy returns the deletions roaring bitmap without sharing state. It
+// DeletionsWithCopy returns the deletions []uint64 without sharing state. It
 // creates a copy of the underlying buffer. This is safe to use indefinitely,
-// but much slower than [*SegmentNodeSimple.Deletions] as it requires copying all the
+// but much slower than [*SegmentNodeList.Deletions] as it requires copying all the
 // memory. If you know that you will only need the contents of the node for a
 // duration of time where a lock is held that prevents compactions, it is more
-// efficient to use [*SegmentNodeSimple.Deletions].
-func (sn *SegmentNodeSimple) DeletionsWithCopy() []uint64 {
+// efficient to use [*SegmentNodeList.Deletions].
+func (sn *SegmentNodeList) DeletionsWithCopy() []uint64 {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
@@ -128,7 +131,7 @@ func (sn *SegmentNodeSimple) DeletionsWithCopy() []uint64 {
 	return results
 }
 
-func (sn *SegmentNodeSimple) PrimaryKey() []byte {
+func (sn *SegmentNodeList) PrimaryKey() []byte {
 	rw := byteops.NewReadWriter(sn.data)
 	rw.MoveBufferToAbsolutePosition(8)
 	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
@@ -136,9 +139,9 @@ func (sn *SegmentNodeSimple) PrimaryKey() []byte {
 	return rw.ReadBytesFromBufferWithUint32LengthIndicator()
 }
 
-func NewSegmentNodeSimple(
+func NewSegmentNodeList(
 	key []byte, additions, deletions []uint64,
-) (*SegmentNodeSimple, error) {
+) (*SegmentNodeList, error) {
 	if len(key) > math.MaxUint32 {
 		return nil, fmt.Errorf("key too long, max length is %d", math.MaxUint32)
 	}
@@ -156,7 +159,7 @@ func NewSegmentNodeSimple(
 
 	// offset + 2*uint64 length indicators + uint32 length indicator + payloads
 	expectedSize := 8 + 8 + 8 + 4 + len(additionsBuf) + len(deletionsBuf) + len(key)
-	sn := SegmentNodeSimple{
+	sn := SegmentNodeList{
 		data: make([]byte, expectedSize),
 	}
 
@@ -194,26 +197,26 @@ func NewSegmentNodeSimple(
 // what the caller plans on doing with the data, we risk passing around too
 // much memory. Truncating at the length prevents this and has no other
 // negative effects.
-func (sn *SegmentNodeSimple) ToBuffer() []byte {
+func (sn *SegmentNodeList) ToBuffer() []byte {
 	return sn.data[:sn.Len()]
 }
 
 // NewSegmentNodeFromBuffer creates a new segment node by using the underlying
 // buffer without copying data. Only use this when you can be sure that it's
 // safe to share the data or create your own copy.
-func NewSegmentNodeSimpleFromBuffer(buf []byte) *SegmentNodeSimple {
-	return &SegmentNodeSimple{data: buf}
+func NewSegmentNodeListFromBuffer(buf []byte) *SegmentNodeList {
+	return &SegmentNodeList{data: buf}
 }
 
 // KeyIndexAndWriteTo is a helper to flush a memtables full of SegmentNodes. It
 // writes itself into the given writer and returns a [segmentindex.Key] with
-// start and end indicators (respecting SegmentNodeSimple.Offset). Those keys can
+// start and end indicators (respecting SegmentNodeList.Offset). Those keys can
 // then be used to build an index for the nodes. The combination of index and
 // node make up an LSM segment.
 //
 // RoaringSets do not support secondary keys, thus the segmentindex.Key will
 // only ever contain a primary key.
-func (sn *SegmentNodeSimple) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex.Key, error) {
+func (sn *SegmentNodeList) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex.Key, error) {
 	out := segmentindex.Key{}
 
 	n, err := w.Write(sn.data)

@@ -22,6 +22,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
+// Deprecated: SegmentNode is deprecated and replaced by SegmentNodeList.
+// It is kept for backwards compatibility when reading SegmentNode WALs
+// from disk and may be removed in the future.
+//
 // SegmentNode stores one Key-Value pair (without its index) in
 // the LSM Segment.  It uses a single []byte internally. As a result there is
 // no decode step required at runtime. Instead you can use
