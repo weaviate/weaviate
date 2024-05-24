@@ -201,9 +201,8 @@ func TestGRPCRequest(t *testing.T) {
 				Properties: &pb.PropertiesRequest{},
 
 				HybridSearch: &pb.Hybrid{
-					Alpha:         1.0,
-					Query:         "nearvecquery",
-					TargetVectors: []string{"custom"},
+					Alpha: 1.0,
+					Query: "nearvecquery",
 					NearVector: &pb.NearVector{
 						VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}),
 						Certainty:   &one,
@@ -221,7 +220,6 @@ func TestGRPCRequest(t *testing.T) {
 					Alpha:           1.0,
 					Query:           "nearvecquery",
 					FusionAlgorithm: 1,
-					TargetVectors:   []string{"custom"},
 					NearVectorParams: &searchparams.NearVector{
 						Vector:       []float32{1, 2, 3},
 						Certainty:    1.0,
