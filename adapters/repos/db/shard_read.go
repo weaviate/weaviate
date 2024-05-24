@@ -35,6 +35,29 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
+func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).GetErrDeleted(idBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	if bytes == nil {
+		return nil, nil
+	}
+
+	obj, err := storobj.FromBinary(bytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal object")
+	}
+
+	return obj, nil
+}
+
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	s.activityTracker.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
@@ -141,12 +164,12 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	return obj, nil
 }
 
-func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64) ([]float32, error) {
+func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 	keyBuf := make([]byte, 8)
-	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf})
+	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector)
 }
 
-func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice) ([]float32, error) {
+func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]float32, error) {
 	binary.LittleEndian.PutUint64(container.Buff8, indexID)
 
 	bytes, newBuff, err := s.store.Bucket(helpers.ObjectsBucketLSM).
@@ -161,7 +184,7 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 	}
 
 	container.Buff = newBuff
-	return storobj.VectorFromBinary(bytes, container.Slice)
+	return storobj.VectorFromBinary(bytes, container.Slice, targetVector)
 }
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,

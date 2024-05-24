@@ -193,6 +193,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
 		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
 		MemtablesMaxActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		MaxSegmentSize:            appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
+		HNSWMaxLogSize:            appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
@@ -251,8 +253,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-	/// TODO-RAFT START
-	//
 	server2port, err := parseNode2Port(appState)
 	if len(server2port) == 0 || err != nil {
 		appState.Logger.
@@ -268,31 +268,31 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	rConfig := rStore.Config{
-		WorkDir:               filepath.Join(dataPath, "raft"),
-		NodeID:                nodeName,
-		Host:                  addrs[0],
-		RaftPort:              appState.ServerConfig.Config.Raft.Port,
-		RPCPort:               appState.ServerConfig.Config.Raft.InternalRPCPort,
-		RaftRPCMessageMaxSize: appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
-		ServerName2PortMap:    server2port,
-		BootstrapTimeout:      appState.ServerConfig.Config.Raft.BootstrapTimeout,
-		BootstrapExpect:       appState.ServerConfig.Config.Raft.BootstrapExpect,
-		HeartbeatTimeout:      appState.ServerConfig.Config.Raft.HeartbeatTimeout,
-		RecoveryTimeout:       appState.ServerConfig.Config.Raft.RecoveryTimeout,
-		ElectionTimeout:       appState.ServerConfig.Config.Raft.ElectionTimeout,
-		SnapshotInterval:      appState.ServerConfig.Config.Raft.SnapshotInterval,
-		SnapshotThreshold:     appState.ServerConfig.Config.Raft.SnapshotThreshold,
-		UpdateWaitTimeout:     time.Second * 10, // TODO-RAFT read from the flag
-		MetadataOnlyVoters:    appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
-		DB:                    nil,
-		Parser:                schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
-		AddrResolver:          appState.Cluster,
-		Logger:                appState.Logger,
-		LogLevel:              logLevel(),
-		LogJSONFormat:         !logTextFormat(),
-		IsLocalHost:           appState.ServerConfig.Config.Cluster.Localhost,
-		LoadLegacySchema:      schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:      schemaRepo.SaveLegacySchema,
+		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
+		NodeID:                 nodeName,
+		Host:                   addrs[0],
+		RaftPort:               appState.ServerConfig.Config.Raft.Port,
+		RPCPort:                appState.ServerConfig.Config.Raft.InternalRPCPort,
+		RaftRPCMessageMaxSize:  appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
+		ServerName2PortMap:     server2port,
+		BootstrapTimeout:       appState.ServerConfig.Config.Raft.BootstrapTimeout,
+		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
+		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		RecoveryTimeout:        appState.ServerConfig.Config.Raft.RecoveryTimeout,
+		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
+		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
+		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		DB:                     nil,
+		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
+		AddrResolver:           appState.Cluster,
+		Logger:                 appState.Logger,
+		LogLevel:               logLevel(),
+		LogJSONFormat:          !logTextFormat(),
+		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
+		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -322,7 +322,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader())
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
@@ -1063,6 +1063,10 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
+	if config.Profiling.Disabled {
+		return
+	}
+
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {

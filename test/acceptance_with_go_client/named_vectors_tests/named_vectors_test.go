@@ -86,6 +86,16 @@ func allTests(endpoint string) func(t *testing.T) {
 	}
 }
 
+func TestNamedVectors_SingleNode_Restart(t *testing.T) {
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironment(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	t.Run("restart", testRestart(compose))
+}
+
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviate().

@@ -125,7 +125,7 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests (modules)
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -147,7 +147,7 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
@@ -209,7 +209,7 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests
-        uses: nick-fields/retry@v2
+        uses: nick-fields/retry@v3
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}

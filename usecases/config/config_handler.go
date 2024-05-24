@@ -14,6 +14,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -203,9 +204,10 @@ type GRPC struct {
 }
 
 type Profiling struct {
-	BlockProfileRate     int `json:"blockProfileRate" yaml:"blockProfileRate"`
-	MutexProfileFraction int `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
-	Port                 int `json:"port" yaml:"port"`
+	BlockProfileRate     int  `json:"blockProfileRate" yaml:"blockProfileRate"`
+	MutexProfileFraction int  `json:"mutexProfileFraction" yaml:"mutexProfileFraction"`
+	Disabled             bool `json:"disabled" yaml:"disabled"`
+	Port                 int  `json:"port" yaml:"port"`
 }
 
 type Persistence struct {
@@ -214,10 +216,19 @@ type Persistence struct {
 	MemtablesMaxSizeMB                int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
+	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
 const DefaultPersistenceDataPath string = "./data"
+
+// DefaultPersistenceLSMMaxSegmentSize is effectively unlimited for backward
+// compatibility. TODO: consider changing this in a future release and make
+// some noise about it. This is technically a breaking change.
+const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
+
+const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -275,7 +286,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -291,15 +302,16 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port              int
-	InternalRPCPort   int
-	RPCMessageMaxSize int
-	Join              []string
-	SnapshotThreshold uint64
-	HeartbeatTimeout  time.Duration
-	RecoveryTimeout   time.Duration
-	ElectionTimeout   time.Duration
-	SnapshotInterval  time.Duration
+	Port                   int
+	InternalRPCPort        int
+	RPCMessageMaxSize      int
+	Join                   []string
+	SnapshotThreshold      uint64
+	HeartbeatTimeout       time.Duration
+	RecoveryTimeout        time.Duration
+	ElectionTimeout        time.Duration
+	SnapshotInterval       time.Duration
+	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
@@ -350,6 +362,18 @@ func (r *Raft) Validate() error {
 
 	if r.BootstrapExpect > len(r.Join) {
 		return fmt.Errorf("raft.bootstrap.expect must be less than or equal to the length of raft.join")
+	}
+
+	if r.SnapshotInterval <= 0 {
+		return fmt.Errorf("raft.bootstrap.snapshot_interval must be more than 0")
+	}
+
+	if r.SnapshotThreshold <= 0 {
+		return fmt.Errorf("raft.bootstrap.snapshot_threshold must be more than 0")
+	}
+
+	if r.ConsistencyWaitTimeout <= 0 {
+		return fmt.Errorf("raft.bootstrap.consistency_wait_timeout must be more than 0")
 	}
 	return nil
 }

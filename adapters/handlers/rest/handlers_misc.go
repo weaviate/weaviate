@@ -94,37 +94,37 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 					{
 						Name:              "view complete schema",
 						Href:              fmt.Sprintf("%s/v1/schema", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/schema",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/schema/get/schema",
 					},
 					{
 						Name:              "CRUD schema",
 						Href:              fmt.Sprintf("%s/v1/schema{/:className}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/schema",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/schema/put/schema/{className}",
 					},
 					{
 						Name:              "CRUD objects",
 						Href:              fmt.Sprintf("%s/v1/objects{/:id}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/objects",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/objects/",
 					},
 					{
 						Name:              "trigger and view status of classifications",
 						Href:              fmt.Sprintf("%s/v1/classifications{/:id}", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/classification,https://weaviate.io/developers/weaviate/api/rest/classification#knn-classification",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/classifications",
 					},
 					{
 						Name:              "check if Weaviate is live (returns 200 on GET when live)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/live", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/well-known#liveness",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/well-known/get/.well-known/live",
 					},
 					{
 						Name:              "check if Weaviate is ready (returns 200 on GET when ready)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/ready", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/well-known#readiness",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/well-known/get/.well-known/ready",
 					},
 					{
 						Name:              "view link to openid configuration (returns 404 on GET if no openid is configured)",
 						Href:              fmt.Sprintf("%s/v1/.well-known/openid-configuration", origin),
-						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest/well-known#openid-configuration",
+						DocumentationHref: "https://weaviate.io/developers/weaviate/api/rest#tag/well-known/get/.well-known/openid-configuration",
 					},
 				},
 			}
