@@ -679,12 +679,47 @@ func registerModules(appState *state.State) error {
 
 	appState.Modules = modules.NewProvider()
 
+	// Default modules
+	defaultVectorizers := []string{
+		"text2vec-aws",
+		"text2vec-cohere",
+		"text2vec-huggingface",
+		"text2vec-jina",
+		"text2vec-octo",
+		"text2vec-openai",
+		"text2vec-palm",
+		"text2vec-voyageai",
+	}
+	defaultGenerative := []string{
+		"generative-anyscale",
+		"generative-aws",
+		"generative-cohere",
+		"generative-mistral",
+		"generative-octoai",
+		"generative-openai",
+		"generative-palm",
+	}
+	defaultOthers := []string{
+		"reranker-cohere",
+		"reranker-voyageai",
+	}
+
 	enabledModules := map[string]bool{}
+	var modules []string
+
 	if len(appState.ServerConfig.Config.EnableModules) > 0 {
-		modules := strings.Split(appState.ServerConfig.Config.EnableModules, ",")
-		for _, module := range modules {
-			enabledModules[strings.TrimSpace(module)] = true
-		}
+		modules = strings.Split(appState.ServerConfig.Config.EnableModules, ",")
+	} else {
+		modules = []string{}
+	}
+
+	// Concatenate modules with default modules
+	modules = append(modules, defaultVectorizers...)
+	modules = append(modules, defaultGenerative...)
+	modules = append(modules, defaultOthers...)
+
+	for _, module := range modules {
+		enabledModules[strings.TrimSpace(module)] = true
 	}
 
 	if _, ok := enabledModules["text2vec-contextionary"]; ok {
