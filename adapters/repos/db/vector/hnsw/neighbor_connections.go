@@ -162,6 +162,11 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		if results.Len() >= top {
 			dist, err := n.processNode(id)
 			if err != nil {
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					// node was deleted in the meantime
+					continue
+				}
 				return err
 			}
 			if dist > results.Top().Dist {
