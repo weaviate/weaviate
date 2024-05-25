@@ -685,11 +685,15 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return err
+		return ErrShardNotFound
 	}
 	defer release()
 
-	return shard.PutObject(ctx, object)
+	if err := shard.PutObject(ctx, object); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (i *Index) replicationEnabled() bool {
@@ -907,7 +911,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return duplicateErr(err, len(objects))
+		return duplicateErr(ErrShardNotFound, len(objects))
 	}
 	defer release()
 
@@ -982,7 +986,7 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return duplicateErr(err, len(refs))
+		return duplicateErr(ErrShardNotFound, len(refs))
 	}
 	defer release()
 
@@ -1047,7 +1051,7 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 ) (*storobj.Object, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, err
+		return nil, ErrShardNotFound
 	}
 	defer release()
 
@@ -1059,7 +1063,7 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 ) ([]*storobj.Object, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, err
+		return nil, ErrShardNotFound
 	}
 	defer release()
 
@@ -1195,7 +1199,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 ) (bool, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return false, err
+		return false, ErrShardNotFound
 	}
 	defer release()
 
@@ -1618,7 +1622,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, ErrShardNotFound
 	}
 	defer release()
 
@@ -1694,7 +1698,7 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return err
+		return ErrShardNotFound
 	}
 	defer release()
 
@@ -1728,12 +1732,12 @@ func (i *Index) getOrInitLocalShardNoShutdown(ctx context.Context, shardName str
 
 	shard, err := i.getOrInitLocalShard(ctx, shardName)
 	if err != nil {
-		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+		return nil, func() {}, err
 	}
 
 	release, err := shard.preventShutdown()
 	if err != nil {
-		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+		return nil, func() {}, err
 	}
 	return shard, release, nil
 }
@@ -1823,7 +1827,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return err
+		return ErrShardNotFound
 	}
 	defer release()
 
@@ -1876,7 +1880,7 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 ) (*aggregation.Result, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, err
+		return nil, ErrShardNotFound
 	}
 	defer release()
 
@@ -2050,7 +2054,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return 0, err
+		return 0, ErrShardNotFound
 	}
 	defer release()
 
@@ -2105,7 +2109,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return "", err
+		return "", ErrShardNotFound
 	}
 	defer release()
 
@@ -2127,7 +2131,7 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return err
+		return ErrShardNotFound
 	}
 	defer release()
 
@@ -2186,7 +2190,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 ) ([]strfmt.UUID, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, err
+		return nil, ErrShardNotFound
 	}
 	defer release()
 
@@ -2262,7 +2266,7 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
 		return objects.BatchSimpleObjects{
-			objects.BatchSimpleObject{Err: err},
+			objects.BatchSimpleObject{Err: ErrShardNotFound},
 		}
 	}
 	defer release()
