@@ -258,11 +258,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		// this should include empty and non empty node
 		st.openDatabase(ctx)
 	}
-	// if empty node report ready
-	isEmptyNode := st.isEmptyNode()
-	if isEmptyNode {
-		st.dbLoaded.Store(true)
-	}
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
@@ -276,7 +271,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
 	// However, we believe that 1 day should be more than sufficient.
-	if isEmptyNode {
+	if st.isEmptyNode() {
+		st.dbLoaded.Store(true)
 		go st.onLeaderFound(time.Hour * 24)
 	}
 
@@ -665,7 +661,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index == st.lastAppliedIndexOnStart.Load() {
+		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index >= st.lastAppliedIndexOnStart.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
@@ -779,10 +775,9 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 	}
 	st.log.Info("successfully restored schema from snapshot")
 
-	if st.reloadDBFromSnapshot() {
-		st.log.WithField("n", st.db.Schema.len()).
-			Info("successfully reloaded indexes from snapshot")
-	}
+	st.reloadDBFromSchema()
+	st.log.WithField("n", st.db.Schema.len()).
+		Info("successfully reloaded indexes from snapshot")
 
 	if st.raft != nil {
 		st.lastAppliedIndex.Store(st.raft.AppliedIndex())
@@ -919,32 +914,6 @@ func (st *Store) openDatabase(ctx context.Context) {
 	st.log.WithField("n", st.db.Schema.len()).Info("database has been successfully loaded")
 }
 
-// reloadDBFromSnapshot reloads the node's local db. If the db is already loaded, it will be reloaded.
-// If a snapshot exists and its is up to date with the log, it will be loaded.
-// Otherwise, the database will be loaded when the node synchronizes its state with the leader.
-//
-// In specific scenarios where the follower's state is too far behind the leader's log,
-// the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
-func (st *Store) reloadDBFromSnapshot() (success bool) {
-	defer func() {
-		if success {
-			st.reloadDBFromSchema()
-		}
-	}()
-
-	if !st.dbLoaded.CompareAndSwap(true, false) {
-		// the snapshot already includes the state from the raft log
-		snapIndex := snapshotIndex(st.snapshotStore)
-		st.log.WithFields(logrus.Fields{
-			"last_applied_index":           st.lastAppliedIndex.Load(),
-			"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
-			"last_snapshot_index":          snapIndex,
-		}).Info("load local db from snapshot")
-		return st.lastAppliedIndexOnStart.Load() <= snapIndex
-	}
-	return true
-}
-
 func (st *Store) reloadDBFromSchema() {
 	classes := st.db.Schema.MetaClasses()
 
@@ -956,7 +925,12 @@ func (st *Store) reloadDBFromSchema() {
 	}
 
 	st.log.Info("reload local db: update schema ...")
-	st.db.store.ReloadLocalDB(context.Background(), cs)
+
+	if err := st.db.store.ReloadLocalDB(context.Background(), cs); err != nil {
+		st.log.WithError(err).Error("cannot reload database")
+		panic(fmt.Sprintf("cannot reload database: %v", err))
+	}
+
 	st.dbLoaded.Store(true)
 	st.lastAppliedIndexOnStart.Store(0)
 }
