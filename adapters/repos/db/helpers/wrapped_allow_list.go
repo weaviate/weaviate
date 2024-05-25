@@ -37,8 +37,8 @@ func (al *wrappedAllowList) Insert(ids ...uint64) {
 		return
 	}
 
-	if al.wAllowList == nil {
-		al.wAllowList = NewAllowList()
+	if al.allowList == nil {
+		al.allowList = NewAllowList()
 	}
 
 	al.allowList.Insert(fids...)
