@@ -387,8 +387,31 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	//
 	// 3. we need to be able to obtain a vector for it
 
-	localDeny := n.denyList.DeepCopy()
 	candidate := n.entryPointID
+
+	// for our search we will need a copy of the current deny list, however, the
+	// cost of that copy can be significant. Let's first verify if the global
+	// entrypoint candidate is usable. If yes, we can return early and skip the
+	// copy.
+	success, err := n.tryEpCandidate(candidate)
+	if err != nil {
+		var e storobj.ErrNotFound
+		if !errors.As(err, &e) {
+			return err
+		}
+
+		// node was deleted in the meantime
+		// ignore the error and move to the logic below which will try more candidates
+	}
+
+	if success {
+		// the global ep candidate is usable, let's skip the following logic (and
+		// therefore avoid the copy)
+		return nil
+	}
+
+	// The global candidate is not usable, we need to find a new one.
+	localDeny := n.denyList.DeepCopy()
 
 	// make sure the loop cannot block forever. In most cases, results should be
 	// found within micro to milliseconds, this is just a last resort to handle
