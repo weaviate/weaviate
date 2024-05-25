@@ -207,9 +207,6 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		n.graph.pools.visitedListsLock.RLock()
 		n.graph.pools.visitedLists.Return(visited)
 		n.graph.pools.visitedListsLock.RUnlock()
-		if err := n.pickEntrypoint(); err != nil {
-			return errors.Wrap(err, "pick entrypoint at level beginning")
-		}
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
