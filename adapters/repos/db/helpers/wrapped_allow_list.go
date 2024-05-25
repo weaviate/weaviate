@@ -69,13 +69,11 @@ func (al *wrappedAllowList) WrapCopy() AllowList {
 }
 
 func (al *wrappedAllowList) Slice() []uint64 {
-	var allowListSlice []uint64
-
-	if al.allowList != nil {
-		allowListSlice = al.allowList.Slice()
+	if al.allowList == nil {
+		return al.wAllowList.Slice()
 	}
 
-	return append(al.wAllowList.Slice(), allowListSlice...)
+	return append(al.wAllowList.Slice(), al.allowList.Slice()...)
 }
 
 func (al *wrappedAllowList) IsEmpty() bool {
@@ -83,13 +81,11 @@ func (al *wrappedAllowList) IsEmpty() bool {
 }
 
 func (al *wrappedAllowList) Len() int {
-	var allowListLen int
-
-	if al.allowList != nil {
-		allowListLen = al.allowList.Len()
+	if al.allowList == nil {
+		return al.wAllowList.Len()
 	}
 
-	return allowListLen + al.wAllowList.Len()
+	return al.allowList.Len() + al.wAllowList.Len()
 }
 
 func (al *wrappedAllowList) Min() uint64 {
@@ -123,13 +119,11 @@ func (al *wrappedAllowList) Max() uint64 {
 }
 
 func (al *wrappedAllowList) Size() uint64 {
-	var allowListSize uint64
-
-	if al.allowList != nil {
-		allowListSize = al.allowList.Size()
+	if al.allowList == nil {
+		return al.wAllowList.Size()
 	}
 
-	return allowListSize + al.wAllowList.Size()
+	return al.allowList.Size() + al.wAllowList.Size()
 }
 
 func (al *wrappedAllowList) Truncate(upTo uint64) AllowList {
