@@ -93,12 +93,11 @@ func (al *wrappedAllowList) Len() int {
 }
 
 func (al *wrappedAllowList) Min() uint64 {
-	var min uint64
-
-	if al.allowList != nil {
-		min = al.allowList.Min()
+	if al.allowList == nil {
+		return al.wAllowList.Min()
 	}
 
+	min := al.allowList.Min()
 	wmin := al.wAllowList.Min()
 
 	if min <= wmin {
@@ -109,12 +108,11 @@ func (al *wrappedAllowList) Min() uint64 {
 }
 
 func (al *wrappedAllowList) Max() uint64 {
-	var max uint64
-
-	if al.allowList != nil {
-		max = al.allowList.Max()
+	if al.allowList == nil {
+		return al.wAllowList.Max()
 	}
 
+	max := al.allowList.Max()
 	wmax := al.wAllowList.Max()
 
 	if max >= wmax {
