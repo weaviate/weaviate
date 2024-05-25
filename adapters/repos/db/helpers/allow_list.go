@@ -68,10 +68,7 @@ func (al *bitmapAllowList) DeepCopy() AllowList {
 }
 
 func (al *bitmapAllowList) WrapCopy() AllowList {
-	return &wrappedAllowList{
-		wAllowList: al,
-		allowList:  NewAllowList(),
-	}
+	return newWrappedAllowList(al)
 }
 
 func (al *bitmapAllowList) Slice() []uint64 {
