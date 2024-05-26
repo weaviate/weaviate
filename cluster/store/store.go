@@ -220,6 +220,9 @@ func New(cfg Config) Store {
 
 func (st *Store) IsVoter() bool { return st.voter }
 func (st *Store) ID() string    { return st.nodeID }
+func (st *Store) IsEmptyNode() bool {
+	return st.lastAppliedIndexOnStart.Load() == 0 && snapshotIndex(st.snapshotStore) == 0
+}
 
 // Open opens this store and marked as such.
 // It constructs a new Raft node using the provided configuration.
@@ -255,12 +258,6 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.transport.LocalAddr(), err)
 	}
 
-	snapIndex := snapshotIndex(st.snapshotStore)
-	if st.lastAppliedIndexOnStart.Load() == 0 && snapIndex == 0 {
-		// if empty node report ready
-		st.dbLoaded.Store(true)
-	}
-
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
@@ -268,12 +265,16 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"raft_last_index":              st.raft.LastIndex(),
 		"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
 		"last_store_applied_index":     st.lastAppliedIndex.Load(),
-		"last_snapshot_index":          snapIndex,
+		"last_snapshot_index":          snapshotIndex(st.snapshotStore),
 	}).Info("raft node constructed")
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
 	// However, we believe that 1 day should be more than sufficient.
-	go st.onLeaderFound(time.Hour * 24)
+	// if empty node report ready and apply migration
+	if st.IsEmptyNode() {
+		st.dbLoaded.Store(true)             // report db ready
+		go st.onLeaderFound(time.Hour * 24) // start migration
+	}
 
 	return nil
 }
