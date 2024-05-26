@@ -12,29 +12,13 @@
 package visited
 
 import (
-	"os"
 	"sync"
-	"sync/atomic"
-	"time"
-
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/errors"
 )
-
-type Stats struct {
-	ReturnTooLarge atomic.Int64
-	ReturnStored   atomic.Int64
-	BorrowReused   atomic.Int64
-	BorrowNew      atomic.Int64
-}
 
 type Pool struct {
 	sync.Mutex
 	listSetSize int
 	listSets    []ListSet
-	stats       Stats
-	closeStats  chan struct{}
-	logger      *logrus.Entry
 }
 
 // NewPool creates a new pool with specified size.
@@ -49,33 +33,6 @@ func NewPool(size int, listSetSize int) *Pool {
 		p.listSets[i] = NewList(listSetSize)
 	}
 
-	d, err := time.ParseDuration(os.Getenv("VISITED_POOL_LOG_INTERVAL"))
-	if err != nil {
-		d = 10 * time.Second
-	}
-
-	p.logger = logrus.New().WithField("component", "visited_pool")
-	p.closeStats = make(chan struct{})
-
-	errors.GoWrapper(func() {
-		t := time.NewTicker(d)
-		defer t.Stop()
-
-		for {
-			select {
-			case <-p.closeStats:
-				return
-			case <-t.C:
-				p.logger.WithFields(logrus.Fields{
-					"return_too_large": p.stats.ReturnTooLarge.Load(),
-					"return_stored":    p.stats.ReturnStored.Load(),
-					"borrow_reused":    p.stats.BorrowReused.Load(),
-					"borrow_new":       p.stats.BorrowNew.Load(),
-				}).Info("visited pool stats")
-			}
-		}
-	}, p.logger)
-
 	return p
 }
 
@@ -89,12 +46,9 @@ func (p *Pool) Borrow() ListSet {
 		p.listSets = p.listSets[:n-1]
 		p.Unlock()
 
-		p.stats.BorrowReused.Add(1)
 		return l
 	}
 	p.Unlock()
-
-	p.stats.BorrowNew.Add(1)
 	return NewList(p.listSetSize)
 }
 
@@ -103,12 +57,6 @@ func (p *Pool) Borrow() ListSet {
 func (p *Pool) Return(l ListSet) {
 	n := l.Len()
 	if n < p.listSetSize || n > p.listSetSize*11/10 { // 11/10 could be tuned
-		p.stats.ReturnTooLarge.Add(1)
-		p.logger.
-			WithField("n", n).
-			WithField("min", p.listSetSize).
-			WithField("max", p.listSetSize*11/10).
-			Warn("list returned to the pool is too large or too small")
 		return
 	}
 	l.Reset()
@@ -116,7 +64,6 @@ func (p *Pool) Return(l ListSet) {
 	p.Lock()
 	defer p.Unlock()
 
-	p.stats.ReturnStored.Add(1)
 	p.listSets = append(p.listSets, l)
 }
 
@@ -129,6 +76,4 @@ func (p *Pool) Destroy() {
 	}
 
 	p.listSets = nil
-
-	close(p.closeStats)
 }
