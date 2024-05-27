@@ -63,6 +63,8 @@ const (
 	// only appends in a collection strategy
 	CommitTypeCollection
 	CommitTypeRoaringSet
+	// new version of roaringset that stores data as a list of uint64 values,
+	// instead of a roaring bitmap
 	CommitTypeRoaringSetList
 )
 
