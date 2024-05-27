@@ -70,7 +70,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	// Recover and return empty tracker on panic
 	defer func() {
 		if r := recover(); r != nil {
-			t.logger.Printf("Recovered from panic in NewJsonShardMetaData, original error: %v", r)
+			t.logger.Warnf("Recovered from panic in NewJsonShardMetaData, original error: %v", r)
 			t = &JsonShardMetaData{
 				data:             &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
 				path:             path,
@@ -91,7 +91,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
-			logger.Printf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
+			logger.Warnf("WARNING: prop len tracker file %s does not exist, creating new tracker", path)
 			t.Flush()
 			return t, nil
 		}
