@@ -25,10 +25,13 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
+
+var ErrShardIsNotReady = errors.New("shard is loading and not ready")
 
 type Replicator interface {
 	ReplicateObject(ctx context.Context, shardName, requestID string,
@@ -393,6 +396,10 @@ func (i *Index) digestObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
 	}
 
+	if s.GetStatus() == storagestate.StatusLoading {
+		return nil, ErrShardIsNotReady
+	}
+
 	multiIDs := make([]multi.Identifier, len(ids))
 	for j := range multiIDs {
 		multiIDs[j] = multi.Identifier{ID: ids[j].String()}
@@ -449,6 +456,10 @@ func (i *Index) readRepairGetObject(ctx context.Context,
 		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return objects.Replica{}, ErrShardIsNotReady
+	}
+
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	if err != nil {
 		return objects.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
@@ -484,6 +495,10 @@ func (i *Index) fetchObjects(ctx context.Context,
 	shard := i.localShard(shardName)
 	if shard == nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, ErrShardIsNotReady
 	}
 
 	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
