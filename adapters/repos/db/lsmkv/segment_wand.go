@@ -106,27 +106,42 @@ func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, s
 	t.offsetPointer = t.actualStart
 	t.PropertyBoost = propertyBoost
 
-	if t.segment.mmapContents {
-		t.DocCount = binary.LittleEndian.Uint64(curSegment.contents[start : start+8])
-		byteSize := end - start - uint64(8+4+len(key))
-		t.NonTombstoneCount = (byteSize - (21 * t.DocCount)) / 8
-		t.TombstoneCount = t.DocCount - t.NonTombstoneCount
+	t.DocCount = binary.LittleEndian.Uint64(curSegment.contents[start : start+8])
+	byteSize := end - start - uint64(8+4+len(key))
+	t.NonTombstoneCount = (byteSize - (21 * t.DocCount)) / 8
+	t.TombstoneCount = t.DocCount - t.NonTombstoneCount
 
-	} else {
+	/*
+		if t.segment.mmapContents {
+			t.DocCount = binary.LittleEndian.Uint64(curSegment.contents[start : start+8])
+			byteSize := end - start - uint64(8+4+len(key))
+			t.NonTombstoneCount = (byteSize - (21 * t.DocCount)) / 8
+			t.TombstoneCount = t.DocCount - t.NonTombstoneCount
+
+		} else {
+			var err error
+			t.values, err = t.segment.getCollection(key)
+			if err != nil {
+				return err
+			}
+			result := 0
+			for _, value := range t.values {
+				if !value.tombstone {
+					result++
+				}
+			}
+			t.NonTombstoneCount = uint64(result)
+			t.TombstoneCount = uint64(len(t.values)) - t.DocCount
+			t.DocCount = uint64(len(t.values))
+		}
+	*/
+
+	if !t.segment.mmapContents {
 		var err error
 		t.values, err = t.segment.getCollection(key)
 		if err != nil {
 			return err
 		}
-		result := 0
-		for _, value := range t.values {
-			if !value.tombstone {
-				result++
-			}
-		}
-		t.NonTombstoneCount = uint64(result)
-		t.TombstoneCount = uint64(len(t.values)) - t.DocCount
-		t.DocCount = uint64(len(t.values))
 	}
 
 	t.FullTermCount = uint64(fullTermDocCount)
@@ -802,7 +817,7 @@ func (s segment) GetTermTombstoneNonTombstone(key []byte) (uint64, uint64, uint6
 	if s.Closing {
 		return 0, 0, 0, 0, fmt.Errorf("segment is closing")
 	}
-	if s.mmapContents {
+	if true { // s.mmapContents
 		node, err := s.index.Get(key)
 		if err != nil {
 			return 0, 0, 0, 0, err
