@@ -71,9 +71,9 @@ func TestIndex_DropEmptyAndRecreateEmptyIndex(t *testing.T) {
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 
-	assert.Equal(t, 6, len(indexFilesBeforeDelete))
+	assert.Equal(t, 5, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 6, len(indexFilesAfterRecreate))
+	assert.Equal(t, 5, len(indexFilesAfterRecreate))
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -142,6 +142,8 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
 		require.Nil(t, err)
 	}
+	index.ForceLoad()
+	index.Flush()
 
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
@@ -224,9 +226,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, 99, afterVectorConfig.EF)
 
-	assert.Equal(t, 6, len(indexFilesBeforeDelete))
+	assert.Equal(t, 5, len(indexFilesBeforeDelete))
 	assert.Equal(t, 0, len(indexFilesAfterDelete))
-	assert.Equal(t, 6, len(indexFilesAfterRecreate))
+	assert.Equal(t, 5, len(indexFilesAfterRecreate))
 	assert.Equal(t, indexFilesBeforeDelete, indexFilesAfterRecreate)
 	assert.NotNil(t, beforeDeleteObj1)
 	assert.NotNil(t, beforeDeleteObj2)
