@@ -142,8 +142,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
 		require.Nil(t, err)
 	}
-	index.ForceLoad()
-	index.Flush()
 
 	indexFilesBeforeDelete, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
