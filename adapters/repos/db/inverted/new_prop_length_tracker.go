@@ -344,6 +344,7 @@ func (t *JsonShardMetaData) Flush() error {
 	t.Lock()
 	defer t.Unlock()
 
+	t.WantFlush = true // Remove this line once we add delayed flushing
 	if !t.WantFlush {
 		return nil
 	}
