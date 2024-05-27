@@ -224,7 +224,6 @@ func tokenizeKagomeKr(in string) []string {
 // tokenizeKagomeJp uses the kagome tokenizer with MeCab IPADIC to tokenise Japanese
 func tokenizeKagomeJp(in string) []string {
 	// Create a tokenizer with the Japanese dictionary
-	// Create a tokenizer with the Korean dictionary
 	jpDictOnce.Do(func() {
 		jpDictInstance = jpDict.Dict()
 	})
