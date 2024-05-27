@@ -366,7 +366,8 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 		}
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
-		if err != nil && errors.Is(err, dbpkg.ErrShardIsNotReady) {
+		if err != nil && (errors.Is(err, dbpkg.ErrShardIsNotReady) ||
+			errors.Is(err, dbpkg.ErrIndexNotExists)) {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusTooEarly)
 			return
@@ -588,7 +589,8 @@ func (i *replicatedIndices) getObject() http.Handler {
 		)
 
 		resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
-		if err != nil && errors.Is(err, dbpkg.ErrShardIsNotReady) {
+		if err != nil && (errors.Is(err, dbpkg.ErrShardIsNotReady) ||
+			errors.Is(err, dbpkg.ErrIndexNotExists)) {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusTooEarly)
 			return
@@ -645,7 +647,8 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 		}
 
 		resp, err := i.shards.FetchObjects(r.Context(), index, shard, ids)
-		if err != nil && errors.Is(err, dbpkg.ErrShardIsNotReady) {
+		if err != nil && (errors.Is(err, dbpkg.ErrShardIsNotReady) ||
+			errors.Is(err, dbpkg.ErrIndexNotExists)) {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusTooEarly)
 			return

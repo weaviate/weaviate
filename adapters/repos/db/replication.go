@@ -31,7 +31,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-var ErrShardIsNotReady = errors.New("shard is loading and not ready")
+var (
+	ErrShardIsNotReady = errors.New("shard is loading and not ready")
+	ErrIndexNotExists  = errors.New("index doesn't exists")
+)
 
 type Replicator interface {
 	ReplicateObject(ctx context.Context, shardName, requestID string,
@@ -384,6 +387,9 @@ func (db *DB) DigestObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	index := db.GetIndex(schema.ClassName(class))
+	if index == nil {
+		return nil, ErrIndexNotExists
+	}
 	return index.digestObjects(ctx, shardName, ids)
 }
 
@@ -446,7 +452,7 @@ func (db *DB) FetchObject(ctx context.Context,
 ) (objects.Replica, error) {
 	index := db.GetIndex(schema.ClassName(class))
 	if index == nil {
-		return objects.Replica{}, errors.Errorf("local index %q not found", class)
+		return objects.Replica{}, ErrIndexNotExists
 	}
 	return index.readRepairGetObject(ctx, shardName, id)
 }
@@ -489,6 +495,9 @@ func (db *DB) FetchObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
 	index := db.GetIndex(schema.ClassName(class))
+	if index == nil {
+		return nil, ErrIndexNotExists
+	}
 	return index.fetchObjects(ctx, shardName, ids)
 }
 
