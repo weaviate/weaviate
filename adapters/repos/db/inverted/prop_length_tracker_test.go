@@ -257,6 +257,27 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 		create20PropsAndVerify(t, tracker)
 	})
 
+	var dupeTracker *JsonShardMetaData
+	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
+		tr, err := NewJsonShardMetaData(path, l)
+		require.Nil(t, err)
+		dupeTracker = tr
+	})
+
+	t.Run("verify data is correct after read from disk", func(t *testing.T) {
+		// root page
+		actualMeanForProp0 := float32(1+4+3+17) / 4.0
+		res, err := dupeTracker.PropertyMean("prop_0")
+		require.Nil(t, err)
+		assert.InEpsilon(t, actualMeanForProp0, res, 0.1)
+
+		// later page
+		actualMeanForProp20 := float32(1+4+3+17+25) / 5.0
+		res, err = dupeTracker.PropertyMean("prop_19")
+		require.Nil(t, err)
+		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
+	})
+
 	t.Run("commit the state to disk", func(t *testing.T) {
 		require.Nil(t, tracker.Flush())
 	})
