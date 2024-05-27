@@ -361,7 +361,7 @@ func (t *JsonShardMetaData) Flush() error {
 	filename := t.path
 
 	if t.logger != nil {
-		t.logger.Printf("Flushing prop len tracker to disk: %s", filename)
+		//t.logger.Printf("Flushing prop len tracker to disk: %s", filename)
 	}
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
