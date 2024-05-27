@@ -265,6 +265,18 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 		require.Nil(t, tracker.Close())
 	})
 
+	t.Run("catch use after free propmean", func(t *testing.T) {
+		_, err := tracker.PropertyMean("prop_0")
+		require.NotNil(t, err)
+		require.ErrorContains(t, err, "tracker is closed")
+	})
+
+	t.Run("catch use after free trackproperty", func(t *testing.T) {
+		_, err := tracker.TrackProperty("prop_0", 1.0)
+		require.NotNil(t, err)
+		require.ErrorContains(t, err, "tracker is closed")
+	})
+
 	var secondTracker *JsonShardMetaData
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
 		tr, err := NewJsonShardMetaData(path, l)
