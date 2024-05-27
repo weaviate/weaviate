@@ -335,7 +335,6 @@ func (t *JsonShardMetaData) ObjectTally() int {
 	return t.data.ObjectCount
 }
 
-// Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
 func (t *JsonShardMetaData) Flush() error {
 	if t == nil {
 		return nil
@@ -359,10 +358,6 @@ func (t *JsonShardMetaData) Flush() error {
 	}
 
 	filename := t.path
-
-	if t.logger != nil {
-		// t.logger.Printf("Flushing prop len tracker to disk: %s", filename)
-	}
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
