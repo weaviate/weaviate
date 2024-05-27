@@ -109,7 +109,12 @@ func (m *shardMap) Load(name string) ShardLike {
 	if !ok {
 		return nil
 	}
-	return v.(ShardLike)
+
+	shard, ok := v.(ShardLike)
+	if !ok {
+		return nil
+	}
+	return shard
 }
 
 // Store sets a shard giving its name and value
