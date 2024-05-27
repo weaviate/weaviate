@@ -205,18 +205,30 @@ func tokenizeKagome(in string, dict *dict.Dict) []string {
 	return terms
 }
 
+var (
+	koDictInstance *dict.Dict
+	koDictOnce     sync.Once
+	jpDictInstance *dict.Dict
+	jpDictOnce     sync.Once
+)
+
 // tokenizeKagomeKr uses the kagome tokenizer with kagonme-dict-ko to tokenise Korean
 func tokenizeKagomeKr(in string) []string {
 	// Create a tokenizer with the Korean dictionary
-	dict := koDict.Dict()
-	return tokenizeKagome(in, dict)
+	koDictOnce.Do(func() {
+		koDictInstance = koDict.Dict()
+	})
+	return tokenizeKagome(in, koDictInstance)
 }
 
 // tokenizeKagomeJp uses the kagome tokenizer with MeCab IPADIC to tokenise Japanese
 func tokenizeKagomeJp(in string) []string {
+	// Create a tokenizer with the Japanese dictionary
 	// Create a tokenizer with the Korean dictionary
-	dict := jpDict.Dict()
-	return tokenizeKagome(in, dict)
+	jpDictOnce.Do(func() {
+		jpDictInstance = jpDict.Dict()
+	})
+	return tokenizeKagome(in, jpDictInstance)
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
