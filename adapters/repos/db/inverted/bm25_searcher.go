@@ -20,7 +20,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -247,29 +246,9 @@ var (
 	wandMemStats     []float64 = make([]float64, 1)
 )
 */
-
 func (b *BM25Searcher) wandMem(ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
-	// start timer
-	// startTime := float64(time.Now().UnixNano()) / 1e6
-
-	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
-
-	// stopword filtering for word tokenization
-	queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, err := b.extractTermInformation(class, params)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// wandDiskTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
-	// wandTimesId++
-	// startTime = float64(time.Now().UnixNano()) / 1e6
-
-	return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
-}
-
-func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]string, duplicateBoostsByTokenization map[string][]int, propNamesByTokenization map[string][]string, propertyBoosts map[string]float32, averagePropLength float64, N float64, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
 	/*
-		f wandMemLastClass == "" {
+		if wandMemLastClass == "" {
 			wandMemLastClass = string(class.Class)
 		}
 		if wandMemLastClass != string(class.Class) {
@@ -298,15 +277,41 @@ func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]stri
 		startTime := float64(time.Now().UnixNano()) / 1e6
 	*/
 
-	// 100 is a reasonable expected capacity for the total number of terms to query.
-	results := make([]Term, 0, 100)
-	indices := make([]map[uint64]int, 0, 100)
+	// get number of objects
+	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
+
+	// stopword filtering for word tokenization
+	queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, err := b.extractTermInformation(class, params)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
+	// wandTimesId++
+
+	objsM, scoresM, errM := b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
+
+	return objsM, scoresM, errM
+}
+
+func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]string, duplicateBoostsByTokenization map[string][]int, propNamesByTokenization map[string][]string, propertyBoosts map[string]float32, averagePropLength float64, N float64, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
+	// wandTimesId := 1
+	// startTime := float64(time.Now().UnixNano()) / 1e6
+
+	tokenCount := 0
+	for tokenization, propNames := range propNamesByTokenization {
+		if len(propNames) > 0 {
+			tokenCount += len(queryTermsByTokenization[tokenization])
+		}
+	}
+
+	results := make([]Term, tokenCount)
+	indices := make([]map[uint64]int, tokenCount)
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
-	var resultsLock sync.Mutex
-
+	tokenIndex := 0
 	for tokenization, propNames := range propNamesByTokenization {
 		propNames := propNames
 		if len(propNames) > 0 {
@@ -314,6 +319,7 @@ func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]stri
 				tokenization := tokenization
 				queryTerm := queryTerm
 				queryTermId := queryTermId
+				tokenIndexInner := tokenIndex
 
 				dupBoost := duplicateBoostsByTokenization[tokenization][queryTermId]
 
@@ -323,12 +329,12 @@ func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]stri
 						err = termErr
 						return
 					}
-					resultsLock.Lock()
-					results = append(results, termResult)
-					indices = append(indices, docIndices)
-					resultsLock.Unlock()
+					results[tokenIndexInner] = termResult
+					indices[tokenIndexInner] = docIndices
 					return
 				}, "query_term", queryTerm, "prop_names", propNames, "has_filter", filterDocIds != nil)
+
+				tokenIndex++
 			}
 		}
 	}
