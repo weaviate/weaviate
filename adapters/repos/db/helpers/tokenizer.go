@@ -77,6 +77,10 @@ func Tokenize(tokenization string, in string) []string {
 		return tokenizetrigram(in)
 	case models.PropertyTokenizationGse:
 		return tokenizeGSE(in)
+	case models.PropertyTokenizationKagomeKr:
+		return tokenizeKagomeKr(in)
+	case models.PropertyTokenizationKagomeJp:
+		return tokenizeKagomeJp(in)
 	default:
 		return []string{}
 	}
@@ -96,6 +100,10 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		return tokenizetrigramWithWildcards(in)
 	case models.PropertyTokenizationGse:
 		return tokenizeGSE(in)
+	case models.PropertyTokenizationKagomeKr:
+		return tokenizeKagomeKr(in)
+	case models.PropertyTokenizationKagomeJp:
+		return tokenizeKagomeJp(in)
 	default:
 		return []string{}
 	}
@@ -194,7 +202,7 @@ func tokenizeKagome(in string, dict *dict.Dict) []string {
 		}
 	}
 
-	return append(terms)
+	return terms
 }
 
 // tokenizeKagomeKr uses the kagome tokenizer with kagonme-dict-ko to tokenise Korean
