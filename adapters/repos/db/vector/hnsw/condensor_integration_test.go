@@ -472,7 +472,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 
 		bufr := bufio.NewReader(fd)
-		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		res, _, err := NewDeserializer(logger).Do(rootPath, bufr, &initialState, false)
 		require.Nil(t, err)
 
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
@@ -547,7 +547,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		require.Nil(t, err)
 
 		bufr := bufio.NewReader(fd)
-		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		res, _, err := NewDeserializer(logger).Do(rootPath, bufr, &initialState, false)
 		require.Nil(t, err)
 
 		assert.True(t, res.Compressed)
@@ -583,7 +583,7 @@ func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
 
 		bufr := bufio.NewReader(fd)
 		logger, _ := test.NewNullLogger()
-		res, _, err = NewDeserializer(logger).Do(bufr, res, false)
+		res, _, err = NewDeserializer(logger).Do(fileName, bufr, res, false)
 		require.Nil(t, err)
 	}
 

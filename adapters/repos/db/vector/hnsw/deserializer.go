@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"runtime/debug"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -78,9 +79,18 @@ func (d *Deserializer) resetReusableConnectionsSlice(size int) {
 	}
 }
 
-func (d *Deserializer) Do(fd *bufio.Reader,
+func (d *Deserializer) Do(fileName string, fd *bufio.Reader,
 	initialState *DeserializationResult, keepLinkReplaceInformation bool,
 ) (*DeserializationResult, int, error) {
+	// recover from panic
+	defer func() {
+		err := recover()
+		if err != nil {
+			d.logger.WithField("panic", err).WithField("file", fileName).Error("panic during deserialization")
+			debug.PrintStack()
+		}
+	}()
+
 	validLength := 0
 	out := initialState
 	if out == nil {

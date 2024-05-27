@@ -75,6 +75,11 @@ func (h *hnsw) restoreFromDisk() error {
 
 	var state *DeserializationResult
 	for i, fileName := range fileNames {
+		h.logger.WithField("action", "hnsw_loading_commit_log").
+			WithField("path", fileName).
+			WithField("progress", float64(i+1)/float64(len(fileNames))).
+			Info("loading commit log")
+
 		beforeIndividual := time.Now()
 
 		fd, err := os.Open(fileName)
@@ -89,7 +94,7 @@ func (h *hnsw) restoreFromDisk() error {
 		fdBuf := bufio.NewReaderSize(metered, 256*1024)
 
 		var valid int
-		state, valid, err = NewDeserializer(h.logger).Do(fdBuf, state, false)
+		state, valid, err = NewDeserializer(h.logger).Do(fileName, fdBuf, state, false)
 		if err != nil {
 			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 				// we need to check for both EOF or UnexpectedEOF, as we don't know where
@@ -112,6 +117,11 @@ func (h *hnsw) restoreFromDisk() error {
 				return errors.Wrapf(err, "deserialize commit log %q", fileName)
 			}
 		}
+
+		h.logger.WithField("action", "hnsw_loaded_commit_log").
+			WithField("path", fileName).
+			WithField("progress", float64(i+1)/float64(len(fileNames))).
+			Info("loaded commit log")
 
 		h.metrics.StartupProgress(float64(i+1) / float64(len(fileNames)))
 		h.metrics.TrackStartupIndividual(beforeIndividual)
