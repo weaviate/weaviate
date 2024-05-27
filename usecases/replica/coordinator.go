@@ -192,6 +192,27 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		candidatePool <- replica
 	}
 	close(candidatePool) // pool is ready
+
+	timedop := func(ctx context.Context, op readOp[T], candidate string, fullRead bool) (T, error) {
+		replyCh := make(chan _Result[T])
+
+		go func() {
+			resp, err := op(ctx, candidate, fullRead)
+			replyCh <- _Result[T]{resp, err}
+		}()
+
+		timer := time.NewTimer(1 * time.Second)
+		defer timer.Stop()
+
+		select {
+		case r := <-replyCh:
+			return r.Value, r.Err
+		case <-timer.C:
+			var noop T
+			return noop, fmt.Errorf("op timeout")
+		}
+	}
+
 	f := func() {
 		wg := sync.WaitGroup{}
 		wg.Add(len(candidates))
@@ -199,12 +220,12 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			idx := i
 			f := func() {
 				defer wg.Done()
-				resp, err := op(ctx, candidates[idx], idx == 0)
+				resp, err := timedop(ctx, op, candidates[idx], idx == 0)
 
 				// If node is not responding delegate request to another node
 				for err != nil {
 					if delegate, ok := <-candidatePool; ok {
-						resp, err = op(ctx, delegate, idx == 0)
+						resp, err = timedop(ctx, op, delegate, idx == 0)
 					} else {
 						break
 					}
