@@ -18,6 +18,10 @@ import (
 	"unicode"
 
 	"github.com/go-ego/gse"
+	koDict "github.com/ikawaha/kagome-dict-ko"
+	"github.com/ikawaha/kagome-dict/dict"
+	jpDict "github.com/ikawaha/kagome-dict/ipa"
+	"github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -34,6 +38,8 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationField,
 	models.PropertyTokenizationTrigram,
 	models.PropertyTokenizationGse,
+	models.PropertyTokenizationKagomeKr,
+	models.PropertyTokenizationKagomeJp,
 }
 
 func init() {
@@ -160,6 +166,49 @@ func tokenizeGSE(in string) []string {
 
 	alpha := tokenizeWord(in)
 	return append(terms, alpha...)
+}
+
+// tokenizeKagome uses the kagome tokenizer
+func tokenizeKagome(in string, dict *dict.Dict) []string {
+	// Create a tokenizer with the Korean dictionary
+	t, err := tokenizer.New(dict)
+	if err != nil {
+		panic(err)
+	}
+
+	// Tokenize the text
+	kagome_tokens := t.Tokenize(in)
+	terms := []string{}
+
+	for _, token := range kagome_tokens {
+		if token.Surface != "EOS" && token.Surface != "BOS" { // Skip the BOS and EOS tokens
+			terms = append(terms, token.Surface)
+		}
+	}
+
+	// Remove empty strings from terms
+	for i := 0; i < len(terms); i++ {
+		if terms[i] == "" || terms[i] == " " {
+			terms = append(terms[:i], terms[i+1:]...)
+			i--
+		}
+	}
+
+	return append(terms)
+}
+
+// tokenizeKagomeKr uses the kagome tokenizer with kagonme-dict-ko to tokenise Korean
+func tokenizeKagomeKr(in string) []string {
+	// Create a tokenizer with the Korean dictionary
+	dict := koDict.Dict()
+	return tokenizeKagome(in, dict)
+}
+
+// tokenizeKagomeJp uses the kagome tokenizer with MeCab IPADIC to tokenise Japanese
+func tokenizeKagomeJp(in string) []string {
+	// Create a tokenizer with the Korean dictionary
+	dict := jpDict.Dict()
+	return tokenizeKagome(in, dict)
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and

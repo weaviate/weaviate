@@ -742,7 +742,9 @@
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr",
+            "kagome_jp"
           ]
         },
         "nestedProperties": {
@@ -916,7 +918,7 @@
     },
     "BackupConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
@@ -949,7 +951,7 @@
     },
     "RestoreConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
@@ -958,7 +960,7 @@
           "minimum": 1,
           "maximum": 80,
           "x-nullable": false
-        }       
+        }
       }
     },
     "BackupCreateRequest": {
@@ -4717,7 +4719,7 @@
           }
         }
       }
-    },    
+    },
     "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",

@@ -65,7 +65,7 @@ require (
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
-	golang.org/x/text v0.14.0
+	golang.org/x/text v0.15.0
 	google.golang.org/protobuf v1.33.0
 )
 
@@ -131,6 +131,10 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
+	github.com/ikawaha/kagome-dict v1.0.10 // indirect
+	github.com/ikawaha/kagome-dict-ko v1.1.0 // indirect
+	github.com/ikawaha/kagome-dict/ipa v1.0.11 // indirect
+	github.com/ikawaha/kagome/v2 v2.9.8 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.6 // indirect
