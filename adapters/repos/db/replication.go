@@ -445,6 +445,9 @@ func (db *DB) FetchObject(ctx context.Context,
 	class, shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
 	index := db.GetIndex(schema.ClassName(class))
+	if index == nil {
+		return objects.Replica{}, errors.Errorf("local index %q not found", class)
+	}
 	return index.readRepairGetObject(ctx, shardName, id)
 }
 
