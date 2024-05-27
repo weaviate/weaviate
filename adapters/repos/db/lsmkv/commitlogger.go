@@ -53,8 +53,7 @@ type commitLogger struct {
 // ------------------------------------------------------
 
 const (
-	CurrentVersion           uint8 = 1
-	CurrentVersionRoaringSet uint8 = 2
+	CurrentVersion uint8 = 1
 )
 
 type CommitType uint8
@@ -66,6 +65,7 @@ const (
 	// only appends in a collection strategy
 	CommitTypeCollection
 	CommitTypeRoaringSet
+	CommitTypeRoaringSetList
 )
 
 func (ct CommitType) String() string {
@@ -76,6 +76,8 @@ func (ct CommitType) String() string {
 		return "collection"
 	case CommitTypeRoaringSet:
 		return "roaringset"
+	case CommitTypeRoaringSetList:
+		return "roaringsetlist"
 	default:
 		return "unknown"
 	}
@@ -113,16 +115,9 @@ func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) erro
 		return err
 	}
 
-	if commitType == CommitTypeRoaringSet {
-		err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersionRoaringSet)
-		if err != nil {
-			return err
-		}
-	} else {
-		err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
-		if err != nil {
-			return err
-		}
+	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentVersion)
+	if err != nil {
+		return err
 	}
 
 	err = binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(len(nodeBytes)))
@@ -198,7 +193,7 @@ func (cl *commitLogger) add(node *roaringset.SegmentNodeList) error {
 		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
-	return cl.writeEntry(CommitTypeRoaringSet, cl.bufNode.Bytes())
+	return cl.writeEntry(CommitTypeRoaringSetList, cl.bufNode.Bytes())
 }
 
 // Size returns the amount of data that has been written since the commit

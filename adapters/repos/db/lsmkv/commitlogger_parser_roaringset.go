@@ -32,7 +32,7 @@ func (p *commitloggerParser) doRoaringSet() error {
 			return errors.Wrap(err, "read commit type")
 		}
 
-		if !CommitTypeRoaringSet.Is(commitType) {
+		if !CommitTypeRoaringSet.Is(commitType) && !CommitTypeRoaringSetList.Is(commitType) {
 			return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
 		}
 
@@ -50,11 +50,7 @@ func (p *commitloggerParser) doRoaringSet() error {
 			}
 		case 1:
 			{
-				err = p.parseRoaringSetNodeV1()
-			}
-		case 2:
-			{
-				err = p.parseRoaringSetNodeV2()
+				err = p.parseRoaringSetNodeV1(commitType)
 			}
 		default:
 			{
@@ -73,13 +69,16 @@ func (p *commitloggerParser) parseRoaringSetNodeV0() error {
 	return p.parseRoaringSetNode(p.reader)
 }
 
-func (p *commitloggerParser) parseRoaringSetNodeV1() error {
+func (p *commitloggerParser) parseRoaringSetNodeV1(commitType CommitType) error {
 	reader, err := p.doRecord()
 	if err != nil {
 		return err
 	}
-
-	return p.parseRoaringSetNode(reader)
+	if commitType == CommitTypeRoaringSet {
+		return p.parseRoaringSetNode(reader)
+	} else {
+		return p.parseRoaringSetNodeList(reader)
+	}
 }
 
 func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
@@ -102,15 +101,6 @@ func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
 	}
 
 	return nil
-}
-
-func (p *commitloggerParser) parseRoaringSetNodeV2() error {
-	reader, err := p.doRecord()
-	if err != nil {
-		return err
-	}
-
-	return p.parseRoaringSetNodeList(reader)
 }
 
 func (p *commitloggerParser) parseRoaringSetNodeList(reader io.Reader) error {
