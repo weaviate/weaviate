@@ -166,6 +166,7 @@ func (t *JsonShardMetaData) Clear() {
 	t.WantFlush = true
 
 	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
+	t.lockFreeFlush()
 }
 
 // Path to the file on disk
@@ -190,7 +191,7 @@ func (t *JsonShardMetaData) TrackObjects(delta int) error {
 	t.WantFlush = true
 
 	t.data.ObjectCount = t.data.ObjectCount + delta
-	return nil
+	return t.lockFreeFlush()
 }
 
 // Adds a new value to the tracker
@@ -223,7 +224,7 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 		t.data.BucketedData[propName][int(bucketId)] = 1
 	}
 
-	return nil
+	return t.lockFreeFlush()
 }
 
 // Removes a value from the tracker
@@ -254,7 +255,7 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 		return errors.New("property not found")
 	}
 
-	return nil
+	return t.lockFreeFlush()
 }
 
 // Returns the bucket that the given value belongs to
@@ -343,6 +344,10 @@ func (t *JsonShardMetaData) Flush() error {
 	t.Lock()
 	defer t.Unlock()
 
+	return t.lockFreeFlush()
+}
+
+func (t *JsonShardMetaData) lockFreeFlush() error {
 	t.WantFlush = true // Remove this line once we add delayed flushing
 	if !t.WantFlush {
 		return nil
