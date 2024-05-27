@@ -218,7 +218,9 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	localShard := i.localShard(shard)
 	if localShard == nil {
-		return nil
+		return replica.SimpleResponse{Errors: []replica.Error{
+			{Code: replica.StatusShardNotFound, Msg: shard},
+		}}
 	}
 	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
 }
