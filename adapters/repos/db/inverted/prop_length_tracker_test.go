@@ -272,7 +272,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 	})
 
 	t.Run("catch use after free trackproperty", func(t *testing.T) {
-		_, err := tracker.TrackProperty("prop_0", 1.0)
+		err := tracker.TrackProperty("prop_0", 1.0)
 		require.NotNil(t, err)
 		require.ErrorContains(t, err, "tracker is closed")
 	})
