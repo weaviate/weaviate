@@ -92,8 +92,8 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	return objs, scores, nil
 }
 
-func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
-	return b.propLenTracker.(*JsonPropertyLengthTracker)
+func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
+	return b.propLenTracker.(*JsonShardMetaData)
 }
 
 func (b *BM25Searcher) wand(
