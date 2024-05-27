@@ -22,9 +22,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
-// Do not use: SegmentNode was replaced by SegmentNodeList.
-// It is kept for backwards compatibility when reading SegmentNode WALs
-// from disk and may be removed in the future.
+// SegmentNode was replaced by SegmentNodeList for WAL, but it is still used in
+// the bitmap layers.
 //
 // SegmentNode stores one Key-Value pair (without its index) in
 // the LSM Segment.  It uses a single []byte internally. As a result there is

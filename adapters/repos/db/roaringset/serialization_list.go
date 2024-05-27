@@ -36,7 +36,7 @@ import (
 // to access the contents. Those helpers in turn do not require a decoding
 // step. Instead of returning Roaring Bitmaps, it returns []uint64 slices.
 // This makes the indexing time much faster, as we don't have to create the
-// roaring bitmaps for each insert. It also makes it smaller on disk, as we
+// roaring bitmaps for each WAL insert. It also makes it smaller on disk, as we
 // don't have to store the roaring bitmap, but only the list of uint64s.
 //
 // The internal structure of the data is close to the original SegmentNode,
