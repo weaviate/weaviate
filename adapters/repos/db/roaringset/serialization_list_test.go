@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSimpleSerialization_HappyPath(t *testing.T) {
+func TestSerializationList_HappyPath(t *testing.T) {
 	additions := []uint64{1, 2, 3, 4, 6}
 	deletions := []uint64{5, 7}
 	key := []byte("my-key")
@@ -56,7 +56,7 @@ func TestSimpleSerialization_HappyPath(t *testing.T) {
 	assert.True(t, slices.Index(newDeletions, 7) != -1)
 }
 
-func TestSimpleSerialization_InitializingFromBufferTooLarge(t *testing.T) {
+func TestSerializationList_InitializingFromBufferTooLarge(t *testing.T) {
 	additions := []uint64{1, 2, 3, 4, 6}
 	deletions := []uint64{5, 7}
 	key := []byte("my-key")
@@ -79,7 +79,7 @@ func TestSimpleSerialization_InitializingFromBufferTooLarge(t *testing.T) {
 	assert.Equal(t, len(buf), len(newSN.ToBuffer()))
 }
 
-func TestSimpleSerialization_UnhappyPath(t *testing.T) {
+func TestSerializationList_UnhappyPath(t *testing.T) {
 	t.Run("with primary key that's too long", func(t *testing.T) {
 		key := make([]byte, math.MaxUint32+3)
 		_, err := NewSegmentNodeList(key, nil, nil)
@@ -89,7 +89,7 @@ func TestSimpleSerialization_UnhappyPath(t *testing.T) {
 	})
 }
 
-func TestSimpleSerialization_KeyIndexAndWriteTo(t *testing.T) {
+func TestSerializationList_KeyIndexAndWriteTo(t *testing.T) {
 	buf := &bytes.Buffer{}
 	offset := 7
 	// write some dummy data, so we have an offset

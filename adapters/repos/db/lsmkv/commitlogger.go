@@ -52,9 +52,7 @@ type commitLogger struct {
 // | checksum (crc32 4bytes non-checksum fields so far) |
 // ------------------------------------------------------
 
-const (
-	CurrentVersion uint8 = 1
-)
+const CurrentVersion uint8 = 1
 
 type CommitType uint8
 
