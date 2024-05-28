@@ -18,4 +18,5 @@ const (
 	StrategySetCollection
 	StrategyMapCollection
 	StrategyRoaringSet
+	StrategyInverted
 )

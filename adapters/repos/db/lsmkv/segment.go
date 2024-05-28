@@ -100,7 +100,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	switch header.Strategy {
 	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
-		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
+		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet, segmentindex.StrategyInverted:
 	default:
 		return nil, fmt.Errorf("unsupported strategy in segment")
 	}

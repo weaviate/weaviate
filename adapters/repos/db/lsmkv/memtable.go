@@ -204,9 +204,9 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 	start := time.Now()
 	defer m.metrics.getCollection(start.UnixNano())
 
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection {
-		return nil, errors.Errorf("getCollection only possible with strategies %q, %q",
-			StrategySetCollection, StrategyMapCollection)
+	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return nil, errors.Errorf("getCollection only possible with strategies %q, %q, %q",
+			StrategySetCollection, StrategyMapCollection, StrategyInverted)
 	}
 
 	m.RLock()
@@ -224,9 +224,9 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	start := time.Now()
 	defer m.metrics.getMap(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection {
-		return nil, errors.Errorf("getCollection only possible with strategy %q",
-			StrategyMapCollection)
+	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return nil, errors.Errorf("getCollection only possible with strategies %q, %q",
+			StrategyMapCollection, StrategyInverted)
 	}
 
 	m.RLock()
@@ -244,9 +244,9 @@ func (m *Memtable) append(key []byte, values []value) error {
 	start := time.Now()
 	defer m.metrics.append(start.UnixNano())
 
-	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection {
-		return errors.Errorf("append only possible with strategies %q, %q",
-			StrategySetCollection, StrategyMapCollection)
+	if m.strategy != StrategySetCollection && m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return errors.Errorf("append only possible with strategies %q, %q, %q",
+			StrategySetCollection, StrategyMapCollection, StrategyInverted)
 	}
 
 	m.Lock()
@@ -273,9 +273,9 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
 	defer m.metrics.appendMapSorted(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection {
-		return errors.Errorf("append only possible with strategy %q",
-			StrategyMapCollection)
+	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return errors.Errorf("append only possible with strategies %q, %q",
+			StrategyMapCollection, StrategyInverted)
 	}
 
 	m.Lock()
