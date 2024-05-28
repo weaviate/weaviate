@@ -12,6 +12,7 @@
 package helpers
 
 import (
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -177,33 +178,46 @@ func tokenizeGSE(in string) []string {
 }
 
 var (
+	// Korean tokenizer and dictionary instances
 	koDictInstance      *dict.Dict
-	koDictOnce          sync.Once
 	koTokenizerInstance *tokenizer.Tokenizer
-	koTokenizerOnce     sync.Once
+	koOnce              sync.Once
 
+	// Japanese tokenizer and dictionary instances
 	jpDictInstance      *dict.Dict
-	jpDictOnce          sync.Once
 	jpTokenizerInstance *tokenizer.Tokenizer
-	jpTokenizerOnce     sync.Once
+	jpOnce              sync.Once
 )
 
-// tokenizeKagome uses the kagome tokenizer
-func tokenizeKagome(in string, dict *dict.Dict, tokenizerOnce *sync.Once, tokenizerInstance **tokenizer.Tokenizer) []string {
-	// Create a tokenizer with the provided dictionary
-	tokenizerOnce.Do(func() {
-		t, err := tokenizer.New(dict)
+// initializeKagomeTokenizers initializes the tokenizer instances if they are not already initialized
+func initializeKagomeTokenizers() {
+	// Initialize Korean tokenizer
+	koOnce.Do(func() {
+		koDictInstance = koDict.Dict()
+		var err error
+		koTokenizerInstance, err = tokenizer.New(koDictInstance)
 		if err != nil {
-			panic(err)
+			log.Fatalf("failed to create Korean tokenizer: %v", err)
 		}
-		*tokenizerInstance = t
 	})
 
-	// Tokenize the text
-	kagome_tokens := (*tokenizerInstance).Tokenize(in)
+	// Initialize Japanese tokenizer
+	jpOnce.Do(func() {
+		jpDictInstance = jpDict.Dict()
+		var err error
+		jpTokenizerInstance, err = tokenizer.New(jpDictInstance)
+		if err != nil {
+			log.Fatalf("failed to create Japanese tokenizer: %v", err)
+		}
+	})
+}
+
+// tokenizeWithKagome uses the provided tokenizer to tokenizeWithKagome the input text
+func tokenizeWithKagome(in string, t *tokenizer.Tokenizer) []string {
+	kagomeTokens := t.Tokenize(in)
 	terms := []string{}
 
-	for _, token := range kagome_tokens {
+	for _, token := range kagomeTokens {
 		if token.Surface != "EOS" && token.Surface != "BOS" { // Skip the BOS and EOS tokens
 			terms = append(terms, token.Surface)
 		}
@@ -220,20 +234,16 @@ func tokenizeKagome(in string, dict *dict.Dict, tokenizerOnce *sync.Once, tokeni
 	return terms
 }
 
-// tokenizeKagomeKr uses the kagome tokenizer with kagonme-dict-ko to tokenise Korean
+// tokenizeKagomeKr tokenizes Korean text using the cached Korean tokenizer
 func tokenizeKagomeKr(in string) []string {
-	koDictOnce.Do(func() {
-		koDictInstance = koDict.Dict()
-	})
-	return tokenizeKagome(in, koDictInstance, &koTokenizerOnce, &koTokenizerInstance)
+	initializeKagomeTokenizers() // Ensure tokenizers are initialized
+	return tokenizeWithKagome(in, koTokenizerInstance)
 }
 
-// tokenizeKagomeJp uses the kagome tokenizer with MeCab IPADIC to tokenise Japanese
+// tokenizeKagomeJp tokenizes Japanese text using the cached Japanese tokenizer
 func tokenizeKagomeJp(in string) []string {
-	jpDictOnce.Do(func() {
-		jpDictInstance = jpDict.Dict()
-	})
-	return tokenizeKagome(in, jpDictInstance, &jpTokenizerOnce, &jpTokenizerInstance)
+	initializeKagomeTokenizers() // Ensure tokenizers are initialized
+	return tokenizeWithKagome(in, jpTokenizerInstance)
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
