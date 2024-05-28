@@ -191,7 +191,6 @@ var (
 )
 
 func initializeKagomeTokenizer(dictInstance *dict.Dict, tokenizerInstance **tokenizer.Tokenizer, once *sync.Once) bool {
-
 	if os.Getenv("ENABLE_KAGOME") == "true" {
 		EnableKagome = true
 	}
