@@ -184,7 +184,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := state.Level
-	replyCh := make(chan _Result[T], level)
+	replyCh := make(chan _Result[T], len(state.Hosts)-level)
 
 	candidates := state.Hosts[:level]                          // direct ones
 	candidatePool := make(chan string, len(state.Hosts)-level) // remaining ones
@@ -194,11 +194,22 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	close(candidatePool) // pool is ready
 	f := func() {
 		wg := sync.WaitGroup{}
-		wg.Add(len(candidates))
 		for i := range candidates { // Ask direct candidate first
+			wg.Add(1)
 			idx := i
 			f := func() {
 				defer wg.Done()
+
+				// res, err := http.Get(fmt.Sprintf("http://%s/v1/.well-known/ready", candidates[idx]))
+				// if err != nil {
+				// 	fmt.Println(err)
+				// }
+
+				// if res.StatusCode != http.StatusOK {
+				// 	fmt.Println(res)
+				// 	return
+				// }
+
 				resp, err := op(ctx, candidates[idx], idx == 0)
 
 				// If node is not responding delegate request to another node

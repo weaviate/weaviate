@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -1276,6 +1277,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 						"local shard object search %s: %w", shard.ID(), err)
 				}
 			} else {
+				fmt.Println("search remote")
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, "", limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
@@ -1518,6 +1520,10 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	shard := i.localShard(shardName)
 	if shard == nil {
 		return nil, nil, errShardNotFound
+	}
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, nil, enterrors.ErrShardIsNotReady
 	}
 
 	if searchVector == nil {

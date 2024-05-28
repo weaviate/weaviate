@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -187,7 +188,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 ) ([]*storobj.Object, []float32, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, nil, errors.Errorf("local index %q not found", indexName)
+		return nil, nil, enterrors.ErrIndexNotExists // errors.Errorf("local index %q not found", indexName)
 	}
 
 	return index.IncomingSearch(

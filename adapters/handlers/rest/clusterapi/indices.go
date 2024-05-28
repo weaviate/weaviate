@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -436,6 +437,7 @@ func (i *indices) getObject() http.Handler {
 			http.Error(w, "startup is not complete", http.StatusServiceUnavailable)
 			return
 		}
+		fmt.Println("GetObject ...")
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
 			selectProperties, additional)
 		if err != nil {
@@ -462,6 +464,7 @@ func (i *indices) getObject() http.Handler {
 func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 	index, shard, id string,
 ) {
+	fmt.Println("checkExists ...")
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -567,7 +570,7 @@ func (i *indices) getObjectsMulti() http.Handler {
 				http.StatusBadRequest)
 			return
 		}
-
+		fmt.Println("MultiGetObjects ...")
 		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -615,8 +618,14 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
+		fmt.Println("searching ...")
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
+		if err != nil && (errors.Is(err, enterrors.ErrShardIsNotReady) ||
+			errors.Is(err, enterrors.ErrIndexNotExists)) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -708,7 +717,7 @@ func (i *indices) postAggregateObjects() http.Handler {
 				http.StatusInternalServerError)
 			return
 		}
-
+		fmt.Println("Aggregate ...")
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -757,7 +766,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 				http.StatusBadRequest)
 			return
 		}
-
+		fmt.Println("FindUUIDs")
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -846,7 +855,7 @@ func (i *indices) getObjectsDigest() http.Handler {
 				http.StatusBadRequest)
 			return
 		}
-
+		fmt.Println("DigestObjects")
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil {
 			http.Error(w, "digest objects: "+err.Error(),
@@ -920,7 +929,7 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-
+		fmt.Println("GetShardQueueSize")
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -947,7 +956,7 @@ func (i *indices) getGetShardStatus() http.Handler {
 		index, shard := args[1], args[2]
 
 		defer r.Body.Close()
-
+		fmt.Println("GetShardStatus")
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

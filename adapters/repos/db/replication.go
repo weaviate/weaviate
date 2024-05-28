@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -32,8 +33,8 @@ import (
 )
 
 var (
-	ErrShardIsNotReady = errors.New("shard is loading and not ready")
-	ErrIndexNotExists  = errors.New("index doesn't exists")
+// ErrShardIsNotReady = errors.New("shard is loading and not ready")
+// ErrIndexNotExists  = errors.New("index doesn't exists")
 )
 
 type Replicator interface {
@@ -386,9 +387,10 @@ func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 func (db *DB) DigestObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
+	fmt.Println("DigestObjects")
 	index := db.GetIndex(schema.ClassName(class))
 	if index == nil {
-		return nil, ErrIndexNotExists
+		return nil, enterrors.ErrIndexNotExists
 	}
 	return index.digestObjects(ctx, shardName, ids)
 }
@@ -403,7 +405,7 @@ func (i *Index) digestObjects(ctx context.Context,
 	}
 
 	if s.GetStatus() == storagestate.StatusLoading {
-		return nil, ErrShardIsNotReady
+		return nil, enterrors.ErrShardIsNotReady
 	}
 
 	multiIDs := make([]multi.Identifier, len(ids))
@@ -450,9 +452,10 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 func (db *DB) FetchObject(ctx context.Context,
 	class, shardName string, id strfmt.UUID,
 ) (objects.Replica, error) {
+	fmt.Println("FetchObject")
 	index := db.GetIndex(schema.ClassName(class))
 	if index == nil {
-		return objects.Replica{}, ErrIndexNotExists
+		return objects.Replica{}, enterrors.ErrIndexNotExists
 	}
 	return index.readRepairGetObject(ctx, shardName, id)
 }
@@ -466,7 +469,7 @@ func (i *Index) readRepairGetObject(ctx context.Context,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
-		return objects.Replica{}, ErrShardIsNotReady
+		return objects.Replica{}, enterrors.ErrShardIsNotReady
 	}
 
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
@@ -494,9 +497,10 @@ func (i *Index) readRepairGetObject(ctx context.Context,
 func (db *DB) FetchObjects(ctx context.Context,
 	class, shardName string, ids []strfmt.UUID,
 ) ([]objects.Replica, error) {
+	fmt.Println("FetchObjects")
 	index := db.GetIndex(schema.ClassName(class))
 	if index == nil {
-		return nil, ErrIndexNotExists
+		return nil, enterrors.ErrIndexNotExists
 	}
 	return index.fetchObjects(ctx, shardName, ids)
 }
@@ -510,7 +514,7 @@ func (i *Index) fetchObjects(ctx context.Context,
 	}
 
 	if shard.GetStatus() == storagestate.StatusLoading {
-		return nil, ErrShardIsNotReady
+		return nil, enterrors.ErrShardIsNotReady
 	}
 
 	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))

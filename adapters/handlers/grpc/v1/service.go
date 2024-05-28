@@ -167,6 +167,7 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 }
 
 func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	fmt.Println("search")
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
@@ -189,6 +190,8 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Println("here")
 
 	return searchResultsToProto(res, before, searchParams, scheme, req.Uses_123Api)
 }
