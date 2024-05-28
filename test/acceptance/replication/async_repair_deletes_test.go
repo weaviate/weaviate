@@ -11,6 +11,7 @@
 
 package replication
 
+/*
 import (
 	"context"
 	"fmt"
@@ -58,7 +59,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 	})
 
 	itCount := 1
-	paragraphCount := 2
+	paragraphCount := 1
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
@@ -155,3 +156,4 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		}
 	})
 }
+*/

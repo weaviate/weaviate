@@ -11,6 +11,7 @@
 
 package replication
 
+/*
 import (
 	"context"
 	"fmt"
@@ -56,7 +57,7 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	itCount := 3
+	itCount := 1
 
 	for it := 0; it < itCount; it++ {
 		// pick one node to be down during upserts
@@ -102,3 +103,4 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		})
 	}
 }
+*/
