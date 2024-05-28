@@ -1336,15 +1336,20 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	shardName string,
 ) ([]*storobj.Object, []float32, error) {
 	shard := i.localShard(shardName)
+	if shard == nil {
+		return nil, nil, errShardNotFound
+	}
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
 	res, resDists, err := shard.ObjectVectorSearch(
 		ctx, searchVector, dist, limit, filters, sort, groupBy, additional)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
-		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
-	}
 	return res, resDists, nil
 }
 
