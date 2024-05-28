@@ -247,39 +247,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 	s.NotifyReady()
 
-	simulateLoadTime()
-
 	if exists {
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(before))
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
 	return s, nil
-}
-
-func simulateLoadTime() {
-	loadTime, ok := os.LookupEnv("SIMULATE_LOAD_TIME")
-	if !ok {
-		return
-	}
-
-	d, err := time.ParseDuration(loadTime)
-	if err != nil {
-		d = 30 * time.Second
-	}
-	loadCtx, cancelLoadCtx := context.WithTimeout(context.Background(), d)
-	defer cancelLoadCtx()
-
-	c := time.Tick(1 * time.Second)
-
-	for {
-		select {
-		case <-loadCtx.Done():
-			return
-		case <-c:
-			fmt.Println("Waiting for shard to be ready")
-		}
-	}
 }
 
 func (s *Shard) initVector(ctx context.Context) error {
