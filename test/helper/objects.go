@@ -64,19 +64,21 @@ func UpdateClass(t *testing.T, class *models.Class) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func CreateObject(t *testing.T, object *models.Object) {
+func CreateObject(t *testing.T, object *models.Object) error {
 	t.Helper()
 	params := objects.NewObjectsCreateParams().WithBody(object)
 	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	return err
 }
 
-func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)
 	params := objects.NewObjectsCreateParams().WithBody(object).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	return nil
 }
 
 func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
@@ -101,27 +103,30 @@ func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, 
 	}
 }
 
-func UpdateObject(t *testing.T, object *models.Object) {
+func UpdateObject(t *testing.T, object *models.Object) error {
 	t.Helper()
 	params := objects.NewObjectsUpdateParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	return err
 }
 
-func UpdateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+func UpdateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)
 	params := objects.NewObjectsClassPutParams().WithClassName(object.Class).
 		WithID(object.ID).WithBody(object).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsClassPut(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	return err
 }
 
-func PatchObject(t *testing.T, object *models.Object) {
+func PatchObject(t *testing.T, object *models.Object) error {
 	t.Helper()
 	params := objects.NewObjectsPatchParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsPatch(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	return err
 }
 
 func DeleteClass(t *testing.T, class string) {

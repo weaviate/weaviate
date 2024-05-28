@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -51,14 +53,18 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 const IdLockPoolSize = 128
+
+var errAlreadyShutdown = errors.New("already shut or dropped")
 
 type ShardLike interface {
 	Index() *Index                                                                      // Get the parent index
@@ -77,6 +83,7 @@ type ShardLike interface {
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
+	ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
 	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
@@ -98,11 +105,13 @@ type ShardLike interface {
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
 
-	Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error)
+	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
 	Shutdown(context.Context) error // Shutdown the shard
+	preventShutdown() (release func(), err error)
+
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
 		additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
@@ -124,7 +133,6 @@ type ShardLike interface {
 
 	commitReplication(context.Context, string, *backupMutex) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
-	reinit(context.Context) error
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
@@ -153,6 +161,11 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
+
+	// A thread-safe counter that goes up any time there is activity on this
+	// shard. The absolute value has no meaning, it's only purpose is to compare
+	// the previous value to the current value.
+	Activity() int32
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -198,6 +211,15 @@ type Shard struct {
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
+
+	activityTracker atomic.Int32
+
+	// indicates whether shard is shut down or dropped (or ongoing)
+	shut bool
+	// indicates whether shard in being used at the moment (e.g. write request)
+	inUseCounter atomic.Int64
+	// allows concurrent shut read/write
+	shutdownLock *sync.RWMutex
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -216,7 +238,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:  jobQueueCh,
 		indexCheckpoints: indexCheckpoints,
+
+		shut:         false,
+		shutdownLock: new(sync.RWMutex),
 	}
+
+	s.activityTracker.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -391,13 +418,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				ShardName:            s.name,
 				ClassName:            s.index.Config.ClassName.String(),
 				PrometheusMetrics:    s.promMetrics,
-				VectorForIDThunk:     s.vectorByIndexID,
-				TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+				VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
 				DistanceProvider:     distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-						hnsw.WithAllocChecker(s.index.allocChecker))
+						hnsw.WithAllocChecker(s.index.allocChecker),
+						hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
+						// consistent with previous logic where the individual limit is 1/5 of the combined limit
+						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
+					)
 				},
 				AllocChecker: s.index.allocChecker,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
@@ -433,9 +464,47 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
 		}
 		vectorIndex = vi
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		dynamicUserConfig, ok := vectorIndexUserConfig.(dynamicent.UserConfig)
+		if !ok {
+			return nil, errors.Errorf("dynamic vector index: config is not dynamic.UserConfig: %T",
+				vectorIndexUserConfig)
+		}
+		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
+
+		// a shard can actually have multiple vector indexes:
+		// - the main index, which is used for all normal object vectors
+		// - a geo property index for each geo prop in the schema
+		//
+		// here we label the main vector index as such.
+		vecIdxID := s.vectorIndexID(targetVector)
+
+		vi, err := dynamic.New(dynamic.Config{
+			ID:                   vecIdxID,
+			TargetVector:         targetVector,
+			Logger:               s.index.logger,
+			DistanceProvider:     distProv,
+			RootPath:             s.path(),
+			ShardName:            s.name,
+			ClassName:            s.index.Config.ClassName.String(),
+			PrometheusMetrics:    s.promMetrics,
+			VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
+			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+				return hnsw.NewCommitLogger(s.path(), vecIdxID,
+					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
+			},
+			TombstoneCallbacks:       s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			ShardCompactionCallbacks: s.cycleCallbacks.compactionCallbacks,
+			ShardFlushCallbacks:      s.cycleCallbacks.flushCallbacks,
+		}, dynamicUserConfig, s.store)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
+		}
+		vectorIndex = vi
 	default:
-		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\"]",
-			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT)
+		return nil, fmt.Errorf("Unknown vector index type: %q. Choose one from [\"%s\", \"%s\", \"%s\"]",
+			vectorIndexUserConfig.IndexType(), vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC)
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
@@ -527,6 +596,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		s.dynamicMemtableSizing(),
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {
@@ -553,7 +623,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 // If there is any action that needs to be performed beside files/dirs being removed
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
-func (s *Shard) drop() error {
+func (s *Shard) drop() (err error) {
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.metrics.baseMetrics.StartUnloadingShard(s.index.Config.ClassName.String())
 	s.replicationMap.clear()
@@ -566,11 +636,11 @@ func (s *Shard) drop() error {
 		s.clearDimensionMetrics()
 	}
 
-	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 
 	// unregister all callbacks at once, in parallel
-	if err := cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
+	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
 		s.cycleCallbacks.compactionCallbacksCtrl,
 		s.cycleCallbacks.flushCallbacksCtrl,
 		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
@@ -579,18 +649,18 @@ func (s *Shard) drop() error {
 		return err
 	}
 
-	if err := s.store.Shutdown(ctx); err != nil {
+	if err = s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
-	if _, err := os.Stat(s.pathLSM()); err == nil {
+	if _, err = os.Stat(s.pathLSM()); err == nil {
 		err := os.RemoveAll(s.pathLSM())
 		if err != nil {
 			return errors.Wrapf(err, "remove lsm store at %s", s.pathLSM())
 		}
 	}
 	// delete indexcount
-	err := s.counter.Drop()
+	err = s.counter.Drop()
 	if err != nil {
 		return errors.Wrapf(err, "remove indexcount at %s", s.path())
 	}
@@ -653,6 +723,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -668,6 +739,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 	if err != nil {
 		return err
@@ -698,6 +770,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -708,6 +781,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -753,7 +827,6 @@ func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGrou
 					return nil
 				})
 			}
-
 			return nil
 		})
 
@@ -774,6 +847,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		s.dynamicMemtableSizing(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	}
 
 	if inverted.HasFilterableIndex(prop) {
@@ -834,6 +908,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -847,6 +922,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -891,16 +967,52 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	return err
 }
 
-func (s *Shard) Shutdown(ctx context.Context) error {
+/*
+
+	batch
+		shut
+		false
+			in_use ++
+			defer in_use --
+		true
+			fail request
+
+
+
+	shutdown
+		loop + time:
+		if shut == true
+			fail request
+		in_use == 0 && shut == false
+			shut = true
+
+
+
+*/
+
+func (s *Shard) Shutdown(ctx context.Context) (err error) {
+	if err = s.waitForShutdown(ctx); err != nil {
+		return
+	}
+
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
 		s.stopMetrics <- struct{}{}
 	}
 
-	var err error
 	if err = s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
+	}
+
+	// unregister all callbacks at once, in parallel
+	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
+		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.flushCallbacksCtrl,
+		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+	).Unregister(ctx); err != nil {
+		return err
 	}
 
 	if s.hasTargetVectors() {
@@ -935,21 +1047,70 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// unregister all callbacks at once, in parallel
-	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
-		s.cycleCallbacks.compactionCallbacksCtrl,
-		s.cycleCallbacks.flushCallbacksCtrl,
-		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
-		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
-	).Unregister(ctx); err != nil {
-		return err
-	}
-
 	if err = s.store.Shutdown(ctx); err != nil {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
 	return nil
+}
+
+func (s *Shard) preventShutdown() (release func(), err error) {
+	s.shutdownLock.RLock()
+	defer s.shutdownLock.RUnlock()
+
+	if s.shut {
+		return func() {}, errAlreadyShutdown
+	}
+
+	s.inUseCounter.Add(1)
+	return func() { s.inUseCounter.Add(-1) }, nil
+}
+
+func (s *Shard) waitForShutdown(ctx context.Context) error {
+	checkInterval := 50 * time.Millisecond
+	timeout := 30 * time.Second
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	if eligible, err := s.checkEligibleForShutdown(); err != nil {
+		return err
+	} else if !eligible {
+		ticker := time.NewTicker(checkInterval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("Shard::proceedWithShutdown: %w", ctx.Err())
+			case <-ticker.C:
+				if eligible, err := s.checkEligibleForShutdown(); err != nil {
+					return err
+				} else if eligible {
+					return nil
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// checks whether shutdown can be executed
+// (shard is not in use at the moment)
+func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+
+	if s.shut {
+		return false, errAlreadyShutdown
+	}
+
+	if s.inUseCounter.Load() == 0 {
+		s.shut = true
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (s *Shard) NotifyReady() {
@@ -1009,4 +1170,8 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 		return []byte{uint8(filters.InternalNullState)}, nil
 	}
 	return []byte{uint8(filters.InternalNotNullState)}, nil
+}
+
+func (s *Shard) Activity() int32 {
+	return s.activityTracker.Load()
 }

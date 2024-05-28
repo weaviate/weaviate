@@ -37,7 +37,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	t.Run("PutObject", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		err := rep.PutObject(ctx, "S", nil, All)
+		err := rep.PutObject(ctx, "S", nil, All, 0)
 		assert.ErrorIs(t, err, errReplicas)
 		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
@@ -45,7 +45,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	t.Run("MergeObject", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		err := rep.MergeObject(ctx, "S", nil, All)
+		err := rep.MergeObject(ctx, "S", nil, All, 0)
 		assert.ErrorIs(t, err, errReplicas)
 		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
@@ -53,7 +53,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	t.Run("DeleteObject", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		err := rep.DeleteObject(ctx, "S", "id", All)
+		err := rep.DeleteObject(ctx, "S", "id", All, 0)
 		assert.ErrorIs(t, err, errReplicas)
 		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
@@ -83,7 +83,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	t.Run("AddReferences", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		errs := rep.AddReferences(ctx, "S", []objects.BatchReference{{}, {}}, All)
+		errs := rep.AddReferences(ctx, "S", []objects.BatchReference{{}, {}}, All, 0)
 		assert.Equal(t, 2, len(errs))
 		for _, err := range errs {
 			assert.ErrorIs(t, err, errReplicas)
@@ -106,10 +106,10 @@ func TestReplicatorPutObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
-			f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj).Return(resp, nil)
+			f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 			f.WClient.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 		}
-		err := rep.PutObject(ctx, shard, obj, All)
+		err := rep.PutObject(ctx, shard, obj, All, 123)
 		assert.Nil(t, err)
 	})
 	t.Run("SuccessWithConsistencyLevelOne", func(t *testing.T) {
@@ -118,15 +118,15 @@ func TestReplicatorPutObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 
-		f.WClient.On("PutObject", mock.Anything, "A", cls, shard, anyVal, obj).Return(resp, errAny).After(time.Second * 10)
+		f.WClient.On("PutObject", mock.Anything, "A", cls, shard, anyVal, obj, uint64(123)).Return(resp, errAny).After(time.Second * 10)
 		f.WClient.On("Abort", mock.Anything, "A", cls, shard, anyVal).Return(resp, nil)
 
-		f.WClient.On("PutObject", mock.Anything, "B", cls, shard, anyVal, obj).Return(resp, nil)
+		f.WClient.On("PutObject", mock.Anything, "B", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 		f.WClient.On("Commit", ctx, "B", cls, shard, anyVal, anyVal).Return(errAny)
 
-		f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj).Return(resp, nil)
+		f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 		f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil)
-		err := rep.PutObject(ctx, shard, obj, One)
+		err := rep.PutObject(ctx, shard, obj, One, 123)
 		assert.Nil(t, err)
 	})
 	t.Run("SuccessWithConsistencyLevelQuorum", func(t *testing.T) {
@@ -135,15 +135,15 @@ func TestReplicatorPutObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes[:2] {
-			f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj).Return(resp, nil)
+			f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 			f.WClient.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 		}
-		f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj).Return(resp, nil)
+		f.WClient.On("PutObject", mock.Anything, "C", cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 		f.WClient.On("Commit", ctx, "C", cls, shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
 			resp := a[5].(*SimpleResponse)
 			*resp = SimpleResponse{Errors: []Error{{Msg: "e3"}}}
 		}
-		err := rep.PutObject(ctx, shard, obj, Quorum)
+		err := rep.PutObject(ctx, shard, obj, Quorum, 123)
 		assert.Nil(t, err)
 	})
 
@@ -151,12 +151,12 @@ func TestReplicatorPutObject(t *testing.T) {
 		f := newFakeFactory("C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
-		f.WClient.On("PutObject", mock.Anything, nodes[0], cls, shard, anyVal, obj).Return(resp, nil)
-		f.WClient.On("PutObject", mock.Anything, nodes[1], cls, shard, anyVal, obj).Return(resp, errAny)
+		f.WClient.On("PutObject", mock.Anything, nodes[0], cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
+		f.WClient.On("PutObject", mock.Anything, nodes[1], cls, shard, anyVal, obj, uint64(123)).Return(resp, errAny)
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
-		err := rep.PutObject(ctx, shard, obj, All)
+		err := rep.PutObject(ctx, shard, obj, All, 123)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
@@ -164,13 +164,13 @@ func TestReplicatorPutObject(t *testing.T) {
 		f := newFakeFactory("C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
-		f.WClient.On("PutObject", mock.Anything, nodes[0], cls, shard, anyVal, obj).Return(resp, nil)
+		f.WClient.On("PutObject", mock.Anything, nodes[0], cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 		resp2 := SimpleResponse{[]Error{{Err: errAny}}}
-		f.WClient.On("PutObject", mock.Anything, nodes[1], cls, shard, anyVal, obj).Return(resp2, nil)
+		f.WClient.On("PutObject", mock.Anything, nodes[1], cls, shard, anyVal, obj, uint64(123)).Return(resp2, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
-		err := rep.PutObject(ctx, shard, obj, All)
+		err := rep.PutObject(ctx, shard, obj, All, 123)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
@@ -179,12 +179,12 @@ func TestReplicatorPutObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
-			f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj).Return(resp, nil)
+			f.WClient.On("PutObject", mock.Anything, n, cls, shard, anyVal, obj, uint64(123)).Return(resp, nil)
 		}
 		f.WClient.On("Commit", ctx, nodes[0], "C1", shard, anyVal, anyVal).Return(nil)
 		f.WClient.On("Commit", ctx, nodes[1], "C1", shard, anyVal, anyVal).Return(errAny)
 
-		err := rep.PutObject(ctx, shard, obj, All)
+		err := rep.PutObject(ctx, shard, obj, All, 123)
 		assert.ErrorIs(t, err, errAny)
 	})
 }
@@ -203,10 +203,10 @@ func TestReplicatorMergeObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
-			f.WClient.On("MergeObject", mock.Anything, n, cls, shard, anyVal, merge).Return(resp, nil)
+			f.WClient.On("MergeObject", mock.Anything, n, cls, shard, anyVal, merge, uint64(123)).Return(resp, nil)
 			f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
 		}
-		err := rep.MergeObject(ctx, shard, merge, All)
+		err := rep.MergeObject(ctx, shard, merge, All, 123)
 		assert.Nil(t, err)
 	})
 
@@ -214,12 +214,12 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f := newFakeFactory("C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
-		f.WClient.On("MergeObject", mock.Anything, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
-		f.WClient.On("MergeObject", mock.Anything, nodes[1], cls, shard, anyVal, merge).Return(resp, errAny)
+		f.WClient.On("MergeObject", mock.Anything, nodes[0], cls, shard, anyVal, merge, uint64(123)).Return(resp, nil)
+		f.WClient.On("MergeObject", mock.Anything, nodes[1], cls, shard, anyVal, merge, uint64(123)).Return(resp, errAny)
 		f.WClient.On("Abort", mock.Anything, nodes[0], cls, shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
-		err := rep.MergeObject(ctx, shard, merge, All)
+		err := rep.MergeObject(ctx, shard, merge, All, 123)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
@@ -227,13 +227,13 @@ func TestReplicatorMergeObject(t *testing.T) {
 		f := newFakeFactory("C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
-		f.WClient.On("MergeObject", mock.Anything, nodes[0], cls, shard, anyVal, merge).Return(resp, nil)
+		f.WClient.On("MergeObject", mock.Anything, nodes[0], cls, shard, anyVal, merge, uint64(123)).Return(resp, nil)
 		resp2 := SimpleResponse{[]Error{{Err: errAny}}}
-		f.WClient.On("MergeObject", mock.Anything, nodes[1], cls, shard, anyVal, merge).Return(resp2, nil)
+		f.WClient.On("MergeObject", mock.Anything, nodes[1], cls, shard, anyVal, merge, uint64(123)).Return(resp2, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[0], cls, shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], cls, shard, anyVal).Return(resp, nil)
 
-		err := rep.MergeObject(ctx, shard, merge, All)
+		err := rep.MergeObject(ctx, shard, merge, All, 123)
 		assert.ErrorIs(t, err, errReplicas)
 	})
 
@@ -242,12 +242,12 @@ func TestReplicatorMergeObject(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
-			f.WClient.On("MergeObject", mock.Anything, n, cls, shard, anyVal, merge).Return(resp, nil)
+			f.WClient.On("MergeObject", mock.Anything, n, cls, shard, anyVal, merge, uint64(123)).Return(resp, nil)
 		}
 		f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
 		f.WClient.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
 
-		err := rep.MergeObject(ctx, shard, merge, All)
+		err := rep.MergeObject(ctx, shard, merge, All, 123)
 		assert.ErrorIs(t, err, errAny)
 	})
 }
@@ -266,15 +266,15 @@ func TestReplicatorDeleteObject(t *testing.T) {
 		rep := factory.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 1)}
 		for _, n := range nodes[:2] {
-			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid).Return(resp, nil)
+			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid, uint64(123)).Return(resp, nil)
 			client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 		}
-		client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid).Return(SimpleResponse{}, errAny)
+		client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid, uint64(123)).Return(SimpleResponse{}, errAny)
 		for _, n := range nodes {
 			client.On("Abort", mock.Anything, n, "C1", shard, anyVal).Return(resp, nil)
 		}
 
-		err := rep.DeleteObject(ctx, shard, uuid, All)
+		err := rep.DeleteObject(ctx, shard, uuid, All, 123)
 		assert.NotNil(t, err)
 		assert.ErrorIs(t, err, errReplicas)
 	})
@@ -285,12 +285,12 @@ func TestReplicatorDeleteObject(t *testing.T) {
 		rep := factory.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 1)}
 		for _, n := range nodes {
-			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid).Return(resp, nil)
+			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid, uint64(123)).Return(resp, nil)
 			client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 		}
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, All))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, All, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One, 123))
 	})
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
@@ -298,7 +298,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 		rep := factory.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 1)}
 		for _, n := range nodes[:2] {
-			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid).Return(resp, nil)
+			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid, uint64(123)).Return(resp, nil)
 			client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
 				resp := a[5].(*SimpleResponse)
 				*resp = SimpleResponse{
@@ -306,7 +306,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 				}
 			}
 		}
-		client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid).Return(resp, nil)
+		client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid, uint64(123)).Return(resp, nil)
 		client.On("Commit", ctx, "C", "C1", shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
 			resp := a[5].(*SimpleResponse)
 			*resp = SimpleResponse{
@@ -314,9 +314,9 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			}
 		}
 
-		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, All))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One))
+		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, All, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One, 123))
 	})
 
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
@@ -325,7 +325,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 		rep := factory.newReplicator()
 		resp := SimpleResponse{Errors: make([]Error, 1)}
 		for _, n := range nodes[:2] {
-			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid).Return(resp, nil)
+			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid, uint64(123)).Return(resp, nil)
 			client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
 				resp := a[5].(*SimpleResponse)
 				*resp = SimpleResponse{
@@ -333,7 +333,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 				}
 			}
 		}
-		client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid).Return(resp, nil)
+		client.On("DeleteObject", mock.Anything, "C", cls, shard, anyVal, uuid, uint64(123)).Return(resp, nil)
 		client.On("Commit", ctx, "C", "C1", shard, anyVal, anyVal).Return(nil).RunFn = func(a mock.Arguments) {
 			resp := a[5].(*SimpleResponse)
 			*resp = SimpleResponse{
@@ -341,9 +341,9 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			}
 		}
 
-		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, All))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One))
+		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, All, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum, 123))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One, 123))
 	})
 }
 
@@ -616,10 +616,10 @@ func TestReplicatorAddReferences(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
-			f.WClient.On("AddReferences", mock.Anything, n, cls, shard, anyVal, refs).Return(resp, nil)
+			f.WClient.On("AddReferences", mock.Anything, n, cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
 			f.WClient.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil)
 		}
-		errs := rep.AddReferences(ctx, shard, refs, All)
+		errs := rep.AddReferences(ctx, shard, refs, All, 123)
 		assert.Equal(t, []error{nil, nil}, errs)
 	})
 
@@ -627,12 +627,12 @@ func TestReplicatorAddReferences(t *testing.T) {
 		f := newFakeFactory("C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
-		f.WClient.On("AddReferences", mock.Anything, nodes[0], cls, shard, anyVal, refs).Return(resp, nil)
-		f.WClient.On("AddReferences", mock.Anything, nodes[1], cls, shard, anyVal, refs).Return(resp, errAny)
+		f.WClient.On("AddReferences", mock.Anything, nodes[0], cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
+		f.WClient.On("AddReferences", mock.Anything, nodes[1], cls, shard, anyVal, refs, uint64(123)).Return(resp, errAny)
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
-		errs := rep.AddReferences(ctx, shard, refs, All)
+		errs := rep.AddReferences(ctx, shard, refs, All, 123)
 		assert.Equal(t, 2, len(errs))
 		assert.ErrorIs(t, errs[0], errReplicas)
 	})
@@ -641,13 +641,13 @@ func TestReplicatorAddReferences(t *testing.T) {
 		f := newFakeFactory("C1", shard, nodes)
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
-		f.WClient.On("AddReferences", mock.Anything, nodes[0], cls, shard, anyVal, refs).Return(resp, nil)
+		f.WClient.On("AddReferences", mock.Anything, nodes[0], cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
 		resp2 := SimpleResponse{[]Error{{Msg: "E1"}, {Msg: "E2"}}}
-		f.WClient.On("AddReferences", mock.Anything, nodes[1], cls, shard, anyVal, refs).Return(resp2, nil)
+		f.WClient.On("AddReferences", mock.Anything, nodes[1], cls, shard, anyVal, refs, uint64(123)).Return(resp2, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[0], "C1", shard, anyVal).Return(resp, nil)
 		f.WClient.On("Abort", mock.Anything, nodes[1], "C1", shard, anyVal).Return(resp, nil)
 
-		errs := rep.AddReferences(ctx, shard, refs, All)
+		errs := rep.AddReferences(ctx, shard, refs, All, 123)
 		assert.Equal(t, 2, len(errs))
 		for _, err := range errs {
 			assert.ErrorIs(t, err, errReplicas)
@@ -659,12 +659,12 @@ func TestReplicatorAddReferences(t *testing.T) {
 		rep := f.newReplicator()
 		resp := SimpleResponse{}
 		for _, n := range nodes {
-			f.WClient.On("AddReferences", mock.Anything, n, cls, shard, anyVal, refs).Return(resp, nil)
+			f.WClient.On("AddReferences", mock.Anything, n, cls, shard, anyVal, refs, uint64(123)).Return(resp, nil)
 		}
 		f.WClient.On("Commit", ctx, nodes[0], cls, shard, anyVal, anyVal).Return(nil)
 		f.WClient.On("Commit", ctx, nodes[1], cls, shard, anyVal, anyVal).Return(errAny)
 
-		errs := rep.AddReferences(ctx, shard, refs, All)
+		errs := rep.AddReferences(ctx, shard, refs, All, 123)
 		assert.Equal(t, len(errs), 2)
 		assert.ErrorIs(t, errs[0], errAny)
 		assert.ErrorIs(t, errs[1], errAny)

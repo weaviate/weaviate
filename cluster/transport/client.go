@@ -35,11 +35,12 @@ const serviceConfig = `
 					"service": "weaviate.internal.cluster.ClusterService", "method": "Query"
 				}
 			],
+			"waitForReady": true,			
 			"retryPolicy": {
 				"MaxAttempts": 5,
 				"BackoffMultiplier": 2,
 				"InitialBackoff": "0.5s",
-				"MaxBackoff": "3s",
+				"MaxBackoff": "5s",
 				"RetryableStatusCodes": [
 					"ABORTED",
 					"RESOURCE_EXHAUSTED",
@@ -61,13 +62,14 @@ type rpcAddressResolver interface {
 type Client struct {
 	rpc rpcAddressResolver
 
-	connLock   sync.Mutex
-	leaderAddr string
-	leaderConn *grpc.ClientConn
+	connLock          sync.Mutex
+	leaderAddr        string
+	leaderConn        *grpc.ClientConn
+	rpcMessageMaxSize int
 }
 
-func NewClient(r rpcAddressResolver) *Client {
-	return &Client{rpc: r}
+func NewClient(r rpcAddressResolver, rpcMessageMaxSize int) *Client {
+	return &Client{rpc: r, rpcMessageMaxSize: rpcMessageMaxSize}
 }
 
 // Join joins this node to an existing cluster identified by its leader's address.
@@ -129,8 +131,11 @@ func (cl *Client) Query(ctx context.Context, leaderAddress string, req *cmd.Quer
 	return c.Query(ctx, req)
 }
 
-func (cl *Client) Close() {
-	cl.leaderConn.Close()
+func (cl *Client) Close() error {
+	if cl.leaderConn != nil {
+		return cl.leaderConn.Close()
+	}
+	return nil
 }
 
 func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
@@ -155,6 +160,7 @@ func (cl *Client) getConn(leaderAddress string) (*grpc.ClientConn, error) {
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMessageMaxSize)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)

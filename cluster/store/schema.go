@@ -20,6 +20,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -105,6 +106,28 @@ func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
 	return meta.CloneClass(), meta.ClassVersion
 }
 
+// ReadOnlyClass returns a shallow copy of a class.
+// The copy is read-only and should not be modified.
+func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
+	if len(classes) == 0 {
+		return nil
+	}
+
+	vclasses := make(map[string]versioned.Class, len(classes))
+	s.RLock()
+	defer s.RUnlock()
+
+	for _, class := range classes {
+		meta := s.Classes[class]
+		if meta == nil {
+			continue
+		}
+		vclasses[class] = versioned.Class{Class: meta.CloneClass(), Version: meta.ClassVersion}
+	}
+
+	return vclasses
+}
+
 // ReadOnlySchema returns a read only schema
 // Changing the schema outside this package might lead to undefined behavior.
 //
@@ -156,17 +179,17 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, uint64, error) {
 	return meta.ShardReplicas(shard)
 }
 
-// TenantShard returns shard name for the provided tenant and its activity status
-func (s *schema) TenantShard(class, tenant string) (string, string, uint64) {
+// TenantsShards returns shard name for the provided tenant and its activity status
+func (s *schema) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
 	s.RLock()
 	defer s.RUnlock()
 
 	meta := s.Classes[class]
 	if meta == nil {
-		return "", "", 0
+		return nil, 0
 	}
 
-	return meta.TenantShard(tenant)
+	return meta.TenantsShards(class, tenants...)
 }
 
 func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
@@ -178,12 +201,12 @@ func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	return meta.CopyShardingState()
 }
 
-func (s *schema) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	return s.shardReader.GetShardsStatus(class)
+func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	return s.shardReader.GetShardsStatus(class, tenant)
 }
 
 type shardReader interface {
-	GetShardsStatus(class string) (models.ShardStatusList, error)
+	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
 func NewSchema(nodeID string, shardReader shardReader) *schema {
@@ -198,6 +221,20 @@ func (s *schema) len() int {
 	s.RLock()
 	defer s.RUnlock()
 	return len(s.Classes)
+}
+
+func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo, error) {
+	s.Lock()
+	defer s.Unlock()
+	meta := s.Classes[class]
+	info := s.Classes[class].ClassInfo()
+	if meta == nil {
+		return false, nil, ClassInfo{}, errClassNotFound
+	}
+	if !info.MultiTenancy.Enabled {
+		return false, nil, ClassInfo{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+	}
+	return true, meta, info, nil
 }
 
 func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error {
@@ -243,69 +280,53 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
-	s.Lock()
-	defer s.Unlock()
 
-	meta := s.Classes[class]
-	if meta == nil {
-		return errClassNotFound
+	if ok, meta, info, err := s.multiTenancyEnabled(class); !ok {
+		return err
+	} else {
+		return meta.AddTenants(s.nodeID, req, int64(info.ReplicationFactor), v)
 	}
-
-	return meta.AddTenants(s.nodeID, req, v)
 }
 
 func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenantsRequest) error {
-	s.Lock()
-	defer s.Unlock()
-
-	meta := s.Classes[class]
-	if meta == nil {
-		return errClassNotFound
+	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+		return err
+	} else {
+		return meta.DeleteTenants(req, v)
 	}
-
-	return meta.DeleteTenants(req, v)
 }
 
 func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) (n int, err error) {
-	s.Lock()
-	defer s.Unlock()
-
-	meta := s.Classes[class]
-	if meta == nil {
-		return 0, errClassNotFound
+	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+		return 0, err
+	} else {
+		return meta.UpdateTenants(s.nodeID, req, v)
 	}
-
-	return meta.UpdateTenants(s.nodeID, req, v)
 }
 
-func (s *schema) getTenants(class string) ([]*models.Tenant, error) {
-	s.RLock()
-	// To avoid races between checking that multi tenancy is enabled and reading from the class itself,
-	// ensure we fetch both using the same lock.
-	// We will then read the tenants from the class using the more specific meta lock
-	info := s.Classes[class].ClassInfo()
-	meta := s.Classes[class]
-	s.RUnlock()
-
-	// Check that the class exists, and that multi tenancy is enabled
-	if meta == nil {
-		return []*models.Tenant{}, errClassNotFound
-	}
-	if !info.MultiTenancy.Enabled {
-		return []*models.Tenant{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
+func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
+	ok, meta, _, err := s.multiTenancyEnabled(class)
+	if !ok {
+		return nil, err
 	}
 
 	// Read tenants using the meta lock guard
 	var res []*models.Tenant
 	f := func(_ *models.Class, ss *sharding.State) error {
-		res = make([]*models.Tenant, len(ss.Physical))
-		i := 0
-		for tenant := range ss.Physical {
-			res[i] = &models.Tenant{
-				Name:           tenant,
-				ActivityStatus: entSchema.ActivityStatus(ss.Physical[tenant].Status),
+		if len(tenants) == 0 {
+			res = make([]*models.Tenant, len(ss.Physical))
+			i := 0
+			for tenant := range ss.Physical {
+				res[i] = makeTenant(tenant, entSchema.ActivityStatus(ss.Physical[tenant].Status))
+				i++
 			}
-			i++
+		} else {
+			res = make([]*models.Tenant, 0, len(tenants))
+			for _, tenant := range tenants {
+				if status, ok := ss.Physical[tenant]; ok {
+					res = append(res, makeTenant(tenant, entSchema.ActivityStatus(status.Status)))
+				}
+			}
 		}
 		return nil
 	}
@@ -327,10 +348,24 @@ func (s *schema) States() map[string]ClassState {
 	return cs
 }
 
+func (s *schema) MetaClasses() map[string]*metaClass {
+	s.RLock()
+	defer s.RUnlock()
+
+	return s.Classes
+}
+
 func (s *schema) clear() {
 	s.Lock()
 	defer s.Unlock()
 	for k := range s.Classes {
 		delete(s.Classes, k)
+	}
+}
+
+func makeTenant(name, status string) *models.Tenant {
+	return &models.Tenant{
+		Name:           name,
+		ActivityStatus: status,
 	}
 }

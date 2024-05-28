@@ -51,48 +51,15 @@ func (h *Handler) AddTenants(ctx context.Context,
 		return 0, err
 	}
 
-	info, err := h.multiTenancy(class)
-	if err != nil {
-		return 0, err
-	}
-
-	names := make([]string, len(validated))
-	for i, tenant := range validated {
-		names[i] = tenant.Name
-	}
-
-	// create transaction payload
-	var partitions map[string][]string
-	f := func(_ *models.Class, st *sharding.State) (err error) {
-		if st == nil {
-			return fmt.Errorf("sharding state %w", ErrNotFound)
-		}
-		partitions, err = st.GetPartitions(h.clusterState, names, int64(info.ReplicationFactor))
-		return err
-	}
-
-	if err := h.metaReader.Read(class, f); err != nil {
-		return 0, fmt.Errorf("get partitions from class %q: %w", class, err)
-	}
-
-	if len(partitions) != len(names) {
-		h.logger.WithField("action", "add_tenants").
-			WithField("#partitions", len(partitions)).
-			WithField("#requested", len(names)).
-			Tracef("number of partitions for class %q does not match number of requested tenants", class)
-	}
 	request := api.AddTenantsRequest{
-		Tenants: make([]*api.Tenant, 0, len(partitions)),
+		ClusterNodes: h.clusterState.Candidates(),
+		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
-	for i, name := range names {
-		part, ok := partitions[name]
-		if ok {
-			request.Tenants = append(request.Tenants, &api.Tenant{
-				Name:   name,
-				Nodes:  part,
-				Status: schema.ActivityStatus(validated[i].ActivityStatus),
-			})
-		}
+	for i, tenant := range validated {
+		request.Tenants = append(request.Tenants, &api.Tenant{
+			Name:   tenant.Name,
+			Status: schema.ActivityStatus(validated[i].ActivityStatus),
+		})
 	}
 
 	return h.metaWriter.AddTenants(class, &request)
@@ -167,9 +134,6 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err := validateActivityStatuses(validated, false); err != nil {
 		return err
 	}
-	if _, err := h.multiTenancy(class); err != nil {
-		return err
-	}
 
 	req := api.UpdateTenantsRequest{
 		Tenants: make([]*api.Tenant, len(tenants)),
@@ -194,12 +158,6 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		}
 	}
 
-	// TODO-RAFT when should we update metadata before or after apply
-	// Same thing for the other operation
-	if _, err := h.multiTenancy(class); err != nil {
-		return err
-	}
-
 	req := api.DeleteTenantsRequest{
 		Tenants: tenants,
 	}
@@ -218,18 +176,18 @@ func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, c
 	return h.getTenants(class)
 }
 
-func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool) ([]*models.Tenant, error) {
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return nil, err
 	}
 
 	if consistency {
-		tenants, _, err := h.metaWriter.QueryTenants(class)
+		tenants, _, err := h.metaWriter.QueryTenants(class, tenants)
 		return tenants, err
 	}
 
 	// If non consistent, fallback to the default implementation
-	return h.getTenants(class)
+	return h.getTenantsByNames(class, tenants)
 }
 
 func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
@@ -240,10 +198,10 @@ func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
 
 	ts := make([]*models.Tenant, info.Tenants)
 	f := func(_ *models.Class, ss *sharding.State) error {
-		if N := len(ss.Physical); N > len(ts) {
-			ts = make([]*models.Tenant, N)
-		} else if N < len(ts) {
-			ts = ts[:N]
+		if n := len(ss.Physical); n > len(ts) {
+			ts = make([]*models.Tenant, n)
+		} else if n < len(ts) {
+			ts = ts[:n]
 		}
 		i := 0
 		for tenant := range ss.Physical {
@@ -272,17 +230,26 @@ func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {
 // TenantExists is used to check if the tenant exists of a class
 //
 // Class must exist and has partitioning enabled
-func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal, class string, tenant string) error {
-	tenants, err := m.GetTenants(ctx, principal, class)
-	if err != nil {
+func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
+	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
 		return err
 	}
 
-	for _, t := range tenants {
-		if t.Name == tenant {
-			return nil
-		}
+	var tenants []*models.Tenant
+	var err error
+	if consistency {
+		tenants, _, err = h.metaWriter.QueryTenants(class, []string{tenant})
+	} else {
+		// If non consistent, fallback to the default implementation
+		tenants, err = h.getTenantsByNames(class, []string{tenant})
 	}
+	if err != nil {
+		return err
+	}
+	if len(tenants) == 1 {
+		return nil
+	}
+
 	return ErrNotFound
 }
 
@@ -291,4 +258,26 @@ func (m *Manager) TenantExists(ctx context.Context, principal *models.Principal,
 func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 	return slices.Contains(phys.BelongsToNodes, localNode) &&
 		phys.Status == models.TenantActivityStatusHOT
+}
+
+func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
+	info, err := h.multiTenancy(class)
+	if err != nil || info.Tenants == 0 {
+		return nil, err
+	}
+
+	ts := make([]*models.Tenant, 0, len(names))
+	f := func(_ *models.Class, ss *sharding.State) error {
+		for _, name := range names {
+			if _, ok := ss.Physical[name]; !ok {
+				continue
+			}
+			ts = append(ts, &models.Tenant{
+				Name:           name,
+				ActivityStatus: schema.ActivityStatus(ss.Physical[name].Status),
+			})
+		}
+		return nil
+	}
+	return ts, h.metaReader.Read(class, f)
 }

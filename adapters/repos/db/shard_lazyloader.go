@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -205,6 +206,13 @@ func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props se
 		return nil, err
 	}
 	return l.shard.ObjectByID(ctx, id, props, additional)
+}
+
+func (l *LazyLoadShard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ObjectByIDErrDeleted(ctx, id, props, additional)
 }
 
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
@@ -386,11 +394,11 @@ func (l *LazyLoadShard) publishDimensionMetrics() {
 	l.shard.publishDimensionMetrics()
 }
 
-func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
+func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.Aggregate(ctx, params)
+	return l.shard.Aggregate(ctx, params, modules)
 }
 
 func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDocument) error {
@@ -415,6 +423,13 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 		return nil
 	}
 	return l.shard.Shutdown(ctx)
+}
+
+func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
+	if err := l.Load(context.Background()); err != nil {
+		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
+	}
+	return l.shard.preventShutdown()
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
@@ -494,13 +509,6 @@ func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, m
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
 	l.mustLoad()
 	return l.shard.abortReplication(ctx, shardID)
-}
-
-func (l *LazyLoadShard) reinit(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.reinit(ctx)
 }
 
 func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.WriteCloser, error) {
@@ -611,4 +619,19 @@ func (l *LazyLoadShard) isLoaded() bool {
 	defer l.mutex.Unlock()
 
 	return l.loaded
+}
+
+func (l *LazyLoadShard) Activity() int32 {
+	var loaded bool
+	l.mutex.Lock()
+	loaded = l.loaded
+	l.mutex.Unlock()
+
+	if !loaded {
+		// don't force-load the shard, just report the same number every time, so
+		// the caller can figure out there was no activity
+		return 0
+	}
+
+	return l.shard.Activity()
 }

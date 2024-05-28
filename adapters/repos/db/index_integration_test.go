@@ -103,8 +103,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	// create index with data
 	shardState := singleShardState()
 	index, err := NewIndex(testCtx(), IndexConfig{
-		RootPath:  dirName,
-		ClassName: schema.ClassName(class.Class),
+		RootPath:          dirName,
+		ClassName:         schema.ClassName(class.Class),
+		ReplicationFactor: NewAtomicInt64(1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -139,7 +140,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -163,8 +164,9 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 
 	// recreate the index
 	index, err = NewIndex(testCtx(), IndexConfig{
-		RootPath:  dirName,
-		ClassName: schema.ClassName(class.Class),
+		RootPath:          dirName,
+		ClassName:         schema.ClassName(class.Class),
+		ReplicationFactor: NewAtomicInt64(1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema:     fakeSchema,
@@ -201,7 +203,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
+			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -241,7 +243,7 @@ func TestIndex_DropReadOnlyEmptyIndex(t *testing.T) {
 	class := &models.Class{Class: "deletetest"}
 	shard, index := testShard(t, ctx, class.Class)
 
-	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String())
+	err := index.updateShardStatus(ctx, shard.Name(), storagestate.StatusReadOnly.String(), 0)
 	require.Nil(t, err)
 
 	err = index.drop()
@@ -273,8 +275,9 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 
 	shardState := singleShardState()
 	index, err := NewIndex(ctx, IndexConfig{
-		RootPath:  dirName,
-		ClassName: schema.ClassName(class.Class),
+		RootPath:          dirName,
+		ClassName:         schema.ClassName(class.Class),
+		ReplicationFactor: NewAtomicInt64(1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
@@ -309,7 +312,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		}
 
 		err := index.putObject(ctx, storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -332,6 +335,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		RootPath:              rootDir,
 		ClassName:             schema.ClassName(class.Class),
 		DisableLazyLoadShards: true,
+		ReplicationFactor:     NewAtomicInt64(1),
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			shardState: shardState,

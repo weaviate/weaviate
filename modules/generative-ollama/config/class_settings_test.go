@@ -34,14 +34,14 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{},
 			},
 			wantApiEndpoint: "http://localhost:11434",
-			wantModel:       "llama2",
+			wantModel:       "llama3",
 			wantErr:         nil,
 		},
 		{
 			name: "everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"modelId": "mistral",
+					"model": "mistral",
 				},
 			},
 			wantApiEndpoint: "http://localhost:11434",
@@ -49,13 +49,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
-			name: "unsupported model",
+			name: "empty model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"modelId": "MarcinLLM",
+					"model": "",
 				},
 			},
-			wantErr: errors.New("wrong Ollama model name, available model names are: [llama2 mistral dolphin-phi phi neural-chat starling-lm codellama llama2-uncensored llama2:13b llama2:70b orca-mini vicuna llava gemma:2b gemma:7b]"),
+			wantErr: errors.New("model cannot be empty"),
 		},
 	}
 	for _, tt := range tests {
@@ -66,7 +66,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				require.Error(t, err)
 				assert.Equal(t, tt.wantErr.Error(), err.Error())
 			} else {
-				assert.Equal(t, tt.wantModel, ic.ModelID())
+				assert.Equal(t, tt.wantModel, ic.Model())
 			}
 		})
 	}

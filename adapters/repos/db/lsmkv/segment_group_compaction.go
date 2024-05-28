@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,13 +143,14 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		}
 	}
 
-	// TODO: remove debug logging
-	compID := rand.Intn(10000)
-	sg.logger.WithField("action", "lsm_compaction").WithField("compaction", compID).Infof("start lsm compaction")
-	defer sg.logger.WithField("action", "lsm_compaction_finished").WithField("compaction", compID).Infof("start lsm compaction")
-
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
+
+	if !sg.compactionFitsSizeLimit(leftSegment, rightSegment) {
+		// nothing to do this round, let's wait for the next round in the hopes
+		// that we'll find smaller (lower-level) segments that can still fit.
+		return false, nil
+	}
 
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 
@@ -475,4 +475,14 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 			"path":     dir,
 		}).Set(float64(count))
 	}
+}
+
+func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
+	if sg.maxSegmentSize == 0 {
+		// no limit is set, always return true
+		return true
+	}
+
+	totalSize := left.size + right.size
+	return totalSize <= sg.maxSegmentSize
 }

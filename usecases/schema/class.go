@@ -21,17 +21,19 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
+	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
@@ -49,79 +51,93 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		return nil, 0, err
 	}
 	if consistency {
-		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
-		return class, version, err
+		vclasses, err := h.metaWriter.QueryReadOnlyClasses(name)
+		return vclasses[name].Class, vclasses[name].Version, err
 	}
 	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)
 	return class, 0, nil
 }
 
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
-	principal *models.Principal, name string,
-) (*models.Class, uint64, error) {
+	principal *models.Principal, names ...string,
+) (map[string]versioned.Class, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 
-	return classcache.ClassFromContext(ctxWithClassCache, name, func(name string) (*models.Class, uint64, error) {
-		class, version, err := h.metaWriter.QueryReadOnlyClass(name)
+	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
+		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
 		if err != nil {
-			return nil, 0, err
+			return nil, err
 		}
-		if class == nil {
-			return nil, 0, nil
+
+		if len(vclasses) == 0 {
+			return nil, nil
 		}
-		err = h.parser.ParseClass(class)
-		if err != nil {
-			return nil, 0, err
+
+		for _, vclass := range vclasses {
+			if err := h.parser.ParseClass(vclass.Class); err != nil {
+				// remove invalid classes
+				h.logger.WithFields(logrus.Fields{
+					"Class": vclass.Class.Class,
+					"Error": err,
+				}).Warn("parsing class error")
+				delete(vclasses, vclass.Class.Class)
+				continue
+			}
 		}
-		return class, version, nil
-	})
+
+		return vclasses, nil
+	}, names...)
 }
 
 // AddClass to the schema
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
-) (uint64, error) {
+) (*models.Class, uint64, error) {
 	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 	if cls.ShardingConfig != nil && schema.MultiTenancyEnabled(cls) {
-		return 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+		return nil, 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
 	} else if cls.MultiTenancyConfig == nil {
 		cls.MultiTenancyConfig = &models.MultiTenancyConfig{}
 	} else if cls.MultiTenancyConfig.Enabled {
-		cls.ShardingConfig = shardingConfig.Config{DesiredCount: 0} // tenant shards will be created dynamically
+		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
 	h.setClassDefaults(cls)
 
 	if err := h.validateCanAddClass(ctx, cls, false); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	// migrate only after validation in completed
 	h.migrateClassSettings(cls)
 	if err := h.parser.ParseClass(cls); err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
-		cls.ShardingConfig.(shardingConfig.Config),
+		cls.ShardingConfig.(shardingcfg.Config),
 		h.clusterState, cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
-		return 0, fmt.Errorf("init sharding state: %w", err)
+		return nil, 0, fmt.Errorf("init sharding state: %w", err)
 	}
-	return h.metaWriter.AddClass(cls, shardState)
+	version, err := h.metaWriter.AddClass(cls, shardState)
+	if err != nil {
+		return nil, 0, err
+	}
+	return cls, version, err
 }
 
 func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m map[string]string) error {
@@ -195,7 +211,9 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
 	}
+
 	initial := h.metaReader.ReadOnlyClass(className)
+	var shardingState *sharding.State
 
 	// first layer of defense is basic validation if class already exists
 	if initial != nil {
@@ -204,17 +222,28 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return err
 		}
 
-		if initial.ReplicationConfig.Factor != updated.ReplicationConfig.Factor {
-			return fmt.Errorf("updating replication factor is not supported yet")
+		initialRF := initial.ReplicationConfig.Factor
+		updatedRF := updated.ReplicationConfig.Factor
+
+		if initialRF != updatedRF {
+			ss, _, err := h.metaWriter.QueryShardingState(className)
+			if err != nil {
+				return fmt.Errorf("query sharding state for %q: %w", className, err)
+			}
+			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
+			if err != nil {
+				return fmt.Errorf(
+					"scale %q from %d replicas to %d: %w",
+					className, initialRF, updatedRF, err)
+			}
 		}
 
 		if err := validateImmutableFields(initial, updated); err != nil {
 			return err
 		}
-
 	}
-	_, err = h.metaWriter.UpdateClass(updated, nil)
 
+	_, err = h.metaWriter.UpdateClass(updated, shardingState)
 	return err
 }
 
@@ -526,6 +555,10 @@ func (h *Handler) validateCanAddClass(
 		return err
 	}
 
+	if err := validateMT(class); err != nil {
+		return err
+	}
+
 	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
 		return err
 	}
@@ -645,12 +678,25 @@ func (m *Handler) validateVectorizer(vectorizer string) error {
 
 func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	switch vectorIndexType {
-	case "hnsw", "flat":
+	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC:
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
 			vectorIndexType)
 	}
+}
+
+func validateMT(class *models.Class) error {
+	enabled := schema.MultiTenancyEnabled(class)
+	if !enabled && schema.AutoTenantCreationEnabled(class) {
+		return fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
+	}
+
+	if !enabled && schema.AutoTenantActivationEnabled(class) {
+		return fmt.Errorf("can't enable autoTenantActivation on a non-multi-tenant class")
+	}
+
+	return nil
 }
 
 // validateUpdatingMT validates toggling MT and returns whether mt is enabled
@@ -662,7 +708,10 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 		} else {
 			err = fmt.Errorf("enabling multi-tenancy for an existing class is not supported")
 		}
+	} else {
+		err = validateMT(update)
 	}
+
 	return
 }
 

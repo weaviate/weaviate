@@ -45,7 +45,7 @@ type batchRepoNew interface {
 	BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
 		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) (BatchDeleteResult, error)
 	AddBatchReferences(ctx context.Context, references BatchReferences,
-		repl *additional.ReplicationProperties) (BatchReferences, error)
+		repl *additional.ReplicationProperties, schemaVersion uint64) (BatchReferences, error)
 }
 
 // NewBatchManager creates a new manager

@@ -67,8 +67,8 @@ func (m *GenerativeAWSModule) initAdditional(ctx context.Context, timeout time.D
 ) error {
 	awsAccessKey := m.getAWSAccessKey()
 	awsSecret := m.getAWSSecretAccessKey()
-
-	client := clients.New(awsAccessKey, awsSecret, timeout, logger)
+	awsSessionToken := os.Getenv("AWS_SESSION_TOKEN")
+	client := clients.New(awsAccessKey, awsSecret, awsSessionToken, timeout, logger)
 
 	m.generative = client
 

@@ -196,6 +196,8 @@ type Config struct {
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
+	MaxSegmentSize            int64
+	HNSWMaxLogSize            int64
 	TrackVectorDimensions     bool
 	ServerVersion             string
 	GitHash                   string
@@ -212,6 +214,7 @@ func (db *DB) GetIndex(className schema.ClassName) *Index {
 		index  *Index
 		exists bool
 	)
+	// TODO-RAFT remove backoff. Eventual consistency handled by versioning
 	backoff.Retry(func() error {
 		db.indexLock.RLock()
 		defer db.indexLock.RUnlock()
@@ -231,10 +234,26 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil
 }
 
-// GetIndexForIncoming returns the index if it exists or nil if it doesn't
+// TODO-RAFT: Because of interfaces and import order we can't have this function just return the same index interface
+// for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remove the
+// deduplication
+
+// GetIndexForIncomingSharding returns the index if it exists or nil if it doesn't
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
-func (db *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+	index := db.GetIndex(className)
+	if index == nil {
+		return nil
+	}
+
+	return index
+}
+
+// GetIndexForIncomingReplica returns the index if it exists or nil if it doesn't
+// by default it will retry 3 times between 0-150 ms to get the index
+// to handle the eventual consistency.
+func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.RemoteIndexIncomingRepo {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil

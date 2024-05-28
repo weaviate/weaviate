@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
@@ -39,6 +40,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 ) *Error {
 	m.metrics.DeleteReferenceInc()
 	defer m.metrics.DeleteReferenceDec()
+
+	ctx = classcache.ContextWithClassCache(ctx)
 
 	deprecatedEndpoint := input.Class == ""
 	beacon, err := crossref.Parse(input.Reference.Beacon.String())
@@ -80,7 +83,8 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	defer unlock()
 
-	if err := input.validate(ctx, principal, m.schemaManager); err != nil {
+	class, schemaVersion, err := input.validate(ctx, principal, m.schemaManager)
+	if err != nil {
 		if deprecatedEndpoint { // for backward comp reasons
 			return &Error{"bad inputs deprecated", StatusNotFound, err}
 		}
@@ -101,12 +105,21 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl)
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &Error{
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Code: StatusInternalServerError,
+			Err:  err,
+		}
+	}
+
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
 	}
 
-	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant); err != nil {
+	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}
 
@@ -117,16 +130,17 @@ func (req *DeleteReferenceInput) validate(
 	ctx context.Context,
 	principal *models.Principal,
 	sm schemaManager,
-) error {
+) (*models.Class, uint64, error) {
 	if err := validateReferenceName(req.Class, req.Property); err != nil {
-		return err
+		return nil, 0, err
 	}
 
-	class, err := sm.GetClass(ctx, principal, req.Class)
+	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
-	return validateReferenceSchema(sm, class, req.Property)
+	vclass := vclasses[req.Class]
+	return vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 
 // removeReference removes ref from object obj with property prop.

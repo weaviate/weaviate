@@ -60,7 +60,7 @@ func Test_AddClass(t *testing.T) {
 		}
 		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		assert.Nil(t, err)
 
 		fakeMetaHandler.AssertExpectations(t)
@@ -69,8 +69,31 @@ func Test_AddClass(t *testing.T) {
 	t.Run("with empty class name", func(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{}
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, "'' is not a valid class name")
+	})
+
+	t.Run("with reserved class name", func(t *testing.T) {
+		handler, _ := newTestHandler(t, &fakeDB{})
+		class := models.Class{Class: config.DefaultRaftDir}
+		_, _, err := handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "rAFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "rAfT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "RaFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
+
+		class = models.Class{Class: "RAFT"}
+		_, _, err = handler.AddClass(ctx, nil, &class)
+		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 	})
 
 	t.Run("with default params", func(t *testing.T) {
@@ -95,7 +118,7 @@ func Test_AddClass(t *testing.T) {
 		}
 		fakeMetaHandler.On("AddClass", expectedClass, mock.Anything).Return(nil)
 
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeMetaHandler.AssertExpectations(t)
 	})
@@ -126,7 +149,7 @@ func Test_AddClass(t *testing.T) {
 			Stopwords:              expectedStopwordConfig,
 		}
 		fakeMetaHandler.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		_, err := handler.AddClass(ctx, nil, &class)
+		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeMetaHandler.AssertExpectations(t)
 	})
@@ -187,7 +210,7 @@ func Test_AddClass(t *testing.T) {
 						fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 					}
 
-					_, err := handler.AddClass(context.Background(), nil, class)
+					_, _, err := handler.AddClass(context.Background(), nil, class)
 					if tc.expectedErrMsg == "" {
 						require.Nil(t, err)
 					} else {
@@ -320,7 +343,7 @@ func Test_AddClass(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 
 		// Vectorizer while VectorConfig exists
-		_, err := handler.AddClass(ctx, nil, &models.Class{
+		_, _, err := handler.AddClass(ctx, nil, &models.Class{
 			Class:      "NewClass",
 			Vectorizer: "some",
 			VectorConfig: map[string]models.VectorConfig{"custom": {
@@ -332,7 +355,7 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "class.vectorizer \"some\" can not be set if class.vectorConfig is configured")
 
 		// VectorIndexType while VectorConfig exists
-		_, err = handler.AddClass(ctx, nil, &models.Class{
+		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class:           "NewClass",
 			VectorIndexType: "some",
 			VectorConfig: map[string]models.VectorConfig{"custom": {
@@ -344,7 +367,7 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "class.vectorIndexType \"some\" can not be set if class.vectorConfig is configured")
 
 		// VectorConfig is invalid VectorIndexType
-		_, err = handler.AddClass(ctx, nil, &models.Class{
+		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
 			VectorConfig: map[string]models.VectorConfig{"custom": {
 				VectorIndexType:   "invalid",
@@ -355,7 +378,7 @@ func Test_AddClass(t *testing.T) {
 		assert.EqualError(t, err, "target vector \"custom\": unrecognized or unsupported vectorIndexType \"invalid\"")
 
 		// VectorConfig is invalid Vectorizer
-		_, err = handler.AddClass(ctx, nil, &models.Class{
+		_, _, err = handler.AddClass(ctx, nil, &models.Class{
 			Class: "NewClass",
 			VectorConfig: map[string]models.VectorConfig{"custom": {
 				VectorIndexType:   "flat",
@@ -461,7 +484,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 			fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
 
-			_, err := handler.AddClass(ctx, nil, &class)
+			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
 
@@ -471,7 +494,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 				fakeMetaHandler.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 				fakeMetaHandler.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
 				t.Run("added_"+tc.propName, func(t *testing.T) {
-					_, err := handler.AddClassProperty(ctx, nil, &class, false, &models.Property{
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, &models.Property{
 						Name:         "added_" + tc.propName,
 						DataType:     tc.dataType.PropString(),
 						Tokenization: tc.tokenization,
@@ -626,7 +649,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 			fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			_, err := handler.AddClass(ctx, nil, &class)
+			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeMetaHandler.AssertExpectations(t)
 		})
@@ -643,7 +666,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 						IndexSearchable: tc.indexSearchable,
 					}
 					fakeMetaHandler.On("AddProperty", className, []*models.Property{prop}).Return(nil)
-					_, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
+					_, _, err := handler.AddClassProperty(ctx, nil, &class, false, prop)
 
 					require.Nil(t, err)
 				})
@@ -791,7 +814,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					_, err := handler.AddClass(context.Background(), nil, class)
+					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -811,7 +834,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					_, err := handler.AddClass(context.Background(), nil, class)
+					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -907,7 +930,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					_, err := handler.AddClass(context.Background(), nil, class)
+					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -931,7 +954,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					_, err := handler.AddClass(context.Background(), nil, class)
+					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -957,7 +980,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
-					_, err := handler.AddClass(context.Background(), nil, class)
+					_, _, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
 
 					property := &models.Property{
@@ -967,7 +990,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddProperty", class.Class, []*models.Property{property}).Return(nil)
 					}
-					_, err = handler.AddClassProperty(context.Background(), nil, class, false, property)
+					_, _, err = handler.AddClassProperty(context.Background(), nil, class, false, property)
 					t.Log(err)
 					require.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -991,7 +1014,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					if test.valid {
 						fakeMetaHandler.On("AddClass", class, mock.Anything).Return(nil)
 					}
-					_, err := handler.AddClass(ctx, nil, class)
+					_, _, err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
 					assert.Equal(t, test.valid, err == nil)
 					fakeMetaHandler.AssertExpectations(t)
@@ -1231,6 +1254,80 @@ func Test_UpdateClass(t *testing.T) {
 				},
 				expectedError: nil,
 			},
+			{
+				name: "try to turn MT on when it was previously off",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: false,
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
+					},
+				},
+				expectedError: fmt.Errorf("enabling multi-tenancy for an existing class is not supported"),
+			},
+			{
+				name: "try to turn MT off when it was previously on",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: false,
+					},
+				},
+				expectedError: fmt.Errorf("disabling multi-tenancy for an existing class is not supported"),
+			},
+			{
+				name: "change auto tenant creation after creating the class",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled:            true,
+						AutoTenantCreation: true,
+					},
+				},
+				expectedError: nil,
+			},
+			{
+				name: "change auto tenant activation after creating the class",
+				initial: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled: true,
+					},
+				},
+				update: &models.Class{
+					Class:      "InitialName",
+					Vectorizer: "none",
+					MultiTenancyConfig: &models.MultiTenancyConfig{
+						Enabled:              true,
+						AutoTenantActivation: true,
+					},
+				},
+				expectedError: nil,
+			},
 		}
 
 		for _, test := range tests {
@@ -1245,7 +1342,7 @@ func Test_UpdateClass(t *testing.T) {
 				if len(test.initial.Properties) > 0 {
 					fakeMetaHandler.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
-				_, err := handler.AddClass(ctx, nil, test.initial)
+				_, _, err := handler.AddClass(ctx, nil, test.initial)
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
 
@@ -1436,4 +1533,68 @@ func classWithDefaultsSet(t *testing.T, name string) *models.Class {
 	class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 
 	return class
+}
+
+func Test_AddClass_MultiTenancy(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("with MT enabled and no optional settings", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		class := models.Class{
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+			Class:              "NewClass",
+			Vectorizer:         "none",
+		}
+
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		c, _, err := handler.AddClass(ctx, nil, &class)
+		require.Nil(t, err)
+		assert.False(t, schema.AutoTenantCreationEnabled(c))
+		assert.False(t, schema.AutoTenantActivationEnabled(c))
+	})
+
+	t.Run("with MT enabled and all optional settings", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		class := models.Class{
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled:              true,
+				AutoTenantCreation:   true,
+				AutoTenantActivation: true,
+			},
+			Class:      "NewClass",
+			Vectorizer: "none",
+		}
+
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		c, _, err := handler.AddClass(ctx, nil, &class)
+		require.Nil(t, err)
+		assert.True(t, schema.AutoTenantCreationEnabled(c))
+		assert.True(t, schema.AutoTenantActivationEnabled(c))
+	})
+
+	t.Run("with MT disabled, but auto tenant creation on", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		class := models.Class{
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, AutoTenantCreation: true},
+			Class:              "NewClass",
+			Vectorizer:         "none",
+		}
+
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		_, _, err := handler.AddClass(ctx, nil, &class)
+		require.NotNil(t, err)
+	})
+
+	t.Run("with MT disabled, but auto tenant activation on", func(t *testing.T) {
+		handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+		class := models.Class{
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, AutoTenantActivation: true},
+			Class:              "NewClass",
+			Vectorizer:         "none",
+		}
+
+		fakeMetaHandler.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+		_, _, err := handler.AddClass(ctx, nil, &class)
+		require.NotNil(t, err)
+	})
 }

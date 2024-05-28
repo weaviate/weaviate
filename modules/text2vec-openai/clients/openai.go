@@ -127,14 +127,14 @@ func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
+	return v.vectorize(ctx, input, v.getModelString(config, "document"), config)
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
-	res, _, err := v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query", config.ModelVersion), config)
+	res, _, err := v.vectorize(ctx, input, v.getModelString(config, "query"), config)
 	return res, err
 }
 
@@ -293,15 +293,15 @@ func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVar string
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *client) getModelString(docType, model, action, version string) string {
-	if strings.HasPrefix(model, "text-embedding-3") {
+func (v *client) getModelString(config ent.VectorizationConfig, action string) string {
+	if strings.HasPrefix(config.Model, "text-embedding-3") || config.IsThirdPartyProvider {
 		// indicates that we handle v3 models
-		return model
+		return config.Model
 	}
-	if version == "002" {
-		return v.getModel002String(model)
+	if config.ModelVersion == "002" {
+		return v.getModel002String(config.Model)
 	}
-	return v.getModel001String(docType, model, action)
+	return v.getModel001String(config.Type, config.Model, action)
 }
 
 func (v *client) getModel001String(docType, model, action string) string {
@@ -328,14 +328,15 @@ func (v *client) getModel002String(model string) string {
 func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	settings := ent.NewClassSettings(cfg)
 	return ent.VectorizationConfig{
-		Type:         settings.Type(),
-		Model:        settings.Model(),
-		ModelVersion: settings.ModelVersion(),
-		ResourceName: settings.ResourceName(),
-		DeploymentID: settings.DeploymentID(),
-		BaseURL:      settings.BaseURL(),
-		IsAzure:      settings.IsAzure(),
-		ApiVersion:   settings.ApiVersion(),
-		Dimensions:   settings.Dimensions(),
+		Type:                 settings.Type(),
+		Model:                settings.Model(),
+		ModelVersion:         settings.ModelVersion(),
+		ResourceName:         settings.ResourceName(),
+		DeploymentID:         settings.DeploymentID(),
+		BaseURL:              settings.BaseURL(),
+		IsAzure:              settings.IsAzure(),
+		IsThirdPartyProvider: settings.IsThirdPartyProvider(),
+		ApiVersion:           settings.ApiVersion(),
+		Dimensions:           settings.Dimensions(),
 	}
 }
