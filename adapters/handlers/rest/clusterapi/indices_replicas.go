@@ -369,7 +369,7 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 		if err != nil && (errors.Is(err, dbpkg.ErrShardIsNotReady) ||
 			errors.Is(err, dbpkg.ErrIndexNotExists)) {
 			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusTooEarly)
+				http.StatusUnprocessableEntity)
 			return
 		}
 
@@ -592,7 +592,7 @@ func (i *replicatedIndices) getObject() http.Handler {
 		if err != nil && (errors.Is(err, dbpkg.ErrShardIsNotReady) ||
 			errors.Is(err, dbpkg.ErrIndexNotExists)) {
 			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusTooEarly)
+				http.StatusUnprocessableEntity)
 			return
 		}
 
@@ -650,7 +650,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 		if err != nil && (errors.Is(err, dbpkg.ErrShardIsNotReady) ||
 			errors.Is(err, dbpkg.ErrIndexNotExists)) {
 			http.Error(w, "digest objects: "+err.Error(),
-				http.StatusTooEarly)
+				http.StatusUnprocessableEntity)
 			return
 		}
 		if err != nil {
