@@ -256,6 +256,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 	return s, nil
 }
+
 func simulateLoadTime() {
 	loadTime, ok := os.LookupEnv("SIMULATE_LOAD_TIME")
 	if !ok {
