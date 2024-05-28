@@ -66,7 +66,7 @@ func TestTokenise(t *testing.T) {
 
 	koreanText := "아버지가방에들어가신다"
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, koreanText)
-	expectedKorean := []string{"아버지", "가방", "에", "들", "어", "가신다"}
+	expectedKorean := []string{"아버지", "가", "방", "에", "들어가", "신다"}
 	assert.Equal(t, expectedKorean, tokens)
 
 	japaneseText := "私は毎日新聞を読んで、コーヒーを飲みながら仕事に行きます"
