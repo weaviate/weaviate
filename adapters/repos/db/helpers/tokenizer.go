@@ -30,6 +30,7 @@ var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
+	EnableKagome     = false
 )
 
 var Tokenizations []string = []string{
@@ -45,8 +46,8 @@ var Tokenizations []string = []string{
 
 func init() {
 	init_gse()
-	initializeKagomeTokenizerKr()
-	initializeKagomeTokenizerJp()
+	InitializeKagomeTokenizerKr()
+	InitializeKagomeTokenizerJp()
 }
 
 func init_gse() {
@@ -189,13 +190,13 @@ var (
 	jpOnce              sync.Once
 )
 
-func initializeKagomeTokenizer(dictInstance *dict.Dict, tokenizerInstance **tokenizer.Tokenizer, once *sync.Once) {
-	disableKagome := false
-	if os.Getenv("DISABLE_KAGOME") == "true" {
-		disableKagome = true
+func initializeKagomeTokenizer(dictInstance *dict.Dict, tokenizerInstance **tokenizer.Tokenizer, once *sync.Once) bool {
+
+	if os.Getenv("ENABLE_KAGOME") == "true" {
+		EnableKagome = true
 	}
 
-	if !disableKagome {
+	if EnableKagome {
 		once.Do(func() {
 			var err error
 			*tokenizerInstance, err = tokenizer.New(dictInstance)
@@ -204,16 +205,18 @@ func initializeKagomeTokenizer(dictInstance *dict.Dict, tokenizerInstance **toke
 			}
 		})
 	}
+
+	return EnableKagome
 }
 
 // Initialize the Korean tokenizer (if not already initialized)
-func initializeKagomeTokenizerKr() {
-	initializeKagomeTokenizer(koDict.Dict(), &koTokenizerInstance, &koOnce)
+func InitializeKagomeTokenizerKr() bool {
+	return initializeKagomeTokenizer(koDict.Dict(), &koTokenizerInstance, &koOnce)
 }
 
 // Initialize the Japanese tokenizer (if not already initialized)
-func initializeKagomeTokenizerJp() {
-	initializeKagomeTokenizer(jpDict.Dict(), &jpTokenizerInstance, &jpOnce)
+func InitializeKagomeTokenizerJp() bool {
+	return initializeKagomeTokenizer(jpDict.Dict(), &jpTokenizerInstance, &jpOnce)
 }
 
 // tokenizeWithKagome uses the provided tokenizer to tokenizeWithKagome the input text
@@ -240,14 +243,20 @@ func tokenizeWithKagome(in string, t *tokenizer.Tokenizer) []string {
 
 // tokenizeKagomeKr tokenizes Korean text using the cached Korean tokenizer
 func tokenizeKagomeKr(in string) []string {
-	initializeKagomeTokenizerKr() // Ensure tokenizers are initialized
-	return tokenizeWithKagome(in, koTokenizerInstance)
+	if InitializeKagomeTokenizerKr() {
+		return tokenizeWithKagome(in, koTokenizerInstance)
+	} else {
+		return []string{}
+	}
 }
 
 // tokenizeKagomeJp tokenizes Japanese text using the cached Japanese tokenizer
 func tokenizeKagomeJp(in string) []string {
-	initializeKagomeTokenizerJp() // Ensure tokenizers are initialized
-	return tokenizeWithKagome(in, jpTokenizerInstance)
+	if InitializeKagomeTokenizerJp() {
+		return tokenizeWithKagome(in, jpTokenizerInstance)
+	} else {
+		return []string{}
+	}
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and

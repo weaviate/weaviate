@@ -64,12 +64,25 @@ func TestTokenise(t *testing.T) {
 	tokens = Tokenize(models.PropertyTokenizationGse, "The quick brown fox jumps over the lazy dog")
 	assert.Equal(t, []string{"t", "h", "e", "q", "u", "i", "c", "k", "b", "r", "o", "w", "n", "f", "o", "x", "j", "u", "m", "p", "s", "o", "v", "e", "r", "t", "h", "e", "l", "a", "z", "y", "d", "o", "g", "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
 
+	// Kagome tokenizer for Korean and Japanese
+	// Should be disabled by default & return empty tokens
 	koreanText := "아버지가방에들어가신다"
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, koreanText)
+	assert.Equal(t, []string{}, tokens)
+
+	japaneseText := "私は毎日新聞を読んで、コーヒーを飲みながら仕事に行きます"
+	tokens = Tokenize(models.PropertyTokenizationKagomeJp, japaneseText)
+	assert.Equal(t, []string{}, tokens)
+
+	// Enable & Initialize Kagome tokenizer
+	EnableKagome = true
+	InitializeKagomeTokenizerKr()
+	InitializeKagomeTokenizerJp()
+
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, koreanText)
 	expectedKorean := []string{"아버지", "가", "방", "에", "들어가", "신다"}
 	assert.Equal(t, expectedKorean, tokens)
 
-	japaneseText := "私は毎日新聞を読んで、コーヒーを飲みながら仕事に行きます"
 	tokens = Tokenize(models.PropertyTokenizationKagomeJp, japaneseText)
 	expectedJapanese := []string{"私", "は", "毎日新聞", "を", "読ん", "で", "、", "コーヒー", "を", "飲み", "ながら", "仕事", "に", "行き", "ます"}
 	assert.Equal(t, expectedJapanese, tokens)
