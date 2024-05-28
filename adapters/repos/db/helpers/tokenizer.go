@@ -176,16 +176,31 @@ func tokenizeGSE(in string) []string {
 	return append(terms, alpha...)
 }
 
+var (
+	koDictInstance      *dict.Dict
+	koDictOnce          sync.Once
+	koTokenizerInstance *tokenizer.Tokenizer
+	koTokenizerOnce     sync.Once
+
+	jpDictInstance      *dict.Dict
+	jpDictOnce          sync.Once
+	jpTokenizerInstance *tokenizer.Tokenizer
+	jpTokenizerOnce     sync.Once
+)
+
 // tokenizeKagome uses the kagome tokenizer
-func tokenizeKagome(in string, dict *dict.Dict) []string {
-	// Create a tokenizer with the Korean dictionary
-	t, err := tokenizer.New(dict)
-	if err != nil {
-		panic(err)
-	}
+func tokenizeKagome(in string, dict *dict.Dict, tokenizerOnce *sync.Once, tokenizerInstance **tokenizer.Tokenizer) []string {
+	// Create a tokenizer with the provided dictionary
+	tokenizerOnce.Do(func() {
+		t, err := tokenizer.New(dict)
+		if err != nil {
+			panic(err)
+		}
+		*tokenizerInstance = t
+	})
 
 	// Tokenize the text
-	kagome_tokens := t.Tokenize(in)
+	kagome_tokens := (*tokenizerInstance).Tokenize(in)
 	terms := []string{}
 
 	for _, token := range kagome_tokens {
@@ -205,29 +220,20 @@ func tokenizeKagome(in string, dict *dict.Dict) []string {
 	return terms
 }
 
-var (
-	koDictInstance *dict.Dict
-	koDictOnce     sync.Once
-	jpDictInstance *dict.Dict
-	jpDictOnce     sync.Once
-)
-
 // tokenizeKagomeKr uses the kagome tokenizer with kagonme-dict-ko to tokenise Korean
 func tokenizeKagomeKr(in string) []string {
-	// Create a tokenizer with the Korean dictionary
 	koDictOnce.Do(func() {
 		koDictInstance = koDict.Dict()
 	})
-	return tokenizeKagome(in, koDictInstance)
+	return tokenizeKagome(in, koDictInstance, &koTokenizerOnce, &koTokenizerInstance)
 }
 
 // tokenizeKagomeJp uses the kagome tokenizer with MeCab IPADIC to tokenise Japanese
 func tokenizeKagomeJp(in string) []string {
-	// Create a tokenizer with the Japanese dictionary
 	jpDictOnce.Do(func() {
 		jpDictInstance = jpDict.Dict()
 	})
-	return tokenizeKagome(in, jpDictInstance)
+	return tokenizeKagome(in, jpDictInstance, &jpTokenizerOnce, &jpTokenizerInstance)
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
