@@ -181,39 +181,39 @@ func tokenizeGSE(in string) []string {
 
 var (
 	// Korean tokenizer and dictionary instances
-	koDictInstance      *dict.Dict
 	koTokenizerInstance *tokenizer.Tokenizer
 	koOnce              sync.Once
 
 	// Japanese tokenizer and dictionary instances
-	jpDictInstance      *dict.Dict
 	jpTokenizerInstance *tokenizer.Tokenizer
 	jpOnce              sync.Once
 )
 
+func initializeKagomeTokenizer(dictInstance *dict.Dict, tokenizerInstance **tokenizer.Tokenizer, once *sync.Once) {
+	disableKagome := false
+	if os.Getenv("DISABLE_KAGOME") == "true" {
+		disableKagome = true
+	}
+
+	if !disableKagome {
+		once.Do(func() {
+			var err error
+			*tokenizerInstance, err = tokenizer.New(dictInstance)
+			if err != nil {
+				log.Fatalf("failed to create tokenizer: %v", err)
+			}
+		})
+	}
+}
+
 // Initialize the Korean tokenizer (if not already initialized)
 func initializeKagomeTokenizerKr() {
-	// Initialize Korean tokenizer
-	koOnce.Do(func() {
-		koDictInstance = koDict.Dict()
-		var err error
-		koTokenizerInstance, err = tokenizer.New(koDictInstance)
-		if err != nil {
-			log.Fatalf("failed to create Korean tokenizer: %v", err)
-		}
-	})
+	initializeKagomeTokenizer(koDict.Dict(), &koTokenizerInstance, &koOnce)
 }
 
 // Initialize the Japanese tokenizer (if not already initialized)
 func initializeKagomeTokenizerJp() {
-	jpOnce.Do(func() {
-		jpDictInstance = jpDict.Dict()
-		var err error
-		jpTokenizerInstance, err = tokenizer.New(jpDictInstance)
-		if err != nil {
-			log.Fatalf("failed to create Japanese tokenizer: %v", err)
-		}
-	})
+	initializeKagomeTokenizer(jpDict.Dict(), &jpTokenizerInstance, &jpOnce)
 }
 
 // tokenizeWithKagome uses the provided tokenizer to tokenizeWithKagome the input text
