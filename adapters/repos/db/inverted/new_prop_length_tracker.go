@@ -191,7 +191,7 @@ func (t *JsonShardMetaData) TrackObjects(delta int) error {
 	t.WantFlush = true
 
 	t.data.ObjectCount = t.data.ObjectCount + delta
-	return t.lockFreeFlush()
+	return nil
 }
 
 // Adds a new value to the tracker
@@ -224,7 +224,7 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 		t.data.BucketedData[propName][int(bucketId)] = 1
 	}
 
-	return t.lockFreeFlush()
+	return nil
 }
 
 // Removes a value from the tracker
@@ -255,7 +255,7 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 		return errors.New("property not found")
 	}
 
-	return t.lockFreeFlush()
+	return nil
 }
 
 // Returns the bucket that the given value belongs to
