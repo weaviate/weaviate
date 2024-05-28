@@ -45,6 +45,8 @@ var Tokenizations []string = []string{
 
 func init() {
 	init_gse()
+	initializeKagomeTokenizerKr()
+	initializeKagomeTokenizerJp()
 }
 
 func init_gse() {
@@ -189,8 +191,8 @@ var (
 	jpOnce              sync.Once
 )
 
-// initializeKagomeTokenizers initializes the tokenizer instances if they are not already initialized
-func initializeKagomeTokenizers() {
+// Initialize the Korean tokenizer (if not already initialized)
+func initializeKagomeTokenizerKr() {
 	// Initialize Korean tokenizer
 	koOnce.Do(func() {
 		koDictInstance = koDict.Dict()
@@ -200,8 +202,10 @@ func initializeKagomeTokenizers() {
 			log.Fatalf("failed to create Korean tokenizer: %v", err)
 		}
 	})
+}
 
-	// Initialize Japanese tokenizer
+// Initialize the Japanese tokenizer (if not already initialized)
+func initializeKagomeTokenizerJp() {
 	jpOnce.Do(func() {
 		jpDictInstance = jpDict.Dict()
 		var err error
@@ -236,13 +240,13 @@ func tokenizeWithKagome(in string, t *tokenizer.Tokenizer) []string {
 
 // tokenizeKagomeKr tokenizes Korean text using the cached Korean tokenizer
 func tokenizeKagomeKr(in string) []string {
-	initializeKagomeTokenizers() // Ensure tokenizers are initialized
+	initializeKagomeTokenizerKr() // Ensure tokenizers are initialized
 	return tokenizeWithKagome(in, koTokenizerInstance)
 }
 
 // tokenizeKagomeJp tokenizes Japanese text using the cached Japanese tokenizer
 func tokenizeKagomeJp(in string) []string {
-	initializeKagomeTokenizers() // Ensure tokenizers are initialized
+	initializeKagomeTokenizerJp() // Ensure tokenizers are initialized
 	return tokenizeWithKagome(in, jpTokenizerInstance)
 }
 
