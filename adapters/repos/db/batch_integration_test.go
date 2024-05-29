@@ -63,12 +63,12 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
-	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimBefore := GetDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
 	simpleInsertObjects(t, repo, "ThingForBatching", 123)
 
-	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimAfter := GetDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 369, dimAfter, "Dimensions are present after import")
 }
 
@@ -129,12 +129,12 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
 
-	dimensions := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimensions := GetDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 0, dimensions, "Dimensions are empty before import")
 
 	t.Run("batch import things", testBatchImportObjectsNoVector(repo))
 
-	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimAfter := GetDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 0, dimAfter, "Dimensions are empty after import (no vectors in import)")
 }
 
@@ -193,17 +193,17 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 
 	t.Run("creating the test class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
-	dimBefore := GetDimensionsFromRepo(repo, className)
+	dimBefore := GetDimensionsFromRepo(context.Background(), repo, className)
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
 	simpleInsertObjects(t, repo, className, 103)
 
-	dimAfter := GetDimensionsFromRepo(repo, className)
+	dimAfter := GetDimensionsFromRepo(context.Background(), repo, className)
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
 	delete2Objects(t, repo, className)
 
-	dimFinal := GetDimensionsFromRepo(repo, className)
+	dimFinal := GetDimensionsFromRepo(context.Background(), repo, className)
 	require.Equal(t, 303, dimFinal, "2 objects have been deleted")
 }
 
@@ -302,17 +302,17 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
-	dimBefore := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimBefore := GetDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 0, dimBefore, "Dimensions are empty before import")
 
 	simpleInsertObjects(t, repo, "ThingForBatching", 103)
 
-	dimAfter := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimAfter := GetDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 309, dimAfter, "Dimensions are present before delete")
 
 	delete2Objects(t, repo, "ThingForBatching")
 
-	dimFinal := GetDimensionsFromRepo(repo, "ThingForBatching")
+	dimFinal := GetDimensionsFromRepo(context.Background(), repo, "ThingForBatching")
 	require.Equal(t, 303, dimFinal, "Dimensions have been deleted")
 }
 
