@@ -497,14 +497,14 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 				return nil
 			}
 
-			shard.GetPropertyLengthTracker().Flush(false)
+			shard.GetPropertyLengthTracker().Flush()
 
 			return nil
 		})
 
 		// Flush the GetPropertyLengthTracker() to disk
 		err := index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
-			return shard.GetPropertyLengthTracker().Flush(false)
+			return shard.GetPropertyLengthTracker().Flush()
 		})
 		if err != nil {
 			m.logger.WithField("error", err).Error("could not flush prop lengths")
