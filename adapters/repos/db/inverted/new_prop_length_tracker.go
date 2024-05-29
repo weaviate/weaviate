@@ -38,7 +38,6 @@ type JsonShardMetaData struct {
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
 	closed           bool
-	WantFlush        bool
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -149,7 +148,6 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	if t.data == nil {
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
-	t.SetWantFlush(true)
 	t.Flush()
 	return t, nil
 }
@@ -163,7 +161,7 @@ func (t *JsonShardMetaData) Clear() {
 	if t.closed {
 		return
 	}
-	t.WantFlush = true
+
 
 	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	t.lockFreeFlush()
@@ -188,7 +186,6 @@ func (t *JsonShardMetaData) TrackObjects(delta int) error {
 	if t.closed {
 		return fmt.Errorf("tracker is closed")
 	}
-	t.WantFlush = true
 
 	t.data.ObjectCount = t.data.ObjectCount + delta
 	return nil
@@ -205,7 +202,6 @@ func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error 
 	if t.closed {
 		return fmt.Errorf("tracker is closed")
 	}
-	t.WantFlush = true
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
@@ -238,7 +234,6 @@ func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) erro
 	if t.closed {
 		return fmt.Errorf("tracker is closed")
 	}
-	t.WantFlush = true
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
@@ -348,11 +343,6 @@ func (t *JsonShardMetaData) Flush() error {
 }
 
 func (t *JsonShardMetaData) lockFreeFlush() error {
-	t.WantFlush = true // Remove this line once we add delayed flushing
-	if !t.WantFlush {
-		return nil
-	}
-
 	if t.closed {
 		return fmt.Errorf("cannot flush closed tracker")
 	}
@@ -377,7 +367,6 @@ func (t *JsonShardMetaData) lockFreeFlush() error {
 		return err
 	}
 
-	t.WantFlush = false
 	return nil
 }
 
@@ -387,7 +376,6 @@ func (t *JsonShardMetaData) SetWantFlush(val bool) {
 	if t.closed {
 		return
 	}
-	t.WantFlush = val
 }
 
 // Closes the tracker and removes the backup file
