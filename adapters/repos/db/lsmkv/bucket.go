@@ -481,29 +481,23 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	var out []value
 
 	v, err := b.disk.getCollection(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	out = v
 
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
-		if err != nil {
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
-			}
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
 		out = append(out, v...)
 
 	}
 
 	v, err = b.active.getCollection(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	if len(v) > 0 {
 		// skip the expensive append operation if there was no memtable
@@ -673,10 +667,8 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	segments := [][]MapPair{}
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 
 	for i := range disk {
@@ -704,10 +696,8 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
-		if err != nil {
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
-			}
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
 
 		segments = append(segments, v)
@@ -715,10 +705,8 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	// before = time.Now()
 	v, err := b.active.getMap(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	segments = append(segments, v)
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
