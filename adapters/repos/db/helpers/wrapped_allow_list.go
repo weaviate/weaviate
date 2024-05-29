@@ -147,27 +147,37 @@ func (al *wrappedAllowList) LimitedIterator(limit int) AllowListIterator {
 	return newComposedAllowListIterator(
 		al.allowList.LimitedIterator(limit),
 		al.wAllowList.LimitedIterator(limit),
+		limit,
 	)
 }
 
 type composedAllowListIterator struct {
-	it1 AllowListIterator
-	it2 AllowListIterator
+	it1     AllowListIterator
+	it2     AllowListIterator
+	limit   int
+	itCount int
 }
 
-func newComposedAllowListIterator(it1, it2 AllowListIterator) AllowListIterator {
+func newComposedAllowListIterator(it1, it2 AllowListIterator, limit int) AllowListIterator {
 	return &composedAllowListIterator{
-		it1: it1,
-		it2: it2,
+		it1:   it1,
+		it2:   it2,
+		limit: limit,
 	}
 }
 
 func (i *composedAllowListIterator) Next() (uint64, bool) {
+	if i.limit > 0 && i.itCount >= i.limit {
+		return 0, false
+	}
+
 	id, ok := i.it1.Next()
 	if ok {
+		i.itCount++
 		return id, ok
 	}
 
+	i.itCount++
 	return i.it2.Next()
 }
 
