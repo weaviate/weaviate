@@ -259,18 +259,22 @@ func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVecto
 		return nil, nil, err
 	}
 
-	res := e.combineResults(ress, params.Pagination.Limit)
+	res, err := e.combineResults(ress, params.Pagination.Limit, params.TargetVectorJoinMethod)
+	if err != nil {
+		return nil, nil, err
+	}
 	return res, searchVectorsReturn, nil
 }
 
-func (e *Explorer) combineResults(results [][]search.Result, limit int) []search.Result {
+func (e *Explorer) combineResults(results [][]search.Result, limit int, joinMethod int) ([]search.Result, error) {
 	if len(results) == 0 {
-		return []search.Result{}
+		return []search.Result{}, nil
 	}
 
 	if len(results) == 1 {
-		return results[0]
+		return results[0], nil
 	}
+	averageCounter := make(map[uint64]uint64)
 
 	combinedResults := make(map[uint64]search.Result, len(results[0]))
 	for _, res := range results {
@@ -279,12 +283,24 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int) []search
 			if _, ok := combinedResults[id]; !ok {
 				combinedResults[id] = r
 			} else {
-				tmp := combinedResults[id]
-				tmp.Score += r.Score
-				tmp.SecondarySortValue += r.SecondarySortValue
-				tmp.Dist += r.Dist
-				tmp.Certainty += r.Certainty
-				combinedResults[id] = tmp
+				if joinMethod == dto.TargetVectorJoinSum || joinMethod == dto.TargetVectorJoinAvg {
+					tmp := combinedResults[id]
+					tmp.Score += r.Score
+					tmp.SecondarySortValue += r.SecondarySortValue
+					tmp.Dist += r.Dist
+					tmp.Certainty += r.Certainty
+					combinedResults[id] = tmp
+					averageCounter[id] += 1
+				} else if joinMethod == dto.TargetVectorJoinMin {
+					tmp := combinedResults[id]
+					tmp.Score = min(r.Score, tmp.Score)
+					tmp.SecondarySortValue += min(r.SecondarySortValue, tmp.SecondarySortValue)
+					tmp.Dist += min(r.Dist, tmp.Dist)
+					tmp.Certainty += min(r.Certainty, tmp.Certainty)
+					combinedResults[id] = tmp
+				} else {
+					return nil, fmt.Errorf("Unknown join method %v", joinMethod)
+				}
 			}
 		}
 	}
@@ -303,7 +319,17 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int) []search
 		returnResults = append(returnResults, combinedResults[item.ID])
 	}
 
-	return returnResults
+	if joinMethod == dto.TargetVectorJoinAvg {
+		for _, res := range returnResults {
+			count := float32(averageCounter[*(res.DocID)])
+			res.Dist /= count
+			res.Score /= count
+			res.SecondarySortValue /= count
+			res.Certainty /= count
+		}
+	}
+
+	return returnResults, nil
 }
 
 func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParam *searchparams.NearVector) error {

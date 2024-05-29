@@ -18,6 +18,58 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type TargetVectorJoinMethod int32
+
+const (
+	TargetVectorJoinMethod_FUSION_TYPE_UNSPECIFIED TargetVectorJoinMethod = 0
+	TargetVectorJoinMethod_FUSION_TYPE_SUM         TargetVectorJoinMethod = 1
+	TargetVectorJoinMethod_FUSION_TYPE_MIN         TargetVectorJoinMethod = 2
+	TargetVectorJoinMethod_FUSION_TYPE_AVERAGE     TargetVectorJoinMethod = 3
+)
+
+// Enum value maps for TargetVectorJoinMethod.
+var (
+	TargetVectorJoinMethod_name = map[int32]string{
+		0: "FUSION_TYPE_UNSPECIFIED",
+		1: "FUSION_TYPE_SUM",
+		2: "FUSION_TYPE_MIN",
+		3: "FUSION_TYPE_AVERAGE",
+	}
+	TargetVectorJoinMethod_value = map[string]int32{
+		"FUSION_TYPE_UNSPECIFIED": 0,
+		"FUSION_TYPE_SUM":         1,
+		"FUSION_TYPE_MIN":         2,
+		"FUSION_TYPE_AVERAGE":     3,
+	}
+)
+
+func (x TargetVectorJoinMethod) Enum() *TargetVectorJoinMethod {
+	p := new(TargetVectorJoinMethod)
+	*p = x
+	return p
+}
+
+func (x TargetVectorJoinMethod) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TargetVectorJoinMethod) Descriptor() protoreflect.EnumDescriptor {
+	return file_v1_search_get_proto_enumTypes[0].Descriptor()
+}
+
+func (TargetVectorJoinMethod) Type() protoreflect.EnumType {
+	return &file_v1_search_get_proto_enumTypes[0]
+}
+
+func (x TargetVectorJoinMethod) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TargetVectorJoinMethod.Descriptor instead.
+func (TargetVectorJoinMethod) EnumDescriptor() ([]byte, []int) {
+	return file_v1_search_get_proto_rawDescGZIP(), []int{0}
+}
+
 type Hybrid_FusionType int32
 
 const (
@@ -51,11 +103,11 @@ func (x Hybrid_FusionType) String() string {
 }
 
 func (Hybrid_FusionType) Descriptor() protoreflect.EnumDescriptor {
-	return file_v1_search_get_proto_enumTypes[0].Descriptor()
+	return file_v1_search_get_proto_enumTypes[1].Descriptor()
 }
 
 func (Hybrid_FusionType) Type() protoreflect.EnumType {
-	return &file_v1_search_get_proto_enumTypes[0]
+	return &file_v1_search_get_proto_enumTypes[1]
 }
 
 func (x Hybrid_FusionType) Number() protoreflect.EnumNumber {
@@ -72,11 +124,12 @@ type SearchRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//required
+	// required
 	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// parameters
-	Tenant           string            `protobuf:"bytes,10,opt,name=tenant,proto3" json:"tenant,omitempty"`
-	ConsistencyLevel *ConsistencyLevel `protobuf:"varint,11,opt,name=consistency_level,json=consistencyLevel,proto3,enum=weaviate.v1.ConsistencyLevel,oneof" json:"consistency_level,omitempty"`
+	Tenant                 string                 `protobuf:"bytes,10,opt,name=tenant,proto3" json:"tenant,omitempty"`
+	ConsistencyLevel       *ConsistencyLevel      `protobuf:"varint,11,opt,name=consistency_level,json=consistencyLevel,proto3,enum=weaviate.v1.ConsistencyLevel,oneof" json:"consistency_level,omitempty"`
+	TargetVectorJoinMethod TargetVectorJoinMethod `protobuf:"varint,12,opt,name=target_vector_join_method,json=targetVectorJoinMethod,proto3,enum=weaviate.v1.TargetVectorJoinMethod" json:"target_vector_join_method,omitempty"`
 	// what is returned
 	Properties *PropertiesRequest `protobuf:"bytes,20,opt,name=properties,proto3,oneof" json:"properties,omitempty"`
 	Metadata   *MetadataRequest   `protobuf:"bytes,21,opt,name=metadata,proto3,oneof" json:"metadata,omitempty"`
@@ -103,7 +156,7 @@ type SearchRequest struct {
 	NearImu      *NearIMUSearch     `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
 	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
 	Uses_125Api bool `protobuf:"varint,101,opt,name=uses_125_api,json=uses125Api,proto3" json:"uses_125_api,omitempty"`
 }
@@ -159,6 +212,13 @@ func (x *SearchRequest) GetConsistencyLevel() ConsistencyLevel {
 		return *x.ConsistencyLevel
 	}
 	return ConsistencyLevel_CONSISTENCY_LEVEL_UNSPECIFIED
+}
+
+func (x *SearchRequest) GetTargetVectorJoinMethod() TargetVectorJoinMethod {
+	if x != nil {
+		return x.TargetVectorJoinMethod
+	}
+	return TargetVectorJoinMethod_FUSION_TYPE_UNSPECIFIED
 }
 
 func (x *SearchRequest) GetProperties() *PropertiesRequest {
@@ -315,7 +375,7 @@ func (x *SearchRequest) GetRerank() *Rerank {
 	return nil
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *SearchRequest) GetUses_123Api() bool {
 	if x != nil {
 		return x.Uses_123Api
@@ -780,7 +840,7 @@ type Hybrid struct {
 	Properties []string `protobuf:"bytes,2,rep,name=properties,proto3" json:"properties,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Vector        []float32         `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vector_bytes
 	Alpha         float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"`
 	FusionType    Hybrid_FusionType `protobuf:"varint,5,opt,name=fusion_type,json=fusionType,proto3,enum=weaviate.v1.Hybrid_FusionType" json:"fusion_type,omitempty"`
@@ -836,7 +896,7 @@ func (x *Hybrid) GetProperties() []string {
 	return nil
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *Hybrid) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -1533,7 +1593,7 @@ type NearVector struct {
 
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Vector        []float32 `protobuf:"fixed32,1,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vector_bytes
 	Certainty     *float64  `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance      *float64  `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
@@ -1573,7 +1633,7 @@ func (*NearVector) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{17}
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *NearVector) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -2058,7 +2118,7 @@ type MetadataResult struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	Vector                    []float32  `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"`
 	CreationTimeUnix          int64      `protobuf:"varint,3,opt,name=creation_time_unix,json=creationTimeUnix,proto3" json:"creation_time_unix,omitempty"`
 	CreationTimeUnixPresent   bool       `protobuf:"varint,4,opt,name=creation_time_unix_present,json=creationTimeUnixPresent,proto3" json:"creation_time_unix_present,omitempty"`
@@ -2122,7 +2182,7 @@ func (x *MetadataResult) GetId() string {
 	return ""
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *MetadataResult) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -2282,22 +2342,22 @@ type PropertiesResult struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	NonRefProperties *structpb.Struct       `protobuf:"bytes,1,opt,name=non_ref_properties,json=nonRefProperties,proto3" json:"non_ref_properties,omitempty"`
 	RefProps         []*RefPropertiesResult `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
 	TargetCollection string                 `protobuf:"bytes,3,opt,name=target_collection,json=targetCollection,proto3" json:"target_collection,omitempty"`
 	Metadata         *MetadataResult        `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	NumberArrayProperties []*NumberArrayProperties `protobuf:"bytes,5,rep,name=number_array_properties,json=numberArrayProperties,proto3" json:"number_array_properties,omitempty"`
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	IntArrayProperties []*IntArrayProperties `protobuf:"bytes,6,rep,name=int_array_properties,json=intArrayProperties,proto3" json:"int_array_properties,omitempty"`
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	TextArrayProperties []*TextArrayProperties `protobuf:"bytes,7,rep,name=text_array_properties,json=textArrayProperties,proto3" json:"text_array_properties,omitempty"`
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	BooleanArrayProperties []*BooleanArrayProperties `protobuf:"bytes,8,rep,name=boolean_array_properties,json=booleanArrayProperties,proto3" json:"boolean_array_properties,omitempty"`
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	ObjectProperties []*ObjectProperties `protobuf:"bytes,9,rep,name=object_properties,json=objectProperties,proto3" json:"object_properties,omitempty"`
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/search_get.proto.
 	ObjectArrayProperties []*ObjectArrayProperties `protobuf:"bytes,10,rep,name=object_array_properties,json=objectArrayProperties,proto3" json:"object_array_properties,omitempty"`
 	NonRefProps           *Properties              `protobuf:"bytes,11,opt,name=non_ref_props,json=nonRefProps,proto3" json:"non_ref_props,omitempty"`
 	RefPropsRequested     bool                     `protobuf:"varint,12,opt,name=ref_props_requested,json=refPropsRequested,proto3" json:"ref_props_requested,omitempty"`
@@ -2335,7 +2395,7 @@ func (*PropertiesResult) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{26}
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *PropertiesResult) GetNonRefProperties() *structpb.Struct {
 	if x != nil {
 		return x.NonRefProperties
@@ -2364,7 +2424,7 @@ func (x *PropertiesResult) GetMetadata() *MetadataResult {
 	return nil
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
 	if x != nil {
 		return x.NumberArrayProperties
@@ -2372,7 +2432,7 @@ func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
 	return nil
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
 	if x != nil {
 		return x.IntArrayProperties
@@ -2380,7 +2440,7 @@ func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
 	return nil
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
 	if x != nil {
 		return x.TextArrayProperties
@@ -2388,7 +2448,7 @@ func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
 	return nil
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties {
 	if x != nil {
 		return x.BooleanArrayProperties
@@ -2396,7 +2456,7 @@ func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties
 	return nil
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
 	if x != nil {
 		return x.ObjectProperties
@@ -2404,7 +2464,7 @@ func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
 	return nil
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/search_get.proto.
 func (x *PropertiesResult) GetObjectArrayProperties() []*ObjectArrayProperties {
 	if x != nil {
 		return x.ObjectArrayProperties
@@ -2553,7 +2613,7 @@ var file_v1_search_get_proto_rawDesc = []byte{
 	0x62, 0x75, 0x66, 0x2f, 0x73, 0x74, 0x72, 0x75, 0x63, 0x74, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f,
 	0x1a, 0x0d, 0x76, 0x31, 0x2f, 0x62, 0x61, 0x73, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x1a,
 	0x13, 0x76, 0x31, 0x2f, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x2e, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x22, 0xa1, 0x0d, 0x0a, 0x0d, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x52,
+	0x72, 0x6f, 0x74, 0x6f, 0x22, 0x81, 0x0e, 0x0a, 0x0d, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x52,
 	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1e, 0x0a, 0x0a, 0x63, 0x6f, 0x6c, 0x6c, 0x65, 0x63,
 	0x74, 0x69, 0x6f, 0x6e, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x63, 0x6f, 0x6c, 0x6c,
 	0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x16, 0x0a, 0x06, 0x74, 0x65, 0x6e, 0x61, 0x6e, 0x74,
@@ -2563,6 +2623,12 @@ var file_v1_search_get_proto_rawDesc = []byte{
 	0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31, 0x2e, 0x43, 0x6f, 0x6e, 0x73, 0x69, 0x73, 0x74, 0x65,
 	0x6e, 0x63, 0x79, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x48, 0x00, 0x52, 0x10, 0x63, 0x6f, 0x6e, 0x73,
 	0x69, 0x73, 0x74, 0x65, 0x6e, 0x63, 0x79, 0x4c, 0x65, 0x76, 0x65, 0x6c, 0x88, 0x01, 0x01, 0x12,
+	0x5e, 0x0a, 0x19, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x5f, 0x76, 0x65, 0x63, 0x74, 0x6f, 0x72,
+	0x5f, 0x6a, 0x6f, 0x69, 0x6e, 0x5f, 0x6d, 0x65, 0x74, 0x68, 0x6f, 0x64, 0x18, 0x0c, 0x20, 0x01,
+	0x28, 0x0e, 0x32, 0x23, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76, 0x31,
+	0x2e, 0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x56, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x4a, 0x6f, 0x69,
+	0x6e, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64, 0x52, 0x16, 0x74, 0x61, 0x72, 0x67, 0x65, 0x74, 0x56,
+	0x65, 0x63, 0x74, 0x6f, 0x72, 0x4a, 0x6f, 0x69, 0x6e, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64, 0x12,
 	0x43, 0x0a, 0x0a, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x18, 0x14, 0x20,
 	0x01, 0x28, 0x0b, 0x32, 0x1e, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x76,
 	0x31, 0x2e, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x65, 0x71, 0x75,
@@ -3077,15 +3143,23 @@ var file_v1_search_get_proto_rawDesc = []byte{
 	0x2e, 0x76, 0x31, 0x2e, 0x50, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73, 0x52, 0x65,
 	0x73, 0x75, 0x6c, 0x74, 0x52, 0x0a, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x69, 0x65, 0x73,
 	0x12, 0x1b, 0x0a, 0x09, 0x70, 0x72, 0x6f, 0x70, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20,
-	0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x72, 0x6f, 0x70, 0x4e, 0x61, 0x6d, 0x65, 0x42, 0x73, 0x0a,
-	0x23, 0x69, 0x6f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x63, 0x6c, 0x69,
-	0x65, 0x6e, 0x74, 0x2e, 0x67, 0x72, 0x70, 0x63, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f,
-	0x6c, 0x2e, 0x76, 0x31, 0x42, 0x16, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x50, 0x72,
-	0x6f, 0x74, 0x6f, 0x53, 0x65, 0x61, 0x72, 0x63, 0x68, 0x47, 0x65, 0x74, 0x5a, 0x34, 0x67, 0x69,
-	0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f,
-	0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x3b, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63,
-	0x6f, 0x6c, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x01, 0x28, 0x09, 0x52, 0x08, 0x70, 0x72, 0x6f, 0x70, 0x4e, 0x61, 0x6d, 0x65, 0x2a, 0x78, 0x0a,
+	0x16, 0x54, 0x61, 0x72, 0x67, 0x65, 0x74, 0x56, 0x65, 0x63, 0x74, 0x6f, 0x72, 0x4a, 0x6f, 0x69,
+	0x6e, 0x4d, 0x65, 0x74, 0x68, 0x6f, 0x64, 0x12, 0x1b, 0x0a, 0x17, 0x46, 0x55, 0x53, 0x49, 0x4f,
+	0x4e, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49,
+	0x45, 0x44, 0x10, 0x00, 0x12, 0x13, 0x0a, 0x0f, 0x46, 0x55, 0x53, 0x49, 0x4f, 0x4e, 0x5f, 0x54,
+	0x59, 0x50, 0x45, 0x5f, 0x53, 0x55, 0x4d, 0x10, 0x01, 0x12, 0x13, 0x0a, 0x0f, 0x46, 0x55, 0x53,
+	0x49, 0x4f, 0x4e, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x4d, 0x49, 0x4e, 0x10, 0x02, 0x12, 0x17,
+	0x0a, 0x13, 0x46, 0x55, 0x53, 0x49, 0x4f, 0x4e, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x41, 0x56,
+	0x45, 0x52, 0x41, 0x47, 0x45, 0x10, 0x03, 0x42, 0x73, 0x0a, 0x23, 0x69, 0x6f, 0x2e, 0x77, 0x65,
+	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x63, 0x6c, 0x69, 0x65, 0x6e, 0x74, 0x2e, 0x67, 0x72,
+	0x70, 0x63, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x2e, 0x76, 0x31, 0x42, 0x16,
+	0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x53, 0x65, 0x61,
+	0x72, 0x63, 0x68, 0x47, 0x65, 0x74, 0x5a, 0x34, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63,
+	0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61, 0x76,
+	0x69, 0x61, 0x74, 0x65, 0x2f, 0x67, 0x72, 0x70, 0x63, 0x2f, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61,
+	0x74, 0x65, 0x64, 0x3b, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x63, 0x6f, 0x6c, 0x62, 0x06, 0x70, 0x72,
+	0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -3100,105 +3174,109 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 	return file_v1_search_get_proto_rawDescData
 }
 
-var file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
-var file_v1_search_get_proto_goTypes = []interface{}{
-	(Hybrid_FusionType)(0),          // 0: weaviate.v1.Hybrid.FusionType
-	(*SearchRequest)(nil),           // 1: weaviate.v1.SearchRequest
-	(*GroupBy)(nil),                 // 2: weaviate.v1.GroupBy
-	(*SortBy)(nil),                  // 3: weaviate.v1.SortBy
-	(*GenerativeSearch)(nil),        // 4: weaviate.v1.GenerativeSearch
-	(*MetadataRequest)(nil),         // 5: weaviate.v1.MetadataRequest
-	(*PropertiesRequest)(nil),       // 6: weaviate.v1.PropertiesRequest
-	(*ObjectPropertiesRequest)(nil), // 7: weaviate.v1.ObjectPropertiesRequest
-	(*Hybrid)(nil),                  // 8: weaviate.v1.Hybrid
-	(*NearTextSearch)(nil),          // 9: weaviate.v1.NearTextSearch
-	(*NearImageSearch)(nil),         // 10: weaviate.v1.NearImageSearch
-	(*NearAudioSearch)(nil),         // 11: weaviate.v1.NearAudioSearch
-	(*NearVideoSearch)(nil),         // 12: weaviate.v1.NearVideoSearch
-	(*NearDepthSearch)(nil),         // 13: weaviate.v1.NearDepthSearch
-	(*NearThermalSearch)(nil),       // 14: weaviate.v1.NearThermalSearch
-	(*NearIMUSearch)(nil),           // 15: weaviate.v1.NearIMUSearch
-	(*BM25)(nil),                    // 16: weaviate.v1.BM25
-	(*RefPropertiesRequest)(nil),    // 17: weaviate.v1.RefPropertiesRequest
-	(*NearVector)(nil),              // 18: weaviate.v1.NearVector
-	(*NearObject)(nil),              // 19: weaviate.v1.NearObject
-	(*Rerank)(nil),                  // 20: weaviate.v1.Rerank
-	(*SearchReply)(nil),             // 21: weaviate.v1.SearchReply
-	(*RerankReply)(nil),             // 22: weaviate.v1.RerankReply
-	(*GenerativeReply)(nil),         // 23: weaviate.v1.GenerativeReply
-	(*GroupByResult)(nil),           // 24: weaviate.v1.GroupByResult
-	(*SearchResult)(nil),            // 25: weaviate.v1.SearchResult
-	(*MetadataResult)(nil),          // 26: weaviate.v1.MetadataResult
-	(*PropertiesResult)(nil),        // 27: weaviate.v1.PropertiesResult
-	(*RefPropertiesResult)(nil),     // 28: weaviate.v1.RefPropertiesResult
-	(*NearTextSearch_Move)(nil),     // 29: weaviate.v1.NearTextSearch.Move
-	(ConsistencyLevel)(0),           // 30: weaviate.v1.ConsistencyLevel
-	(*Filters)(nil),                 // 31: weaviate.v1.Filters
-	(*Vectors)(nil),                 // 32: weaviate.v1.Vectors
-	(*structpb.Struct)(nil),         // 33: google.protobuf.Struct
-	(*NumberArrayProperties)(nil),   // 34: weaviate.v1.NumberArrayProperties
-	(*IntArrayProperties)(nil),      // 35: weaviate.v1.IntArrayProperties
-	(*TextArrayProperties)(nil),     // 36: weaviate.v1.TextArrayProperties
-	(*BooleanArrayProperties)(nil),  // 37: weaviate.v1.BooleanArrayProperties
-	(*ObjectProperties)(nil),        // 38: weaviate.v1.ObjectProperties
-	(*ObjectArrayProperties)(nil),   // 39: weaviate.v1.ObjectArrayProperties
-	(*Properties)(nil),              // 40: weaviate.v1.Properties
-}
+var (
+	file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 29)
+	file_v1_search_get_proto_goTypes   = []interface{}{
+		(TargetVectorJoinMethod)(0),     // 0: weaviate.v1.TargetVectorJoinMethod
+		(Hybrid_FusionType)(0),          // 1: weaviate.v1.Hybrid.FusionType
+		(*SearchRequest)(nil),           // 2: weaviate.v1.SearchRequest
+		(*GroupBy)(nil),                 // 3: weaviate.v1.GroupBy
+		(*SortBy)(nil),                  // 4: weaviate.v1.SortBy
+		(*GenerativeSearch)(nil),        // 5: weaviate.v1.GenerativeSearch
+		(*MetadataRequest)(nil),         // 6: weaviate.v1.MetadataRequest
+		(*PropertiesRequest)(nil),       // 7: weaviate.v1.PropertiesRequest
+		(*ObjectPropertiesRequest)(nil), // 8: weaviate.v1.ObjectPropertiesRequest
+		(*Hybrid)(nil),                  // 9: weaviate.v1.Hybrid
+		(*NearTextSearch)(nil),          // 10: weaviate.v1.NearTextSearch
+		(*NearImageSearch)(nil),         // 11: weaviate.v1.NearImageSearch
+		(*NearAudioSearch)(nil),         // 12: weaviate.v1.NearAudioSearch
+		(*NearVideoSearch)(nil),         // 13: weaviate.v1.NearVideoSearch
+		(*NearDepthSearch)(nil),         // 14: weaviate.v1.NearDepthSearch
+		(*NearThermalSearch)(nil),       // 15: weaviate.v1.NearThermalSearch
+		(*NearIMUSearch)(nil),           // 16: weaviate.v1.NearIMUSearch
+		(*BM25)(nil),                    // 17: weaviate.v1.BM25
+		(*RefPropertiesRequest)(nil),    // 18: weaviate.v1.RefPropertiesRequest
+		(*NearVector)(nil),              // 19: weaviate.v1.NearVector
+		(*NearObject)(nil),              // 20: weaviate.v1.NearObject
+		(*Rerank)(nil),                  // 21: weaviate.v1.Rerank
+		(*SearchReply)(nil),             // 22: weaviate.v1.SearchReply
+		(*RerankReply)(nil),             // 23: weaviate.v1.RerankReply
+		(*GenerativeReply)(nil),         // 24: weaviate.v1.GenerativeReply
+		(*GroupByResult)(nil),           // 25: weaviate.v1.GroupByResult
+		(*SearchResult)(nil),            // 26: weaviate.v1.SearchResult
+		(*MetadataResult)(nil),          // 27: weaviate.v1.MetadataResult
+		(*PropertiesResult)(nil),        // 28: weaviate.v1.PropertiesResult
+		(*RefPropertiesResult)(nil),     // 29: weaviate.v1.RefPropertiesResult
+		(*NearTextSearch_Move)(nil),     // 30: weaviate.v1.NearTextSearch.Move
+		(ConsistencyLevel)(0),           // 31: weaviate.v1.ConsistencyLevel
+		(*Filters)(nil),                 // 32: weaviate.v1.Filters
+		(*Vectors)(nil),                 // 33: weaviate.v1.Vectors
+		(*structpb.Struct)(nil),         // 34: google.protobuf.Struct
+		(*NumberArrayProperties)(nil),   // 35: weaviate.v1.NumberArrayProperties
+		(*IntArrayProperties)(nil),      // 36: weaviate.v1.IntArrayProperties
+		(*TextArrayProperties)(nil),     // 37: weaviate.v1.TextArrayProperties
+		(*BooleanArrayProperties)(nil),  // 38: weaviate.v1.BooleanArrayProperties
+		(*ObjectProperties)(nil),        // 39: weaviate.v1.ObjectProperties
+		(*ObjectArrayProperties)(nil),   // 40: weaviate.v1.ObjectArrayProperties
+		(*Properties)(nil),              // 41: weaviate.v1.Properties
+	}
+)
 var file_v1_search_get_proto_depIdxs = []int32{
-	30, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
-	6,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest
-	5,  // 2: weaviate.v1.SearchRequest.metadata:type_name -> weaviate.v1.MetadataRequest
-	2,  // 3: weaviate.v1.SearchRequest.group_by:type_name -> weaviate.v1.GroupBy
-	3,  // 4: weaviate.v1.SearchRequest.sort_by:type_name -> weaviate.v1.SortBy
-	31, // 5: weaviate.v1.SearchRequest.filters:type_name -> weaviate.v1.Filters
-	8,  // 6: weaviate.v1.SearchRequest.hybrid_search:type_name -> weaviate.v1.Hybrid
-	16, // 7: weaviate.v1.SearchRequest.bm25_search:type_name -> weaviate.v1.BM25
-	18, // 8: weaviate.v1.SearchRequest.near_vector:type_name -> weaviate.v1.NearVector
-	19, // 9: weaviate.v1.SearchRequest.near_object:type_name -> weaviate.v1.NearObject
-	9,  // 10: weaviate.v1.SearchRequest.near_text:type_name -> weaviate.v1.NearTextSearch
-	10, // 11: weaviate.v1.SearchRequest.near_image:type_name -> weaviate.v1.NearImageSearch
-	11, // 12: weaviate.v1.SearchRequest.near_audio:type_name -> weaviate.v1.NearAudioSearch
-	12, // 13: weaviate.v1.SearchRequest.near_video:type_name -> weaviate.v1.NearVideoSearch
-	13, // 14: weaviate.v1.SearchRequest.near_depth:type_name -> weaviate.v1.NearDepthSearch
-	14, // 15: weaviate.v1.SearchRequest.near_thermal:type_name -> weaviate.v1.NearThermalSearch
-	15, // 16: weaviate.v1.SearchRequest.near_imu:type_name -> weaviate.v1.NearIMUSearch
-	4,  // 17: weaviate.v1.SearchRequest.generative:type_name -> weaviate.v1.GenerativeSearch
-	20, // 18: weaviate.v1.SearchRequest.rerank:type_name -> weaviate.v1.Rerank
-	17, // 19: weaviate.v1.PropertiesRequest.ref_properties:type_name -> weaviate.v1.RefPropertiesRequest
-	7,  // 20: weaviate.v1.PropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
-	7,  // 21: weaviate.v1.ObjectPropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
-	0,  // 22: weaviate.v1.Hybrid.fusion_type:type_name -> weaviate.v1.Hybrid.FusionType
-	9,  // 23: weaviate.v1.Hybrid.near_text:type_name -> weaviate.v1.NearTextSearch
-	18, // 24: weaviate.v1.Hybrid.near_vector:type_name -> weaviate.v1.NearVector
-	29, // 25: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
-	29, // 26: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
-	6,  // 27: weaviate.v1.RefPropertiesRequest.properties:type_name -> weaviate.v1.PropertiesRequest
-	5,  // 28: weaviate.v1.RefPropertiesRequest.metadata:type_name -> weaviate.v1.MetadataRequest
-	25, // 29: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
-	24, // 30: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
-	25, // 31: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
-	22, // 32: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply
-	23, // 33: weaviate.v1.GroupByResult.generative:type_name -> weaviate.v1.GenerativeReply
-	27, // 34: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
-	26, // 35: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
-	32, // 36: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
-	33, // 37: weaviate.v1.PropertiesResult.non_ref_properties:type_name -> google.protobuf.Struct
-	28, // 38: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
-	26, // 39: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
-	34, // 40: weaviate.v1.PropertiesResult.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
-	35, // 41: weaviate.v1.PropertiesResult.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
-	36, // 42: weaviate.v1.PropertiesResult.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
-	37, // 43: weaviate.v1.PropertiesResult.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
-	38, // 44: weaviate.v1.PropertiesResult.object_properties:type_name -> weaviate.v1.ObjectProperties
-	39, // 45: weaviate.v1.PropertiesResult.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
-	40, // 46: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
-	27, // 47: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
-	48, // [48:48] is the sub-list for method output_type
-	48, // [48:48] is the sub-list for method input_type
-	48, // [48:48] is the sub-list for extension type_name
-	48, // [48:48] is the sub-list for extension extendee
-	0,  // [0:48] is the sub-list for field type_name
+	31, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
+	0,  // 1: weaviate.v1.SearchRequest.target_vector_join_method:type_name -> weaviate.v1.TargetVectorJoinMethod
+	7,  // 2: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest
+	6,  // 3: weaviate.v1.SearchRequest.metadata:type_name -> weaviate.v1.MetadataRequest
+	3,  // 4: weaviate.v1.SearchRequest.group_by:type_name -> weaviate.v1.GroupBy
+	4,  // 5: weaviate.v1.SearchRequest.sort_by:type_name -> weaviate.v1.SortBy
+	32, // 6: weaviate.v1.SearchRequest.filters:type_name -> weaviate.v1.Filters
+	9,  // 7: weaviate.v1.SearchRequest.hybrid_search:type_name -> weaviate.v1.Hybrid
+	17, // 8: weaviate.v1.SearchRequest.bm25_search:type_name -> weaviate.v1.BM25
+	19, // 9: weaviate.v1.SearchRequest.near_vector:type_name -> weaviate.v1.NearVector
+	20, // 10: weaviate.v1.SearchRequest.near_object:type_name -> weaviate.v1.NearObject
+	10, // 11: weaviate.v1.SearchRequest.near_text:type_name -> weaviate.v1.NearTextSearch
+	11, // 12: weaviate.v1.SearchRequest.near_image:type_name -> weaviate.v1.NearImageSearch
+	12, // 13: weaviate.v1.SearchRequest.near_audio:type_name -> weaviate.v1.NearAudioSearch
+	13, // 14: weaviate.v1.SearchRequest.near_video:type_name -> weaviate.v1.NearVideoSearch
+	14, // 15: weaviate.v1.SearchRequest.near_depth:type_name -> weaviate.v1.NearDepthSearch
+	15, // 16: weaviate.v1.SearchRequest.near_thermal:type_name -> weaviate.v1.NearThermalSearch
+	16, // 17: weaviate.v1.SearchRequest.near_imu:type_name -> weaviate.v1.NearIMUSearch
+	5,  // 18: weaviate.v1.SearchRequest.generative:type_name -> weaviate.v1.GenerativeSearch
+	21, // 19: weaviate.v1.SearchRequest.rerank:type_name -> weaviate.v1.Rerank
+	18, // 20: weaviate.v1.PropertiesRequest.ref_properties:type_name -> weaviate.v1.RefPropertiesRequest
+	8,  // 21: weaviate.v1.PropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
+	8,  // 22: weaviate.v1.ObjectPropertiesRequest.object_properties:type_name -> weaviate.v1.ObjectPropertiesRequest
+	1,  // 23: weaviate.v1.Hybrid.fusion_type:type_name -> weaviate.v1.Hybrid.FusionType
+	10, // 24: weaviate.v1.Hybrid.near_text:type_name -> weaviate.v1.NearTextSearch
+	19, // 25: weaviate.v1.Hybrid.near_vector:type_name -> weaviate.v1.NearVector
+	30, // 26: weaviate.v1.NearTextSearch.move_to:type_name -> weaviate.v1.NearTextSearch.Move
+	30, // 27: weaviate.v1.NearTextSearch.move_away:type_name -> weaviate.v1.NearTextSearch.Move
+	7,  // 28: weaviate.v1.RefPropertiesRequest.properties:type_name -> weaviate.v1.PropertiesRequest
+	6,  // 29: weaviate.v1.RefPropertiesRequest.metadata:type_name -> weaviate.v1.MetadataRequest
+	26, // 30: weaviate.v1.SearchReply.results:type_name -> weaviate.v1.SearchResult
+	25, // 31: weaviate.v1.SearchReply.group_by_results:type_name -> weaviate.v1.GroupByResult
+	26, // 32: weaviate.v1.GroupByResult.objects:type_name -> weaviate.v1.SearchResult
+	23, // 33: weaviate.v1.GroupByResult.rerank:type_name -> weaviate.v1.RerankReply
+	24, // 34: weaviate.v1.GroupByResult.generative:type_name -> weaviate.v1.GenerativeReply
+	28, // 35: weaviate.v1.SearchResult.properties:type_name -> weaviate.v1.PropertiesResult
+	27, // 36: weaviate.v1.SearchResult.metadata:type_name -> weaviate.v1.MetadataResult
+	33, // 37: weaviate.v1.MetadataResult.vectors:type_name -> weaviate.v1.Vectors
+	34, // 38: weaviate.v1.PropertiesResult.non_ref_properties:type_name -> google.protobuf.Struct
+	29, // 39: weaviate.v1.PropertiesResult.ref_props:type_name -> weaviate.v1.RefPropertiesResult
+	27, // 40: weaviate.v1.PropertiesResult.metadata:type_name -> weaviate.v1.MetadataResult
+	35, // 41: weaviate.v1.PropertiesResult.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties
+	36, // 42: weaviate.v1.PropertiesResult.int_array_properties:type_name -> weaviate.v1.IntArrayProperties
+	37, // 43: weaviate.v1.PropertiesResult.text_array_properties:type_name -> weaviate.v1.TextArrayProperties
+	38, // 44: weaviate.v1.PropertiesResult.boolean_array_properties:type_name -> weaviate.v1.BooleanArrayProperties
+	39, // 45: weaviate.v1.PropertiesResult.object_properties:type_name -> weaviate.v1.ObjectProperties
+	40, // 46: weaviate.v1.PropertiesResult.object_array_properties:type_name -> weaviate.v1.ObjectArrayProperties
+	41, // 47: weaviate.v1.PropertiesResult.non_ref_props:type_name -> weaviate.v1.Properties
+	28, // 48: weaviate.v1.RefPropertiesResult.properties:type_name -> weaviate.v1.PropertiesResult
+	49, // [49:49] is the sub-list for method output_type
+	49, // [49:49] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_v1_search_get_proto_init() }
@@ -3577,7 +3655,7 @@ func file_v1_search_get_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_v1_search_get_proto_rawDesc,
-			NumEnums:      1,
+			NumEnums:      2,
 			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   0,

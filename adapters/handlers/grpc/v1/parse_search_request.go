@@ -54,6 +54,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
 	out.Tenant = req.Tenant
+	out.TargetVectorJoinMethod = extractTargetVectorJoin(req.TargetVectorJoinMethod)
 
 	targetVectors, err := extractTargetVectors(req, class)
 	if err != nil {
@@ -1001,4 +1002,15 @@ func parseNearIMU(n *pb.NearIMUSearch) (*nearImu.NearIMUParams, error) {
 	}
 
 	return out, nil
+}
+
+func extractTargetVectorJoin(join pb.TargetVectorJoinMethod) int {
+	if join == pb.TargetVectorJoinMethod_FUSION_TYPE_AVERAGE {
+		return dto.TargetVectorJoinAvg
+	} else if join == pb.TargetVectorJoinMethod_FUSION_TYPE_MIN {
+		return dto.TargetVectorJoinMin
+	} else if join == pb.TargetVectorJoinMethod_FUSION_TYPE_SUM {
+		return dto.TargetVectorJoinSum
+	}
+	return dto.TargetVectorJoinDefault
 }

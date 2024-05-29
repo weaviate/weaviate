@@ -17,6 +17,7 @@ message SearchRequest {
   // parameters
   string tenant = 10;
   optional ConsistencyLevel consistency_level = 11;
+  TargetVectorJoinMethod target_vector_join_method = 12;
 
   // what is returned
   optional PropertiesRequest properties = 20;
@@ -100,6 +101,13 @@ message ObjectPropertiesRequest {
   string prop_name = 1;
   repeated string primitive_properties = 2;
   repeated ObjectPropertiesRequest object_properties = 3;
+}
+
+enum TargetVectorJoinMethod {
+  FUSION_TYPE_UNSPECIFIED = 0;
+  FUSION_TYPE_SUM = 1;
+  FUSION_TYPE_MIN = 2;
+  FUSION_TYPE_AVERAGE = 3;
 }
 
 message Hybrid {
