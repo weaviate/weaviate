@@ -232,28 +232,27 @@ func (v *vectorizer) getOpenAIOrganization(ctx context.Context) string {
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context, isAzure bool) (string, error) {
-	var apiKey, envVar string
+	var apiKey, envVarValue, envVar string
 
 	if isAzure {
 		apiKey = "X-Azure-Api-Key"
 		envVar = "AZURE_APIKEY"
-		if len(v.azureApiKey) > 0 {
-			return v.azureApiKey, nil
-		}
+		envVarValue = v.azureApiKey
 	} else {
 		apiKey = "X-Openai-Api-Key"
 		envVar = "OPENAI_APIKEY"
-		if len(v.openAIApiKey) > 0 {
-			return v.openAIApiKey, nil
-		}
+		envVarValue = v.openAIApiKey
 	}
 
-	return v.getApiKeyFromContext(ctx, apiKey, envVar)
+	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
 }
 
-func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
+func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
 	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
+	}
+	if envVarValue != "" {
+		return envVarValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }

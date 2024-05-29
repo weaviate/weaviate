@@ -381,7 +381,6 @@ func (h *hnsw) reassignNeighbor(
 	h.shardedNodeLocks.RLock(neighbor)
 	neighborNode := h.nodes[neighbor]
 	h.shardedNodeLocks.RUnlock(neighbor)
-	currentEntrypoint := h.entryPointID
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
@@ -416,51 +415,12 @@ func (h *hnsw) reassignNeighbor(
 	}
 	neighborNode.Unlock()
 
-	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer,
-		neighborLevel, currentEntrypoint, neighborVec, compressorDistancer)
-	if err != nil {
-		return false, errors.Wrap(err, "find best entrypoint")
-	}
-
-	if entryPointID == neighbor {
-		// if we use ourselves as entrypoint and delete all connections in the
-		// next step, we won't find any neighbors, so we need to use an
-		// alternative entryPoint in this round
-
-		if h.isOnlyNode(&vertex{id: neighbor}, deleteList) {
-			neighborNode.Lock()
-			// delete all existing connections before re-assigning
-			neighborLevel = neighborNode.level
-			neighborNode.connections = make([][]uint64, neighborLevel+1)
-			neighborNode.Unlock()
-
-			if err := h.commitLog.ClearLinks(neighbor); err != nil {
-				return false, err
-			}
-			return true, nil
-		}
-
-		tmpDenyList := deleteList.DeepCopy()
-		tmpDenyList.Insert(entryPointID)
-
-		alternative, level, err := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
-			entryPointID)
-		if err != nil {
-			return false, errors.Wrap(err, "find new local entrypoint")
-		}
-
-		if level > neighborLevel {
-			neighborNode.Lock()
-			// reset connections according to level
-			neighborNode.connections = make([][]uint64, level+1)
-			neighborNode.Unlock()
-			neighborLevel = level
-		}
-		entryPointID = alternative
-	}
-
 	neighborNode.markAsMaintenance()
-	if err := h.reconnectNeighboursOf(neighborNode, entryPointID, neighborVec, compressorDistancer,
+
+	// the new recursive implementation no longer needs an entrypoint, so we can
+	// just pass this dummy value to make the neighborFinderConnector happy
+	dummyEntrypoint := uint64(0)
+	if err := h.reconnectNeighboursOf(neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}
