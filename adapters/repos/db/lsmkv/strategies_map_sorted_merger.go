@@ -35,7 +35,7 @@ func (s *sortedMapMerger) do(ctx context.Context, segments [][]MapPair) ([]MapPa
 
 	i := 0
 	for {
-		if ctx.Err() != nil {
+		if i%100 == 0 && ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
 
