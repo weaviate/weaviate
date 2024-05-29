@@ -285,12 +285,12 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 			localMigrator  = setupTestMigrator(t, localDirName, localSS, localClass)
 			remoteMigrator = setupTestMigrator(t, remoteDirName, remoteSS, remoteClass)
 			someBuckets    = []string{
-				helpers.BucketFromPropNameLSM(intProp),
-				helpers.BucketFromPropNameLSM(textProp),
+				helpers.BucketFromPropertyNameLSM(intProp),
+				helpers.BucketFromPropertyNameLSM(textProp),
 			}
 			missingBuckets = []string{
-				helpers.BucketFromPropNameLSM(numberProp),
-				helpers.BucketFromPropNameLSM(boolProp),
+				helpers.BucketFromPropertyNameLSM(numberProp),
+				helpers.BucketFromPropertyNameLSM(boolProp),
 			}
 			allBuckets = append(someBuckets, missingBuckets...)
 		)
@@ -359,12 +359,12 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 			localMigrator  = setupTestMigrator(t, localDirName, localSS, localClass)
 			remoteMigrator = setupTestMigrator(t, remoteDirName, remoteSS, remoteClass)
 			someBuckets    = []string{
-				helpers.BucketFromPropNameLSM(intProp),
-				helpers.BucketFromPropNameLSM(textProp),
+				helpers.BucketFromPropertyNameLSM(intProp),
+				helpers.BucketFromPropertyNameLSM(textProp),
 			}
 			missingBuckets = []string{
-				helpers.BucketFromPropNameLSM(numberProp),
-				helpers.BucketFromPropNameLSM(boolProp),
+				helpers.BucketFromPropertyNameLSM(numberProp),
+				helpers.BucketFromPropertyNameLSM(boolProp),
 			}
 			allBuckets = append(someBuckets, missingBuckets...)
 		)

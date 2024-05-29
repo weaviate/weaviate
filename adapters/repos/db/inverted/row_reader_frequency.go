@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -26,14 +27,15 @@ import (
 // RowReaderFrequency reads one or many row(s) depending on the specified operator
 type RowReaderFrequency struct {
 	value         []byte
-	bucket        *lsmkv.Bucket
+	bucket        lsmkv.BucketInterface
 	operator      filters.Operator
 	keyOnly       bool
 	shardVersion  uint16
+	PropPrefix    []byte
 	bitmapFactory *roaringset.BitmapFactory
 }
 
-func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
+func NewRowReaderFrequency(bucket lsmkv.BucketInterface, value []byte,
 	operator filters.Operator, keyOnly bool, shardVersion uint16,
 	bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderFrequency {
@@ -43,6 +45,7 @@ func NewRowReaderFrequency(bucket *lsmkv.Bucket, value []byte,
 		operator:      operator,
 		keyOnly:       keyOnly,
 		shardVersion:  shardVersion,
+		PropPrefix:    bucket.PropertyPrefix(),
 		bitmapFactory: bitmapFactory,
 	}
 }
@@ -101,7 +104,11 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
+	for compositeKey, v := c.Seek(rr.value); compositeKey != nil; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -132,7 +139,12 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
+	for compositeKey, v := c.First(); compositeKey != nil && bytes.Compare(compositeKey, rr.value) != 1; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -176,7 +188,8 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 		initialK, initialV = c.First()
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+	for compositeKey, v := initialK, initialV; compositeKey != nil; compositeKey, v = c.Next() {
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -215,7 +228,7 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 // keyOnly==true
 func (rr *RowReaderFrequency) newCursor(
 	opts ...lsmkv.MapListOption,
-) *lsmkv.CursorMap {
+) lsmkv.CursorMap {
 	if rr.shardVersion < 2 {
 		opts = append(opts, lsmkv.MapListLegacySortingRequired())
 	}

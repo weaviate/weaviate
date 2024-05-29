@@ -42,6 +42,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 )
 
 type LazyLoadShard struct {
@@ -187,6 +189,11 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthT
 	return l.shard.GetPropertyLengthTracker()
 }
 
+func (l *LazyLoadShard) GetPropertyIdTracker() *tracker.JsonPropertyIdTracker {
+	l.mustLoad()
+	return l.shard.GetPropertyIdTracker()
+}
+
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if err := l.Load(ctx); err != nil {
 		return err
@@ -234,6 +241,47 @@ func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []f
 		return nil, nil, err
 	}
 	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
+}
+
+func (l *LazyLoadShard) Drop_unmerged() error {
+	if err := l.Load(context.TODO()); err != nil {
+		return err
+	}
+	return l.shard.drop()
+}
+
+func (l *LazyLoadShard) IsFallbackToSearchable_unmerged() bool {
+	l.mustLoad()
+	return l.shard.IsFallbackToSearchable_unmerged()
+}
+
+func (l *LazyLoadShard) ObjectCount_unmerged() int {
+	l.mustLoad()
+	return l.shard.ObjectCount()
+}
+
+func (l *LazyLoadShard) NotifyReady_unmerged() {
+	l.mustLoad()
+	l.shard.NotifyReady()
+}
+
+func (l *LazyLoadShard) Tenant_unmerged() string {
+	l.mustLoad()
+	return l.shard.Tenant_unmerged()
+}
+
+func (l *LazyLoadShard) Shutdown_unmerged(ctx context.Context) error {
+	if !l.isLoaded() {
+		return nil
+	}
+	return l.shard.Shutdown(ctx)
+}
+
+func (l *LazyLoadShard) UpdateVectorIndexConfig_unmerged(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.UpdateVectorIndexConfig_unmerged(ctx, updated)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
@@ -343,9 +391,19 @@ func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
 	return l.shard.addTimestampProperties(ctx)
 }
 
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
 	l.mustLoad()
-	return l.shard.createPropertyIndex(ctx, eg, props...)
+	return l.shard.createPropertyIndex(ctx, eg, props)
+}
+
+func (l *LazyLoadShard) CreatePropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
+	l.mustLoad()
+	return l.shard.CreatePropertyIndex_unmerged(ctx, eg, props)
+}
+
+func (l *LazyLoadShard) UuidToIdLockPoolId_unmerged(idBytes []byte) uint8 {
+	l.mustLoad()
+	return l.shard.UuidToIdLockPoolId_unmerged(idBytes)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {
@@ -532,12 +590,12 @@ func (l *LazyLoadShard) extendDimensionTrackerForVecLSM(dimLength int, docID uin
 	return l.shard.extendDimensionTrackerForVecLSM(dimLength, docID, vecName)
 }
 
-func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+func (l *LazyLoadShard) addToPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error {
 	l.mustLoad()
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
+func (l *LazyLoadShard) addToPropertyMapBucket(bucket lsmkv.BucketInterface, pair lsmkv.MapPair, key []byte) error {
 	l.mustLoad()
 	return l.shard.addToPropertyMapBucket(bucket, pair, key)
 }
@@ -579,12 +637,12 @@ func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idByt
 	return l.shard.mutableMergeObjectLSM(merge, idBytes)
 }
 
-func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error {
 	l.mustLoad()
 	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {
+func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b lsmkv.BucketInterface, item inverted.MergeItem) error {
 	l.mustLoad()
 	return l.shard.batchExtendInvertedIndexItemsLSMNoFrequency(b, item)
 }

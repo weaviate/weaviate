@@ -93,7 +93,7 @@ func TestPropValuePairs_Merging(t *testing.T) {
 					pv.children[i] = &propValuePair{
 						operator: filters.OperatorEqual,
 						docIDs: docBitmap{
-							docIDs: tc.bitmaps[i],
+							DocIDs: tc.bitmaps[i],
 						},
 					}
 				}
@@ -102,9 +102,9 @@ func TestPropValuePairs_Merging(t *testing.T) {
 
 				require.Nil(t, err)
 				assert.ElementsMatch(t, tc.expectedIds, dbm.IDs())
-				assert.False(t, tc.bitmaps[0] == dbm.docIDs)
-				assert.False(t, tc.bitmaps[1] == dbm.docIDs)
-				assert.False(t, tc.bitmaps[2] == dbm.docIDs)
+				assert.False(t, tc.bitmaps[0] == dbm.DocIDs)
+				assert.False(t, tc.bitmaps[1] == dbm.DocIDs)
+				assert.False(t, tc.bitmaps[2] == dbm.DocIDs)
 			})
 		}
 	})

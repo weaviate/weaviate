@@ -145,6 +145,9 @@ func (m *Metrics) VectorIndex(start time.Time) {
 }
 
 func (m *Metrics) PutObject(start time.Time) {
+	if m == nil {
+		return
+	}
 	took := time.Since(start)
 	m.logger.WithField("action", "store_object_store_single_object_in_tx").
 		WithField("took", took).
@@ -161,6 +164,9 @@ func (m *Metrics) PutObject(start time.Time) {
 }
 
 func (m *Metrics) PutObjectDetermineStatus(start time.Time) {
+	if m == nil {
+		return
+	}
 	took := time.Since(start)
 	m.logger.WithField("action", "store_object_store_determine_status").
 		WithField("took", took).
@@ -177,6 +183,9 @@ func (m *Metrics) PutObjectDetermineStatus(start time.Time) {
 }
 
 func (m *Metrics) PutObjectUpsertObject(start time.Time) {
+	if m == nil {
+		return
+	}
 	took := time.Since(start)
 	m.logger.WithField("action", "store_object_store_upsert_object_data").
 		WithField("took", took).
@@ -193,6 +202,9 @@ func (m *Metrics) PutObjectUpsertObject(start time.Time) {
 }
 
 func (m *Metrics) PutObjectUpdateInverted(start time.Time) {
+	if m == nil {
+		return
+	}
 	took := time.Since(start)
 	m.logger.WithField("action", "store_object_store_update_inverted").
 		WithField("took", took).
@@ -209,6 +221,9 @@ func (m *Metrics) PutObjectUpdateInverted(start time.Time) {
 }
 
 func (m *Metrics) InvertedDeleteOld(start time.Time) {
+	if m == nil {
+		return
+	}
 	took := time.Since(start)
 	m.logger.WithField("action", "inverted_delete_old").
 		WithField("took", took).
@@ -224,6 +239,9 @@ func (m *Metrics) InvertedDeleteOld(start time.Time) {
 }
 
 func (m *Metrics) InvertedDeleteDelta(start time.Time) {
+	if m == nil {
+		return
+	}
 	took := time.Since(start)
 	m.logger.WithField("action", "inverted_delete_delta").
 		WithField("took", took).
@@ -231,6 +249,9 @@ func (m *Metrics) InvertedDeleteDelta(start time.Time) {
 }
 
 func (m *Metrics) InvertedExtend(start time.Time, propCount int) {
+	if m == nil {
+		return
+	}
 	took := time.Since(start)
 	m.logger.WithField("action", "inverted_extend").
 		WithField("took", took).
@@ -248,6 +269,9 @@ func (m *Metrics) InvertedExtend(start time.Time, propCount int) {
 }
 
 func (m *Metrics) ShardStartup(start time.Time) {
+	if m == nil {
+		return
+	}
 	if !m.monitoring {
 		return
 	}

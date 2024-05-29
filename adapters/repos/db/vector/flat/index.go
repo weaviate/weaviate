@@ -408,7 +408,7 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 // populates given heap with smallest distances and corresponding ids calculated by
 // distanceCalc
 func (index *flat) findTopVectors(heap *priorityqueue.Queue[any],
-	allow helpers.AllowList, limit int, cursorFn func() *lsmkv.CursorReplace,
+	allow helpers.AllowList, limit int, cursorFn func() lsmkv.CursorReplace,
 	distanceCalc distanceCalc,
 ) error {
 	var key []byte

@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -43,10 +44,13 @@ type Aggregator struct {
 	vectorIndex            vectorIndex
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
-	propLenTracker         *inverted.JsonPropertyLengthTracker
+	propLengths            *inverted.JsonPropertyLengthTracker
+	propertyIds            *tracker.JsonPropertyIdTracker
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
+	PropertyName           string
+	propLenTracker         *inverted.JsonPropertyLengthTracker
 	bitmapFactory          *roaringset.BitmapFactory
 	modules                *modules.Provider
 }
@@ -57,7 +61,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
 	propLenTracker *inverted.JsonPropertyLengthTracker,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
-	tenant string, nestedCrossRefLimit int64,
+	tenant string, propertyIds *tracker.JsonPropertyIdTracker, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
 	modules *modules.Provider,
 ) *Aggregator {
@@ -73,6 +77,7 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		propLenTracker:         propLenTracker,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
+		propertyIds:            propertyIds,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
 		modules:                modules,

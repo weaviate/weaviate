@@ -24,8 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-
 	"github.com/pkg/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -36,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -434,19 +433,35 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 	})
 }
 
-func (i *Index) addProperty(ctx context.Context, props ...*models.Property) error {
-	eg := enterrors.NewErrorGroupWrapper(i.logger)
-	eg.SetLimit(_NUMCPU)
+// Problem: this function should be in shard.go, it circumvents the shard abstraction
+func (i *Index) addProperty(ctx context.Context, props []*models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
 
-	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.createPropertyIndex(ctx, eg, props...)
+		eg := enterrors.NewErrorGroupWrapper(i.logger)
+
+		i.ForEachShard(func(key string, shard ShardLike) error {
+			shard.CreatePropertyIndex_unmerged(ctx, eg, props)
+			return nil
+		})
+
+		i.ForEachShard(func(key string, shard ShardLike) error {
+			shard.createPropertyIndex(ctx, eg, props)
+			return nil
+		})
+
+		if err := eg.Wait(); err != nil {
+			return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
+		}
 		return nil
-	})
-
-	if err := eg.Wait(); err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
+	} else {
+		return i.ForEachShard(func(key string, shard ShardLike) error {
+			err := shard.createPropertyIndex(ctx, nil, props)
+			if err != nil {
+				return errors.Wrapf(err, "extend idx '%s' with property '%v", i.ID(), props)
+			}
+			return nil
+		})
 	}
-	return nil
 }
 
 func (i *Index) addUUIDProperty(ctx context.Context) error {
@@ -1363,8 +1378,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					ctx, shardName, nil, "", limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
 				if err != nil {
-					return fmt.Errorf(
-						"remote shard object search %s: %w", shardName, err)
+					return fmt.Errorf("remote shard object search %s: %w", shardName, err)
 				}
 			}
 
@@ -1376,7 +1390,6 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			resultObjects = append(resultObjects, objs...)
 			resultScores = append(resultScores, scores...)
 			shardResultLock.Unlock()
-
 			return nil
 		}, shardName)
 	}
@@ -1768,9 +1781,7 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string, class *mod
 	return i.shards.Load(shardName), nil
 }
 
-func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
-	replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
-) error {
+func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument, replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64) error {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}
@@ -1963,7 +1974,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	defer i.backupMutex.RUnlock()
 
 	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+	if err := i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := shard.Shutdown(ctx); err != nil {
 			if !errors.Is(err, errAlreadyShutdown) {
 				return errors.Wrapf(err, "shutdown shard %q", name)

@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -61,9 +62,10 @@ func TestObjects(t *testing.T) {
 		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-			helpers.BucketSearchableFromPropNameLSM(propName),
+			"searchable_properties",
+			lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName)),
 			lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
+		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(propName)))
 	})
 
 	type testCase struct {
@@ -88,7 +90,10 @@ func TestObjects(t *testing.T) {
 				DocID: docIDCounter,
 			}
 			docIDCounter++
-			putObject(t, store, &obj, propName, []byte(prop))
+			tr, err := tracker.NewJsonPropertyIdTracker(dirName + "-property-ids")
+			require.Nil(t, err)
+
+			putObject(t, store, &obj, propName, []byte(prop), tr)
 			tests[i] = testCase{
 				targetChar: targetChar,
 				object:     &obj,
@@ -98,13 +103,16 @@ func TestObjects(t *testing.T) {
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+	tr, err := tracker.NewJsonPropertyIdTracker(dirName + "testobjtracker")
+	require.Nil(t, err)
+
+	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, tr, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	t.Run("run tests", func(t *testing.T) {
 		t.Run("NotEqual", func(t *testing.T) {
-			t.Parallel()
+			// t.Parallel()
 			for _, test := range tests {
 				filter := &filters.LocalFilter{Root: &filters.Clause{
 					Operator: filters.OperatorNotEqual,
@@ -137,8 +145,7 @@ func TestObjects(t *testing.T) {
 						Type:  schema.DataTypeText,
 					},
 				}}
-				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className)
+				objs, err := searcher.Objects(context.Background(), numObjects, filter, nil, additional.Properties{}, className)
 				assert.Nil(t, err)
 				assert.Len(t, objs, multiplier)
 			}
@@ -161,6 +168,8 @@ func TestDocIDs(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 	defer func() { assert.Nil(t, err) }()
+	tr, err := tracker.NewJsonPropertyIdTracker(dirName + "-property-ids")
+	require.Nil(t, err)
 
 	t.Run("create buckets", func(t *testing.T) {
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
@@ -168,10 +177,13 @@ func TestDocIDs(t *testing.T) {
 		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
 
 		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
-			helpers.BucketSearchableFromPropNameLSM(propName),
+			"searchable_properties",
+			lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(propName)),
 			lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
-		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
+		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropertyNameLSM(propName)))
 	})
+
+	tr.GetIdForProperty(propName)
 
 	t.Run("put objects", func(t *testing.T) {
 		for i := 0; i < numObjects; i++ {
@@ -189,13 +201,15 @@ func TestDocIDs(t *testing.T) {
 				DocID: docIDCounter,
 			}
 			docIDCounter++
-			putObject(t, store, &obj, propName, []byte(prop))
+
+			putObject(t, store, &obj, propName, []byte(prop), tr)
 		}
 	})
 
 	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
-	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
+	sch := createSchema()
+	searcher := NewSearcher(logger, store, sch.GetClass, nil, tr, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
 		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
@@ -213,12 +227,12 @@ func TestDocIDs(t *testing.T) {
 						Property: schema.PropertyName(propName),
 					},
 					Value: &filters.Value{
-						Value: "[[[",
+						Value: "BBB",
 						Type:  schema.DataTypeText,
 					},
 				},
 			},
-			expectedMatches: numObjects,
+			expectedMatches: len(charSet)*multiplier - 1,
 		},
 		{
 			filter: filters.LocalFilter{
@@ -229,12 +243,12 @@ func TestDocIDs(t *testing.T) {
 						Property: schema.PropertyName(propName),
 					},
 					Value: &filters.Value{
-						Value: "AAA",
+						Value: "[[[",
 						Type:  schema.DataTypeText,
 					},
 				},
 			},
-			expectedMatches: len(charSet)*multiplier - 1,
+			expectedMatches: numObjects,
 		},
 	}
 
@@ -259,7 +273,7 @@ func pairPropWithFreq(docID uint64, freq, propLen float32) lsmkv.MapPair {
 	}
 }
 
-func putObject(t *testing.T, store *lsmkv.Store, obj *storobj.Object, propName string, data []byte) {
+func putObject(t *testing.T, store *lsmkv.Store, obj *storobj.Object, propName string, data []byte, propids *tracker.JsonPropertyIdTracker) {
 	b, err := obj.MarshalBinary()
 	require.Nil(t, err)
 
@@ -271,9 +285,11 @@ func putObject(t *testing.T, store *lsmkv.Store, obj *storobj.Object, propName s
 	err = bucket.Put([]byte(obj.ID()), b, lsmkv.WithSecondaryKey(0, docIDBytes))
 	require.Nil(t, err)
 
-	propBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
-	propBucket := store.Bucket(propBucketName)
-	err = propBucket.MapSet(data, pairPropWithFreq(obj.DocID, 1, float32(len(data))))
+	propBucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
+	propBucket, err := lsmkv.FetchMeABucket(store, "searchable_properties", propBucketName, propName, propids)
+	require.Nil(t, err)
+	mergedKey := helpers.MakePropertyKey(propBucket.PropertyPrefix(), data)
+	err = propBucket.MapSet(mergedKey, pairPropWithFreq(obj.DocID, 1, float32(len(mergedKey))))
 	require.Nil(t, err)
 }
 

@@ -40,7 +40,7 @@ type Migrator interface {
 	GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error)
 
 	AddProperty(ctx context.Context, className string,
-		props ...*models.Property) error
+		props []*models.Property) error
 	UpdateProperty(ctx context.Context, className string,
 		propName string, newName *string) error
 	UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error
@@ -59,6 +59,11 @@ type Migrator interface {
 	ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
+	RecalculateVectorDimensions(ctx context.Context) error
+	RecountProperties(ctx context.Context) error
+	InvertedReindex(ctx context.Context, taskNames ...string) error
+
+	AdjustFilterablePropSettings(ctx context.Context) error
 	UpdateReplicationFactor(ctx context.Context, className string, factor int64) error
 	WaitForStartup(context.Context) error
 	Shutdown(context.Context) error

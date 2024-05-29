@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
@@ -33,14 +35,43 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const FlushAfterDirtyDefault = 60 * time.Second
+// BucketInterface supports wrapping the bucket with proxy objects to enable things like multiple properties per bucket
+type BucketInterface interface {
+	Shutdown(ctx context.Context) error
+	IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error
+	SetMemtableThreshold(size uint64)
+	Get(key []byte) ([]byte, error)
+	GetBySecondary(pos int, key []byte) ([]byte, error)
+	SetList(key []byte) ([][]byte, error)
+	Put(key, value []byte, opts ...SecondaryKeyOption) error
+	SetAdd(key []byte, values [][]byte) error
+	SetDeleteSingle(key []byte, valueToDelete []byte) error
+	WasDeleted(key []byte) (bool, error)
+	MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error)
+	MapSet(rowKey []byte, kv MapPair) error
+	MapDeleteKey(rowKey, mapKey []byte) error
+	Delete(key []byte, opts ...SecondaryKeyOption) error
+	Count() int
+	Strategy() string
+	RoaringSetGet(key []byte) (*sroar.Bitmap, error)
+	SetCursorKeyOnly() CursorSet
+	SetCursor() CursorSet
+	MapCursorKeyOnly(cfgs ...MapListOption) CursorMap
+	MapCursor(cfgs ...MapListOption) CursorMap
+	CursorRoaringSet() CursorRoaringSet
+	RoaringSetAddOne(key []byte, value uint64) error
+	FlushAndSwitch() error
+	PropertyPrefix() []byte
+	Cursor() CursorReplace
+	RoaringSetRemoveOne(key []byte, value uint64) error
+	RoaringSetAddList(key []byte, values []uint64) error
 
-type BucketCreator interface {
-	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
-		opts ...BucketOption,
-	) (*Bucket, error)
+	CursorRoaringSetKeyOnly() CursorRoaringSet
+	GetRegisteredName() string
+	CheckBucket()
 }
+
+const FlushAfterDirtyDefault = 60 * time.Second
 
 type Bucket struct {
 	dir      string
@@ -89,6 +120,9 @@ type Bucket struct {
 
 	pauseTimer *prometheus.Timer // Times the pause
 
+	RegisteredName  string
+	PropertyTracker map[string]uint32
+
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.
 	// Since segments are immutable, deletions are added as new entries with
@@ -124,7 +158,30 @@ type Bucket struct {
 	maxSegmentSize int64
 }
 
-func NewBucketCreator() *Bucket { return &Bucket{} }
+func (b *Bucket) GetRegisteredName() string {
+	return b.RegisteredName
+}
+
+func (b *Bucket) CheckBucket() {
+	if b == nil {
+		panic("Bucket is nil")
+	}
+	if len(b.dir) > 4096 {
+		panic("Bucket name is too long")
+	}
+	if len(b.rootDir) > 4096 {
+		panic("Bucket root name is too long")
+	}
+	if len(b.RegisteredName) > 4096 {
+		panic("Bucket registered name is too long")
+	}
+	if b.logger == nil {
+		panic("Bucket logger is nil")
+	}
+	if b.strategy == "" {
+		panic("Bucket strategy is empty")
+	}
+}
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
 // it exists, or initializes new state.
@@ -132,7 +189,7 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 // You do not need to ever call NewBucket() yourself, if you are using a
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
-func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
+func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
 	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (*Bucket, error) {
@@ -232,6 +289,27 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	return b, nil
 }
 
+func (b *Bucket) PropertyPrefix() []byte {
+	return []byte("")
+}
+
+// Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.
+func (b *Bucket) DumpString() string {
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("Bucket: %s\n", b.dir))
+	b.IterateObjects(context.Background(), func(object *storobj.Object) error {
+		// Marshall the object to json
+		json, err := json.Marshal(object)
+		if err != nil {
+			return err
+		}
+		buf.WriteString(fmt.Sprintf("%v, %v: %v\n", object.ID(), object.DocID, string(json)))
+		return nil
+	})
+	buf.WriteString("Bucket end\n")
+	return buf.String()
+}
+
 func (b *Bucket) GetDir() string {
 	return b.dir
 }
@@ -289,6 +367,18 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 	}
 
 	return nil
+}
+
+// Iterate over every entry in the bucket and create a human-readable display of the bucket's contents, and return it as a string.
+func (b *Bucket) DumpStringRoaring() string {
+	var buf bytes.Buffer
+	cursor := b.cursorRoaringSet(false)
+	defer cursor.Close()
+
+	for k, sbmp := cursor.First(); k != nil; k, sbmp = cursor.Next() {
+		buf.WriteString(fmt.Sprintf("%v: %v\n", k, sbmp.ToArray()))
+	}
+	return buf.String()
 }
 
 func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, []byte, bool) error) error {

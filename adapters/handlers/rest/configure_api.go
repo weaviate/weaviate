@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -137,8 +138,17 @@ func getCores() (int, error) {
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
+	if os.Getenv("ENABLE_MERGED_PROPERTY_BUCKETS") != "" && strings.ToLower(os.Getenv("ENABLE_MERGED_PROPERTY_BUCKETS")) != "false" {
+		lsmkv.FeatureUseMergedBuckets = true
+	} else {
+		lsmkv.FeatureUseMergedBuckets = false
+	}
 	appState := startupRoutine(ctx, options)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
+
+	if lsmkv.FeatureUseMergedBuckets {
+		appState.Logger.WithField("action", "startup").Warnf("Merged property buckets are enabled. This is an experimental feature and may be removed in the future. Please report any issues you encounter.")
+	}
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity = tenantactivity.NewHandler()

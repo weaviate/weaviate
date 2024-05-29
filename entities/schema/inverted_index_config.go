@@ -16,12 +16,24 @@ import (
 )
 
 type InvertedIndexConfig struct {
-	BM25                   BM25Config
-	Stopwords              models.StopwordConfig
-	CleanupIntervalSeconds uint64
-	IndexTimestamps        bool
-	IndexNullState         bool
-	IndexPropertyLength    bool
+
+	// bm25
+	BM25 BM25Config `json:"bm25,omitempty"`
+
+	// Asynchronous index clean up happens every n seconds
+	CleanupIntervalSeconds uint64 `json:"cleanupIntervalSeconds,omitempty"`
+
+	// Index each object with the null state
+	IndexNullState bool `json:"indexNullState,omitempty"`
+
+	// Index length of properties
+	IndexPropertyLength bool `json:"indexPropertyLength,omitempty"`
+
+	// Index each object by its internal timestamps
+	IndexTimestamps bool `json:"indexTimestamps,omitempty"`
+
+	// stopwords
+	Stopwords models.StopwordConfig `json:"stopwords,omitempty"`
 }
 
 type BM25Config struct {

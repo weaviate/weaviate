@@ -222,8 +222,8 @@ func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard
 	defer m.resumeStoreActivity(ctx, shard)
 
 	for propName := range props {
-		srcBucketName := helpers.BucketFromPropNameLSM(propName)
-		dstBucketName := helpers.BucketSearchableFromPropNameLSM(propName)
+		srcBucketName := helpers.BucketFromPropertyNameLSM(propName)
+		dstBucketName := helpers.BucketSearchableFromPropertyNameLSM(propName)
 
 		m.logShard(shard).
 			WithField("bucketSrc", srcBucketName).
@@ -241,12 +241,12 @@ func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard
 }
 
 func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shard ShardLike) (bool, error) {
-	bucketFilterable := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
+	bucketFilterable := shard.Store().Bucket(helpers.BucketFromPropertyNameLSM(prop.Name))
 	if bucketFilterable != nil &&
 		bucketFilterable.Strategy() == lsmkv.StrategyMapCollection &&
 		bucketFilterable.DesiredStrategy() == lsmkv.StrategyRoaringSet {
 
-		bucketSearchable := shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM(prop.Name))
+		bucketSearchable := shard.Store().Bucket(helpers.BucketSearchableFromPropertyNameLSM(prop.Name))
 		if bucketSearchable != nil &&
 			bucketSearchable.Strategy() == lsmkv.StrategyMapCollection {
 

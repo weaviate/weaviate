@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -29,6 +30,10 @@ func (m *Memtable) flush() error {
 	// successful fsync)
 
 	if err := m.commitlog.close(); err != nil {
+		if strings.Contains(err.Error(), "file already closed") {
+			// this is fine, we have multiple entries for the same file
+			return nil
+		}
 		return errors.Wrap(err, "close commit log file")
 	}
 
@@ -37,6 +42,10 @@ func (m *Memtable) flush() error {
 		// however, we still have to cleanup the commit log, otherwise we will
 		// attempt to recover from it on the next cycle
 		if err := m.commitlog.delete(); err != nil {
+			if strings.Contains(err.Error(), "file already closed") {
+				// this is fine, we have multiple entries for the same file
+				return nil
+			}
 			return errors.Wrap(err, "delete commit log file")
 		}
 		return nil

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -41,12 +42,15 @@ import (
 type BM25Searcher struct {
 	config         schema.BM25Config
 	store          *lsmkv.Store
-	getClass       func(string) *models.Class
+	schema         schema.Schema
 	classSearcher  ClassSearcher // to allow recursive searches on ref-props
 	propIndices    propertyspecific.Indices
-	propLenTracker propLengthRetriever
+	propLengths    propLengthRetriever
 	logger         logrus.FieldLogger
 	shardVersion   uint16
+	propertyIds    *tracker.JsonPropertyIdTracker
+	getClass       func(string) *models.Class
+	propLenTracker propLengthRetriever
 }
 
 type propLengthRetriever interface {
@@ -56,7 +60,7 @@ type propLengthRetriever interface {
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
-	logger logrus.FieldLogger, shardVersion uint16,
+	logger logrus.FieldLogger, shardVersion uint16, propertyIds *tracker.JsonPropertyIdTracker,
 ) *BM25Searcher {
 	return &BM25Searcher{
 		config:         config,
@@ -67,6 +71,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker: propLenTracker,
 		logger:         logger.WithField("action", "bm25_search"),
 		shardVersion:   shardVersion,
+		propertyIds:    propertyIds,
 	}
 }
 
@@ -355,9 +360,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
 	for _, propName := range propertyNames {
 
-		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-		if bucket == nil {
-			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
+		bucket, err := lsmkv.FetchMeABucket(b.store, "searchable_properties", helpers.BucketSearchableFromPropertyNameLSM(propName), propName, b.propertyIds)
+		if err != nil {
+			return termResult, nil, fmt.Errorf("could not find bucket for property %v: %v", propName, err)
 		}
 		preM, err := bucket.MapList([]byte(query))
 		if err != nil {

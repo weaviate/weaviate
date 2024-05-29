@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -26,25 +27,54 @@ import (
 // RowReader reads one or many row(s) depending on the specified operator
 type RowReader struct {
 	value         []byte
-	bucket        *lsmkv.Bucket
+	bucket        lsmkv.BucketInterface
 	operator      filters.Operator
 	keyOnly       bool
+	PropPrefix    []byte
 	bitmapFactory *roaringset.BitmapFactory
 }
 
 // If keyOnly is set, the RowReader will request key-only cursors wherever
 // cursors are used, the specified value arguments in the ReadFn will always be
 // nil
-func NewRowReader(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
-	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
-) *RowReader {
+func NewRowReader(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator, keyOnly bool, bitmapFactory *roaringset.BitmapFactory) *RowReader {
 	return &RowReader{
 		bucket:        bucket,
 		value:         value,
 		operator:      operator,
+		PropPrefix:    bucket.PropertyPrefix(),
 		keyOnly:       keyOnly,
 		bitmapFactory: bitmapFactory,
 	}
+}
+
+// Iterate dumps every value
+func (rr *RowReader) Iterate(ctx context.Context, readFn ReadFn) error {
+	c := rr.newCursor()
+	defer c.Close()
+
+	for k, v := c.First(); k != nil; k, v = c.Next() {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, k) {
+			continue
+		}
+
+		k = helpers.UnMakePropertyKey(rr.PropPrefix, k)
+
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
+		continueReading, err := readFn(k, rr.transformToBitmap(v))
+		if err != nil {
+			return err
+		}
+
+		if !continueReading {
+			break
+		}
+	}
+
+	return nil
 }
 
 // Read a row using the specified ReadFn. If RowReader was created with
@@ -106,7 +136,11 @@ func (rr *RowReader) greaterThan(ctx context.Context, readFn ReadFn,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
+	for compositeKey, v := c.Seek(rr.value); compositeKey != nil; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -137,7 +171,12 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
+	for compositeKey, v := c.First(); compositeKey != nil && bytes.Compare(compositeKey, rr.value) != 1; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -179,7 +218,11 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 		initialK, initialV = c.First()
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+	for compositeKey, v := initialK, initialV; compositeKey != nil; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -216,7 +259,7 @@ func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
 
 // newCursor will either return a regular cursor - or a key-only cursor if
 // keyOnly==true
-func (rr *RowReader) newCursor() *lsmkv.CursorSet {
+func (rr *RowReader) newCursor() lsmkv.CursorSet {
 	if rr.keyOnly {
 		return rr.bucket.SetCursorKeyOnly()
 	}

@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
 func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []inverted.NilProperty,
@@ -69,9 +70,9 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 
 func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property) error {
 	if property.HasFilterableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketFromPropNameLSM(property.Name))
-		if bucketValue == nil {
-			return errors.Errorf("no bucket for prop '%s' found", property.Name)
+		bucketValue, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameLSM(property.Name), property.Name, s.propIds)
+		if err != nil {
+			return errors.Wrapf(err, "no bucket filterable for prop '%s' found", property.Name)
 		}
 
 		for _, item := range property.Items {
@@ -83,9 +84,9 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 	}
 
 	if property.HasSearchableIndex {
-		bucketValue := s.store.Bucket(helpers.BucketSearchableFromPropNameLSM(property.Name))
-		if bucketValue == nil {
-			return errors.Errorf("no bucket searchable for prop '%s' found", property.Name)
+		bucketValue, err := lsmkv.FetchMeABucket(s.store, "searchable_properties", helpers.BucketSearchableFromPropertyNameLSM(property.Name), property.Name, s.propIds)
+		if err != nil {
+			return errors.Wrapf(err, "no bucket searchable for prop '%s' found", property.Name)
 		}
 
 		propLen := float32(len(property.Items))
@@ -93,7 +94,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 			key := item.Data
 			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
 			if err := s.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
-				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket (searchable properties)", property.Name)
 			}
 		}
 	}
@@ -102,10 +103,11 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 }
 
 func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length int) error {
-	bucketLength := s.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName))
-	if bucketLength == nil {
-		return errors.Errorf("no bucket for prop '%s' length found", propName)
+	bucketLength, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameLengthLSM(propName), propName, s.propIds)
+	if err != nil {
+		return errors.Errorf("no bucket for prop '%s' length found: %v", propName, err)
 	}
+	bucketLength.CheckBucket()
 
 	key, err := bucketKeyPropertyLength(length)
 	if err != nil {
@@ -118,15 +120,16 @@ func (s *Shard) addToPropertyLengthIndex(propName string, docID uint64, length i
 }
 
 func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull bool) error {
-	bucketNull := s.store.Bucket(helpers.BucketFromPropNameNullLSM(propName))
-	if bucketNull == nil {
-		return errors.Errorf("no bucket for prop '%s' null found", propName)
-	}
-
-	key, err := bucketKeyPropertyNull(isNull)
+	key, err := s.keyPropertyNull(isNull)
 	if err != nil {
 		return errors.Wrapf(err, "failed creating key for prop '%s' null", propName)
 	}
+
+	bucketNull, err := lsmkv.FetchMeABucket(s.store, "filterable_properties", helpers.BucketFromPropertyNameNullLSM(propName), propName, s.propIds)
+	if err != nil {
+		return errors.Errorf("no bucket for prop '%s' null found", propName)
+	}
+
 	if err := s.addToPropertySetBucket(bucketNull, docID, key); err != nil {
 		return errors.Wrapf(err, "failed adding to prop '%s' null bucket", propName)
 	}
@@ -153,14 +156,26 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 	}
 }
 
-func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+func (s *Shard) keyPropertyLength(length int) ([]byte, error) {
+	return inverted.LexicographicallySortableInt64(int64(length))
+}
+
+func (s *Shard) keyPropertyNull(isNull bool) ([]byte, error) {
+	if isNull {
+		return []byte{uint8(filters.InternalNullState)}, nil
+	}
+	return []byte{uint8(filters.InternalNotNullState)}, nil
+}
+
+func (s *Shard) addToPropertyMapBucket(bucket lsmkv.BucketInterface, pair lsmkv.MapPair, key []byte) error {
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	return bucket.MapSet(key, pair)
 }
 
-func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+func (s *Shard) addToPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error {
+	bucket.CheckBucket()
+	lsmkv.CheckExpectedStrategy(bucket.GetRegisteredName(), bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
 		docIDBytes := make([]byte, 8)
@@ -172,7 +187,7 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	return bucket.RoaringSetAddOne(key, docID)
 }
 
-func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
+func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b lsmkv.BucketInterface,
 	item inverted.MergeItem,
 ) error {
 	if b.Strategy() != lsmkv.StrategySetCollection && b.Strategy() != lsmkv.StrategyRoaringSet {

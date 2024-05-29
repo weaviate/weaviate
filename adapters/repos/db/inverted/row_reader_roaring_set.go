@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -29,13 +30,14 @@ type RowReaderRoaringSet struct {
 	operator      filters.Operator
 	newCursor     func() lsmkv.CursorRoaringSet
 	getter        func(key []byte) (*sroar.Bitmap, error)
+	PropPrefix    []byte
 	bitmapFactory *roaringset.BitmapFactory
 }
 
 // If keyOnly is set, the RowReaderRoaringSet will request key-only cursors
 // wherever cursors are used, the specified value arguments in the
 // ReadFn will always be empty
-func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters.Operator,
+func NewRowReaderRoaringSet(bucket lsmkv.BucketInterface, value []byte, operator filters.Operator,
 	keyOnly bool, bitmapFactory *roaringset.BitmapFactory,
 ) *RowReaderRoaringSet {
 	getter := bucket.RoaringSetGet
@@ -49,6 +51,7 @@ func NewRowReaderRoaringSet(bucket *lsmkv.Bucket, value []byte, operator filters
 		operator:      operator,
 		newCursor:     newCursor,
 		getter:        getter,
+		PropPrefix:    bucket.PropertyPrefix(),
 		bitmapFactory: bitmapFactory,
 	}
 }
@@ -128,7 +131,14 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
+	value_with_prop := helpers.MakePropertyKey(rr.PropPrefix, rr.value)
+
+	for compositeKey, v := c.Seek(value_with_prop); compositeKey != nil; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
+
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -156,7 +166,11 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) < 1; k, v = c.Next() {
+	for compositeKey, v := c.First(); compositeKey != nil && bytes.Compare(helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey), rr.value) < 1; compositeKey, v = c.Next() {
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
+			continue
+		}
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -199,10 +213,16 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 		initialK, initialV = c.First()
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+	for compositeKey, v := initialK, initialV; compositeKey != nil; compositeKey, v = c.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+
+		if !helpers.MatchesPropertyKey(rr.PropPrefix, compositeKey) {
+			continue
+		}
+
+		k := helpers.UnMakePropertyKey(rr.PropPrefix, compositeKey)
 
 		if like.optimizable {
 			// if the query is optimizable, i.e. it doesn't start with a wildcard, we

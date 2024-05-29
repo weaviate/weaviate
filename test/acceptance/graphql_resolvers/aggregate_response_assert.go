@@ -50,10 +50,11 @@ func (a *aggregateResponseAssert) groupedBy(value string, path ...interface{}) a
 			return false
 		}
 		aggMap := response[groupedByKey].(map[string]interface{})
-		return combinedAssert(
+		out := combinedAssert(
 			a.hasString(aggMap, groupedByKey, "value", value),
 			a.hasArray(aggMap, groupedByKey, "path", path),
 		)
+		return out
 	}
 }
 

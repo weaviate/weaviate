@@ -194,6 +194,75 @@ func TestShard_ParallelBatches(t *testing.T) {
 	require.Nil(t, idx.drop())
 }
 
+func TestShard_UuidToIdLockPoolId_unmerged(t *testing.T) {
+	lsmkv.FeatureUseMergedBuckets = false
+	shd, _ := testShard(t, context.Background(), "TestClass")
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	res := shd.UuidToIdLockPoolId_unmerged([]byte("testtesttesttesttest"))
+	require.Equal(t, uint8(0x74), res)
+
+	fakeVectorConfig := fakeVectorConfig{}
+	fakeVectorConfig.raw = "db.fakeVectorConfig"
+	err := shd.UpdateVectorIndexConfig_unmerged(context.TODO(), fakeVectorConfig)
+	require.EqualError(t, err, "unrecognized vector index config: db.fakeVectorConfig")
+
+	shd.NotifyReady_unmerged()
+
+	res2 := shd.ObjectCount_unmerged()
+	require.Equal(t, 0, res2)
+
+	res3 := shd.IsFallbackToSearchable_unmerged()
+	require.Equal(t, false, res3)
+
+	res5 := shd.Tenant_unmerged()
+	require.Equal(t, "", res5)
+
+	res4 := shd.Drop_unmerged()
+	require.Nil(t, res4)
+
+	err = shd.Shutdown_unmerged(context.TODO())
+	require.Nil(t, err)
+}
+
+type fakeVectorConfig struct {
+	raw interface{}
+}
+
+func (f fakeVectorConfig) IndexType() string {
+	return "fake"
+}
+
+func (f fakeVectorConfig) Raw() interface{} {
+	return f.raw
+}
+
+func (f fakeVectorConfig) Validate() error {
+	return nil
+}
+
+func (f fakeVectorConfig) String() string {
+	return "fake"
+}
+
+func (f fakeVectorConfig) IsDefault() bool {
+	return false
+}
+
+func (f fakeVectorConfig) IsEmpty() bool {
+	return false
+}
+
+func (f fakeVectorConfig) DistanceName() string {
+	return ""
+}
+
 func TestShard_InvalidVectorBatches(t *testing.T) {
 	ctx := testCtx()
 

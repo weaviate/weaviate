@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -27,36 +28,29 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	wsync "github.com/weaviate/weaviate/entities/sync"
 )
 
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
 type Store struct {
-	dir     string
-	rootDir string
+	dir           string
+	rootDir       string
+	bucketsByName map[string]*Bucket
+	logger        logrus.FieldLogger
+	metrics       *Metrics
+
+	cycleCallbacks *storeCycleCallbacks
 
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
 	bucketAccessLock sync.RWMutex
-	bucketsByName    map[string]*Bucket
-
-	logger  logrus.FieldLogger
-	metrics *Metrics
-
-	cycleCallbacks *storeCycleCallbacks
-	bcreator       BucketCreator
-	// Prevent concurrent manipulations to the same Bucket, specially if there is
-	// action on the bucket in the meantime.
-	bucketsLocks *wsync.KeyLocker
+	bucketByNameLock map[string]*sync.Mutex
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
-	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
-) (*Store, error) {
+func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup) (*Store, error) {
 	s := &Store{
 		dir:           dir,
 		rootDir:       rootDir,
@@ -69,6 +63,14 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 
 	return s, s.init()
+}
+
+func (s *Store) GetStrategyFromOpts(opts []BucketOption) string {
+	fb := &Bucket{}
+	for _, opt := range opts {
+		opt(fb)
+	}
+	return fb.strategy
 }
 
 func (s *Store) Bucket(name string) *Bucket {
@@ -122,11 +124,66 @@ func (s *Store) bucketDir(bucketName string) string {
 //
 //	// you can now access the bucket using store.Bucket()
 //	b := store.Bucket("my_bucket_name")
-func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
+func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketFile string, opts ...BucketOption) error {
+	if !FeatureUseMergedBuckets {
+		return s.CreateOrLoadBucket_unmerged(ctx, bucketFile, opts...)
+	}
+
+	if b := s.Bucket(bucketFile); b != nil {
+		// If the bucketFile already exists in a merged bucket, we don't need to create it, but we do need to register it to the "RegisteredName"
+		// So first we create a fake bucket to get the registered name :O
+		fb := &Bucket{}
+		for _, opt := range opts {
+			opt(fb)
+		}
+		registeredName := fb.RegisteredName
+		if b.RegisteredName == "property__id" {
+			// panic("property__id")
+		}
+		if registeredName != "" {
+			s.SetBucket(registeredName, b)
+			log.Printf("Registered existing bucket %v as '%v'\n", bucketFile, registeredName)
+		}
+		return nil
+	}
+
+	b, err := NewBucket(ctx, s.bucketDir(bucketFile), s.rootDir, s.logger, s.metrics,
+		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
+	if err != nil {
+		return err
+	}
+
+	s.SetBucket(bucketFile, b)
+
+	if b.RegisteredName == "property__id" {
+		// panic("property__id")
+	}
+	if b.RegisteredName != "" {
+		s.SetBucket(b.RegisteredName, b)
+
+		log.Printf("Created bucket %v and registered it as '%v'\n", bucketFile, b.RegisteredName)
+	}
+
+	return nil
+}
+
+func (s *Store) CreateOrLoadBucket_unmerged(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
-	s.bucketsLocks.Lock(bucketName)
-	defer s.bucketsLocks.Unlock(bucketName)
+	var bucketLock *sync.Mutex
+
+	s.bucketAccessLock.Lock()
+
+	_, ok := s.bucketByNameLock[bucketName]
+	if !ok {
+		s.bucketByNameLock[bucketName] = &sync.Mutex{}
+	}
+	bucketLock = s.bucketByNameLock[bucketName]
+
+	s.bucketAccessLock.Unlock()
+
+	bucketLock.Lock()
+	defer bucketLock.Unlock()
 
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
@@ -134,18 +191,20 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
-	b, err := s.bcreator.NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
+	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
+		s.bucketAccessLock.Lock()
+		delete(s.bucketByNameLock, bucketName)
+		s.bucketAccessLock.Unlock()
 		return err
 	}
 
-	s.setBucket(bucketName, b)
-
+	s.SetBucket(bucketName, b)
 	return nil
 }
 
-func (s *Store) setBucket(name string, b *Bucket) {
+func (s *Store) SetBucket(name string, b *Bucket) {
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
@@ -295,9 +354,6 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
-	s.bucketsLocks.Lock(bucketName)
-	defer s.bucketsLocks.Unlock(bucketName)
-
 	if b := s.Bucket(bucketName); b != nil {
 		return fmt.Errorf("bucket %s exists and is already in use", bucketName)
 	}
@@ -307,13 +363,13 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 		return errors.Wrapf(err, "failed removing bucket %s files", bucketName)
 	}
 
-	b, err := s.bcreator.NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
+	b, err := NewBucket(ctx, bucketDir, s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
 		return err
 	}
 
-	s.setBucket(bucketName, b)
+	s.SetBucket(bucketName, b)
 	return nil
 }
 

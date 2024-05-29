@@ -17,11 +17,10 @@ import (
 	"io"
 	"os"
 	"path"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -30,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/tracker"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -79,6 +80,7 @@ type ShardLike interface {
 	ObjectCount() int
 	ObjectCountAsync() int
 	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
+	GetPropertyIdTracker() *tracker.JsonPropertyIdTracker
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
@@ -98,7 +100,7 @@ type ShardLike interface {
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
-	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
+	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -143,8 +145,8 @@ type ShardLike interface {
 	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
 	publishDimensionMetrics()
 
-	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	addToPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error
+	addToPropertyMapBucket(bucket lsmkv.BucketInterface, pair lsmkv.MapPair, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
@@ -153,8 +155,8 @@ type ShardLike interface {
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
+	deleteFromPropertySetBucket(bucket lsmkv.BucketInterface, docID uint64, key []byte) error
+	batchExtendInvertedIndexItemsLSMNoFrequency(b lsmkv.BucketInterface, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
@@ -162,6 +164,15 @@ type ShardLike interface {
 
 	Metrics() *Metrics
 
+	CreatePropertyIndex_unmerged(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error
+	UuidToIdLockPoolId_unmerged(idBytes []byte) uint8
+	Drop_unmerged() error
+	Shutdown_unmerged(context.Context) error
+	Tenant_unmerged() string
+	IsFallbackToSearchable_unmerged() bool
+	ObjectCount_unmerged() int
+	NotifyReady_unmerged()
+	UpdateVectorIndexConfig_unmerged(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	// A thread-safe counter that goes up any time there is activity on this
 	// shard. The absolute value has no meaning, it's only purpose is to compare
 	// the previous value to the current value.
@@ -186,6 +197,7 @@ type Shard struct {
 	propertyIndices  propertyspecific.Indices
 	propLenTracker   *inverted.JsonPropertyLengthTracker
 	versioner        *shardVersioner
+	propIds          *tracker.JsonPropertyIdTracker
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -222,10 +234,10 @@ type Shard struct {
 	shutdownLock *sync.RWMutex
 }
 
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (*Shard, error) {
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, shardName string, index *Index, class *models.Class, jobQueueCh chan job, indexCheckpoints *indexcheckpoint.Checkpoints) (*Shard, error) {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return NewShard_unmerged(ctx, promMetrics, shardName, index, class, jobQueueCh, indexCheckpoints)
+	}
 	before := time.Now()
 	var err error
 	s := &Shard{
@@ -365,9 +377,10 @@ func (s *Shard) initLegacyQueue() error {
 	return nil
 }
 
-func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
-) (VectorIndex, error) {
+func (s *Shard) initVectorIndex(ctx context.Context, targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig) (VectorIndex, error) {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.initVectorIndex_unmerged(ctx, targetVector, vectorIndexUserConfig)
+	}
 	var distProv distancer.Provider
 
 	switch vectorIndexUserConfig.DistanceName() {
@@ -511,6 +524,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.initNonVector_unmerged(ctx, class)
+	}
 	err := s.initLSMStore(ctx)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
@@ -532,12 +548,19 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	s.versioner = versioner
 
 	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+	trck, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
 
-	s.propLenTracker = tracker
+	s.propLenTracker = trck
+
+	piPath := path.Join(s.index.Config.RootPath, s.ID()+".propids")
+	propIds, err := tracker.NewJsonPropertyIdTracker(piPath)
+	if err != nil {
+		return errors.Wrapf(err, "init shard %q: prop id tracker", s.ID())
+	}
+	s.propIds = propIds
 
 	if err := s.initProperties(class); err != nil {
 		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
@@ -572,6 +595,9 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 }
 
 func (s *Shard) initLSMStore(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		InvalidBucketPanic("Unknwon")
+	}
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -700,6 +726,11 @@ func (s *Shard) drop() (err error) {
 		return errors.Wrapf(err, "remove prop length tracker at %s", s.path())
 	}
 
+	err = s.propIds.Drop()
+	if err != nil {
+		return errors.Wrapf(err, "remove prop id tracker at %s", s.pathLSM())
+	}
+
 	s.propertyIndicesLock.Lock()
 	err = s.propertyIndices.DropAll(ctx)
 	s.propertyIndicesLock.Unlock()
@@ -713,21 +744,32 @@ func (s *Shard) drop() (err error) {
 }
 
 func (s *Shard) addIDProperty(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.addIDProperty_unmerged(ctx)
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropID),
-		s.memtableDirtyConfig(),
+	bucketOpts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropID)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		s.memtableDirtyConfig(),
+	}
+
+	return s.store.CreateOrLoadBucket(ctx,
+		"filterable_properties",
+		bucketOpts...,
 	)
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.addDimensionsProperty_unmerged(ctx)
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -749,6 +791,9 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 }
 
 func (s *Shard) addTimestampProperties(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.addTimestampProperties_unmerged(ctx)
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -764,21 +809,29 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 }
 
 func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		InvalidBucketPanic("Unknwon")
+	}
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
-		s.memtableDirtyConfig(),
+		"filterable_properties",
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropCreationTimeUnix)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
 func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		InvalidBucketPanic("Unknwon")
+	}
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
+		"filterable_properties",
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropLastUpdateTimeUnix)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
@@ -791,6 +844,9 @@ func (s *Shard) memtableDirtyConfig() lsmkv.BucketOption {
 }
 
 func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
+	if !lsmkv.FeatureUseMergedBuckets {
+		InvalidBucketPanic("Unknwon")
+	}
 	return lsmkv.WithDynamicMemtableSizing(
 		s.index.Config.MemtablesInitialSizeMB,
 		s.index.Config.MemtablesMaxSizeMB,
@@ -799,45 +855,43 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props []*models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		InvalidBucketPanic("Unknwon")
+	}
 	for _, prop := range props {
 		if !inverted.HasInvertedIndex(prop) {
 			continue
 		}
 
-		eg.Go(func() error {
-			if err := s.createPropertyValueIndex(ctx, prop); err != nil {
-				return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
-			}
+		s.propIds.CreateProperty(prop.Name)
+		s.propIds.Flush(false)
 
-			if s.index.invertedIndexConfig.IndexNullState {
-				eg.Go(func() error {
-					if err := s.createPropertyNullIndex(ctx, prop); err != nil {
-						return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
-					}
-					return nil
-				})
-			}
+		if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+			return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+		}
 
-			if s.index.invertedIndexConfig.IndexPropertyLength {
-				eg.Go(func() error {
-					if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
-						return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
-					}
-					return nil
-				})
+		if s.index.invertedIndexConfig.IndexNullState {
+			if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+				return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
 			}
-			return nil
-		})
+		}
 
-		if err := eg.Wait(); err != nil {
-			return err
+		if s.index.invertedIndexConfig.IndexPropertyLength {
+			if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+				return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
+			}
 		}
 	}
+
 	return nil
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		InvalidBucketPanic("Unknwon")
+	}
+
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -850,37 +904,64 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	}
 
+	// Force creation of filterable properties database file, because later code assumes it already exists
+	filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(filters.InternalPropID)))
+	if err := s.store.CreateOrLoadBucket(ctx,
+		"filterable_properties",
+		append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+	); err != nil {
+		return err
+	}
+
+	// Force creation of searchable properties database file, because later code assumes it already exists
+	searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+	if s.versioner.Version() < 2 {
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+	}
+
+	if err := s.store.CreateOrLoadBucket(ctx,
+		"searchable_properties",
+		searchableBucketOpts...,
+	); err != nil {
+		return err
+	}
+
 	if inverted.HasFilterableIndex(prop) {
+
 		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
 			return s.initGeoProp(prop)
 		}
 
+		// This creates a single database file for all meta_count properties.  The registered names will redirect to this file, so we don't have to update every callsite
 		if schema.IsRefDataType(prop.DataType) {
+			refOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameMetaCountLSM(prop.Name)))
 			if err := s.store.CreateOrLoadBucket(ctx,
-				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
-				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+				"properties_meta_count",
+				append(refOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 			); err != nil {
 				return err
 			}
 		}
 
+		filterableOpts := append(bucketOpts, lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLSM(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketFromPropNameLSM(prop.Name),
-			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+			"filterable_properties",
+			append(filterableOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 		); err != nil {
 			return err
 		}
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		searchableBucketOpts := append(bucketOpts,
-			lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithPread(s.index.Config.AvoidMMap))
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithRegisteredName(helpers.BucketSearchableFromPropertyNameLSM(prop.Name)))
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithPread(s.index.Config.AvoidMMap))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			"searchable_properties",
 			searchableBucketOpts...,
 		); err != nil {
 			return err
@@ -891,6 +972,9 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 }
 
 func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		InvalidBucketPanic("Unknwon")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -904,8 +988,9 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		"filterable_properties",
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameLengthLSM(prop.Name)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
@@ -913,13 +998,17 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 }
 
 func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		InvalidBucketPanic("Unknwon")
+	}
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
 
 	return s.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameNullLSM(prop.Name),
+		"null_properties",
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithRegisteredName(helpers.BucketFromPropertyNameNullLSM(prop.Name)),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
@@ -927,6 +1016,10 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 }
 
 func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
+	if !lsmkv.FeatureUseMergedBuckets {
+		return s.UpdateVectorIndexConfig_unmerged(ctx, updated)
+	}
+
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
@@ -1003,6 +1096,10 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 
 	if err = s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
+	}
+
+	if err := s.propIds.Close(); err != nil {
+		return errors.Wrap(err, "close prop id tracker")
 	}
 
 	// unregister all callbacks at once, in parallel
@@ -1170,6 +1267,13 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 		return []byte{uint8(filters.InternalNullState)}, nil
 	}
 	return []byte{uint8(filters.InternalNotNullState)}, nil
+}
+
+func InvalidBucketPanic(bucket string) {
+	// Stack trace in string
+	str := string(debug.Stack())
+	// Log the stack trace
+	panic(fmt.Sprintf("Invalid bucket: %s\n%s", bucket, str))
 }
 
 func (s *Shard) Activity() int32 {
