@@ -162,7 +162,6 @@ func (t *JsonShardMetaData) Clear() {
 		return
 	}
 
-
 	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	t.lockFreeFlush()
 }
