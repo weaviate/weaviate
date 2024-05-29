@@ -264,7 +264,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 		dupeTracker = tr
 	})
 
-	t.Run("verify data is correct after read from disk", func(t *testing.T) {
+	t.Run("verify data is correct after read from disk (duplicate tracker test)", func(t *testing.T) {
 		// root page
 		actualMeanForProp0 := float32(1+4+3+17) / 4.0
 		res, err := dupeTracker.PropertyMean("prop_0")
@@ -305,7 +305,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 		secondTracker = tr
 	})
 
-	t.Run("verify data is correct after read from disk", func(t *testing.T) {
+	t.Run("verify data is correct after read from disk (after close test)", func(t *testing.T) {
 		// root page
 		actualMeanForProp0 := float32(1+4+3+17) / 4.0
 		res, err := secondTracker.PropertyMean("prop_0")
@@ -355,7 +355,7 @@ func TestFormatConversion(t *testing.T) {
 		newTracker = tr
 	})
 
-	t.Run("verify data is correct after read from disk", func(t *testing.T) {
+	t.Run("verify data is correct after read from disk(format conversion)", func(t *testing.T) {
 		// root page
 		actualMeanForProp0 := float32(1+4+3+17) / 4.0
 		res, err := newTracker.PropertyMean("prop_0")
@@ -638,7 +638,7 @@ func TestOldPropertyLengthTracker_Persistence(t *testing.T) {
 		secondTracker = tr
 	})
 
-	t.Run("verify data is correct after read from disk", func(t *testing.T) {
+	t.Run("verify data is correct after read from disk (old tracker persistence)", func(t *testing.T) {
 		// root page
 		actualMeanForProp0 := float32(1+4+3+17) / 4.0
 		res, err := secondTracker.PropertyMean("prop_0")
