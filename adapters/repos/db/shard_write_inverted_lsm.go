@@ -208,6 +208,9 @@ func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 
 	}
 
+	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
+		return errors.Wrap(err, "flush prop length tracker to disk")
+	}
 	return nil
 }
 
@@ -221,6 +224,10 @@ func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 			return err
 		}
 
+	}
+
+	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
+		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
 	return nil

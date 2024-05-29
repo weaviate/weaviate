@@ -121,12 +121,16 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		assert.Equal(t, 2, count)
 		assert.InEpsilon(t, 2, mean, 0.1)
 
+		require.Nil(t, tracker.Flush())
+
 		tracker.UnTrackProperty("test-prop", 1)
 		sum, count, mean, err = tracker.PropertyTally("test-prop")
 		require.Nil(t, err)
 		assert.Equal(t, 3, sum)
 		assert.Equal(t, 1, count)
 		assert.InEpsilon(t, 3, mean, 0.1)
+
+		require.Nil(t, tracker.Flush())
 
 		require.Nil(t, tracker.Close())
 	})
@@ -255,6 +259,7 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 
 	t.Run("importing multi-page data and verifying", func(t *testing.T) {
 		create20PropsAndVerify(t, tracker)
+		require.Nil(t, tracker.Flush())
 	})
 
 	var dupeTracker *JsonShardMetaData
