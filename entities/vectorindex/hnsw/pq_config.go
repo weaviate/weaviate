@@ -34,13 +34,13 @@ const (
 	DefaultPQTrainingLimit       = 100000
 )
 
-// Product Quantization encoder configuration
+// PQEncoder is Product Quantization encoder configuration
 type PQEncoder struct {
 	Type         string `json:"type"`
 	Distribution string `json:"distribution,omitempty"`
 }
 
-// Product Quantization configuration
+// PQConfig is Product Quantization configuration
 type PQConfig struct {
 	Enabled        bool      `json:"enabled"`
 	BitCompression bool      `json:"bitCompression"`

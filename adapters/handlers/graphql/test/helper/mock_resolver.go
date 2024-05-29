@@ -111,7 +111,7 @@ type GraphQLResult struct {
 	Result interface{}
 }
 
-// Drill down in the result
+// Get drills down in the result
 func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
 	current := g.Result
 	for _, path := range paths {

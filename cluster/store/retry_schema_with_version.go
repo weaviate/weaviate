@@ -47,7 +47,7 @@ func (rs retrySchema) MultiTenancyWithVersion(ctx context.Context, class string,
 	return mc, nil
 }
 
-// ReadOnlyClass returns a shallow copy of a class.
+// ReadOnlyClassWithVersion returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
 func (rs retrySchema) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (cls *models.Class, err error) {
 	if version > 0 {
@@ -62,7 +62,7 @@ func (rs retrySchema) ReadOnlyClassWithVersion(ctx context.Context, class string
 	return cls, nil
 }
 
-// ShardOwner returns the node owner of the specified shard
+// ShardOwnerWithVersion returns the node owner of the specified shard
 func (rs retrySchema) ShardOwnerWithVersion(ctx context.Context, class, shard string, version uint64) (owner string, err error) {
 	if version > 0 {
 		return rs.versionedSchema.ShardOwner(ctx, class, shard, version)
@@ -74,7 +74,7 @@ func (rs retrySchema) ShardOwnerWithVersion(ctx context.Context, class, shard st
 	return
 }
 
-// ShardFromUUID returns shard name of the provided uuid
+// ShardFromUUIDWithVersion returns shard name of the provided uuid
 func (rs retrySchema) ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (shard string, err error) {
 	if version > 0 {
 		return rs.versionedSchema.ShardFromUUID(ctx, class, uuid, version)

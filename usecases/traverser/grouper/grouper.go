@@ -24,7 +24,7 @@ type Grouper struct {
 	logger logrus.FieldLogger
 }
 
-// NewGrouper creates a Grouper UC from the specified configuration
+// New creates a Grouper UC from the specified configuration
 func New(logger logrus.FieldLogger) *Grouper {
 	return &Grouper{logger: logger}
 }

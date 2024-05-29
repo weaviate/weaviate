@@ -62,17 +62,17 @@ func (s *Shard) Counter() *indexcounter.Counter {
 	return s.counter
 }
 
-// Tracks the lengths of all properties.  Must be updated on inserts/deletes.
+// GetPropertyLengthTracker tracks the lengths of all properties.  Must be updated on inserts/deletes.
 func (s *Shard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
 	return s.propLenTracker
 }
 
-// Tracks the lengths of all properties.  Must be updated on inserts/deletes.
+// SetPropertyLengthTracker tracks the lengths of all properties.  Must be updated on inserts/deletes.
 func (s *Shard) SetPropertyLengthTracker(tracker *inverted.JsonPropertyLengthTracker) {
 	s.propLenTracker = tracker
 }
 
-// Grafana metrics
+// Metrics returns Grafana metrics
 func (s *Shard) Metrics() *Metrics {
 	return s.metrics
 }

@@ -150,7 +150,7 @@ func (bo *ReadWriter) CopyBytesToBuffer(copyBytes []byte) error {
 	return nil
 }
 
-// Writes a uint64 length indicator about the buffer that's about to follow,
+// CopyBytesToBufferWithUint64LengthIndicator writes a uint64 length indicator about the buffer that's about to follow,
 // then writes the buffer itself
 func (bo *ReadWriter) CopyBytesToBufferWithUint64LengthIndicator(copyBytes []byte) error {
 	lenCopyBytes := uint64(len(copyBytes))
@@ -164,7 +164,7 @@ func (bo *ReadWriter) CopyBytesToBufferWithUint64LengthIndicator(copyBytes []byt
 	return nil
 }
 
-// Writes a uint32 length indicator about the buffer that's about to follow,
+// CopyBytesToBufferWithUint32LengthIndicator writes an uint32 length indicator about the buffer that's about to follow,
 // then writes the buffer itself
 func (bo *ReadWriter) CopyBytesToBufferWithUint32LengthIndicator(copyBytes []byte) error {
 	lenCopyBytes := uint32(len(copyBytes))

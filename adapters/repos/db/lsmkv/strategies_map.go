@@ -172,7 +172,7 @@ type MapPair struct {
 	Tombstone bool
 }
 
-// Size() returns the exact size in bytes that will be used when Bytes() is
+// Size returns the exact size in bytes that will be used when Bytes() is
 // called
 func (kv MapPair) Size() int {
 	// each field uses a uint16 (2 bytes) length indicator

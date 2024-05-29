@@ -11,7 +11,7 @@
 
 package models
 
-// Tokens used in NER module to represent
+// Token represents tokens used in NER module to represent
 // the found entities in a given string property value
 type Token struct {
 	Property      string  `json:"property,omitempty"`

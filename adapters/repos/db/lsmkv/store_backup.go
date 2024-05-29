@@ -62,7 +62,7 @@ func (s *Store) ResumeCompaction(ctx context.Context) error {
 	return nil
 }
 
-// FlushMemtable flushes any active memtable and returns only once the memtable
+// FlushMemtables flushes any active memtable and returns only once the memtable
 // has been fully flushed and a stable state on disk has been reached.
 //
 // This is a preparatory stage for creating backups.

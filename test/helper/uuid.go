@@ -18,7 +18,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// InToUUID takes an unsigned int64 and places it in BigEndian fashion into the
+// IntToUUID takes an unsigned int64 and places it in BigEndian fashion into the
 // upper 8 bytes of a 16 byte UUID. This makes it easy to produce easy-to-read
 // UUIDs in test scenarios. For example:
 //

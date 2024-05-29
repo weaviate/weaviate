@@ -119,7 +119,7 @@ func (a *Analyzer) UUID(in uuid.UUID) ([]Countable, error) {
 	}, nil
 }
 
-// UUID array requires no analysis, so it's just dumping the raw binary
+// UUIDArray requires no analysis, so it's just dumping the raw binary
 // representation of each contained element
 func (a *Analyzer) UUIDArray(in []uuid.UUID) ([]Countable, error) {
 	out := make([]Countable, len(in))
@@ -132,7 +132,7 @@ func (a *Analyzer) UUIDArray(in []uuid.UUID) ([]Countable, error) {
 	return out, nil
 }
 
-// Int array requires no analysis, so it's actually just a simple conversion to a
+// IntArray requires no analysis, so it's actually just a simple conversion to a
 // string-formatted byte slice of the int
 func (a *Analyzer) IntArray(in []int64) ([]Countable, error) {
 	out := make([]Countable, len(in))
@@ -162,7 +162,7 @@ func (a *Analyzer) Float(in float64) ([]Countable, error) {
 	}, nil
 }
 
-// Float array requires no analysis, so it's actually just a simple conversion to a
+// FloatArray requires no analysis, so it's actually just a simple conversion to a
 // lexicographically sortable byte slice.
 func (a *Analyzer) FloatArray(in []float64) ([]Countable, error) {
 	out := make([]Countable, len(in))

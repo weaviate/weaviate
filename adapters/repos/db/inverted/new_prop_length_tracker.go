@@ -155,12 +155,12 @@ func (t *JsonPropertyLengthTracker) Clear() {
 	t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
 }
 
-// Path to the file on disk
+// FileName returns path to the file on disk.
 func (t *JsonPropertyLengthTracker) FileName() string {
 	return t.path
 }
 
-// Adds a new value to the tracker
+// TrackProperty adds a new value to the tracker.
 func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32) error {
 	t.Lock()
 	defer t.Unlock()
@@ -185,7 +185,7 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 	return nil
 }
 
-// Removes a value from the tracker
+// UnTrackProperty Removes a value from the tracker
 func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float32) error {
 	t.Lock()
 	defer t.Unlock()
@@ -224,7 +224,7 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 	return int(bucket)
 }
 
-// Returns the average length of the given property
+// PropertyMean returns the average length of the given property.
 func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
 	t.Lock()
 	defer t.Unlock()
@@ -241,7 +241,7 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 	return float32(sum) / float32(count), nil
 }
 
-// returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error
+// PropertyTally returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error.
 func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64, error) {
 	t.Lock()
 	defer t.Unlock()
@@ -256,7 +256,7 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	return sum, count, float64(sum) / float64(count), nil
 }
 
-// Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
+// Flush writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file.
 func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	if !flushBackup { // Write the backup file first
 		t.Flush(true)
@@ -309,7 +309,7 @@ func WriteFile(name string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// Closes the tracker and removes the backup file
+// Close closes the tracker and removes the backup file.
 func (t *JsonPropertyLengthTracker) Close() error {
 	if err := t.Flush(false); err != nil {
 		return errors.Wrap(err, "flush before closing")
