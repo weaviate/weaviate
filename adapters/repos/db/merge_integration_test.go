@@ -153,7 +153,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, []float32{0.5}, nil, nil)
 		require.Nil(t, err)
 
-		targetDimensionsBefore := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsBefore := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 
 		targets := []strfmt.UUID{target1, target2, target3, target4}
 
@@ -168,7 +168,7 @@ func Test_MergingObjects(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		targetDimensionsAfter := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsAfter := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 		require.Equal(t, targetDimensionsBefore+4, targetDimensionsAfter)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -182,7 +182,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, nil, nil, nil)
 		require.Nil(t, err)
 
-		targetDimensionsAfterNoVec := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsAfterNoVec := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 		require.Equal(t, targetDimensionsAfter, targetDimensionsAfterNoVec)
 	})
 
