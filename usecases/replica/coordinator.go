@@ -173,7 +173,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := state.Level
-	replyCh := make(chan _Result[T], level)
+	replyCh := make(chan _Result[T], len(state.Hosts)-level)
 
 	candidates := state.Hosts[:level]                          // direct ones
 	candidatePool := make(chan string, len(state.Hosts)-level) // remaining ones
