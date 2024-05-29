@@ -22,8 +22,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -34,6 +36,7 @@ import (
 )
 
 type indices struct {
+	logger                 logrus.FieldLogger
 	shards                 shards
 	db                     db
 	auth                   auth
@@ -138,7 +141,7 @@ type db interface {
 	StartupComplete() bool
 }
 
-func NewIndices(shards shards, db db, auth auth) *indices {
+func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *indices {
 	return &indices{
 		regexpObjects:          regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite: regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -157,6 +160,7 @@ func NewIndices(shards shards, db db, auth auth) *indices {
 		shards:                    shards,
 		db:                        db,
 		auth:                      auth,
+		logger:                    logger,
 	}
 }
 
@@ -436,6 +440,12 @@ func (i *indices) getObject() http.Handler {
 			http.Error(w, "startup is not complete", http.StatusServiceUnavailable)
 			return
 		}
+
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "GetObject",
+		}).Debug("getting object ...")
+
 		obj, err := i.shards.GetObject(r.Context(), index, shard, strfmt.UUID(id),
 			selectProperties, additional)
 		if err != nil {
@@ -462,6 +472,10 @@ func (i *indices) getObject() http.Handler {
 func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 	index, shard, id string,
 ) {
+	i.logger.WithFields(logrus.Fields{
+		"shard":  shard,
+		"action": "checkExists",
+	}).Debug("checking if shard exists ...")
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -568,6 +582,11 @@ func (i *indices) getObjectsMulti() http.Handler {
 			return
 		}
 
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "MultiGetObjects",
+		}).Debug("get multiple objects ...")
+
 		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -615,8 +634,17 @@ func (i *indices) postSearchObjects() http.Handler {
 			return
 		}
 
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "Search",
+		}).Debug("searching ...")
+
 		results, dists, err := i.shards.Search(r.Context(), index, shard,
 			vector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -709,7 +737,17 @@ func (i *indices) postAggregateObjects() http.Handler {
 			return
 		}
 
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "Aggregate",
+		}).Debug("aggregate ...")
+
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
+
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -758,7 +796,17 @@ func (i *indices) postFindUUIDs() http.Handler {
 			return
 		}
 
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "FindUUIDs",
+		}).Debug("find UUIDs ...")
+
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters)
+
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -847,7 +895,16 @@ func (i *indices) getObjectsDigest() http.Handler {
 			return
 		}
 
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "DigestObjects",
+		}).Debug("digest objects ...")
+
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		if err != nil {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusInternalServerError)
@@ -921,7 +978,17 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 
 		defer r.Body.Close()
 
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "GetShardQueueSize",
+		}).Debug("getting shard queue size ...")
+
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -948,7 +1015,16 @@ func (i *indices) getGetShardStatus() http.Handler {
 
 		defer r.Body.Close()
 
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "GetShardStatus",
+		}).Debug("getting shard status ...")
+
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}

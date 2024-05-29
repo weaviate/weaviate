@@ -205,6 +205,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:  jobQueueCh,
 		indexCheckpoints: indexCheckpoints,
+		status:           storagestate.StatusLoading,
 	}
 	s.initCycleCallbacks()
 
