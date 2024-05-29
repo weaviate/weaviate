@@ -254,8 +254,13 @@ func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig)
 	return sha256.Sum256([]byte(key))
 }
 
-func (v *client) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
-	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Openai", 0, 0)
+func (v *client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	config := v.getVectorizationConfig(cfg)
+	name := "Openai"
+	if config.IsAzure {
+		name = "Azure"
+	}
+	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, name, 0, 0)
 	return &modulecomponents.RateLimits{
 		RemainingTokens:   tpm,
 		LimitTokens:       tpm,
