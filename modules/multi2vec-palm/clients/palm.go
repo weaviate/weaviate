@@ -175,6 +175,9 @@ func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
 }
 
 func (v *palm) getApiKey(ctx context.Context) (string, error) {
+	if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Vertex-Api-Key"); apiKeyValue != "" {
+		return apiKeyValue, nil
+	}
 	if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Api-Key"); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
@@ -185,7 +188,7 @@ func (v *palm) getApiKey(ctx context.Context) (string, error) {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key " +
+		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key or X-Google-Vertex-Api-Key " +
 		"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 }
 
