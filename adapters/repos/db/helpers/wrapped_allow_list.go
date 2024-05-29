@@ -64,7 +64,7 @@ func (al *wrappedAllowList) DeepCopy() AllowList {
 	}
 }
 
-func (al *wrappedAllowList) WrapCopy() AllowList {
+func (al *wrappedAllowList) WrapOnWrite() AllowList {
 	return newWrappedAllowList(al)
 }
 

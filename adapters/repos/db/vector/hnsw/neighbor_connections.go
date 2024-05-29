@@ -417,7 +417,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	}
 
 	// The global candidate is not usable, we need to find a new one.
-	localDeny := n.denyList.WrapCopy()
+	localDeny := n.denyList.WrapOnWrite()
 
 	// make sure the loop cannot block forever. In most cases, results should be
 	// found within micro to milliseconds, this is just a last resort to handle
