@@ -3,49 +3,7 @@ import weaviate.classes as wvc
 from typing_extensions import Protocol, Generator
 from weaviate.collections import Collection
 
-from conftest import CollectionFactory
-
-
-class NamedCollection(Protocol):
-    """Typing for fixture."""
-
-    def __call__(self, name: str = "", multi_tenancy: bool = False) -> Collection:
-        """Typing for fixture."""
-        ...
-
-
-@pytest.fixture
-def named_collection(
-    collection_factory: CollectionFactory,
-) -> Generator[NamedCollection, None, None]:
-    def _factory(name: str = "") -> Collection:
-        collection = collection_factory(
-            name,
-            properties=[
-                wvc.config.Property(name="title1", data_type=wvc.config.DataType.TEXT),
-                wvc.config.Property(name="title2", data_type=wvc.config.DataType.TEXT),
-            ],
-            vectorizer_config=[
-                wvc.config.Configure.NamedVectors.text2vec_contextionary(
-                    name="All",
-                    vectorize_collection_name=False,
-                ),
-                wvc.config.Configure.NamedVectors.text2vec_contextionary(
-                    name="title1",
-                    source_properties=["title1"],
-                    vectorize_collection_name=False,
-                ),
-                wvc.config.Configure.NamedVectors.text2vec_contextionary(
-                    name="title2",
-                    source_properties=["title2"],
-                    vectorize_collection_name=False,
-                ),
-            ],
-        )
-
-        return collection
-
-    yield _factory
+from conftest import CollectionFactory, NamedCollection
 
 
 def test_create_named_vectors_with_and_without_vectorizer(
@@ -75,9 +33,7 @@ def test_create_named_vectors_with_and_without_vectorizer(
     assert obj.vector["bringYourOwn"] is not None
 
 
-def test_hybrid_search_with_multiple_target_vectors(
-    named_collection: NamedCollection,
-) -> None:
+def test_hybrid_search_with_multiple_target_vectors(named_collection: NamedCollection) -> None:
     collection = named_collection()
 
     uuid1 = collection.data.insert(

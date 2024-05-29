@@ -1,4 +1,3 @@
-import os
 from typing import Any, Optional, List, Generator, Protocol, Type, Dict, Tuple, Union, Callable
 
 import pytest
@@ -21,6 +20,7 @@ from weaviate.collections.classes.types import Properties
 from weaviate.config import AdditionalConfig
 
 from weaviate.collections.classes.config_named_vectors import _NamedVectorConfigCreate
+import weaviate.classes as wvc
 
 
 class CollectionFactory(Protocol):
@@ -49,14 +49,16 @@ class CollectionFactory(Protocol):
         """Typing for fixture."""
         ...
 
+
 @pytest.fixture
 def weaviate_client() -> Callable[[int, int], weaviate.WeaviateClient]:
-    def connect(http_port : int = 8080, grpc_port : int = 50051) -> weaviate.WeaviateClient:
+    def connect(http_port: int = 8080, grpc_port: int = 50051) -> weaviate.WeaviateClient:
         return weaviate.connect_to_local(
             port=http_port,
             grpc_port=grpc_port,
             additional_config=AdditionalConfig(timeout=(60, 120)),  # for image tests
         )
+
     return connect
 
 
@@ -117,6 +119,48 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         if client_fixture is not None and name_fixture is not None:
             client_fixture.collections.delete(name_fixture)
             client_fixture.close()
+
+
+class NamedCollection(Protocol):
+    """Typing for fixture."""
+
+    def __call__(self, name: str = "", multi_tenancy: bool = False) -> Collection:
+        """Typing for fixture."""
+        ...
+
+
+@pytest.fixture
+def named_collection(
+    collection_factory: CollectionFactory,
+) -> Generator[NamedCollection, None, None]:
+    def _factory(name: str = "") -> Collection:
+        collection = collection_factory(
+            name,
+            properties=[
+                wvc.config.Property(name="title1", data_type=wvc.config.DataType.TEXT),
+                wvc.config.Property(name="title2", data_type=wvc.config.DataType.TEXT),
+            ],
+            vectorizer_config=[
+                wvc.config.Configure.NamedVectors.text2vec_contextionary(
+                    name="All",
+                    vectorize_collection_name=False,
+                ),
+                wvc.config.Configure.NamedVectors.text2vec_contextionary(
+                    name="title1",
+                    source_properties=["title1"],
+                    vectorize_collection_name=False,
+                ),
+                wvc.config.Configure.NamedVectors.text2vec_contextionary(
+                    name="title2",
+                    source_properties=["title2"],
+                    vectorize_collection_name=False,
+                ),
+            ],
+        )
+
+        return collection
+
+    yield _factory
 
 
 def _sanitize_collection_name(name: str) -> str:
