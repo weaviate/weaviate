@@ -13,6 +13,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -70,7 +71,7 @@ var importCmd = &cobra.Command{
 		}
 
 		if !ok {
-			return fmt.Errorf("weaviate is not ready")
+			return errors.New("weaviate is not ready")
 		}
 
 		datasets, err := lib.ParseDatasetConfig(DatasetConfigPath)

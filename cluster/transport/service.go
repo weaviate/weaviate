@@ -102,7 +102,7 @@ func (s *Service) Leader() string {
 func (s *Service) Open() error {
 	s.log.WithField("address", s.address).Info("starting cloud rpc server ...")
 	if s.address == "" {
-		return fmt.Errorf("address of rpc server cannot be empty")
+		return errors.New("address of rpc server cannot be empty")
 	}
 	ln, err := net.Listen("tcp", s.address)
 	if err != nil {

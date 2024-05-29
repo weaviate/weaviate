@@ -12,6 +12,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -92,7 +93,7 @@ func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 		return "", 0, errShardNotFound
 	}
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
-		return "", 0, fmt.Errorf("owner node not found")
+		return "", 0, errors.New("owner node not found")
 	}
 	return x.BelongsToNodes[0], m.version(), nil
 }
