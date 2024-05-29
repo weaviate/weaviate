@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"encoding/binary"
 	"math"
 
 	"github.com/pkg/errors"
@@ -170,8 +169,7 @@ type InvertedPair struct {
 // Size() returns the exact size in bytes that will be used when Bytes() is
 // called
 func (kv InvertedPair) Size() int {
-	// each field uses a uint16 (2 bytes) length indicator
-	return 2 + len(kv.Key) + 2 + len(kv.Value)
+	return len(kv.Key) + len(kv.Value)
 }
 
 func (kv InvertedPair) EncodeBytes(buf []byte) error {
@@ -180,27 +178,9 @@ func (kv InvertedPair) EncodeBytes(buf []byte) error {
 			len(buf), kv.Size())
 	}
 
-	// make sure the 2 byte length indicators will never overflow:
-	if len(kv.Key) >= math.MaxUint16 {
-		return errors.Errorf("mapCollection key must be smaller than %d",
-			math.MaxUint16)
-	}
-	keyLen := uint16(len(kv.Key))
-
-	if len(kv.Value) >= math.MaxUint16 {
-		return errors.Errorf("mapCollection value must be smaller than %d",
-			math.MaxUint16)
-	}
-	valueLen := uint16(len(kv.Value))
-
 	offset := 0
-	binary.LittleEndian.PutUint16(buf[offset:offset+2], keyLen)
-	offset += 2
 	copy(buf[offset:], kv.Key)
 	offset += len(kv.Key)
-
-	binary.LittleEndian.PutUint16(buf[offset:offset+2], valueLen)
-	offset += 2
 	copy(buf[offset:], kv.Value)
 
 	return nil
@@ -212,29 +192,16 @@ func (kv InvertedPair) Bytes() ([]byte, error) {
 		return nil, errors.Errorf("mapCollection key must be smaller than %d",
 			math.MaxUint16)
 	}
-	keyLen := uint16(len(kv.Key))
 
 	if len(kv.Value) >= math.MaxUint16 {
 		return nil, errors.Errorf("mapCollection value must be smaller than %d",
 			math.MaxUint16)
 	}
-	valueLen := uint16(len(kv.Value))
 
 	out := bytes.NewBuffer(nil)
 
-	lenBuf := make([]byte, 2) // can be reused for both key and value len
-	binary.LittleEndian.PutUint16(lenBuf, keyLen)
-	if _, err := out.Write(lenBuf); err != nil {
-		return nil, errors.Wrap(err, "write map key length indicator")
-	}
-
 	if _, err := out.Write(kv.Key); err != nil {
 		return nil, errors.Wrap(err, "write map key")
-	}
-
-	binary.LittleEndian.PutUint16(lenBuf, valueLen)
-	if _, err := out.Write(lenBuf); err != nil {
-		return nil, errors.Wrap(err, "write map value length indicator")
 	}
 
 	if _, err := out.Write(kv.Value); err != nil {
@@ -258,8 +225,8 @@ func (kv *InvertedPair) FromBytes(in []byte, keyOnly bool) error {
 	// method. As a result all memory used here can now be considered read-only
 	// and is safe to be used indefinitely.
 
-	keyLen := binary.LittleEndian.Uint16(in[:2])
-	read += 2 // uint16 -> 2 bytes
+	keyLen := uint16(8)
+	valueLen := uint16(8)
 
 	kv.Key = in[read : read+keyLen]
 	read += keyLen
@@ -267,9 +234,6 @@ func (kv *InvertedPair) FromBytes(in []byte, keyOnly bool) error {
 	if keyOnly {
 		return nil
 	}
-
-	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
-	read += 2
 
 	kv.Value = in[read : read+valueLen]
 	read += valueLen
@@ -285,24 +249,21 @@ func (kv *InvertedPair) FromBytes(in []byte, keyOnly bool) error {
 func (kv *InvertedPair) FromBytesReusable(in []byte, keyOnly bool) error {
 	var read uint16
 
-	keyLen := binary.LittleEndian.Uint16(in[:2])
-	read += 2 // uint16 -> 2 bytes
+	keyLen := uint16(8)
+	valueLen := uint16(8)
 
 	if int(keyLen) > cap(kv.Key) {
 		kv.Key = make([]byte, keyLen)
 	} else {
 		kv.Key = kv.Key[:keyLen]
 	}
+
 	copy(kv.Key, in[read:read+keyLen])
 	read += keyLen
 
 	if keyOnly {
 		return nil
 	}
-
-	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
-	read += 2
-
 	if int(valueLen) > cap(kv.Value) {
 		kv.Value = make([]byte, valueLen)
 	} else {
@@ -335,8 +296,7 @@ func (m *invertedEncoder) Do(kv InvertedPair) ([]value, error) {
 
 	out := make([]value, 1)
 	out[0] = value{
-		tombstone: kv.Tombstone,
-		value:     v,
+		value: v,
 	}
 
 	return out, nil
@@ -375,8 +335,6 @@ func (m *invertedEncoder) DoMultiReusable(kvs []InvertedPair) ([]value, error) {
 		if err != nil {
 			return nil, err
 		}
-
-		m.pairBuf[i].tombstone = kv.Tombstone
 	}
 
 	return m.pairBuf, nil
@@ -423,7 +381,7 @@ func (kv MapPair) BytesInverted() ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool) error {
+func (kv *InvertedPair) FromBytesInverted(in []byte, keyOnly bool) error {
 	var read uint16
 
 	// NOTE: A previous implementation was using copy statements in here to avoid
@@ -448,14 +406,14 @@ func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool) error {
 	read += 8
 
 	if read != uint16(len(in)) {
-		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
+		return errors.Errorf("inconsistent inverted pair: read %d out of %d bytes",
 			read, len(in))
 	}
 
 	return nil
 }
 
-func (kv *MapPair) FromBytesInvertedReusable(in []byte, keyOnly bool) error {
+func (kv *InvertedPair) FromBytesInvertedReusable(in []byte, keyOnly bool) error {
 	var read, keyLen, valueLen uint16
 
 	keyLen = 8
@@ -483,7 +441,7 @@ func (kv *MapPair) FromBytesInvertedReusable(in []byte, keyOnly bool) error {
 	read += valueLen
 
 	if read != uint16(len(in)) {
-		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
+		return errors.Errorf("inconsistent inverted pair: read %d out of %d bytes",
 			read, len(in))
 	}
 

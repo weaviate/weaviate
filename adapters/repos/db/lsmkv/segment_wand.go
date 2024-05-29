@@ -67,8 +67,16 @@ type docPointerWithScore struct {
 	PropLength float32
 	Id         uint64
 }
+type Term interface {
+	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64)
+	AdvanceAtLeast(minID uint64)
+	IsExhausted() bool
+	IdPointer() uint64
+	IDF() float64
+	QueryTerm() string
+}
 
-type Term struct {
+type TermMap struct {
 	// doubles as max impact (with tf=1, the max impact would be 1*Idf), if there
 	// is a boost for a queryTerm, simply apply it here once
 	Idf               float64
@@ -94,7 +102,7 @@ type Term struct {
 	FilterDocIds      helpers.AllowList
 }
 
-func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, start uint64, end uint64, key []byte, queryTerm string, propertyBoost float64, fullTermDocCount int64, filterDocIds helpers.AllowList) error {
+func (t *TermMap) init(N float64, duplicateTextBoost float64, curSegment segment, start uint64, end uint64, key []byte, queryTerm string, propertyBoost float64, fullTermDocCount int64, filterDocIds helpers.AllowList) error {
 	t.segment = curSegment
 	t.queryTerm = queryTerm
 	t.idPointer = 0
@@ -165,11 +173,11 @@ func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, s
 	return nil
 }
 
-func (t *Term) ClearData() {
+func (t *TermMap) ClearData() {
 	t.data = docPointerWithScore{}
 }
 
-func (t *Term) decode() error {
+func (t *TermMap) decode() error {
 	docIdOffsetStart := t.offsetPointer + 11
 	var isTombstone bool
 	if t.segment.mmapContents {
@@ -208,7 +216,7 @@ func (t *Term) decode() error {
 	return nil
 }
 
-func (t *Term) decodeIdOnly() {
+func (t *TermMap) decodeIdOnly() {
 	docIdOffsetStart := t.offsetPointer + 11
 	if t.segment.mmapContents {
 		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+8]
@@ -219,7 +227,7 @@ func (t *Term) decodeIdOnly() {
 	}
 }
 
-func (t *Term) advance() {
+func (t *TermMap) advance() {
 	if !t.IsTombstone {
 		t.offsetPointer += 29
 	} else {
@@ -236,7 +244,7 @@ func (t *Term) advance() {
 	}
 }
 
-func (t *Term) advanceIdOnly() {
+func (t *TermMap) advanceIdOnly() {
 	if !t.IsTombstone {
 		t.offsetPointer += 29
 	} else {
@@ -253,7 +261,7 @@ func (t *Term) advanceIdOnly() {
 	}
 }
 
-func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+func (t *TermMap) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
 	id := t.idPointer
 	pair := t.data
 	freq := float64(pair.Frequency)
@@ -267,7 +275,7 @@ func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Conf
 	return id, tf * t.Idf
 }
 
-func (t *Term) AdvanceAtLeast(minID uint64) {
+func (t *TermMap) AdvanceAtLeast(minID uint64) {
 	if t.Exhausted {
 		return
 	}
@@ -300,27 +308,27 @@ func (t *Term) AdvanceAtLeast(minID uint64) {
 	*/
 }
 
-func (t *Term) IsExhausted() bool {
+func (t *TermMap) IsExhausted() bool {
 	return t.Exhausted
 }
 
-func (t *Term) IdPointer() uint64 {
+func (t *TermMap) IdPointer() uint64 {
 	return t.idPointer
 }
 
-func (t *Term) IDF() float64 {
+func (t *TermMap) IDF() float64 {
 	return t.Idf
 }
 
-func (t *Term) QueryTerm() string {
+func (t *TermMap) QueryTerm() string {
 	return t.queryTerm
 }
 
-func (t *Term) Data() []docPointerWithScore {
+func (t *TermMap) Data() []docPointerWithScore {
 	return []docPointerWithScore{t.data}
 }
 
-func (t *Term) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint64 {
+func (t *TermMap) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint64 {
 	offsetLen := end - start
 
 	if start == t.actualEnd {
@@ -386,7 +394,7 @@ func (t *Term) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint6
 	return 0
 }
 
-func (t *Term) jumpAproximate2(minIDBytes []byte, start uint64, end uint64) uint64 {
+func (t *TermMap) jumpAproximate2(minIDBytes []byte, start uint64, end uint64) uint64 {
 	if start == t.actualEnd {
 		t.Exhausted = true
 		return 0
@@ -455,7 +463,7 @@ func (t *Term) jumpAproximate2(minIDBytes []byte, start uint64, end uint64) uint
 	return 0
 }
 
-func (t *Term) jumpAtLeastAligned(minID uint64, start uint64, end uint64) uint64 {
+func (t *TermMap) jumpAtLeastAligned(minID uint64, start uint64, end uint64) uint64 {
 	offsetLen := end - start
 
 	if start == t.actualEnd {
@@ -499,7 +507,7 @@ func (t *Term) jumpAtLeastAligned(minID uint64, start uint64, end uint64) uint64
 	return docIdFound
 }
 
-func (t *Term) jumpAtLeastUnaligned(minID uint64, start uint64, end uint64) { // splice offset in half
+func (t *TermMap) jumpAtLeastUnaligned(minID uint64, start uint64, end uint64) { // splice offset in half
 	// splice offset in half
 	offsetLen := end - start
 
@@ -615,16 +623,20 @@ func compareByteArrays(a, b []byte) bool {
 	return true
 }
 
-func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen int64, filterDocIds helpers.AllowList) (*Term, error) {
-	term := Term{}
-
+func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen int64, filterDocIds helpers.AllowList) (Term, error) {
 	node, err := s.index.Get(key)
 	if err != nil {
 		return nil, err
 	}
-
-	term.init(N, duplicateTextBoost, s, node.Start, node.End, key, string(key), propertyBoost, fullPropertyLen, filterDocIds)
-	return &term, nil
+	if s.strategy == segmentindex.StrategyInverted {
+		term := TermInverted{}
+		term.init(N, duplicateTextBoost, s, node.Start, node.End, key, string(key), propertyBoost, fullPropertyLen, filterDocIds)
+		return &term, nil
+	} else {
+		term := TermMap{}
+		term.init(N, duplicateTextBoost, s, node.Start, node.End, key, string(key), propertyBoost, fullPropertyLen, filterDocIds)
+		return &term, nil
+	}
 }
 
 func (s segment) Wand2(key []byte) error {
@@ -813,7 +825,7 @@ func (b *Bucket) GetSegments() []*segment {
 	return b.disk.segments
 }
 
-func (s segment) GetTermTombstoneNonTombstone(key []byte) (uint64, uint64, uint64, uint64, error) {
+func (s *segment) GetTermTombstoneNonTombstone(key []byte) (uint64, uint64, uint64, uint64, error) {
 	if s.Closing {
 		return 0, 0, 0, 0, fmt.Errorf("segment is closing")
 	}
@@ -823,6 +835,9 @@ func (s segment) GetTermTombstoneNonTombstone(key []byte) (uint64, uint64, uint6
 			return 0, 0, 0, 0, err
 		}
 		count := binary.LittleEndian.Uint64(s.contents[node.Start : node.Start+8])
+		if s.strategy == segmentindex.StrategyInverted {
+			return count, 0, node.Start, node.End, nil
+		}
 		byteSize := node.End - node.Start - uint64(8+4+len(key))
 		nonTombstones := (byteSize - (21 * count)) / 8
 		tombstones := count - nonTombstones

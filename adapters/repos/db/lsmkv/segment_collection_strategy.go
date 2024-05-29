@@ -21,7 +21,8 @@ import (
 
 func (s *segment) getCollection(key []byte) ([]value, error) {
 	if s.strategy != segmentindex.StrategySetCollection &&
-		s.strategy != segmentindex.StrategyMapCollection {
+		s.strategy != segmentindex.StrategyMapCollection &&
+		s.strategy != segmentindex.StrategyInverted {
 		return nil, fmt.Errorf("get only possible for strategies %q, %q",
 			StrategySetCollection, StrategyMapCollection)
 	}
@@ -52,7 +53,9 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
 		return nil, err
 	}
-
+	if s.strategy == segmentindex.StrategyInverted {
+		return s.invertedStratParseData(contentsCopy)
+	}
 	return s.collectionStratParseData(contentsCopy)
 }
 
@@ -74,6 +77,31 @@ func (s *segment) collectionStratParseData(in []byte) ([]value, error) {
 
 		valueLen := binary.LittleEndian.Uint64(in[offset : offset+8])
 		offset += 8
+
+		values[valueIndex].value = in[offset : offset+int(valueLen)]
+		offset += int(valueLen)
+
+		valueIndex++
+	}
+
+	return values, nil
+}
+
+func (s *segment) invertedStratParseData(in []byte) ([]value, error) {
+	if len(in) == 0 {
+		return nil, lsmkv.NotFound
+	}
+
+	offset := 0
+
+	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	offset += 8
+
+	values := make([]value, valuesLen)
+	valueLen := 16
+	valueIndex := 0
+	for valueIndex < int(valuesLen) {
+		values[valueIndex].tombstone = false
 
 		values[valueIndex].value = in[offset : offset+int(valueLen)]
 		offset += int(valueLen)

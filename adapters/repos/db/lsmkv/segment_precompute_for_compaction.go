@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"strings"
@@ -65,7 +66,8 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	switch header.Strategy {
 	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
-		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
+		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet,
+		segmentindex.StrategyInverted:
 	default:
 		return nil, fmt.Errorf("unsupported strategy in segment")
 	}
@@ -78,6 +80,13 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
 	compactionMutex := sync.RWMutex{}
+
+	dataStartPos := uint64(segmentindex.HeaderSize)
+	if header.Strategy == segmentindex.StrategyInverted {
+		// inverted strategy has a different data layout
+		tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos : dataStartPos+8])
+		dataStartPos += 8 * (tombstoneCount + 1)
+	}
 
 	seg := &segment{
 		level: header.Level,
@@ -94,7 +103,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		segmentStartPos:       header.IndexStart,
 		segmentEndPos:         uint64(fileInfo.Size()),
 		strategy:              header.Strategy,
-		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
+		dataStartPos:          dataStartPos, // fixed value that's the same for all strategies
 		dataEndPos:            header.IndexStart,
 		index:                 primaryDiskIndex,
 		logger:                logger,

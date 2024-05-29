@@ -24,7 +24,7 @@ func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
 		switch strategy {
 		case StrategyReplace, StrategyMapCollection, StrategySetCollection,
-			StrategyRoaringSet:
+			StrategyRoaringSet, StrategyInverted:
 		default:
 			return errors.Errorf("unrecognized strategy %q", strategy)
 		}
