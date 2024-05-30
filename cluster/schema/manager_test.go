@@ -171,7 +171,7 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 	sc := &schema{
 		Classes: make(map[string]*metaClass),
 	}
-	rsc := SchemaReader{sc, VersionedSchemaReader{}}
+	rsc := SchemaReader{VersionedSchemaReader{schema: sc}}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
@@ -199,7 +199,7 @@ func TestSchemaReaderClass(t *testing.T) {
 			Classes:     make(map[string]*metaClass),
 			shardReader: &MockShardReader{},
 		}
-		sc = SchemaReader{s, VersionedSchemaReader{}}
+		sc = SchemaReader{VersionedSchemaReader{schema: s}}
 	)
 
 	// class not found
@@ -222,7 +222,7 @@ func TestSchemaReaderClass(t *testing.T) {
 		"S2": {Status: "A", BelongsToNodes: nodes},
 	}}
 
-	sc.schema.addClass(cls1, ss1, 1)
+	sc.versionedSchemaReader.schema.addClass(cls1, ss1, 1)
 	assert.Equal(t, sc.ReadOnlyClass("C"), cls1)
 	assert.Equal(t, sc.MultiTenancy("D"), models.MultiTenancyConfig{})
 	assert.Nil(t, sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil }))
@@ -245,7 +245,7 @@ func TestSchemaReaderClass(t *testing.T) {
 		PartitioningEnabled: true,
 		Physical:            map[string]sharding.Physical{"S1": {Status: "A", BelongsToNodes: nodes}},
 	}
-	sc.schema.addClass(cls2, ss2, 1)
+	sc.versionedSchemaReader.schema.addClass(cls2, ss2, 1)
 	assert.Equal(t, sc.ReadOnlyClass("D"), cls2)
 	assert.Equal(t, sc.MultiTenancy("D"), models.MultiTenancyConfig{Enabled: true})
 

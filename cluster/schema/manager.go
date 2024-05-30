@@ -49,7 +49,6 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logg
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
 	return SchemaReader{
-		schema: s.schema,
 		// Pass a versioned reader that will ignore all version and always return valid, we want to read the latest
 		// state and not have to wait on a version
 		versionedSchemaReader: VersionedSchemaReader{
@@ -61,7 +60,6 @@ func (s *SchemaManager) NewSchemaReader() SchemaReader {
 
 func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint64) error) SchemaReader {
 	return SchemaReader{
-		schema: s.schema,
 		versionedSchemaReader: VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: f,

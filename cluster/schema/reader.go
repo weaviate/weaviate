@@ -28,7 +28,6 @@ import (
 // Retry may be needed due to eventual consistency issues where
 // updates might take some time to arrive at the follower.
 type SchemaReader struct {
-	schema                *schema
 	versionedSchemaReader VersionedSchemaReader
 }
 
@@ -36,7 +35,7 @@ func (rs SchemaReader) States() map[string]types.ClassState {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("States"))
 	defer t.ObserveDuration()
 
-	return rs.schema.States()
+	return rs.versionedSchemaReader.schema.States()
 }
 
 func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
@@ -50,7 +49,7 @@ func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
 func (rs SchemaReader) ClassEqual(name string) string {
-	return rs.schema.ClassEqual(name)
+	return rs.versionedSchemaReader.schema.ClassEqual(name)
 }
 
 func (rs SchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {
@@ -103,7 +102,7 @@ func (rs SchemaReader) ReadOnlySchema() models.Schema {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadOnlySchema"))
 	defer t.ObserveDuration()
 
-	return rs.schema.ReadOnlySchema()
+	return rs.versionedSchemaReader.schema.ReadOnlySchema()
 }
 
 // ShardOwner returns the node owner of the specified shard
@@ -153,13 +152,13 @@ func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatus
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("GetShardsStatus"))
 	defer t.ObserveDuration()
 
-	return rs.schema.GetShardsStatus(class, tenant)
+	return rs.versionedSchemaReader.schema.GetShardsStatus(class, tenant)
 }
 
-func (rs SchemaReader) Len() int { return rs.schema.len() }
+func (rs SchemaReader) Len() int { return rs.versionedSchemaReader.schema.len() }
 
 func (rs SchemaReader) retry(f func(*schema) error) error {
 	return backoff.Retry(func() error {
-		return f(rs.schema)
+		return f(rs.versionedSchemaReader.schema)
 	}, utils.NewBackoff())
 }
