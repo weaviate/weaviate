@@ -20,7 +20,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
@@ -52,44 +54,65 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
 }
 
-func (m *Manager) checkIDOrAssignNew(ctx context.Context, class string, id strfmt.UUID,
-	repl *additional.ReplicationProperties, tenant string,
-) (strfmt.UUID, error) {
+func (m *Manager) checkIDOrAssignNew(ctx context.Context, principal *models.Principal,
+	class *models.Class, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
+) (validatedID strfmt.UUID, err error) {
 	if id == "" {
-		newID, err := generateUUID()
+		validatedID, err = generateUUID()
 		if err != nil {
-			return "", NewErrInternal("could not generate id: %v", err)
+			err = NewErrInternal("could not generate id: %v", err)
+			return
 		}
-		return newID, nil
 	} else {
 		// IDs are always returned lowercase, but they are written
 		// to disk as uppercase, when provided that way. Here we
 		// ensure they are lowercase on disk as well, so things
 		// like filtering are not affected.
 		// See: https://github.com/weaviate/weaviate/issues/2647
-		id = strfmt.UUID(strings.ToLower(id.String()))
-	}
+		validatedID = strfmt.UUID(strings.ToLower(id.String()))
 
-	// only validate ID uniqueness if explicitly set
-	if ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant); ok {
-		return "", NewErrInvalidUserInput("id '%s' already exists", id)
-	} else if err != nil {
-		switch err.(type) {
-		case ErrInvalidUserInput:
-			return "", err
-		case ErrMultiTenancy:
-			return "", err
-		default:
-			return "", NewErrInternal(err.Error())
+		if ok, existErr := m.vectorRepo.Exists(ctx, class.Class, validatedID, repl, tenant); ok {
+			err = NewErrInvalidUserInput("id '%s' already exists", id)
+			return
+		} else if existErr != nil {
+			err = existErr
+			switch err.(type) {
+			case ErrInvalidUserInput:
+				return
+			case ErrMultiTenancy:
+				if enterrors.IsTenantNotFound(err) && schema.AutoTenantCreationEnabled(class) {
+					// This is fine, the class is configured to create non-existing tenants
+					break
+				}
+				return
+			default:
+				err = NewErrInternal(err.Error())
+				return
+			}
 		}
 	}
-	return id, nil
+
+	if schema.AutoTenantCreationEnabled(class) {
+		_, err = m.schemaManager.AddTenants(ctx, principal, class.Class, []*models.Tenant{{Name: tenant}})
+		if err != nil {
+			err = NewErrInternal(err.Error())
+			return
+		}
+	}
+
+	return
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object, repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	id, err := m.checkIDOrAssignNew(ctx, object.Class, object.ID, repl, object.Tenant)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
+	if err != nil {
+		return nil, err
+	}
+	class := vclasses[object.Class].Class
+
+	id, err := m.checkIDOrAssignNew(ctx, principal, class, object.ID, repl, object.Tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -112,11 +135,7 @@ func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *
 		object.Properties = map[string]interface{}{}
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, object.Class)
-	if err != nil {
-		return nil, err
-	}
-	err = m.modulesProvider.UpdateVector(ctx, object, vclasses[object.Class].Class, m.findObject, m.logger)
+	err = m.modulesProvider.UpdateVector(ctx, object, class, m.findObject, m.logger)
 	if err != nil {
 		return nil, err
 	}

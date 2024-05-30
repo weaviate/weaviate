@@ -63,8 +63,6 @@ import (
 )
 
 var (
-	errTenantNotFound  = errors.New("tenant not found")
-	errTenantNotActive = errors.New("tenant not active")
 
 	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
 	// the physical CPU cores. However, in a containerization context, that might
@@ -597,19 +595,14 @@ func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shar
 		if status == models.TenantActivityStatusHOT {
 			return tenant, nil
 		}
-		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", enterrors.ErrTenantNotActive, tenant))
 	}
 	class := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
 	if class == nil {
 		return "", fmt.Errorf("class %q not found in schema", i.Config.ClassName)
 	}
-	if class.MultiTenancyConfig.AutoTenantCreation {
-		err := fmt.Errorf(
-			"%w: %q, if expecting this tenant to be created with autoTenantCreation, "+
-				"this feature only works with batch insertion", errTenantNotFound, tenant)
-		return "", objects.NewErrMultiTenancy(err)
-	}
-	return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+	return "", objects.NewErrMultiTenancy(
+		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -1481,9 +1474,10 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		if tenantShards[tenant] == models.TenantActivityStatusHOT {
 			return []string{tenant}, nil
 		}
-		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", enterrors.ErrTenantNotActive, tenant))
 	}
-	return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+	return []string{}, objects.NewErrMultiTenancy(
+		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
