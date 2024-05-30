@@ -250,6 +250,9 @@ func (kv MapPair) Bytes() ([]byte, error) {
 }
 
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
+	if len(in) == 16 {
+		return kv.FromBytesInverted(in, keyOnly)
+	}
 	var read uint16
 
 	// NOTE: A previous implementation was using copy statements in here to avoid
@@ -284,6 +287,35 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 			read, len(in))
 	}
 
+	return nil
+}
+
+func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool) error {
+	var read uint16
+
+	// NOTE: A previous implementation was using copy statements in here to avoid
+	// sharing the memory. The general idea of that is good (protect against the
+	// mmaped memory being removed from a completed compaction), however this is
+	// the wrong place. By the time we are in this method, we can no longer
+	// control the memory safety of the "in" argument. Thus, such a copy must
+	// happen at a much earlier scope when a lock is held that protects against
+	// removing the segment. Such an implementation can now be found in
+	// segment_collection_strategy.go as part of the *segment.getCollection
+	// method. As a result all memory used here can now be considered read-only
+	// and is safe to be used indefinitely.
+
+	keyLen := uint16(8)
+	kv.Key = in[read : read+keyLen]
+	read += keyLen
+
+	if keyOnly {
+		return nil
+	}
+
+	valueLen := uint16(8)
+
+	kv.Value = in[read : read+valueLen]
+	read += valueLen
 	return nil
 }
 
