@@ -243,6 +243,4 @@ func TestAddTenantObjectsWithAutoTenantCreation(t *testing.T) {
 			assert.Equal(t, obj.Properties, resp.Properties)
 		}
 	})
-
-	//time.Sleep(time.Minute)
 }
