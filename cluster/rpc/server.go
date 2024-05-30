@@ -19,7 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	"github.com/weaviate/weaviate/cluster/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -158,9 +158,9 @@ func toRPCError(err error) error {
 
 	var ec codes.Code
 	switch {
-	case errors.Is(err, store.ErrNotLeader):
+	case errors.Is(err, types.ErrNotLeader):
 		ec = codes.NotFound
-	case errors.Is(err, store.ErrNotOpen):
+	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
 	default:
 		ec = codes.Internal

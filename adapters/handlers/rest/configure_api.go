@@ -45,7 +45,6 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
-	rStore "github.com/weaviate/weaviate/cluster/store"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -267,14 +266,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	addrs := strings.Split(nodeAddr, ":")
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
-	rConfig := rStore.Config{
+	rConfig := rCluster.Config{
 		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                 nodeName,
 		Host:                   addrs[0],
 		RaftPort:               appState.ServerConfig.Config.Raft.Port,
 		RPCPort:                appState.ServerConfig.Config.Raft.InternalRPCPort,
 		RaftRPCMessageMaxSize:  appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
-		ServerName2PortMap:     server2port,
 		BootstrapTimeout:       appState.ServerConfig.Config.Raft.BootstrapTimeout,
 		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
 		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
@@ -286,10 +284,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
 		DB:                     nil,
 		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
-		AddrResolver:           appState.Cluster,
+		NodeNameToPortMap:      server2port,
+		NodeToAddressResolver:  appState.Cluster,
 		Logger:                 appState.Logger,
-		LogLevel:               logLevel(),
-		LogJSONFormat:          !logTextFormat(),
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
@@ -307,7 +304,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger, backup.RestoreClassDir(dataPath),
 	)
 	schemaManager, err := schemaUC.NewManager(migrator,
-		appState.ClusterService.Service,
+		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
@@ -663,19 +660,6 @@ func logger() *logrus.Logger {
 	}
 
 	return logger
-}
-
-func logLevel() string {
-	switch level := os.Getenv("LOG_LEVEL"); level {
-	case "trace", "debug", "warn", "error":
-		return level
-	default:
-		return "info"
-	}
-}
-
-func logTextFormat() bool {
-	return os.Getenv("LOG_FORMAT") == "text"
 }
 
 type dummyLock struct{}
