@@ -182,11 +182,11 @@ func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Octoai-Api-Key"); apiKey != "" {
+		return apiKey, nil
+	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
-	}
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
-		return apiKey, nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-OctoAI-Api-Key " +
