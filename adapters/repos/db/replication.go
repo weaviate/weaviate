@@ -219,13 +219,9 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 
 func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	localShard, err := i.getOrInitLocalShard(context.Background(), shard)
-	// TODO-RAFT no error response on error?
 	if err != nil {
-		return nil
-	}
-	if localShard == nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard},
+			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
 	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
@@ -235,7 +231,7 @@ func (i *Index) AbortReplication(shard, requestID string) interface{} {
 	localShard, err := i.getOrInitLocalShard(context.Background(), shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard},
+			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
 	return localShard.abortReplication(context.Background(), requestID)
