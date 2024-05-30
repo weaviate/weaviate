@@ -159,16 +159,16 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (m *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := m.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return schema.Schema{}, err
 	}
 
 	if !consistency {
-		return m.getSchema(), nil
+		return h.getSchema(), nil
 	}
 
-	if consistentSchema, err := m.metaWriter.QuerySchema(); err != nil {
+	if consistentSchema, err := h.metaWriter.QuerySchema(); err != nil {
 		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
 	} else {
 		return schema.Schema{
