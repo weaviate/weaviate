@@ -17,19 +17,13 @@ import (
 	"io"
 
 	"github.com/hashicorp/raft"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/cluster/types"
 )
 
 type snapshot struct {
 	NodeID     string                `json:"node_id"`
 	SnapshotID string                `json:"snapshot_id"`
 	Classes    map[string]*metaClass `json:"classes"`
-}
-
-type ClassState struct {
-	Class  models.Class
-	Shards sharding.State
 }
 
 func (s *schema) Restore(r io.Reader, parser Parser) error {
@@ -74,7 +68,7 @@ func (s *schema) Release() {
 }
 
 // LegacySnapshot returns a ready-to-use in-memory Raft snapshot based on the provided legacy schema
-func LegacySnapshot(nodeID string, m map[string]ClassState) (*raft.SnapshotMeta, io.ReadCloser, error) {
+func LegacySnapshot(nodeID string, m map[string]types.ClassState) (*raft.SnapshotMeta, io.ReadCloser, error) {
 	store := raft.NewInmemSnapshotStore()
 	sink, err := store.Create(raft.SnapshotVersionMax, 0, 0, raft.Configuration{}, 0, nil)
 	if err != nil {

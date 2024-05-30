@@ -24,7 +24,7 @@ type Rpc struct {
 	rpcPort        int
 }
 
-// NewRpc returns an implementation of rpcAddressResolver
+// NewRpc returns an implementation of resolver
 // isLocalHost is used to determine which remote port to expect given an address (See: rpcResolver.rpcAddressFromRAFT())
 // rpcPort is used as the default port on the returned rpcAddresses (see: rpcResolver.Address())
 func NewRpc(isLocalHost bool, rpcPort int) *Rpc {

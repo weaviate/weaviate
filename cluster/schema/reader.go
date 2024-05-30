@@ -16,6 +16,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -31,7 +32,7 @@ type SchemaReader struct {
 	versionedSchemaReader VersionedSchemaReader
 }
 
-func (rs SchemaReader) States() map[string]ClassState {
+func (rs SchemaReader) States() map[string]types.ClassState {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("States"))
 	defer t.ObserveDuration()
 
