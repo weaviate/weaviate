@@ -17,6 +17,8 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,6 +57,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 const IdLockPoolSize = 128
@@ -198,6 +206,9 @@ type Shard struct {
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
+
+	bucketName string
+	s3client   *s3.Client
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -228,6 +239,48 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	exists := false
 	if err == nil {
 		exists = true
+	}
+
+	s.bucketName = strings.ToLower(s.index.Config.ClassName.String())
+
+	const defaultRegion = "us-east-1"
+
+	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+		return aws.Endpoint{
+			PartitionID:       "aws",
+			URL:               "http://localhost:9000",
+			SigningRegion:     defaultRegion,
+			HostnameImmutable: true,
+		}, nil
+	})
+
+	// load the Shared AWS Configuration (~/.aws/config)
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithEndpointResolverWithOptions(customResolver),
+		config.WithRegion("auto"),
+		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", "")),
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "init shard %q", s.ID())
+	}
+
+	s.s3client = s3.NewFromConfig(cfg)
+
+	if _, err := s.s3client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: &s.bucketName}); err != nil {
+		// bucket does not exist
+		_, err := s.s3client.CreateBucket(ctx, &s3.CreateBucketInput{
+			Bucket: &s.bucketName,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to create bucket shard %q", s.ID())
+		}
+	}
+
+	if !exists {
+		err = s.mayDownloadFromRemoteStorage(ctx)
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q", s.ID())
+		}
 	}
 
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
@@ -283,6 +336,45 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
 	return s, nil
+}
+
+func (s *Shard) mayDownloadFromRemoteStorage(ctx context.Context) error {
+	manager := manager.NewDownloader(s.s3client)
+
+	paginator := s3.NewListObjectsV2Paginator(s.s3client, &s3.ListObjectsV2Input{
+		Bucket: &s.bucketName,
+		Prefix: &s.name,
+	})
+
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return err
+		}
+		for _, obj := range page.Contents {
+			if err := s.downloadFile(ctx, manager, s.path(), s.bucketName, aws.ToString(obj.Key)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func (s *Shard) downloadFile(ctx context.Context, downloader *manager.Downloader, targetDirectory, bucket, key string) error {
+	file := filepath.Join(targetDirectory, strings.TrimPrefix(key, s.name))
+	if err := os.MkdirAll(filepath.Dir(file), os.ModePerm); err != nil {
+		return err
+	}
+
+	fd, err := os.Create(file)
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+
+	_, err = downloader.Download(ctx, fd, &s3.GetObjectInput{Bucket: &bucket, Key: &key})
+	return err
 }
 
 func (s *Shard) hasTargetVectors() bool {
@@ -955,6 +1047,51 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
+	walker := make(fileWalk)
+	go func() {
+		// Gather the files to upload by walking the path recursively
+		if err := filepath.Walk(s.path(), walker.Walk); err != nil {
+			return
+		}
+		close(walker)
+	}()
+
+	uploader := manager.NewUploader(s.s3client)
+
+	for path := range walker {
+		rel, err := filepath.Rel(s.path(), path)
+		if err != nil {
+			return errors.Wrap(err, "unable to get relative path")
+		}
+
+		file, err := os.Open(path)
+		if err != nil {
+			return errors.Wrap(err, "failed opening file")
+		}
+		defer file.Close()
+
+		_, err = uploader.Upload(ctx, &s3.PutObjectInput{
+			Bucket: &s.bucketName,
+			Key:    aws.String(filepath.Join(s.name, rel)),
+			Body:   file,
+		})
+		if err != nil {
+			return errors.Wrap(err, "failed to upload")
+		}
+	}
+
+	return nil
+}
+
+type fileWalk chan string
+
+func (f fileWalk) Walk(path string, info os.FileInfo, err error) error {
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		f <- path
+	}
 	return nil
 }
 
