@@ -167,7 +167,7 @@ func TestClient(t *testing.T) {
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Google API Key: no api key found "+
-			"neither in request header: X-Palm-Api-Key or X-Google-Api-Key "+
+			"neither in request header: X-Palm-Api-Key or X-Google-Api-Key or X-Google-Vertex-Api-Key "+
 			"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 	})
 
@@ -187,7 +187,7 @@ func TestClient(t *testing.T) {
 
 		require.NotNil(t, err)
 		assert.Equal(t, err.Error(), "Google API Key: no api key found "+
-			"neither in request header: X-Palm-Api-Key or X-Google-Api-Key "+
+			"neither in request header: X-Palm-Api-Key or X-Google-Api-Key or X-Google-Vertex-Api-Key "+
 			"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 	})
 }

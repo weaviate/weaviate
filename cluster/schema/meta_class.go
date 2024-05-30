@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package schema
 
 import (
 	"fmt"
@@ -89,7 +89,7 @@ func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	x, ok := m.Sharding.Physical[shard]
 
 	if !ok {
-		return "", 0, errShardNotFound
+		return "", 0, ErrShardNotFound
 	}
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
 		return "", 0, fmt.Errorf("owner node not found")
@@ -110,7 +110,7 @@ func (m *metaClass) ShardReplicas(shard string) ([]string, uint64, error) {
 	defer m.RUnlock()
 	x, ok := m.Sharding.Physical[shard]
 	if !ok {
-		return nil, 0, errShardNotFound
+		return nil, 0, ErrShardNotFound
 	}
 	return slices.Clone(x.BelongsToNodes), m.version(), nil
 }
@@ -265,7 +265,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	}
 
 	if len(missingShards) > 0 {
-		err = fmt.Errorf("%w: %v", errShardNotFound, missingShards)
+		err = fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)
 	}
 	m.ShardVersion = v
 	req.Tenants = removeNilTenants(req.Tenants)

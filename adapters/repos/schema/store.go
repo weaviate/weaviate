@@ -21,7 +21,7 @@ import (
 	"path"
 
 	"github.com/sirupsen/logrus"
-	clusterStore "github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -597,19 +597,19 @@ func createClassPayload(class *models.Class,
 	return pl, nil
 }
 
-func (r *store) LoadLegacySchema() (map[string]clusterStore.ClassState, error) {
-	res := make(map[string]clusterStore.ClassState)
+func (r *store) LoadLegacySchema() (map[string]clusterSchema.ClassState, error) {
+	res := make(map[string]clusterSchema.ClassState)
 	legacySchema, err := r.Load(context.Background())
 	if err != nil {
 		return res, fmt.Errorf("could not load legacy schema: %w", err)
 	}
 	for _, c := range legacySchema.ObjectSchema.Classes {
-		res[c.Class] = clusterStore.ClassState{Class: *c, Shards: *legacySchema.ShardingState[c.Class]}
+		res[c.Class] = clusterSchema.ClassState{Class: *c, Shards: *legacySchema.ShardingState[c.Class]}
 	}
 	return res, nil
 }
 
-func (r *store) SaveLegacySchema(cluster map[string]clusterStore.ClassState) error {
+func (r *store) SaveLegacySchema(cluster map[string]clusterSchema.ClassState) error {
 	states := ucs.NewState(len(cluster))
 
 	for _, s := range cluster {
