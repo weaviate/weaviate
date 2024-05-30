@@ -60,7 +60,6 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
@@ -241,28 +240,36 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		exists = true
 	}
 
-	s.bucketName = strings.ToLower(s.index.Config.ClassName.String())
-
-	const defaultRegion = "us-east-1"
-
-	customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
-		return aws.Endpoint{
-			PartitionID:       "aws",
-			URL:               "http://localhost:9000",
-			SigningRegion:     defaultRegion,
-			HostnameImmutable: true,
-		}, nil
-	})
+	s.bucketName = "myweabucket" + strings.ToLower(s.index.Config.ClassName.String())
 
 	// load the Shared AWS Configuration (~/.aws/config)
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithEndpointResolverWithOptions(customResolver),
-		config.WithRegion("auto"),
-		config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", "")),
-	)
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
+
+	/*
+		    const defaultRegion = "us-east-1"
+
+			customResolver := aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+				return aws.Endpoint{
+					PartitionID:       "aws",
+					URL:               "http://localhost:9000",
+					SigningRegion:     defaultRegion,
+					HostnameImmutable: true,
+				}, nil
+			})
+
+			// load the Shared AWS Configuration (~/.aws/config)
+			cfg, err := config.LoadDefaultConfig(ctx,
+				config.WithEndpointResolverWithOptions(customResolver),
+				config.WithRegion("auto"),
+				config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider("minioadmin", "minioadmin", "")),
+			)
+			if err != nil {
+				return nil, errors.Wrapf(err, "init shard %q", s.ID())
+			}
+	*/
 
 	s.s3client = s3.NewFromConfig(cfg)
 
