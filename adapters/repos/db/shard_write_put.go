@@ -74,7 +74,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
-	if err := s.GetPropertyLengthTracker().Flush(false); err != nil {
+	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
 		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
