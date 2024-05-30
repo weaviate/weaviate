@@ -357,7 +357,10 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 		4: {},
 		5: {},
 	}
-	ids := []uint64{2, 3, 4, 5, 6}
+	ids := []uint64{2, 3, 4, 5, 7}
+	deletedTombstones := map[uint64]struct{}{
+		6: {},
+	}
 
 	for _, id := range ids {
 		val := make([]byte, 8)
@@ -368,15 +371,21 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 
 		reader := bufio.NewReader(data)
 
-		err := d.ReadRemoveTombstone(reader, tombstones)
+		err := d.ReadRemoveTombstone(reader, tombstones, deletedTombstones)
 		require.Nil(t, err)
 	}
 
-	expected := map[uint64]struct{}{
+	expectedTombstones := map[uint64]struct{}{
 		1: {},
 	}
 
-	assert.Equal(t, expected, tombstones)
+	expectedDeletedTombstones := map[uint64]struct{}{
+		6: {},
+		7: {},
+	}
+
+	assert.Equal(t, expectedTombstones, tombstones)
+	assert.Equal(t, expectedDeletedTombstones, deletedTombstones)
 }
 
 func TestDeserializerClearLinksAtLevel(t *testing.T) {

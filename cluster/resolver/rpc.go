@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package rpc
+package resolver
 
 import (
 	"fmt"
@@ -17,16 +17,18 @@ import (
 	"strconv"
 )
 
-// NewResolver returns an implementation of rpcAddressResolver
-// isLocalHost is used to determine which remote port to expect given an address (See: rpcResolver.rpcAddressFromRAFT())
-// rpcPort is used as the default port on the returned rpcAddresses (see: rpcResolver.Address())
-func NewResolver(isLocalHost bool, rpcPort int) rpcAddressResolver {
-	return &rpcResolver{isLocalCluster: isLocalHost, rpcPort: rpcPort}
-}
-
-type rpcResolver struct {
+// Rpc implements resolving raft address to their RPC address depending on the configured rpcPort and whether or
+// not this is a local cluster.
+type Rpc struct {
 	isLocalCluster bool
 	rpcPort        int
+}
+
+// NewRpc returns an implementation of rpcAddressResolver
+// isLocalHost is used to determine which remote port to expect given an address (See: rpcResolver.rpcAddressFromRAFT())
+// rpcPort is used as the default port on the returned rpcAddresses (see: rpcResolver.Address())
+func NewRpc(isLocalHost bool, rpcPort int) *Rpc {
+	return &Rpc{isLocalCluster: isLocalHost, rpcPort: rpcPort}
 }
 
 // rpcAddressFromRAFT returns the FQDN raft address (rpcAddr:rpcPort) based on raftAddr (raftAddr:raftPort).
@@ -34,7 +36,7 @@ type rpcResolver struct {
 // different. Specifically, we calculate the RPC port as the RAFT port + 1.
 // Returns an error if raftAddr is not parseable.
 // Returns an error if raftAddr port is not parse-able as an integer.
-func (cl *rpcResolver) Address(raftAddr string) (string, error) {
+func (cl *Rpc) Address(raftAddr string) (string, error) {
 	host, port, err := net.SplitHostPort(raftAddr)
 	if err != nil {
 		return "", err

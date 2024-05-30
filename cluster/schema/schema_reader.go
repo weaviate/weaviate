@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package schema
 
 import (
 	"context"
@@ -22,19 +22,24 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// retrySchema is used for retrying schema queries. It is a thin wrapper around
+// SchemaReader is used for retrying schema queries. It is a thin wrapper around
 // the original schema, separating retry logic from the actual operation.
 // Retry may be needed due to eventual consistency issues where
 // updates might take some time to arrive at the follower.
-type retrySchema struct {
-	schema          *schema
-	versionedSchema versionedSchema
+type SchemaReader struct {
+	schema                *schema
+	versionedSchemaReader VersionedSchemaReader
 }
 
-func (rs retrySchema) ClassInfo(class string) (ci ClassInfo) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"ClassInfo"))
+func (rs SchemaReader) States() map[string]ClassState {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("States"))
+	defer t.ObserveDuration()
+
+	return rs.schema.States()
+}
+
+func (rs SchemaReader) ClassInfo(class string) (ci ClassInfo) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ClassInfo"))
 	defer t.ObserveDuration()
 
 	res, _ := rs.ClassInfoWithVersion(context.TODO(), class, 0)
@@ -43,24 +48,20 @@ func (rs retrySchema) ClassInfo(class string) (ci ClassInfo) {
 
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
 // strings.EqualFold is used to compare classes
-func (rs retrySchema) ClassEqual(name string) string {
+func (rs SchemaReader) ClassEqual(name string) string {
 	return rs.schema.ClassEqual(name)
 }
 
-func (rs retrySchema) MultiTenancy(class string) models.MultiTenancyConfig {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"MultiTenancy"))
+func (rs SchemaReader) MultiTenancy(class string) models.MultiTenancyConfig {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("MultiTenancy"))
 	defer t.ObserveDuration()
 	res, _ := rs.MultiTenancyWithVersion(context.TODO(), class, 0)
 	return res
 }
 
 // Read performs a read operation `reader` on the specified class and sharding state
-func (rs retrySchema) Read(class string, reader func(*models.Class, *sharding.State) error) error {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"Read"))
+func (rs SchemaReader) Read(class string, reader func(*models.Class, *sharding.State) error) error {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("Read"))
 	defer t.ObserveDuration()
 
 	return rs.retry(func(s *schema) error {
@@ -70,20 +71,18 @@ func (rs retrySchema) Read(class string, reader func(*models.Class, *sharding.St
 
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
-func (rs retrySchema) ReadOnlyClass(class string) (cls *models.Class) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"ReadOnlyClass"))
+func (rs SchemaReader) ReadOnlyClass(class string) (cls *models.Class) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadOnlyClass"))
 	defer t.ObserveDuration()
 
 	res, _ := rs.ReadOnlyClassWithVersion(context.TODO(), class, 0)
 	return res
 }
 
-func (rs retrySchema) metaClass(class string) (meta *metaClass) {
+func (rs SchemaReader) metaClass(class string) (meta *metaClass) {
 	rs.retry(func(s *schema) error {
 		if meta = s.metaClass(class); meta == nil {
-			return errClassNotFound
+			return ErrClassNotFound
 		}
 		return nil
 	})
@@ -99,20 +98,16 @@ func (rs retrySchema) metaClass(class string) (meta *metaClass) {
 // The properties attribute is the only one that might vary in size;
 // therefore, we perform a shallow copy of the existing properties.
 // This implementation assumes that individual properties are overwritten rather than partially updated
-func (rs retrySchema) ReadOnlySchema() models.Schema {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"ReadOnlySchema"))
+func (rs SchemaReader) ReadOnlySchema() models.Schema {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadOnlySchema"))
 	defer t.ObserveDuration()
 
 	return rs.schema.ReadOnlySchema()
 }
 
 // ShardOwner returns the node owner of the specified shard
-func (rs retrySchema) ShardOwner(class, shard string) (owner string, err error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"ShardOwner"))
+func (rs SchemaReader) ShardOwner(class, shard string) (owner string, err error) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ShardOwner"))
 	defer t.ObserveDuration()
 
 	res, err := rs.ShardOwnerWithVersion(context.TODO(), class, shard, 0)
@@ -120,10 +115,8 @@ func (rs retrySchema) ShardOwner(class, shard string) (owner string, err error) 
 }
 
 // ShardFromUUID returns shard name of the provided uuid
-func (rs retrySchema) ShardFromUUID(class string, uuid []byte) (shard string) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"ShardFromUUID"))
+func (rs SchemaReader) ShardFromUUID(class string, uuid []byte) (shard string) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ShardFromUUID"))
 	defer t.ObserveDuration()
 
 	res, _ := rs.ShardFromUUIDWithVersion(context.TODO(), class, uuid, 0)
@@ -131,10 +124,8 @@ func (rs retrySchema) ShardFromUUID(class string, uuid []byte) (shard string) {
 }
 
 // ShardReplicas returns the replica nodes of a shard
-func (rs retrySchema) ShardReplicas(class, shard string) (nodes []string, err error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"ShardReplicas"))
+func (rs SchemaReader) ShardReplicas(class, shard string) (nodes []string, err error) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ShardReplicas"))
 	defer t.ObserveDuration()
 
 	res, err := rs.ShardReplicasWithVersion(context.TODO(), class, shard, 0)
@@ -142,37 +133,31 @@ func (rs retrySchema) ShardReplicas(class, shard string) (nodes []string, err er
 }
 
 // TenantsShards returns shard name for the provided tenant and its activity status
-func (rs retrySchema) TenantsShards(class string, tenants ...string) (map[string]string, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"TenantsShards"))
+func (rs SchemaReader) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("TenantsShards"))
 	defer t.ObserveDuration()
 
 	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
 }
 
-func (rs retrySchema) CopyShardingState(class string) (ss *sharding.State) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"CopyShardingState"))
+func (rs SchemaReader) CopyShardingState(class string) (ss *sharding.State) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("CopyShardingState"))
 	defer t.ObserveDuration()
 
 	res, _ := rs.CopyShardingStateWithVersion(context.TODO(), class, 0)
 	return res
 }
 
-func (rs retrySchema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	t := prometheus.NewTimer(
-		monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues(
-			"GetShardsStatus"))
+func (rs SchemaReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("GetShardsStatus"))
 	defer t.ObserveDuration()
 
 	return rs.schema.GetShardsStatus(class, tenant)
 }
 
-func (rs retrySchema) Len() int { return rs.schema.len() }
+func (rs SchemaReader) Len() int { return rs.schema.len() }
 
-func (rs retrySchema) retry(f func(*schema) error) error {
+func (rs SchemaReader) retry(f func(*schema) error) error {
 	return backoff.Retry(func() error {
 		return f(rs.schema)
 	}, utils.NewBackoff())

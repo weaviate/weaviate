@@ -20,7 +20,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"google.golang.org/grpc/codes"
@@ -58,7 +58,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 	}{
 		{
 			name:     "Join leader not found",
-			members:  &MockMembers{errJoin: store.ErrLeaderNotFound},
+			members:  &MockMembers{errJoin: types.ErrLeaderNotFound},
 			executor: &MockExecutor{},
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
@@ -75,7 +75,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
 				assert.Equal(t, st.Code(), codes.Internal)
-				assert.ErrorContains(t, st.Err(), store.ErrLeaderNotFound.Error())
+				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
 		{
@@ -98,7 +98,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 		},
 		{
 			name:     "Notify members error",
-			members:  &MockMembers{errNotify: store.ErrNotOpen},
+			members:  &MockMembers{errNotify: types.ErrNotOpen},
 			executor: &MockExecutor{},
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
@@ -115,7 +115,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
 				assert.Equal(t, st.Code(), codes.Unavailable)
-				assert.ErrorContains(t, st.Err(), store.ErrNotOpen.Error())
+				assert.ErrorContains(t, st.Err(), types.ErrNotOpen.Error())
 			},
 		},
 		{
@@ -138,7 +138,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 		},
 		{
 			name:     "Remove members error",
-			members:  &MockMembers{errRemove: store.ErrNotLeader},
+			members:  &MockMembers{errRemove: types.ErrNotLeader},
 			executor: &MockExecutor{},
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
@@ -155,7 +155,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
 				assert.Equal(t, st.Code(), codes.NotFound)
-				assert.ErrorContains(t, st.Err(), store.ErrNotLeader.Error())
+				assert.ErrorContains(t, st.Err(), types.ErrNotLeader.Error())
 			},
 		},
 		{
@@ -224,7 +224,7 @@ func TestQueryEndpoint(t *testing.T) {
 				executor.qf = func(*cmd.QueryRequest) (*cmd.QueryResponse, error) {
 					n++
 					if n < 2 {
-						return &cmd.QueryResponse{}, store.ErrLeaderNotFound
+						return &cmd.QueryResponse{}, types.ErrLeaderNotFound
 					}
 					return &cmd.QueryResponse{}, nil
 				}
@@ -247,14 +247,14 @@ func TestQueryEndpoint(t *testing.T) {
 				defer client.Close()
 
 				executor.qf = func(*cmd.QueryRequest) (*cmd.QueryResponse, error) {
-					return &cmd.QueryResponse{}, store.ErrLeaderNotFound
+					return &cmd.QueryResponse{}, types.ErrLeaderNotFound
 				}
 				_, err := client.Query(ctx, leaderAddr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASSES})
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
 				assert.Equal(t, st.Code(), codes.Internal)
-				assert.ErrorContains(t, st.Err(), store.ErrLeaderNotFound.Error())
+				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
 	}
@@ -286,7 +286,7 @@ func TestApply(t *testing.T) {
 			members: &MockMembers{},
 			executor: &MockExecutor{
 				ef: func() error {
-					return store.ErrLeaderNotFound
+					return types.ErrLeaderNotFound
 				},
 			},
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
@@ -303,7 +303,7 @@ func TestApply(t *testing.T) {
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
 				assert.Equal(t, st.Code(), codes.Internal)
-				assert.ErrorContains(t, st.Err(), store.ErrLeaderNotFound.Error())
+				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
 		{
@@ -323,7 +323,7 @@ func TestApply(t *testing.T) {
 				executor.ef = func() error {
 					n++
 					if n < 2 {
-						return store.ErrLeaderNotFound
+						return types.ErrLeaderNotFound
 					}
 					return nil
 				}

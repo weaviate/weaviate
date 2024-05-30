@@ -18,7 +18,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -111,14 +111,14 @@ func (f *fakeMetaHandler) MultiTenancyWithVersion(ctx context.Context, class str
 	return args.Get(0).(models.MultiTenancyConfig), args.Error(1)
 }
 
-func (f *fakeMetaHandler) ClassInfo(class string) (ci store.ClassInfo) {
+func (f *fakeMetaHandler) ClassInfo(class string) (ci clusterSchema.ClassInfo) {
 	args := f.Called(class)
-	return args.Get(0).(store.ClassInfo)
+	return args.Get(0).(clusterSchema.ClassInfo)
 }
 
-func (f *fakeMetaHandler) ClassInfoWithVersion(ctx context.Context, class string, version uint64) (store.ClassInfo, error) {
+func (f *fakeMetaHandler) ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error) {
 	args := f.Called(ctx, class, version)
-	return args.Get(0).(store.ClassInfo), args.Error(1)
+	return args.Get(0).(clusterSchema.ClassInfo), args.Error(1)
 }
 
 func (f *fakeMetaHandler) QuerySchema() (models.Schema, error) {
