@@ -273,7 +273,7 @@ func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects
 }
 
 func (f *fakeVectorRepo) BatchMergeObjects(ctx context.Context, batch BatchMergeDocuments,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchMergeDocuments, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
