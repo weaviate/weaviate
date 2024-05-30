@@ -22,7 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	clusterStore "github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 
@@ -45,9 +45,9 @@ func TestSaveAndLoadSchema(t *testing.T) {
 	repo, _ := newRepo(dirName, 0, logger)
 	defer repo.Close()
 
-	cs := map[string]clusterStore.ClassState{}
+	cs := map[string]clusterSchema.ClassState{}
 	for _, s := range schema.ObjectSchema.Classes {
-		cs[s.Class] = clusterStore.ClassState{
+		cs[s.Class] = clusterSchema.ClassState{
 			Class:  *s,
 			Shards: *schema.ShardingState[s.Class],
 		}

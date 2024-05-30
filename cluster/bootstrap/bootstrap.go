@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package bootstrap
 
 import (
 	"context"
@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/resolver"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -31,7 +32,7 @@ type joiner interface {
 // Bootstrapper is used to bootstrap this node by attempting to join it to a RAFT cluster.
 type Bootstrapper struct {
 	joiner       joiner
-	addrResolver addressResolver
+	addrResolver resolver.NodeToAddress
 	isStoreReady func() bool
 
 	localRaftAddr string
@@ -42,7 +43,7 @@ type Bootstrapper struct {
 }
 
 // NewBootstrapper constructs a new bootsrapper
-func NewBootstrapper(joiner joiner, raftID, raftAddr string, r addressResolver, isStoreReady func() bool) *Bootstrapper {
+func NewBootstrapper(joiner joiner, raftID, raftAddr string, r resolver.NodeToAddress, isStoreReady func() bool) *Bootstrapper {
 	return &Bootstrapper{
 		joiner:        joiner,
 		addrResolver:  r,

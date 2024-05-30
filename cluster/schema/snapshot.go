@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package schema
 
 import (
 	"encoding/json"
@@ -25,6 +25,11 @@ type snapshot struct {
 	NodeID     string                `json:"node_id"`
 	SnapshotID string                `json:"snapshot_id"`
 	Classes    map[string]*metaClass `json:"classes"`
+}
+
+type ClassState struct {
+	Class  models.Class
+	Shards sharding.State
 }
 
 func (s *schema) Restore(r io.Reader, parser Parser) error {
@@ -65,20 +70,7 @@ func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
 	return nil
 }
 
-// Release is invoked when we are finished with the snapshot.
-func (s *schema) Release() {}
-
-func snapshotIndex(ss *raft.FileSnapshotStore) uint64 {
-	ls, err := ss.List()
-	if err != nil || len(ls) == 0 {
-		return 0
-	}
-	return ls[0].Index
-}
-
-type ClassState struct {
-	Class  models.Class
-	Shards sharding.State
+func (s *schema) Release() {
 }
 
 // LegacySnapshot returns a ready-to-use in-memory Raft snapshot based on the provided legacy schema
@@ -103,8 +95,3 @@ func LegacySnapshot(nodeID string, m map[string]ClassState) (*raft.SnapshotMeta,
 	}
 	return store.Open(sink.ID())
 }
-
-type (
-	LoadLegacySchema func() (map[string]ClassState, error)
-	SaveLegacySchema func(map[string]ClassState) error
-)

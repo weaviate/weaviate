@@ -9,19 +9,24 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package store
+package schema
 
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+var errAny = errors.New("any error")
 
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
@@ -29,14 +34,14 @@ func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 		sc  = &schema{
 			Classes: make(map[string]*metaClass),
 		}
-		vsc = versionedSchema{
+		vsc = VersionedSchemaReader{
 			schema:        sc,
 			WaitForUpdate: func(ctx context.Context, version uint64) error { return nil },
 		}
 	)
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
-	assert.ErrorIs(t, err, errClassNotFound)
+	assert.ErrorIs(t, err, ErrClassNotFound)
 
 	// shard not found
 	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
@@ -44,7 +49,7 @@ func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	sc.addClass(&models.Class{Class: "C"}, ss, 1)
 
 	_, err = vsc.ShardReplicas(ctx, "C", "S", 1)
-	assert.ErrorIs(t, err, errShardNotFound)
+	assert.ErrorIs(t, err, ErrShardNotFound)
 
 	// two replicas found
 	nodes := []string{"A", "B"}
@@ -65,7 +70,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 			shardReader: &MockShardReader{},
 		}
 
-		sc = versionedSchema{s, f}
+		sc = VersionedSchemaReader{s, f}
 	)
 
 	// class not found
@@ -84,11 +89,11 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	assert.Nil(t, err)
 
 	_, err = sc.ShardReplicas(ctx, "C", "S", 1)
-	assert.ErrorIs(t, err, errClassNotFound)
+	assert.ErrorIs(t, err, ErrClassNotFound)
 	_, err = sc.ShardOwner(ctx, "C", "S", 1)
-	assert.ErrorIs(t, err, errClassNotFound)
+	assert.ErrorIs(t, err, ErrClassNotFound)
 	err = sc.Read(ctx, "C", 1, func(c *models.Class, s *sharding.State) error { return nil })
-	assert.ErrorIs(t, err, errClassNotFound)
+	assert.ErrorIs(t, err, ErrClassNotFound)
 
 	// Add Simple class
 	cls1 := &models.Class{Class: "C"}
@@ -117,7 +122,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 	_, err = sc.ShardOwner(ctx, "C", "S1", 1)
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner(ctx, "C", "Sx", 1)
-	assert.ErrorIs(t, err, errShardNotFound)
+	assert.ErrorIs(t, err, ErrShardNotFound)
 	shards, _, err := sc.TenantsShards(ctx, 1, "C", "S2")
 	assert.Empty(t, shards)
 	assert.Nil(t, err)
@@ -157,8 +162,8 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 
 	reader := func(c *models.Class, s *sharding.State) error { return nil }
 	assert.Nil(t, sc.Read(ctx, "C", 1, reader))
-	retErr = ErrDeadlineExceeded
-	assert.ErrorIs(t, sc.Read(ctx, "C", 1, reader), ErrDeadlineExceeded)
+	retErr = fmt.Errorf("waiting error")
+	assert.ErrorIs(t, sc.Read(ctx, "C", 1, reader), retErr)
 	retErr = nil
 }
 
@@ -166,10 +171,10 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 	sc := &schema{
 		Classes: make(map[string]*metaClass),
 	}
-	rsc := retrySchema{sc, versionedSchema{}}
+	rsc := SchemaReader{sc, VersionedSchemaReader{}}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
-	assert.ErrorIs(t, err, errClassNotFound)
+	assert.ErrorIs(t, err, ErrClassNotFound)
 
 	// shard not found
 	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
@@ -177,7 +182,7 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 	sc.addClass(&models.Class{Class: "C"}, ss, 1)
 
 	_, err = rsc.ShardReplicas("C", "S")
-	assert.ErrorIs(t, err, errShardNotFound)
+	assert.ErrorIs(t, err, ErrShardNotFound)
 
 	// two replicas found
 	nodes := []string{"A", "B"}
@@ -194,7 +199,7 @@ func TestSchemaReaderClass(t *testing.T) {
 			Classes:     make(map[string]*metaClass),
 			shardReader: &MockShardReader{},
 		}
-		sc = retrySchema{s, versionedSchema{}}
+		sc = SchemaReader{s, VersionedSchemaReader{}}
 	)
 
 	// class not found
@@ -204,11 +209,11 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Equal(t, sc.MultiTenancy("C"), models.MultiTenancyConfig{})
 
 	_, err := sc.ShardReplicas("C", "S")
-	assert.ErrorIs(t, err, errClassNotFound)
+	assert.ErrorIs(t, err, ErrClassNotFound)
 	_, err = sc.ShardOwner("C", "S")
-	assert.ErrorIs(t, err, errClassNotFound)
+	assert.ErrorIs(t, err, ErrClassNotFound)
 	err = sc.Read("C", func(c *models.Class, s *sharding.State) error { return nil })
-	assert.ErrorIs(t, err, errClassNotFound)
+	assert.ErrorIs(t, err, ErrClassNotFound)
 
 	// Add Simple class
 	cls1 := &models.Class{Class: "C"}
@@ -226,7 +231,7 @@ func TestSchemaReaderClass(t *testing.T) {
 	_, err = sc.ShardOwner("C", "S1")
 	assert.ErrorContains(t, err, "node not found")
 	_, err = sc.ShardOwner("C", "Sx")
-	assert.ErrorIs(t, err, errShardNotFound)
+	assert.ErrorIs(t, err, ErrShardNotFound)
 	shard, _ := sc.TenantsShards("C", "S2")
 	assert.Empty(t, shard)
 	assert.Empty(t, sc.ShardFromUUID("Cx", nil))
@@ -261,8 +266,8 @@ func TestSchemaReaderClass(t *testing.T) {
 func TestSchemaSnapshot(t *testing.T) {
 	var (
 		node   = "N1"
-		sc     = NewSchema(node, &MockIndexer{})
-		parser = &MockParser{}
+		sc     = NewSchema(node, fakes.NewMockSchemaExecutor())
+		parser = fakes.NewMockParser()
 
 		cls = &models.Class{Class: "C"}
 		ss  = &sharding.State{
@@ -281,7 +286,7 @@ func TestSchemaSnapshot(t *testing.T) {
 	assert.Nil(t, sc.Persist(sink))
 
 	// restore snapshot
-	sc2 := NewSchema("N1", &MockIndexer{})
+	sc2 := NewSchema("N1", fakes.NewMockSchemaExecutor())
 	assert.Nil(t, sc2.Restore(sink, parser))
 	assert.Equal(t, sc.Classes, sc2.Classes)
 
@@ -293,7 +298,7 @@ func TestSchemaSnapshot(t *testing.T) {
 	assert.ErrorContains(t, sc.Restore(sink2, parser), "decode")
 
 	// Parsing Error
-	parser2 := &MockParser{}
+	parser2 := fakes.NewMockParser()
 	parser2.On("ParseClass", mock.Anything).Return(errAny)
 
 	sink3 := &MockSnapshotSink{}
