@@ -118,8 +118,6 @@ type Store struct {
 
 	// applyTimeout timeout limit the amount of time raft waits for a command to be applied
 	applyTimeout time.Duration
-	// consistencyWaitTimeout is the duration we will wait for a schema version to land on that node
-	consistencyWaitTimeout time.Duration
 
 	// raft snapshot store
 	snapshotStore     *raft.FileSnapshotStore
@@ -129,7 +127,7 @@ type Store struct {
 	// raft log store
 	logStore *raftbolt.BoltStore
 
-	// cluser bootstrap related attributes
+	// cluster bootstrap related attributes
 	bootstrapMutex sync.Mutex
 	candidates     map[string]string
 	// bootstrapped is set once the node has either bootstrapped or recovered from RAFT log entries
@@ -394,7 +392,7 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 	if idx := st.lastAppliedIndex.Load(); idx >= version {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(ctx, st.consistencyWaitTimeout)
+	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
 	defer cancel()
 	ticker := time.NewTicker(period)
 	defer ticker.Stop()
