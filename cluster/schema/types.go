@@ -15,14 +15,15 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 type (
 	// LoadLegacySchema returns the legacy schema
-	LoadLegacySchema func() (map[string]ClassState, error)
+	LoadLegacySchema func() (map[string]types.ClassState, error)
 	// SaveLegacySchema saves the RAFT schema representation to the legacy storage
-	SaveLegacySchema func(map[string]ClassState) error
+	SaveLegacySchema func(map[string]types.ClassState) error
 )
 
 // Indexer interface updates both the collection and its indices in the filesystem.

@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -333,13 +334,13 @@ func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, e
 	return res, meta.RLockGuard(f)
 }
 
-func (s *schema) States() map[string]ClassState {
+func (s *schema) States() map[string]types.ClassState {
 	s.RLock()
 	defer s.RUnlock()
 
-	cs := make(map[string]ClassState, len(s.Classes))
+	cs := make(map[string]types.ClassState, len(s.Classes))
 	for _, c := range s.Classes {
-		cs[c.Class.Class] = ClassState{
+		cs[c.Class.Class] = types.ClassState{
 			Class:  c.Class,
 			Shards: c.Sharding,
 		}

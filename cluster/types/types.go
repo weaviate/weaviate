@@ -17,7 +17,15 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
+
+// ClassState represent a class and it's associated sharding state
+type ClassState struct {
+	Class  models.Class
+	Shards sharding.State
+}
 
 // RaftResolver is passed to raft to resolver node ids to their real ip:port so that tranport can be established.
 type RaftResolver interface {
