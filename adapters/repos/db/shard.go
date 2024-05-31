@@ -240,7 +240,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		exists = true
 	}
 
-	s.bucketName = "myweabucket" + strings.ToLower(s.index.Config.ClassName.String())
+	s.bucketName = "tenant-offloading-bucket-" + strings.ToLower(s.index.Config.ClassName.String())
 
 	// load the Shared AWS Configuration (~/.aws/config)
 	cfg, err := config.LoadDefaultConfig(ctx)
@@ -373,7 +373,7 @@ func (s *Shard) mayDownloadFromRemoteStorage(ctx context.Context) error {
 
 	s.index.logger.
 		WithField("action", "successfully downloaded shard from s3 bucket").
-		WithField("took", time.Since(start)).
+		WithField("took", fmt.Sprintf("%v", time.Since(start))).
 		Infof("shard=%s", s.name)
 
 	return nil
@@ -1106,7 +1106,7 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 
 	s.index.logger.
 		WithField("action", "successfully uploaded shard to s3 bucket").
-		WithField("took", time.Since(start)).
+		WithField("took", fmt.Sprintf("%v", time.Since(start))).
 		Infof("shard=%s", s.name)
 
 	return nil
