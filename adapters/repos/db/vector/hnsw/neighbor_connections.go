@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -99,9 +100,8 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 		dist, ok, err = n.distancer.DistanceToNode(id)
 	}
 	if err != nil {
-		// not an error we could recover from - fail!
-		return math.MaxFloat32, errors.Wrapf(err,
-			"calculate distance between insert node and entrypoint")
+		return math.MaxFloat32, fmt.Errorf(
+			"calculate distance between insert node and entrypoint: %w", err)
 	}
 	if !ok {
 		return math.MaxFloat32, nil
@@ -115,23 +115,24 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	}
 
 	var pending []uint64
+	// lock the nodes slice
+	n.graph.shardedNodeLocks.RLock(from)
 	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from)
+		n.graph.shardedNodeLocks.RUnlock(from)
 		return nil
 	}
-	// lock the nodes slice
-	n.graph.shardedNodeLocks.Lock(from)
 	// lock the node itself
 	n.graph.nodes[from].Lock()
 	if level >= len(n.graph.nodes[from].connections) {
 		n.graph.nodes[from].Unlock()
-		n.graph.shardedNodeLocks.Unlock(from)
+		n.graph.shardedNodeLocks.RUnlock(from)
 		return nil
 	}
 	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
 	copy(connections, n.graph.nodes[from].connections[level])
 	n.graph.nodes[from].Unlock()
-	n.graph.shardedNodeLocks.Unlock(from)
+	n.graph.shardedNodeLocks.RUnlock(from)
 	for _, id := range connections {
 		if visited.Visited(id) {
 			continue
@@ -144,7 +145,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 
 		dist, err := n.processNode(id)
 		if err != nil {
-			return err
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				// node was deleted in the meantime
+				continue
+			} else {
+				return err
+			}
 		}
 		if results.Len() >= top && dist < results.Top().Dist {
 			results.Pop()
@@ -157,6 +164,11 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		if results.Len() >= top {
 			dist, err := n.processNode(id)
 			if err != nil {
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					// node was deleted in the meantime
+					continue
+				}
 				return err
 			}
 			if dist > results.Top().Dist {
@@ -207,6 +219,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
+				n.graph.pools.visitedListsLock.RLock()
+				n.graph.pools.visitedLists.Return(visited)
+				n.graph.pools.visitedListsLock.RUnlock()
 				return err
 			}
 		}
@@ -433,7 +448,13 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 
 		success, err := n.tryEpCandidate(candidate)
 		if err != nil {
-			return err
+			var e storobj.ErrNotFound
+			if !errors.As(err, &e) {
+				return err
+			}
+
+			// node was deleted in the meantime
+			// ignore the error and try the next candidate
 		}
 
 		if success {
@@ -473,9 +494,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		dist, ok, err = n.distancer.DistanceToNode(candidate)
 	}
 	if err != nil {
-		// not an error we could recover from - fail!
-		return false, errors.Wrapf(err,
-			"calculate distance between insert node and entrypoint")
+		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
 	}
 	if !ok {
 		return false, nil

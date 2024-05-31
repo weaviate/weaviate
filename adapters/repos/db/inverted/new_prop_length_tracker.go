@@ -389,7 +389,7 @@ func (t *JsonShardMetaData) Close() error {
 	t.Lock()
 	defer t.Unlock()
 
-	t.data.BucketedData = nil
+	clear(t.data.BucketedData)
 	t.closed = true
 
 	return nil
@@ -405,7 +405,7 @@ func (t *JsonShardMetaData) Drop() error {
 	t.Lock()
 	defer t.Unlock()
 
-	t.data.BucketedData = nil
+	clear(t.data.BucketedData)
 
 	os.Remove(t.path)
 	os.Remove(t.path + ".bak")
