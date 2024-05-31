@@ -193,6 +193,31 @@ func TestMappings(t *testing.T) {
 		}
 	})
 
+	t.Run("check mappings for dummy", func(t *testing.T) {
+		m := NewDummyMonitor()
+		m.Refresh(true)
+
+		path := t.TempDir()
+		// use many mappings, dummy monitor should never block
+		for i := 0; i < 100; i++ {
+			m.Refresh(true)
+			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
+			require.Nil(t, err)
+			defer file.Close()
+			_, err = file.Write([]byte("Hello"))
+			require.Nil(t, err)
+
+			fileInfo, err := file.Stat()
+			require.Nil(t, err)
+
+			require.Nil(t, m.CheckMappingAndReserve(1, 1))
+			data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+			require.Nil(t, err)
+
+			defer syscall.Munmap(data)
+		}
+	})
+
 	t.Run("check reservations", func(t *testing.T) {
 		currentMappings := getCurrentMappings()
 		addMappings := 15
