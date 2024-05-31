@@ -182,7 +182,7 @@ func (l *LazyLoadShard) ObjectCountAsync() int {
 	return l.shard.ObjectCountAsync()
 }
 
-func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	l.mustLoad()
 	return l.shard.GetPropertyLengthTracker()
 }
@@ -379,19 +379,19 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) Dimensions() int {
+func (l *LazyLoadShard) Dimensions(ctx context.Context) int {
 	l.mustLoad()
-	return l.shard.Dimensions()
+	return l.shard.Dimensions(ctx)
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, segments int) int {
 	l.mustLoad()
-	return l.shard.QuantizedDimensions(segments)
+	return l.shard.QuantizedDimensions(ctx, segments)
 }
 
-func (l *LazyLoadShard) publishDimensionMetrics() {
+func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 	l.mustLoad()
-	l.shard.publishDimensionMetrics()
+	l.shard.publishDimensionMetrics(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
