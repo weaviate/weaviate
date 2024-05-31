@@ -182,11 +182,11 @@ func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Octoai-Api-Key"); apiKey != "" {
+		return apiKey, nil
+	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
-	}
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-OctoAI-Api-Key"); apiKey != "" {
-		return apiKey, nil
 	}
 	return "", errors.New("no api key found " +
 		"neither in request header: X-OctoAI-Api-Key " +
@@ -201,7 +201,7 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.Class
 	return sha256.Sum256([]byte(key))
 }
 
-func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "OctoAI", DefaultRPM, 0)
 
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
