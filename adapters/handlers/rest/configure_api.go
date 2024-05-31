@@ -276,7 +276,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		BootstrapTimeout:       appState.ServerConfig.Config.Raft.BootstrapTimeout,
 		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
 		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
-		RecoveryTimeout:        appState.ServerConfig.Config.Raft.RecoveryTimeout,
 		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
 		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
