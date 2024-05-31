@@ -292,7 +292,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
-	if v := meta.Version; v > Version {
+	if v := meta.Version; v[0] > Version[0] {
 		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.Classes()

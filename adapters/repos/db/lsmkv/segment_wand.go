@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -62,20 +63,6 @@ func init() {
 	FORWARD_JUMP_ENABLED = os.Getenv("FORWARD_JUMP_ENABLED") == "true"
 }
 
-type docPointerWithScore struct {
-	Frequency  float32
-	PropLength float32
-	Id         uint64
-}
-type Term interface {
-	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64)
-	AdvanceAtLeast(minID uint64)
-	IsExhausted() bool
-	IdPointer() uint64
-	IDF() float64
-	QueryTerm() string
-}
-
 type TermMap struct {
 	// doubles as max impact (with tf=1, the max impact would be 1*Idf), if there
 	// is a boost for a queryTerm, simply apply it here once
@@ -93,7 +80,7 @@ type TermMap struct {
 	TombstoneCount    uint64
 	FullTermCount     uint64
 	HasTombstone      bool
-	data              docPointerWithScore
+	data              terms.DocPointerWithScore
 	Exhausted         bool
 	queryTerm         string
 	PropertyBoost     float64
@@ -174,7 +161,7 @@ func (t *TermMap) init(N float64, duplicateTextBoost float64, curSegment segment
 }
 
 func (t *TermMap) ClearData() {
-	t.data = docPointerWithScore{}
+	t.data = terms.DocPointerWithScore{}
 }
 
 func (t *TermMap) decode() error {
@@ -324,8 +311,8 @@ func (t *TermMap) QueryTerm() string {
 	return t.queryTerm
 }
 
-func (t *TermMap) Data() []docPointerWithScore {
-	return []docPointerWithScore{t.data}
+func (t *TermMap) Data() []terms.DocPointerWithScore {
+	return []terms.DocPointerWithScore{t.data}
 }
 
 func (t *TermMap) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint64 {
@@ -623,7 +610,7 @@ func compareByteArrays(a, b []byte) bool {
 	return true
 }
 
-func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen int64, filterDocIds helpers.AllowList) (Term, error) {
+func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen int64, filterDocIds helpers.AllowList) (terms.Term, error) {
 	node, err := s.index.Get(key)
 	if err != nil {
 		return nil, err

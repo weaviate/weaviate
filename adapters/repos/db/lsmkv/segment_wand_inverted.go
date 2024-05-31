@@ -17,6 +17,7 @@ import (
 	"math"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -34,7 +35,7 @@ type TermInverted struct {
 	DocCount            uint64
 	FullTermCount       uint64
 	HasTombstone        bool
-	data                docPointerWithScore
+	data                terms.DocPointerWithScore
 	Exhausted           bool
 	queryTerm           string
 	PropertyBoost       float64
@@ -115,7 +116,7 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 }
 
 func (t *TermInverted) ClearData() {
-	t.data = docPointerWithScore{}
+	t.data = terms.DocPointerWithScore{}
 }
 
 func (t *TermInverted) decode() error {
@@ -228,8 +229,8 @@ func (t *TermInverted) QueryTerm() string {
 	return t.queryTerm
 }
 
-func (t *TermInverted) Data() []docPointerWithScore {
-	return []docPointerWithScore{t.data}
+func (t *TermInverted) Data() []terms.DocPointerWithScore {
+	return []terms.DocPointerWithScore{t.data}
 }
 
 func (t *TermInverted) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint64 {

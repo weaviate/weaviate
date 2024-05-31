@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -81,7 +82,7 @@ func (b *BM25Searcher) wandDiskMem(
 
 	if hasMultipleProperties && !useWandDiskForced {
 		b.logger.Debug("BM25 search: multiple properties requested, falling back to memory search")
-		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
+		return b.wandMemScoring(ctx, queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 	}
 
 	return b.wandDiskScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
@@ -127,7 +128,7 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 					b.logger.Infof("segment closing\n")
 					return nil
 				}
-				terms := make([]Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+				allTerms := make([]terms.Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 				for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
 					// pass i to the closure
 					i := i
@@ -136,14 +137,14 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 
 					singleTerms, err := segment.WandTerm([]byte(term), N, float64(duplicateTextBoost), float64(propertyBoosts[propName]), propertySizes[propName][term], filterDocIds)
 					if err == nil {
-						terms = append(terms, singleTerms)
+						allTerms = append(allTerms, singleTerms)
 					}
 				}
 
-				flatTerms := terms
+				flatTerms := allTerms
 				// wandDiskStats[0] += float64(len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 
-				resultsOriginalOrder := make([]Term, len(flatTerms))
+				resultsOriginalOrder := make([]terms.Term, len(flatTerms))
 				copy(resultsOriginalOrder, flatTerms)
 
 				topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength)
@@ -167,7 +168,7 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 			myCurrentBucket := currentBucket
 			currentBucket++
 			eg.Go(func() (err error) {
-				terms := make([]Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+				allTerms := make([]terms.Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 				for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
 					// pass i to the closure
 					i := i
@@ -176,14 +177,14 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 					n := float64(propertySizes[propName][term])
 					singleTerms, _, err := memTable.CreateTerm(N, n, filterDocIds, term, propName, propertyBoosts, duplicateTextBoost, params.AdditionalExplanations)
 					if err == nil {
-						terms = append(terms, singleTerms)
+						allTerms = append(allTerms, singleTerms)
 					}
 				}
 
-				flatTerms := terms
+				flatTerms := allTerms
 				// wandDiskStats[0] += float64(len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 
-				resultsOriginalOrder := make([]Term, len(flatTerms))
+				resultsOriginalOrder := make([]terms.Term, len(flatTerms))
 				copy(resultsOriginalOrder, flatTerms)
 
 				topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength)

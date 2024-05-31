@@ -20,9 +20,13 @@ import (
 	"path/filepath"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -118,7 +122,7 @@ func (db *DB) CommitReplication(class,
 ) interface{} {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
-		return nil
+		return *pr
 	}
 
 	return index.CommitReplication(shard, requestID)
@@ -215,9 +219,10 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 
 func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	localShard, err := i.getOrInitLocalShard(context.Background(), shard)
-	// TODO-RAFT no error response on error?
 	if err != nil {
-		return nil
+		return replica.SimpleResponse{Errors: []replica.Error{
+			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
+		}}
 	}
 	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
 }
@@ -226,7 +231,7 @@ func (i *Index) AbortReplication(shard, requestID string) interface{} {
 	localShard, err := i.getOrInitLocalShard(context.Background(), shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard},
+			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
 	return localShard.abortReplication(context.Background(), requestID)
@@ -253,12 +258,34 @@ func (i *Index) IncomingCreateShard(ctx context.Context, className string, shard
 func (i *Index) IncomingReinitShard(ctx context.Context,
 	shardName string,
 ) error {
-	shard, err := i.getOrInitLocalShard(ctx, shardName)
-	if err != nil {
-		return fmt.Errorf("shard %q does not exist locally", shardName)
+	shard := func() ShardLike {
+		i.shardInUseLocks.Lock(shardName)
+		defer i.shardInUseLocks.Unlock(shardName)
+
+		return i.shards.Load(shardName)
+	}()
+
+	if shard != nil {
+		err := func() error {
+			i.shardCreateLocks.Lock(shardName)
+			defer i.shardCreateLocks.Unlock(shardName)
+
+			i.shards.LoadAndDelete(shardName)
+
+			if err := shard.Shutdown(ctx); err != nil {
+				if !errors.Is(err, errAlreadyShutdown) {
+					return err
+				}
+			}
+			return nil
+		}()
+		if err != nil {
+			return err
+		}
 	}
 
-	return shard.reinit(ctx)
+	_, err := i.getOrInitLocalShard(ctx, shardName)
+	return err
 }
 
 func (s *Shard) filePutter(ctx context.Context,
@@ -278,31 +305,6 @@ func (s *Shard) filePutter(ctx context.Context,
 	}
 
 	return f, nil
-}
-
-func (s *Shard) reinit(ctx context.Context) error {
-	if err := s.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown shard: %w", err)
-	}
-
-	if err := s.initNonVector(ctx, nil); err != nil {
-		return fmt.Errorf("reinit non-vector: %w", err)
-	}
-
-	if s.hasTargetVectors() {
-		if err := s.initTargetVectors(ctx); err != nil {
-			return fmt.Errorf("reinit vector: %w", err)
-		}
-	} else {
-		if err := s.initLegacyVector(ctx); err != nil {
-			return fmt.Errorf("reinit vector: %w", err)
-		}
-	}
-
-	s.initCycleCallbacks()
-	s.initDimensionTracking()
-
-	return nil
 }
 
 // OverwriteObjects if their state didn't change in the meantime
@@ -325,7 +327,10 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 			continue
 		}
 		// valid update
-		found, err := s.ObjectByID(ctx, data.ID, nil, additional.Properties{})
+		found, err := s.ObjectByIDErrDeleted(ctx, data.ID, nil, additional.Properties{})
+		if err != nil && errors.Is(err, lsmkv.Deleted) {
+			continue
+		}
 		var curUpdateTime int64 // 0 means object doesn't exist on this node
 		if found != nil {
 			curUpdateTime = found.LastUpdateTimeUnix()
@@ -369,6 +374,10 @@ func (i *Index) DigestObjects(ctx context.Context,
 	s, err := i.getOrInitLocalShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
+	}
+
+	if s.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	multiIDs := make([]multi.Identifier, len(ids))
@@ -420,6 +429,10 @@ func (i *Index) FetchObject(ctx context.Context,
 		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return objects.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	if err != nil {
 		return objects.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
@@ -448,6 +461,10 @@ func (i *Index) FetchObjects(ctx context.Context,
 	shard, err := i.getOrInitLocalShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
