@@ -167,9 +167,10 @@ func (m *Monitor) obtainCurrentUsage() {
 }
 
 func (m *Monitor) obtainCurrentMappings() {
+	used := getCurrentMappings()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.usedMappings = getCurrentMappings()
+	m.usedMappings = used
 }
 
 func getCurrentMappings() int64 {
