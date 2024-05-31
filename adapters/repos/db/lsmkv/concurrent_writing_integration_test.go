@@ -276,7 +276,10 @@ func TestConcurrentWriting_Map(t *testing.T) {
 
 		c := bucket.MapCursor()
 		defer c.Close()
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+
+		ctx := context.Background()
+
+		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
 			control := targets[string(k)]
 			if mapElementsMatch(control, v) {
 				correct++
@@ -290,7 +293,7 @@ func TestConcurrentWriting_Map(t *testing.T) {
 		correct := 0
 
 		for i := range keys {
-			value, err := bucket.MapList(keys[i])
+			value, err := bucket.MapList(context.Background(), keys[i])
 			assert.Nil(t, err)
 			if mapElementsMatch(values[i], value) {
 				correct++

@@ -170,7 +170,7 @@ func (m *filterableToSearchableMigrator) migrateClass(ctx context.Context, index
 			continue
 		}
 		if err := index.ForEachShard(func(name string, shard ShardLike) error {
-			if toFix, err := m.isPropToFix(prop, shard); toFix {
+			if toFix, err := m.isPropToFix(ctx, prop, shard); toFix {
 				if _, ok := shard2PropsToFix[shard.Name()]; !ok {
 					shard2PropsToFix[shard.Name()] = map[string]struct{}{}
 				}
@@ -244,7 +244,7 @@ func (m *filterableToSearchableMigrator) migrateShard(ctx context.Context, shard
 	return nil
 }
 
-func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shard ShardLike) (bool, error) {
+func (m *filterableToSearchableMigrator) isPropToFix(ctx context.Context, prop *models.Property, shard ShardLike) (bool, error) {
 	bucketFilterable := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 	if bucketFilterable != nil &&
 		bucketFilterable.Strategy() == lsmkv.StrategyMapCollection &&
@@ -254,7 +254,7 @@ func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shar
 		if bucketSearchable != nil &&
 			bucketSearchable.Strategy() == lsmkv.StrategyMapCollection {
 
-			if m.isEmptyMapBucket(bucketSearchable) {
+			if m.isEmptyMapBucket(ctx, bucketSearchable) {
 				return true, nil
 			}
 			return false, fmt.Errorf("searchable bucket is not empty")
@@ -265,11 +265,11 @@ func (m *filterableToSearchableMigrator) isPropToFix(prop *models.Property, shar
 	return false, nil
 }
 
-func (m *filterableToSearchableMigrator) isEmptyMapBucket(bucket *lsmkv.Bucket) bool {
+func (m *filterableToSearchableMigrator) isEmptyMapBucket(ctx context.Context, bucket *lsmkv.Bucket) bool {
 	cur := bucket.MapCursorKeyOnly()
 	defer cur.Close()
 
-	key, _ := cur.First()
+	key, _ := cur.First(ctx)
 	return key == nil
 }
 

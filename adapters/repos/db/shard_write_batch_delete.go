@@ -130,7 +130,7 @@ func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if err := b.shard.GetPropertyLengthTracker().Flush(false); err != nil {
+	if err := b.shard.GetPropertyLengthTracker().Flush(); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)
 		}
