@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -90,7 +91,7 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 		allMsAndProps[len(allMsAndProps)-2], allMsAndProps[0] = allMsAndProps[0], allMsAndProps[len(allMsAndProps)-2]
 	}
 
-	var docMapPairs []docPointerWithScore = nil
+	var docMapPairs []terms.DocPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	for i, mAndProps := range allMsAndProps {
 		m := mAndProps.MapPairs
@@ -110,7 +111,7 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
-			docMapPairs = make([]docPointerWithScore, 0, len(m))
+			docMapPairs = make([]terms.DocPointerWithScore, 0, len(m))
 			docMapPairsIndices = make(map[uint64]int, len(m))
 			for k, val := range m {
 				if len(val.Value) < 8 {
@@ -120,7 +121,7 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				docMapPairs = append(docMapPairs,
-					docPointerWithScore{
+					terms.DocPointerWithScore{
 						Id:         binary.BigEndian.Uint64(val.Key),
 						Frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 						PropLength: math.Float32frombits(propLenBits),
@@ -154,7 +155,7 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 					docMapPairs[ind].Frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
 					docMapPairs = append(docMapPairs,
-						docPointerWithScore{
+						terms.DocPointerWithScore{
 							Frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 							PropLength: math.Float32frombits(propLenBits),
 						})
@@ -194,10 +195,11 @@ type TermMem struct {
 
 	idPointer  uint64
 	posPointer uint64
-	data       []docPointerWithScore
+	data       []terms.DocPointerWithScore
 	exhausted  bool
 	queryTerm  string
 }
+
 type MapPairsAndPropName struct {
 	propname string
 	MapPairs []MapPair
@@ -262,6 +264,6 @@ func (t *TermMem) IDF() float64 {
 	return t.idf
 }
 
-func (t *TermMem) Data() []docPointerWithScore {
+func (t *TermMem) Data() []terms.DocPointerWithScore {
 	return t.data
 }

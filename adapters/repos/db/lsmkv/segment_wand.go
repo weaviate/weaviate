@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -62,12 +63,6 @@ func init() {
 	FORWARD_JUMP_ENABLED = os.Getenv("FORWARD_JUMP_ENABLED") == "true"
 }
 
-type docPointerWithScore struct {
-	Frequency  float32
-	PropLength float32
-	Id         uint64
-}
-
 type Term struct {
 	// doubles as max impact (with tf=1, the max impact would be 1*Idf), if there
 	// is a boost for a queryTerm, simply apply it here once
@@ -85,7 +80,7 @@ type Term struct {
 	TombstoneCount    uint64
 	FullTermCount     uint64
 	HasTombstone      bool
-	data              docPointerWithScore
+	data              terms.DocPointerWithScore
 	Exhausted         bool
 	queryTerm         string
 	PropertyBoost     float64
@@ -166,7 +161,7 @@ func (t *Term) init(N float64, duplicateTextBoost float64, curSegment segment, s
 }
 
 func (t *Term) ClearData() {
-	t.data = docPointerWithScore{}
+	t.data = terms.DocPointerWithScore{}
 }
 
 func (t *Term) decode() error {
@@ -316,8 +311,8 @@ func (t *Term) QueryTerm() string {
 	return t.queryTerm
 }
 
-func (t *Term) Data() []docPointerWithScore {
-	return []docPointerWithScore{t.data}
+func (t *Term) Data() []terms.DocPointerWithScore {
+	return []terms.DocPointerWithScore{t.data}
 }
 
 func (t *Term) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint64 {
