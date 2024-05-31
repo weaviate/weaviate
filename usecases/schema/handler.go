@@ -19,7 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -66,7 +66,7 @@ type metaReader interface {
 	ClassEqual(name string) string
 	// MultiTenancy checks for multi-tenancy support
 	MultiTenancy(class string) models.MultiTenancyConfig
-	ClassInfo(class string) (ci store.ClassInfo)
+	ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	// ReadOnlyClass return class model.
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlySchema() models.Schema
@@ -78,7 +78,7 @@ type metaReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 
 	// WithVersion endpoints return the data with the schema version
-	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (store.ClassInfo, error)
+	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error)
 	MultiTenancyWithVersion(ctx context.Context, class string, version uint64) (models.MultiTenancyConfig, error)
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
 	ShardOwnerWithVersion(ctx context.Context, lass, shard string, version uint64) (string, error)
@@ -159,16 +159,16 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (m *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := m.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return schema.Schema{}, err
 	}
 
 	if !consistency {
-		return m.getSchema(), nil
+		return h.getSchema(), nil
 	}
 
-	if consistentSchema, err := m.metaWriter.QuerySchema(); err != nil {
+	if consistentSchema, err := h.metaWriter.QuerySchema(); err != nil {
 		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
 	} else {
 		return schema.Schema{

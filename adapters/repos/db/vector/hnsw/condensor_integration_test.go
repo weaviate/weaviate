@@ -431,6 +431,102 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	})
 }
 
+func TestCondensorTombstones(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed1, err := NewCommitLogger(rootPath, "uncondensed1", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer uncondensed1.Shutdown(ctx)
+
+	uncondensed2, err := NewCommitLogger(rootPath, "uncondensed2", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer uncondensed2.Shutdown(ctx)
+
+	control, err := NewCommitLogger(rootPath, "control", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer control.Shutdown(ctx)
+
+	t.Run("add tombstone data", func(t *testing.T) {
+		uncondensed1.AddNode(&vertex{id: 0, level: 1})
+		uncondensed1.AddNode(&vertex{id: 1, level: 1})
+		uncondensed1.AddNode(&vertex{id: 2, level: 1})
+		uncondensed1.AddNode(&vertex{id: 3, level: 1})
+
+		uncondensed1.RemoveTombstone(0)
+		uncondensed1.AddTombstone(1)
+		uncondensed1.RemoveTombstone(1)
+		uncondensed1.AddTombstone(2)
+
+		require.Nil(t, uncondensed1.Flush())
+	})
+
+	t.Run("remove all tombstones except the first", func(t *testing.T) {
+		uncondensed2.RemoveTombstone(2)
+		uncondensed2.AddTombstone(3)
+		uncondensed2.RemoveTombstone(3)
+
+		require.Nil(t, uncondensed2.Flush())
+	})
+
+	t.Run("create a control log", func(t *testing.T) {
+		control.AddNode(&vertex{id: 0, level: 1})
+		control.AddNode(&vertex{id: 1, level: 1})
+		control.AddNode(&vertex{id: 2, level: 1})
+		control.AddNode(&vertex{id: 3, level: 1})
+
+		control.RemoveTombstone(0)
+
+		require.Nil(t, control.Flush())
+	})
+
+	t.Run("condense both logs and verify the contents against the control", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed1"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed1", input))
+		require.Nil(t, err)
+
+		input, ok, err = getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed2"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed2", input))
+		require.Nil(t, err)
+
+		control, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "control"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		condensed1, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed1"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		condensed2, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed2"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(condensed1, ".condensed"),
+			"commit log is now saved as condensed")
+		assert.True(t, strings.HasSuffix(condensed2, ".condensed"),
+			"commit log is now saved as condensed")
+
+		assertIndicesFromCommitLogsMatch(t, commitLogFileName(rootPath, "control", control),
+			[]string{
+				commitLogFileName(rootPath, "uncondensed1", condensed1),
+				commitLogFileName(rootPath, "uncondensed2", condensed2),
+			})
+	})
+}
+
 func TestCondensorWithoutEntrypoint(t *testing.T) {
 	rootPath := t.TempDir()
 	ctx := context.Background()
