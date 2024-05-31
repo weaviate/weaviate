@@ -81,7 +81,7 @@ func (b *BM25Searcher) wandDiskMem(
 
 	if hasMultipleProperties && !useWandDiskForced {
 		b.logger.Debug("BM25 search: multiple properties requested, falling back to memory search")
-		return b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
+		return b.wandMemScoring(ctx, queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 	}
 
 	return b.wandDiskScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
