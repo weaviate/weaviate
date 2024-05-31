@@ -157,15 +157,15 @@ func Test_Migration(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, 0, dimAfter, "dimensions should not have been calculated")
 	})
 
-	dimBefore := GetDimensionsFromRepo(repo, "Test")
+	dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 0, dimBefore, "dimensions should not have been calculated")
 	repo.config.TrackVectorDimensions = true
 	migrator.RecalculateVectorDimensions(context.TODO())
-	dimAfter := GetDimensionsFromRepo(repo, "Test")
+	dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
 	require.Equal(t, 12800, dimAfter, "dimensions should be counted now")
 }
 
@@ -223,62 +223,62 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, 12800, dimAfter, "dimensions should not have changed")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, 6400, quantDimAfter, "quantized dimensions should not have changed")
 	})
 
 	t.Run("import objects with d=0", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(repo, "Test")
-		quantDimBefore := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		for i := 100; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
 			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, dimBefore, dimAfter, "dimensions should not have changed")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, quantDimBefore, quantDimAfter, "quantized dimensions should not have changed")
 	})
 
 	t.Run("verify dimensions after initial import", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 12800, shard.Dimensions())
-			assert.Equal(t, 6400, shard.QuantizedDimensions(64))
+			assert.Equal(t, 12800, shard.Dimensions(context.Background()))
+			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), 64))
 			return nil
 		})
 	})
 
 	t.Run("delete 10 objects with d=128", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(repo, "Test")
-		quantDimBefore := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		for i := 0; i < 10; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			err := repo.DeleteObject(context.Background(), "Test", id, nil, "")
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(repo, "Test")
+		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
 		require.Equal(t, dimBefore, dimAfter+10*128, "dimensions should have decreased")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, quantDimBefore, quantDimAfter+10*64, "dimensions should have decreased")
 	})
 
 	t.Run("verify dimensions after delete", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 11520, shard.Dimensions())
-			assert.Equal(t, 5760, shard.QuantizedDimensions(64))
+			assert.Equal(t, 11520, shard.Dimensions(context.Background()))
+			assert.Equal(t, 5760, shard.QuantizedDimensions(context.Background(), 64))
 			return nil
 		})
 	})
 
 	t.Run("update some of the d=128 objects with a new vector", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(repo, "Test")
-		quantDimBefore := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		dim := 128
 		for i := 0; i < 50; i++ {
 			vec := make([]float32, dim)
@@ -293,15 +293,15 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(repo, "Test")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, dimBefore+10*128, dimAfter, "dimensions should have been restored")
 		require.Equal(t, quantDimBefore+10*64, quantDimAfter, "dimensions should have been restored")
 	})
 
 	t.Run("update some of the d=128 objects with a nil vector", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(repo, "Test")
-		quantDimBefore := GetQuantizedDimensionsFromRepo(repo, "Test", 32)
+		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 32)
 		for i := 50; i < 100; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
@@ -310,8 +310,8 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(repo, "Test")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(repo, "Test", 32)
+		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 32)
 		require.Equal(t, dimBefore, dimAfter+50*128, "dimensions should decrease")
 		require.Equal(t, quantDimBefore, quantDimAfter+50*32, "dimensions should decrease")
 	})
@@ -319,16 +319,16 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after first set of updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 6400, shard.Dimensions())
-			assert.Equal(t, 3200, shard.QuantizedDimensions(64))
-			assert.Equal(t, 1600, shard.QuantizedDimensions(32))
+			assert.Equal(t, 6400, shard.Dimensions(context.Background()))
+			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), 64))
+			assert.Equal(t, 1600, shard.QuantizedDimensions(context.Background(), 32))
 			return nil
 		})
 	})
 
 	t.Run("update some of the origin nil vector objects with a d=128 vector", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(repo, "Test")
-		quantDimBefore := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		dim := 128
 		for i := 100; i < 150; i++ {
 			vec := make([]float32, dim)
@@ -343,15 +343,15 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, vec, nil, nil)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(repo, "Test")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, dimBefore+50*128, dimAfter, "dimensions should increase")
 		require.Equal(t, quantDimBefore+50*64, quantDimAfter, "dimensions should increase")
 	})
 
 	t.Run("update some of the nil objects with another nil vector", func(t *testing.T) {
-		dimBefore := GetDimensionsFromRepo(repo, "Test")
-		quantDimBefore := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		dimBefore := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		for i := 150; i < 200; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 			obj := &models.Object{Class: "Test", ID: id}
@@ -360,8 +360,8 @@ func Test_DimensionTracking(t *testing.T) {
 			err := repo.PutObject(context.Background(), obj, nil, nil, nil)
 			require.Nil(t, err)
 		}
-		dimAfter := GetDimensionsFromRepo(repo, "Test")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(repo, "Test", 64)
+		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
+		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		require.Equal(t, dimBefore, dimAfter, "dimensions should not have changed")
 		require.Equal(t, quantDimBefore, quantDimAfter, "dimensions should not have changed")
 	})
@@ -369,22 +369,22 @@ func Test_DimensionTracking(t *testing.T) {
 	t.Run("verify dimensions after more updates", func(t *testing.T) {
 		idx := repo.GetIndex("Test")
 		idx.ForEachShard(func(name string, shard ShardLike) error {
-			assert.Equal(t, 12800, shard.Dimensions())
-			assert.Equal(t, 6400, shard.QuantizedDimensions(64))
-			assert.Equal(t, 12800, shard.QuantizedDimensions(0))
+			assert.Equal(t, 12800, shard.Dimensions(context.Background()))
+			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), 64))
+			assert.Equal(t, 12800, shard.QuantizedDimensions(context.Background(), 0))
 			return nil
 		})
 	})
 }
 
-func publishDimensionMetricsFromRepo(repo *DB, className string) {
+func publishDimensionMetricsFromRepo(ctx context.Context, repo *DB, className string) {
 	if !repo.config.TrackVectorDimensions {
 		log.Printf("Vector dimensions tracking is disabled, returning 0")
 		return
 	}
 	index := repo.GetIndex(schema.ClassName(className))
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		shard.publishDimensionMetrics()
+		shard.publishDimensionMetrics(ctx)
 		return nil
 	})
 }
@@ -460,7 +460,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		publishDimensionMetricsFromRepo(repo, "HNSW")
+		publishDimensionMetricsFromRepo(context.Background(), repo, "HNSW")
 
 		shardName = getSingleShardNameFromRepo(repo, "HNSW")
 		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("HNSW", shardName)
@@ -513,7 +513,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		publishDimensionMetricsFromRepo(repo, "BQ")
+		publishDimensionMetricsFromRepo(context.Background(), repo, "BQ")
 
 		shardName = getSingleShardNameFromRepo(repo, "BQ")
 		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("BQ", shardName)
@@ -577,7 +577,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		publishDimensionMetricsFromRepo(repo, "PQ")
+		publishDimensionMetricsFromRepo(context.Background(), repo, "PQ")
 
 		shardName = getSingleShardNameFromRepo(repo, "PQ")
 		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("PQ", shardName)
