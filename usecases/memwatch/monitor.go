@@ -283,7 +283,7 @@ func NewDummyMonitor() *Monitor {
 		limitSetter:            func(size int64) int64 { return TiB },
 		maxRatio:               1,
 		maxMemoryMappings:      10000000,
-		reservedMappingsBuffer: make([]int64, 60),
+		reservedMappingsBuffer: make([]int64, mappingsEntries),
 		lastReservationsClear:  time.Now(),
 	}
 	m.Refresh(true)
