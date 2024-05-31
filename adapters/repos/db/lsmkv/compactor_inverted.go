@@ -14,10 +14,16 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"io"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+)
+
+var (
+	defaultInvertedKeyLength   = uint16(8)
+	defaultInvertedValueLength = uint16(8)
 )
 
 type compactorInverted struct {
@@ -65,9 +71,16 @@ func (c *compactorInverted) do() error {
 	}
 
 	c.offset = segmentindex.HeaderSize
-	tombs, err := c.writeTombstones()
 
-	c.offset += (len(tombs) + 1) * 8
+	err := c.writeKeyValueLen()
+	if err != nil {
+		return errors.Wrap(err, "write key and value length")
+	}
+	c.offset += 2 + 2 // 2 bytes for key length, 2 bytes for value length
+
+	tombstones, err := c.writeTombstones()
+
+	c.offset += (len(tombstones) + 1) * 8
 	if err != nil {
 		return errors.Wrap(err, "write tombstones")
 	}
@@ -86,7 +99,7 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	var dataEnd uint64 = segmentindex.HeaderSize + uint64((len(tombs)+1)*8)
+	var dataEnd uint64 = segmentindex.HeaderSize + (2 + 2) + uint64((len(tombstones)+1)*8) // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
 	if len(kis) > 0 {
 		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
 	}
@@ -105,6 +118,22 @@ func (c *compactorInverted) init() error {
 
 	if _, err := c.bufw.Write(make([]byte, segmentindex.HeaderSize)); err != nil {
 		return errors.Wrap(err, "write empty header")
+	}
+
+	return nil
+}
+
+func (c *compactorInverted) writeKeyValueLen() error {
+	// write default key and value length
+	buf := make([]byte, 2)
+	binary.LittleEndian.PutUint16(buf, defaultInvertedKeyLength)
+	if _, err := c.bufw.Write(buf[:2]); err != nil {
+		return err
+	}
+
+	binary.LittleEndian.PutUint16(buf, defaultInvertedValueLength)
+	if _, err := c.bufw.Write(buf[:2]); err != nil {
+		return err
 	}
 
 	return nil
@@ -137,13 +166,13 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 			pairs.ResizeRight(len(value2))
 
 			for i, v := range value1 {
-				if err := pairs.left[i].FromBytesInverted(v.value, false); err != nil {
+				if err := pairs.left[i].FromBytes(v.value, false, c.c1.segment.invertedKeyLength, c.c1.segment.invertedValueLength); err != nil {
 					return nil, err
 				}
 			}
 
 			for i, v := range value2 {
-				if err := pairs.right[i].FromBytesInverted(v.value, false); err != nil {
+				if err := pairs.right[i].FromBytes(v.value, false, c.c2.segment.invertedKeyLength, c.c2.segment.invertedValueLength); err != nil {
 					return nil, err
 				}
 			}

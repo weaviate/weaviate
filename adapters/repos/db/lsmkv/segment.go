@@ -57,6 +57,11 @@ type segment struct {
 
 	CompactionMutex *sync.RWMutex
 	Closing         bool
+
+	// inverted strategy has a different data layout and a single key and value
+	// length for all nodes
+	invertedKeyLength   uint16
+	invertedValueLength uint16
 }
 
 type diskIndex interface {
@@ -116,10 +121,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	compactionMutex := &sync.RWMutex{}
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
+
+	var invertedKeyLength, invertedValueLength uint16
 	if header.Strategy == segmentindex.StrategyInverted {
 		// inverted strategy has a different data layout
-		tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos : dataStartPos+8])
-		dataStartPos += 8 * (tombstoneCount + 1)
+		// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+		invertedKeyLength = binary.LittleEndian.Uint16(contents[dataStartPos : dataStartPos+2])
+		invertedValueLength = binary.LittleEndian.Uint16(contents[dataStartPos+2 : dataStartPos+4])
+		tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos+4 : dataStartPos+12])
+		dataStartPos += 2 + 2 + 8*(tombstoneCount+1)
 	}
 
 	seg := &segment{
@@ -141,6 +151,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
 		CompactionMutex:       compactionMutex,
+		invertedKeyLength:     invertedKeyLength,
+		invertedValueLength:   invertedValueLength,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime

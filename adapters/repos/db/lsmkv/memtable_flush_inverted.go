@@ -57,7 +57,7 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 		}
 
 	}
-	totalDataLength := totalValueSizeInverted(flat) + (8 + len(tombstonesMap)*8)
+	totalDataLength := totalValueSizeInverted(flat) + (2 + 2) + (8 + len(tombstonesMap)*8) // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
@@ -74,6 +74,18 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 	totalWritten := headerSize
 
 	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint16(buf, uint16(defaultInvertedKeyLength))
+	if _, err := f.Write(buf[:2]); err != nil {
+		return nil, nil, err
+	}
+
+	binary.LittleEndian.PutUint16(buf, uint16(defaultInvertedValueLength))
+	if _, err := f.Write(buf[:2]); err != nil {
+		return nil, nil, err
+	}
+
+	totalWritten += 4
+
 	binary.LittleEndian.PutUint64(buf, uint64(len(tombstonesMap)))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err

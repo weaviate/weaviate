@@ -33,7 +33,7 @@ func (s segmentInvertedNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, 
 	out := segmentindex.Key{}
 	written := 0
 	valueLen := uint64(len(s.values))
-	buf := make([]byte, 8)
+	buf := make([]byte, 8) // uint64 size
 	binary.LittleEndian.PutUint64(buf, valueLen)
 	if _, err := w.Write(buf[0:8]); err != nil {
 		return out, errors.Wrapf(err, "write values len for node")

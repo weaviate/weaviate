@@ -250,8 +250,8 @@ func (kv MapPair) Bytes() ([]byte, error) {
 }
 
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
-	if len(in) == 16 {
-		return kv.FromBytesInverted(in, keyOnly)
+	if len(in) == 16 { // 16 bytes, 8 for key, 8 for value means an inverted pair
+		return kv.FromBytesInverted(in, keyOnly, defaultInvertedKeyLength, defaultInvertedValueLength)
 	}
 	var read uint16
 
@@ -290,7 +290,7 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	return nil
 }
 
-func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool) error {
+func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool, invertedKeyLen, invertedValueLen uint16) error {
 	var read uint16
 
 	// NOTE: A previous implementation was using copy statements in here to avoid
@@ -304,18 +304,15 @@ func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool) error {
 	// method. As a result all memory used here can now be considered read-only
 	// and is safe to be used indefinitely.
 
-	keyLen := uint16(8)
-	kv.Key = in[read : read+keyLen]
-	read += keyLen
+	kv.Key = in[read : read+invertedKeyLen]
+	read += invertedKeyLen
 
 	if keyOnly {
 		return nil
 	}
 
-	valueLen := uint16(8)
-
-	kv.Value = in[read : read+valueLen]
-	read += valueLen
+	kv.Value = in[read : read+invertedValueLen]
+	read += invertedValueLen
 	return nil
 }
 

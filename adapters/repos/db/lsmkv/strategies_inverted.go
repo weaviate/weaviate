@@ -18,148 +18,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-type invertedDecoder struct{}
-
-func newInvertedDecoder() *invertedDecoder {
-	return &invertedDecoder{}
-}
-
-func (m *invertedDecoder) Do(in []value, acceptDuplicates bool) ([]InvertedPair, error) {
-	// if acceptDuplicates {
-	// 	return m.doSimplified(in)
-	// }
-
-	seenKeys := map[string]uint{}
-	kvs := make([]InvertedPair, len(in))
-
-	// unmarshalling := time.Duration(0)
-
-	// beforeFirst := time.Now()
-	for i, pair := range in {
-		kv := InvertedPair{}
-		// beforeUnmarshal := time.Now()
-		err := kv.FromBytes(pair.value, pair.tombstone)
-		if err != nil {
-			return nil, err
-		}
-		// unmarshalling += time.Since(beforeUnmarshal)
-		kv.Tombstone = pair.tombstone
-		kvs[i] = kv
-		count := seenKeys[string(kv.Key)]
-		seenKeys[string(kv.Key)] = count + 1
-	}
-	// fmt.Printf("first decoder loop took %s\n", time.Since(beforeFirst))
-	// fmt.Printf("unmarshalling in first loop took %s\n", unmarshalling)
-
-	// beforeSecond := time.Now()
-	out := make([]InvertedPair, len(in))
-	i := 0
-	for _, pair := range kvs {
-		count := seenKeys[string(pair.Key)]
-		if count != 1 {
-			seenKeys[string(pair.Key)] = count - 1
-			continue
-
-		}
-
-		if pair.Tombstone {
-			continue
-		}
-
-		out[i] = pair
-		i++
-	}
-	// fmt.Printf("second decoder loop took %s\n", time.Since(beforeSecond))
-
-	return out[:i], nil
-}
-
-func (m *invertedDecoder) doSimplified(in []value) ([]InvertedPair, error) {
-	out := make([]InvertedPair, len(in))
-
-	var tombstones []tombstone
-
-	i := 0
-	for _, raw := range in {
-		if raw.tombstone {
-			mp := InvertedPair{}
-			mp.FromBytes(raw.value, true)
-			tombstones = append(tombstones, tombstone{pos: i, key: mp.Key})
-			continue
-		}
-
-		out[i].FromBytes(raw.value, raw.tombstone)
-		i++
-	}
-
-	out = out[:i]
-
-	if len(tombstones) > 0 {
-		out = m.removeTombstonesFromResults(out, tombstones)
-	}
-
-	return out, nil
-}
-
-func (m *invertedDecoder) removeTombstonesFromResults(candidates []InvertedPair,
-	tombstones []tombstone,
-) []InvertedPair {
-	after := make([]InvertedPair, len(candidates))
-	newPos := 0
-	for origPos, candidate := range candidates {
-
-		skip := false
-		for _, tombstone := range tombstones {
-			if tombstone.pos > origPos && bytes.Equal(tombstone.key, candidate.Key) {
-				skip = true
-			}
-		}
-
-		if skip {
-			continue
-		}
-
-		after[newPos] = candidate
-		newPos++
-	}
-
-	return after[:newPos]
-}
-
-// DoPartial keeps "unused" tombstones
-func (m *invertedDecoder) DoPartial(in []value) ([]InvertedPair, error) {
-	seenKeys := map[string]uint{}
-	kvs := make([]InvertedPair, len(in))
-
-	for i, pair := range in {
-		kv := InvertedPair{}
-		err := kv.FromBytes(pair.value, pair.tombstone)
-		if err != nil {
-			return nil, err
-		}
-		kv.Tombstone = pair.tombstone
-		kvs[i] = kv
-		count := seenKeys[string(kv.Key)]
-		seenKeys[string(kv.Key)] = count + 1
-	}
-
-	out := make([]InvertedPair, len(in))
-	i := 0
-	for _, pair := range kvs {
-		count := seenKeys[string(pair.Key)]
-		if count != 1 {
-			seenKeys[string(pair.Key)] = count - 1
-			continue
-
-		}
-
-		out[i] = pair
-		i++
-	}
-
-	return out[:i], nil
-}
-
 type InvertedPair struct {
 	Key       []byte
 	Value     []byte
@@ -211,7 +69,7 @@ func (kv InvertedPair) Bytes() ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func (kv *InvertedPair) FromBytes(in []byte, keyOnly bool) error {
+func (kv *InvertedPair) FromBytes(in []byte, keyOnly bool, invertedKeyLen, invertedValueLen uint16) error {
 	var read uint16
 
 	// NOTE: A previous implementation was using copy statements in here to avoid
@@ -225,18 +83,15 @@ func (kv *InvertedPair) FromBytes(in []byte, keyOnly bool) error {
 	// method. As a result all memory used here can now be considered read-only
 	// and is safe to be used indefinitely.
 
-	keyLen := uint16(8)
-	valueLen := uint16(8)
-
-	kv.Key = in[read : read+keyLen]
-	read += keyLen
+	kv.Key = in[read : read+invertedKeyLen]
+	read += invertedKeyLen
 
 	if keyOnly {
 		return nil
 	}
 
-	kv.Value = in[read : read+valueLen]
-	read += valueLen
+	kv.Value = in[read : read+invertedValueLen]
+	read += invertedValueLen
 
 	if read != uint16(len(in)) {
 		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
@@ -246,31 +101,28 @@ func (kv *InvertedPair) FromBytes(in []byte, keyOnly bool) error {
 	return nil
 }
 
-func (kv *InvertedPair) FromBytesReusable(in []byte, keyOnly bool) error {
+func (kv *InvertedPair) FromBytesReusable(in []byte, keyOnly bool, invertedKeyLen, invertedValueLen uint16) error {
 	var read uint16
 
-	keyLen := uint16(8)
-	valueLen := uint16(8)
-
-	if int(keyLen) > cap(kv.Key) {
-		kv.Key = make([]byte, keyLen)
+	if int(invertedKeyLen) > cap(kv.Key) {
+		kv.Key = make([]byte, invertedKeyLen)
 	} else {
-		kv.Key = kv.Key[:keyLen]
+		kv.Key = kv.Key[:invertedKeyLen]
 	}
 
-	copy(kv.Key, in[read:read+keyLen])
-	read += keyLen
+	copy(kv.Key, in[read:read+invertedKeyLen])
+	read += invertedKeyLen
 
 	if keyOnly {
 		return nil
 	}
-	if int(valueLen) > cap(kv.Value) {
-		kv.Value = make([]byte, valueLen)
+	if int(invertedValueLen) > cap(kv.Value) {
+		kv.Value = make([]byte, invertedValueLen)
 	} else {
-		kv.Value = kv.Value[:valueLen]
+		kv.Value = kv.Value[:invertedValueLen]
 	}
-	copy(kv.Value, in[read:read+valueLen])
-	read += valueLen
+	copy(kv.Value, in[read:read+invertedValueLen])
+	read += invertedValueLen
 
 	if read != uint16(len(in)) {
 		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
@@ -379,71 +231,4 @@ func (kv MapPair) BytesInverted() ([]byte, error) {
 	}
 
 	return out.Bytes(), nil
-}
-
-func (kv *InvertedPair) FromBytesInverted(in []byte, keyOnly bool) error {
-	var read uint16
-
-	// NOTE: A previous implementation was using copy statements in here to avoid
-	// sharing the memory. The general idea of that is good (protect against the
-	// mmaped memory being removed from a completed compaction), however this is
-	// the wrong place. By the time we are in this method, we can no longer
-	// control the memory safety of the "in" argument. Thus, such a copy must
-	// happen at a much earlier scope when a lock is held that protects against
-	// removing the segment. Such an implementation can now be found in
-	// segment_collection_strategy.go as part of the *segment.getCollection
-	// method. As a result all memory used here can now be considered read-only
-	// and is safe to be used indefinitely.
-
-	kv.Key = in[read : read+8]
-	read += 8
-
-	if keyOnly {
-		return nil
-	}
-
-	kv.Value = in[read : read+8]
-	read += 8
-
-	if read != uint16(len(in)) {
-		return errors.Errorf("inconsistent inverted pair: read %d out of %d bytes",
-			read, len(in))
-	}
-
-	return nil
-}
-
-func (kv *InvertedPair) FromBytesInvertedReusable(in []byte, keyOnly bool) error {
-	var read, keyLen, valueLen uint16
-
-	keyLen = 8
-	read += 8
-
-	if int(keyLen) > cap(kv.Key) {
-		kv.Key = make([]byte, keyLen)
-	} else {
-		kv.Key = kv.Key[:keyLen]
-	}
-	copy(kv.Key, in[read:read+keyLen])
-	read += keyLen
-
-	if keyOnly {
-		return nil
-	}
-	valueLen = 8
-
-	if int(valueLen) > cap(kv.Value) {
-		kv.Value = make([]byte, valueLen)
-	} else {
-		kv.Value = kv.Value[:valueLen]
-	}
-	copy(kv.Value, in[read:read+valueLen])
-	read += valueLen
-
-	if read != uint16(len(in)) {
-		return errors.Errorf("inconsistent inverted pair: read %d out of %d bytes",
-			read, len(in))
-	}
-
-	return nil
 }
