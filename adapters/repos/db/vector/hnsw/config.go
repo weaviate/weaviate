@@ -12,6 +12,8 @@
 package hnsw
 
 import (
+	"context"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -64,4 +66,20 @@ func (c Config) Validate() error {
 	}
 
 	return ec.ToError()
+}
+
+func NewVectorForIDThunk(targetVector string, fn func(ctx context.Context, id uint64, targetVector string) ([]float32, error)) common.VectorForID[float32] {
+	t := common.TargetVectorForID[float32]{
+		TargetVector:     targetVector,
+		VectorForIDThunk: fn,
+	}
+	return t.VectorForID
+}
+
+func NewTempVectorForIDThunk(targetVector string, fn func(ctx context.Context, indexID uint64, container *common.VectorSlice, targetVector string) ([]float32, error)) common.TempVectorForID {
+	t := common.TargetTempVectorForID{
+		TargetVector:         targetVector,
+		TempVectorForIDThunk: fn,
+	}
+	return t.TempVectorForID
 }

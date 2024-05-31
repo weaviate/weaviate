@@ -78,11 +78,12 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	ObjectCountAsync() int
-	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
+	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
+	ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
 	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
@@ -132,16 +133,15 @@ type ShardLike interface {
 
 	commitReplication(context.Context, string, *backupMutex) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
-	reinit(context.Context) error
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
-	Dimensions() int // dim(vector)*number vectors
+	Dimensions(ctx context.Context) int // dim(vector)*number vectors
 	// TODO tests only
-	QuantizedDimensions(segments int) int
+	QuantizedDimensions(ctx context.Context, segments int) int
 	extendDimensionTrackerLSM(dimLength int, docID uint64) error
 	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
-	publishDimensionMetrics()
+	publishDimensionMetrics(ctx context.Context)
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
@@ -184,7 +184,7 @@ type Shard struct {
 	metrics          *Metrics
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
-	propLenTracker   *inverted.JsonPropertyLengthTracker
+	propLenTracker   *inverted.JsonShardMetaData
 	versioner        *shardVersioner
 
 	status              storagestate.Status
@@ -241,6 +241,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
+
+		status: storagestate.StatusLoading,
 	}
 
 	s.activityTracker.Store(1) // initial state
@@ -280,7 +282,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 	}
 
-	s.initDimensionTracking()
+	s.initDimensionTracking(ctx)
 
 	if asyncEnabled() {
 		f := func() {
@@ -418,13 +420,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				ShardName:            s.name,
 				ClassName:            s.index.Config.ClassName.String(),
 				PrometheusMetrics:    s.promMetrics,
-				VectorForIDThunk:     s.vectorByIndexID,
-				TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+				VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
 				DistanceProvider:     distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
-						hnsw.WithAllocChecker(s.index.allocChecker))
+						hnsw.WithAllocChecker(s.index.allocChecker),
+						hnsw.WithCommitlogThresholdForCombining(s.index.Config.HNSWMaxLogSize),
+						// consistent with previous logic where the individual limit is 1/5 of the combined limit
+						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
+					)
 				},
 				AllocChecker: s.index.allocChecker,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
@@ -484,8 +490,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			ShardName:            s.name,
 			ClassName:            s.index.Config.ClassName.String(),
 			PrometheusMetrics:    s.promMetrics,
-			VectorForIDThunk:     s.vectorByIndexID,
-			TempVectorForIDThunk: s.readVectorByIndexIDIntoSlice,
+			VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
 			MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 				return hnsw.NewCommitLogger(s.path(), vecIdxID,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
@@ -528,7 +534,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	s.versioner = versioner
 
 	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+	tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}
@@ -592,6 +598,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		s.dynamicMemtableSizing(),
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {
@@ -718,6 +725,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -733,6 +741,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 	if err != nil {
 		return err
@@ -763,6 +772,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -773,6 +783,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -838,6 +849,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		s.dynamicMemtableSizing(),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	}
 
 	if inverted.HasFilterableIndex(prop) {
@@ -898,6 +910,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 
@@ -911,6 +924,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 }
 

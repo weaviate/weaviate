@@ -535,6 +535,16 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 // 4          | uint32        | length of target vectors segment (in bytes)
 // n          | uint16+[]byte | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
 
+const (
+	maxVectorLength               int = math.MaxUint16
+	maxClassNameLength            int = math.MaxUint16
+	maxSchemaLength               int = math.MaxUint32
+	maxMetaLength                 int = math.MaxUint32
+	maxVectorWeightsLength        int = math.MaxUint32
+	maxTargetVectorsSegmentLength int = math.MaxUint32
+	maxTargetVectorsOffsetsLength int = math.MaxUint32
+)
+
 func (ko *Object) MarshalBinary() ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
@@ -552,41 +562,75 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if len(ko.Vector) > maxVectorLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(ko.Vector), maxVectorLength)
+	}
 	vectorLength := uint32(len(ko.Vector))
+
 	className := []byte(ko.Class())
+	if len(className) > maxClassNameLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), maxClassNameLength)
+	}
 	classNameLength := uint32(len(className))
+
 	schema, err := json.Marshal(ko.Properties())
 	if err != nil {
 		return nil, err
 	}
+	if len(schema) > maxSchemaLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), maxSchemaLength)
+	}
 	schemaLength := uint32(len(schema))
+
 	meta, err := json.Marshal(ko.AdditionalProperties())
 	if err != nil {
 		return nil, err
 	}
+	if len(meta) > maxMetaLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "meta", len(meta), maxMetaLength)
+	}
 	metaLength := uint32(len(meta))
+
 	vectorWeights, err := json.Marshal(ko.VectorWeights())
 	if err != nil {
 		return nil, err
 	}
+	if len(vectorWeights) > maxVectorWeightsLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vectorWeights", len(vectorWeights), maxVectorWeightsLength)
+	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
 	var targetVectorsOffsets []byte
-	targetVectorsOffsetsLength := uint32(0)
-	targetVectorsSegmentLength := uint32(0)
+	var targetVectorsOffsetsLength uint32
+	var targetVectorsSegmentLength int
 
 	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
 	if len(ko.Vectors) > 0 {
 		offsetsMap := map[string]uint32{}
 		for name, vec := range ko.Vectors {
-			offsetsMap[name] = targetVectorsSegmentLength
-			targetVectorsSegmentLength += 2 + 4*uint32(len(vec)) // 2 for vec length + vec bytes
+			if len(vec) > maxVectorLength {
+				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
+			}
+
+			offsetsMap[name] = uint32(targetVectorsSegmentLength)
+			targetVectorsSegmentLength += 2 + 4*len(vec) // 2 for vec length + vec bytes
+
+			if targetVectorsSegmentLength > maxTargetVectorsSegmentLength {
+				return nil,
+					fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)",
+						"targetVectorsSegmentLength", targetVectorsSegmentLength, maxTargetVectorsSegmentLength)
+			}
+
 			targetVectorsOffsetOrder = append(targetVectorsOffsetOrder, name)
 		}
 
 		targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
 		if err != nil {
-			return nil, fmt.Errorf("Could not marshal target vectors offsets: %w", err)
+			return nil, fmt.Errorf("could not marshal target vectors offsets: %w", err)
+		}
+		if len(targetVectorsOffsets) > maxTargetVectorsOffsetsLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsOffsets", len(targetVectorsOffsets), maxTargetVectorsOffsetsLength)
 		}
 		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 	}
@@ -598,7 +642,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		4 + metaLength +
 		4 + vectorWeightsLength +
 		4 + targetVectorsOffsetsLength +
-		4 + targetVectorsSegmentLength
+		4 + uint32(targetVectorsSegmentLength)
 
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
@@ -648,7 +692,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		}
 	}
 
-	rw.WriteUint32(targetVectorsSegmentLength)
+	rw.WriteUint32(uint32(targetVectorsSegmentLength))
 	for _, name := range targetVectorsOffsetOrder {
 		vec := ko.Vectors[name]
 		vecLen := len(vec)
@@ -851,7 +895,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 	return nil, nil
 }
 
-func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
+func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float32, error) {
 	if len(in) == 0 {
 		return nil, nil
 	}
@@ -859,6 +903,36 @@ func VectorFromBinary(in []byte, buffer []float32) ([]float32, error) {
 	version := in[0]
 	if version != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", version)
+	}
+
+	if targetVector != "" {
+		startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
+		rw := byteops.NewReadWriter(in, byteops.WithPosition(startPos))
+
+		vectorLength := uint64(rw.ReadUint16())
+		rw.MoveBufferPositionForward(vectorLength * 4)
+
+		classnameLength := uint64(rw.ReadUint16())
+		rw.MoveBufferPositionForward(classnameLength)
+
+		schemaLength := uint64(rw.ReadUint32())
+		rw.MoveBufferPositionForward(schemaLength)
+
+		metaLength := uint64(rw.ReadUint32())
+		rw.MoveBufferPositionForward(metaLength)
+
+		vectorWeightsLength := uint64(rw.ReadUint32())
+		rw.MoveBufferPositionForward(vectorWeightsLength)
+
+		targetVectors, err := unmarshalTargetVectors(&rw)
+		if err != nil {
+			return nil, errors.Errorf("unable to unmarshal vector for target vector: %s", targetVector)
+		}
+		vector, ok := targetVectors[targetVector]
+		if !ok {
+			return nil, errors.Errorf("vector not found for target vector: %s", targetVector)
+		}
+		return vector, nil
 	}
 
 	// since we know the version and know that the blob is not len(0), we can

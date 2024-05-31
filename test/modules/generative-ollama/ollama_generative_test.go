@@ -68,7 +68,7 @@ func testGenerativeOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
 				class.ModuleConfig = map[string]interface{}{
 					"generative-ollama": map[string]interface{}{
 						"apiEndpoint": ollamaApiEndpoint,
-						"modelId":     tt.generativeModel,
+						"model":       tt.generativeModel,
 					},
 				}
 				// create schema

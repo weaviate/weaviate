@@ -158,8 +158,8 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	return objs, scores, nil
 }
 
-func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
-	return b.propLenTracker.(*JsonPropertyLengthTracker)
+func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
+	return b.propLenTracker.(*JsonShardMetaData)
 }
 
 func (b *BM25Searcher) wand(
@@ -289,12 +289,12 @@ func (b *BM25Searcher) wandMem(ctx context.Context, filterDocIds helpers.AllowLi
 	// wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
 	// wandTimesId++
 
-	objsM, scoresM, errM := b.wandMemScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
+	objsM, scoresM, errM := b.wandMemScoring(ctx, queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 
 	return objsM, scoresM, errM
 }
 
-func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]string, duplicateBoostsByTokenization map[string][]int, propNamesByTokenization map[string][]string, propertyBoosts map[string]float32, averagePropLength float64, N float64, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
+func (b *BM25Searcher) wandMemScoring(ctx context.Context, queryTermsByTokenization map[string][]string, duplicateBoostsByTokenization map[string][]int, propNamesByTokenization map[string][]string, propertyBoosts map[string]float32, averagePropLength float64, N float64, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
 	// wandTimesId := 1
 	// startTime := float64(time.Now().UnixNano()) / 1e6
 
@@ -324,7 +324,7 @@ func (b *BM25Searcher) wandMemScoring(queryTermsByTokenization map[string][]stri
 				dupBoost := duplicateBoostsByTokenization[tokenization][queryTermId]
 
 				eg.Go(func() (err error) {
-					termResult, docIndices, termErr := b.createTerm(N, filterDocIds, queryTerm, propNames, propertyBoosts, dupBoost, params.AdditionalExplanations)
+					termResult, docIndices, termErr := b.createTerm(ctx, N, filterDocIds, queryTerm, propNames, propertyBoosts, dupBoost, params.AdditionalExplanations)
 					if termErr != nil {
 						err = termErr
 						return
@@ -489,7 +489,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results Terms, averagePropLength f
 	}
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string,
+func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds helpers.AllowList, query string,
 	propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int,
 	additionalExplanations bool,
 ) (Term, map[uint64]int, error) {
@@ -503,7 +503,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
-		preM, err := bucket.MapList([]byte(query))
+		preM, err := bucket.MapList(ctx, []byte(query))
 		if err != nil {
 			return termResult, nil, err
 		}
