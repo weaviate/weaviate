@@ -535,7 +535,6 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			BootstrapExpect:        1,
 			HeartbeatTimeout:       1 * time.Second,
 			ElectionTimeout:        1 * time.Second,
-			RecoveryTimeout:        500 * time.Millisecond,
 			SnapshotInterval:       2 * time.Second,
 			SnapshotThreshold:      125,
 			DB:                     indexer,
