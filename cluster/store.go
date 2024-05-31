@@ -66,21 +66,45 @@ type Config struct {
 
 	// NodeNameToPortMap maps server names to port numbers
 	NodeNameToPortMap map[string]int
-	BootstrapExpect   int
 
+	// Raft leader election related settings
+
+	// HeartbeatTimeout specifies the time in follower state without contact
+	// from a leader before we attempt an election.
 	HeartbeatTimeout time.Duration
-	ElectionTimeout  time.Duration
-	RecoveryTimeout  time.Duration
+	// ElectionTimeout specifies the time in candidate state without contact
+	// from a leader before we attempt an election.
+	ElectionTimeout time.Duration
+
+	// Raft snapshot related settings
+
+	// SnapshotThreshold controls how many outstanding logs there must be before
+	// we perform a snapshot. This is to prevent excessive snapshotting by
+	// replaying a small set of logs instead. The value passed here is the initial
+	// setting used. This can be tuned during operation using ReloadConfig.
+	SnapshotThreshold uint64
+
+	// SnapshotInterval controls how often we check if we should perform a
+	// snapshot. We randomly stagger between this value and 2x this value to avoid
+	// the entire cluster from performing a snapshot at once. The value passed
+	// here is the initial setting used. This can be tuned during operation using
+	// ReloadConfig.
 	SnapshotInterval time.Duration
+
+	// Cluster bootstrap related settings
+
+	// BootstrapTimeout is the time a node will notify other node that it is ready to bootstrap a cluster if it can't
+	// find a an existing cluster to join
 	BootstrapTimeout time.Duration
+	// BootstrapExpect is the number of nodes this cluster expect to receive a notify from to start bootstrapping a
+	// cluster
+	BootstrapExpect int
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
 	ConsistencyWaitTimeout time.Duration
-	SnapshotThreshold      uint64
-
-	NodeToAddressResolver resolver.NodeToAddress
-	Logger                *logrus.Logger
-	Voter                 bool
+	NodeToAddressResolver  resolver.NodeToAddress
+	Logger                 *logrus.Logger
+	Voter                  bool
 
 	// MetadataOnlyVoters configures the voters to store metadata exclusively, without storing any other data
 	MetadataOnlyVoters bool
@@ -120,9 +144,7 @@ type Store struct {
 	applyTimeout time.Duration
 
 	// raft snapshot store
-	snapshotStore     *raft.FileSnapshotStore
-	snapshotInterval  time.Duration
-	snapshotThreshold uint64
+	snapshotStore *raft.FileSnapshotStore
 
 	// raft log store
 	logStore *raftbolt.BoltStore
@@ -532,11 +554,11 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.cfg.ElectionTimeout > 0 {
 		cfg.ElectionTimeout = st.cfg.ElectionTimeout
 	}
-	if st.snapshotInterval > 0 {
+	if st.cfg.SnapshotInterval > 0 {
 		cfg.SnapshotInterval = st.cfg.SnapshotInterval
 	}
-	if st.snapshotThreshold > 0 {
-		cfg.SnapshotThreshold = st.snapshotThreshold
+	if st.cfg.SnapshotThreshold > 0 {
+		cfg.SnapshotThreshold = st.cfg.SnapshotThreshold
 	}
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
