@@ -346,6 +346,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 }
 
 func (s *Shard) mayDownloadFromRemoteStorage(ctx context.Context) error {
+	start := time.Now()
+
+	s.index.logger.
+		WithField("action", "downloading shard from s3 bucket").
+		Infof("shard=%s", s.name)
+
 	manager := manager.NewDownloader(s.s3client)
 
 	paginator := s3.NewListObjectsV2Paginator(s.s3client, &s3.ListObjectsV2Input{
@@ -364,6 +370,11 @@ func (s *Shard) mayDownloadFromRemoteStorage(ctx context.Context) error {
 			}
 		}
 	}
+
+	s.index.logger.
+		WithField("action", "successfully downloaded shard from s3 bucket").
+		WithField("took", time.Since(start)).
+		Infof("shard=%s", s.name)
 
 	return nil
 }
@@ -1054,6 +1065,12 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
+	start := time.Now()
+
+	s.index.logger.
+		WithField("action", "uploading shard to s3 bucket").
+		Infof("shard=%s", s.name)
+
 	walker := make(fileWalk)
 	go func() {
 		// Gather the files to upload by walking the path recursively
@@ -1086,6 +1103,11 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 			return errors.Wrap(err, "failed to upload")
 		}
 	}
+
+	s.index.logger.
+		WithField("action", "successfully uploaded shard to s3 bucket").
+		WithField("took", time.Since(start)).
+		Infof("shard=%s", s.name)
 
 	return nil
 }
