@@ -714,27 +714,29 @@ func registerModules(appState *state.State) error {
 		modules = strings.Split(appState.ServerConfig.Config.EnableModules, ",")
 	}
 
-	// Concatenate modules with default modules
-	modules = append(modules, defaultModules...)
+	if appState.ServerConfig.Config.EnableApiBasedModules {
+		// Concatenate modules with default modules
+		modules = append(modules, defaultModules...)
+	}
 
 	enabledModules := map[string]bool{}
 	for _, module := range modules {
 		enabledModules[strings.TrimSpace(module)] = true
 	}
 
-	if _, ok := enabledModules["text2vec-contextionary"]; ok {
+	if _, ok := enabledModules[modcontextionary.Name]; ok {
 		appState.Modules.Register(modcontextionary.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-contextionary").
+			WithField("module", modcontextionary.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text2vec-transformers"]; ok {
+	if _, ok := enabledModules[modtransformers.Name]; ok {
 		appState.Modules.Register(modtransformers.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-transformers").
+			WithField("module", modtransformers.Name).
 			Debug("enabled module")
 	}
 
@@ -770,51 +772,51 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["qna-transformers"]; ok {
+	if _, ok := enabledModules[modqna.Name]; ok {
 		appState.Modules.Register(modqna.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "qna-transformers").
+			WithField("module", modqna.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["sum-transformers"]; ok {
+	if _, ok := enabledModules[modsum.Name]; ok {
 		appState.Modules.Register(modsum.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "sum-transformers").
+			WithField("module", modsum.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["img2vec-neural"]; ok {
+	if _, ok := enabledModules[modimage.Name]; ok {
 		appState.Modules.Register(modimage.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "img2vec-neural").
+			WithField("module", modimage.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["ner-transformers"]; ok {
+	if _, ok := enabledModules[modner.Name]; ok {
 		appState.Modules.Register(modner.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "ner-transformers").
+			WithField("module", modner.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text-spellcheck"]; ok {
+	if _, ok := enabledModules[modspellcheck.Name]; ok {
 		appState.Modules.Register(modspellcheck.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text-spellcheck").
+			WithField("module", modspellcheck.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["multi2vec-clip"]; ok {
+	if _, ok := enabledModules[modclip.Name]; ok {
 		appState.Modules.Register(modclip.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "multi2vec-clip").
+			WithField("module", modclip.Name).
 			Debug("enabled module")
 	}
 
@@ -826,19 +828,19 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text2vec-openai"]; ok {
+	if _, ok := enabledModules[modopenai.Name]; ok {
 		appState.Modules.Register(modopenai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-openai").
+			WithField("module", modopenai.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["qna-openai"]; ok {
+	if _, ok := enabledModules[modqnaopenai.Name]; ok {
 		appState.Modules.Register(modqnaopenai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "qna-openai").
+			WithField("module", modqnaopenai.Name).
 			Debug("enabled module")
 	}
 
