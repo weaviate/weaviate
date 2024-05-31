@@ -50,6 +50,13 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 			rateLimit.LimitTokens = 2 * rate
 		}
 
+		azureTok := len("azureTokens ")
+		if len(text[i]) >= azureTok && text[i][:azureTok] == "azureTokens " {
+			rate, _ := strconv.Atoi(text[i][tok:])
+			rateLimit.RemainingTokens = rate
+			rateLimit.LimitTokens = 0
+		}
+
 		req := len("requests ")
 		if len(text[i]) >= req && text[i][:req] == "requests " {
 			reqs, _ := strconv.Atoi(strings.Split(text[i][req:], " ")[0])
@@ -82,7 +89,7 @@ func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
-func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{RemainingTokens: 0, RemainingRequests: 0, LimitTokens: 0, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 }
 
@@ -119,7 +126,7 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
-func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{}
 }
 

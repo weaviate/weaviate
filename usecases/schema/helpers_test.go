@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -31,7 +31,7 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func newTestHandler(t *testing.T, db store.Indexer) (*Handler, *fakeMetaHandler) {
+func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeMetaHandler) {
 	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
@@ -49,7 +49,7 @@ func newTestHandler(t *testing.T, db store.Indexer) (*Handler, *fakeMetaHandler)
 	return &handler, metaHandler
 }
 
-func newTestHandlerWithCustomAuthorizer(t *testing.T, db store.Indexer, authorizer authorizer) (*Handler, *fakeMetaHandler) {
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorizer) (*Handler, *fakeMetaHandler) {
 	cfg := config.Config{}
 	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()

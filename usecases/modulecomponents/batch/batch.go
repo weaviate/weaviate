@@ -67,7 +67,7 @@ func (b BatchJob) copy() BatchJob {
 type BatchClient interface {
 	Vectorize(ctx context.Context, input []string,
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error)
-	GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits
+	GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits
 	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
 }
 
@@ -137,10 +137,11 @@ func (b *Batch) batchWorker() {
 		// check if we already have rate limits for the current api key and reuse them if possible
 		rateLimit, ok := rateLimitPerApiKey[job.apiKeyHash]
 		if !ok {
-			rateLimit = b.client.GetVectorizerRateLimit(job.ctx)
+			rateLimit = b.client.GetVectorizerRateLimit(job.ctx, job.cfg)
 			rateLimitPerApiKey[job.apiKeyHash] = rateLimit
+		} else {
+			rateLimit.CheckForReset()
 		}
-		rateLimit.CheckForReset()
 
 		objCounter := 0
 

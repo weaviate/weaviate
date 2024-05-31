@@ -22,9 +22,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -120,7 +122,7 @@ func (db *DB) CommitReplication(class,
 ) interface{} {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
-		return nil
+		return *pr
 	}
 
 	return index.CommitReplication(shard, requestID)
@@ -217,9 +219,10 @@ func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string
 
 func (i *Index) CommitReplication(shard, requestID string) interface{} {
 	localShard, err := i.getOrInitLocalShard(context.Background(), shard)
-	// TODO-RAFT no error response on error?
 	if err != nil {
-		return nil
+		return replica.SimpleResponse{Errors: []replica.Error{
+			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
+		}}
 	}
 	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
 }
@@ -228,7 +231,7 @@ func (i *Index) AbortReplication(shard, requestID string) interface{} {
 	localShard, err := i.getOrInitLocalShard(context.Background(), shard)
 	if err != nil {
 		return replica.SimpleResponse{Errors: []replica.Error{
-			{Code: replica.StatusShardNotFound, Msg: shard},
+			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
 	return localShard.abortReplication(context.Background(), requestID)
@@ -373,6 +376,10 @@ func (i *Index) DigestObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q not found locally", shardName)
 	}
 
+	if s.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
 	multiIDs := make([]multi.Identifier, len(ids))
 	for j := range multiIDs {
 		multiIDs[j] = multi.Identifier{ID: ids[j].String()}
@@ -422,6 +429,10 @@ func (i *Index) FetchObject(ctx context.Context,
 		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return objects.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	if err != nil {
 		return objects.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
@@ -450,6 +461,10 @@ func (i *Index) FetchObjects(ctx context.Context,
 	shard, err := i.getOrInitLocalShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	objs, err := shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
