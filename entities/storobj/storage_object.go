@@ -471,7 +471,10 @@ func SearchResultsWithScore(in []*Object, scores []float32, additional additiona
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		score := scores[i]
+		score := float32(0.0)
+		if len(scores) > i {
+			score = scores[i]
+		}
 		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, tenant)
 	}
 
