@@ -134,6 +134,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		// bucket.
 		s.logger.
 			WithFields(logrus.Fields{
+				"action":   "lsm_create_or_load_bucket",
 				"root_dir": s.rootDir,
 				"dir":      s.dir,
 				"bucket":   bucketName,
