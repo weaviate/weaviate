@@ -1265,7 +1265,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, shards []string,
 ) ([]*storobj.Object, []float32, error) {
-	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
+	resultObjects, resultScores := objectSearchPreallocate(limit, shards, i.Config.QueryMaximumResults)
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "filters:", filters)
 	eg.SetLimit(_NUMCPU * 2)
@@ -2118,8 +2118,8 @@ func defaultConsistency(l ...replica.ConsistencyLevel) *additional.ReplicationPr
 	return rp
 }
 
-func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []float32) {
-	perShardLimit := config.DefaultQueryMaximumResults
+func objectSearchPreallocate(limit int, shards []string, maximumResults int64) ([]*storobj.Object, []float32) {
+	perShardLimit := maximumResults
 	if perShardLimit > int64(limit) {
 		perShardLimit = int64(limit)
 	}
