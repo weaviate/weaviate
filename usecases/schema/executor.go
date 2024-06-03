@@ -61,7 +61,6 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			return fmt.Errorf("restore index %q: %w", i, err)
 		}
 	}
-	e.rebuildGQL(models.Schema{Classes: cs})
 	return nil
 }
 
@@ -231,19 +230,16 @@ func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList
 	return resp, nil
 }
 
-func (e *executor) rebuildGQL(s models.Schema) {
+func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.callbacksLock.RLock()
 	defer e.callbacksLock.RUnlock()
 
+	s := e.store.ReadOnlySchema()
 	for _, cb := range e.callbacks {
 		cb(schema.Schema{
 			Objects: &s,
 		})
 	}
-}
-
-func (e *executor) TriggerSchemaUpdateCallbacks() {
-	e.rebuildGQL(e.store.ReadOnlySchema())
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
