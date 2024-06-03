@@ -855,13 +855,13 @@ func (i *Index) mergeObjectBatch(ctx context.Context, docs []*objects.BatchMerge
 			} else {
 				i.backupMutex.RLockGuard(func() error {
 					if i.IsLocalShard(shardName) {
-						shard , err := i.GetShardByName(shardName)
-					if  err ==nil && shard != nil {
-						errs = shard.MergeObjectBatch(ctx, group.mergeDocs)
-					} else {
-						errs = duplicateErr(errors.New("shard not found"), len(group.mergeDocs))
+						shard, err := i.GetShardByName(shardName)
+						if err == nil && shard != nil {
+							errs = shard.MergeObjectBatch(ctx, group.mergeDocs)
+						} else {
+							errs = duplicateErr(errors.New("shard not found"), len(group.mergeDocs))
+						}
 					}
-				}
 					return nil
 				})
 			}

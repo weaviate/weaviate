@@ -14,11 +14,12 @@ package db
 import (
 	"context"
 	"fmt"
-	"github.com/pkg/errors"
 	"os"
 	"runtime/debug"
 	"sync"
 	"time"
+
+	"github.com/pkg/errors"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -305,7 +306,7 @@ func (ob *objectsBatcher) mergeObjectOfBatchInLSM(ctx context.Context,
 	}
 
 	// TODO: do we need this?
-	//ob.setStatusForID(status, mergeDoc.ID)
+	// ob.setStatusForID(status, mergeDoc.ID)
 
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("end store object %d of batch: %w", objectIndex, err)

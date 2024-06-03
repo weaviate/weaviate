@@ -173,8 +173,6 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	schemaVersion := class.Version
 
-
-
 	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, schemaVersion)
 }
 

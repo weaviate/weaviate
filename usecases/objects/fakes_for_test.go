@@ -112,7 +112,6 @@ func (f *fakeSchemaManager) GetCachedClassMap(ctx context.Context,
 	return res, nil
 }
 
-
 func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 	principal *models.Principal, name string,
 ) (versioned.Class, error) {

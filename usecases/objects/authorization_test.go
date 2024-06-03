@@ -244,7 +244,6 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			additionalArgs: []interface{}{
 				[]*models.Object{},
 				(*additional.ReplicationProperties)(nil),
-
 			},
 			expectedVerb:     "merge",
 			expectedResource: "batch/objects",

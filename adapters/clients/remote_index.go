@@ -335,13 +335,6 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
-func errorRepeated(err error, count int) []error {
-	out := make([]error, count)
-	for i := range out {
-		out[i] = err
-	}
-	return out
-}
 func (c *RemoteIndex) BatchMergeObjects(ctx context.Context, hostName, indexName,
 	shardName string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64,
 ) []error {
