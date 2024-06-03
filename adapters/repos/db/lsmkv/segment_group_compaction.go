@@ -170,75 +170,32 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	}
 
 	strategy := leftSegment.strategy
+	strategyRight := rightSegment.strategy
+
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 
 	pathLabel := "n/a"
 	if sg.metrics != nil && !sg.metrics.groupClasses {
 		pathLabel = sg.dir
 	}
-	switch strategy {
 
-	// TODO: call metrics just once with variable strategy label
-
-	case segmentindex.StrategyReplace:
-		c := newCompactorReplace(f, leftSegment.newCursor(),
-			rightSegment.newCursor(), level, secondaryIndices, scratchSpacePath, cleanupTombstones)
-
-		if sg.metrics != nil {
-			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
-			defer sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Dec()
+	if strategy != strategyRight {
+		var c *compactorMapInverted
+		if leftSegment.strategy == segmentindex.StrategyInverted &&
+			rightSegment.strategy == segmentindex.StrategyMapCollection {
+			c = newCompactorMapInvertedCollection(f,
+				rightSegment.newCollectionCursorReusable(),
+				leftSegment.newInvertedCursorReusable(),
+				level, secondaryIndices, scratchSpacePath, cleanupTombstones, false)
+		} else if leftSegment.strategy == segmentindex.StrategyMapCollection &&
+			rightSegment.strategy == segmentindex.StrategyInverted {
+			c = newCompactorMapInvertedCollection(f,
+				leftSegment.newCollectionCursorReusable(),
+				rightSegment.newInvertedCursorReusable(),
+				level, secondaryIndices, scratchSpacePath, cleanupTombstones, true)
+		} else {
+			return false, errors.New("incompatible strategies")
 		}
-
-		if err := c.do(); err != nil {
-			return false, err
-		}
-	case segmentindex.StrategySetCollection:
-		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
-			rightSegment.newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones)
-
-		if sg.metrics != nil {
-			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
-			defer sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Dec()
-		}
-
-		if err := c.do(); err != nil {
-			return false, err
-		}
-	case segmentindex.StrategyMapCollection:
-		c := newCompactorMapCollection(f,
-			leftSegment.newCollectionCursorReusable(),
-			rightSegment.newCollectionCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, cleanupTombstones)
-
-		if sg.metrics != nil {
-			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
-			defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
-		}
-
-		if err := c.do(); err != nil {
-			return false, err
-		}
-	case segmentindex.StrategyRoaringSet:
-		leftCursor := leftSegment.newRoaringSetCursor()
-		rightCursor := rightSegment.newRoaringSetCursor()
-
-		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
-			level, scratchSpacePath, cleanupTombstones)
-
-		if sg.metrics != nil {
-			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
-			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(0)
-		}
-
-		if err := c.Do(); err != nil {
-			return false, err
-		}
-	case segmentindex.StrategyInverted:
-		c := newCompactorInverted(f,
-			leftSegment.newInvertedCursorReusable(),
-			rightSegment.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -249,8 +206,83 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 
-	default:
-		return false, errors.Errorf("unrecognized strategy %v", strategy)
+	} else {
+		switch strategy {
+
+		// TODO: call metrics just once with variable strategy label
+
+		case segmentindex.StrategyReplace:
+			c := newCompactorReplace(f, leftSegment.newCursor(),
+				rightSegment.newCursor(), level, secondaryIndices, scratchSpacePath, cleanupTombstones)
+
+			if sg.metrics != nil {
+				sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
+				defer sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Dec()
+			}
+
+			if err := c.do(); err != nil {
+				return false, err
+			}
+		case segmentindex.StrategySetCollection:
+			c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
+				rightSegment.newCollectionCursor(), level, secondaryIndices,
+				scratchSpacePath, cleanupTombstones)
+
+			if sg.metrics != nil {
+				sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
+				defer sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Dec()
+			}
+
+			if err := c.do(); err != nil {
+				return false, err
+			}
+		case segmentindex.StrategyMapCollection:
+			c := newCompactorMapCollection(f,
+				leftSegment.newCollectionCursorReusable(),
+				rightSegment.newCollectionCursorReusable(),
+				level, secondaryIndices, scratchSpacePath, sg.mapRequiresSorting, cleanupTombstones)
+
+			if sg.metrics != nil {
+				sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
+				defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
+			}
+
+			if err := c.do(); err != nil {
+				return false, err
+			}
+		case segmentindex.StrategyInverted:
+			c := newCompactorInverted(f,
+				leftSegment.newInvertedCursorReusable(),
+				rightSegment.newInvertedCursorReusable(),
+				level, secondaryIndices, scratchSpacePath, cleanupTombstones)
+			if sg.metrics != nil {
+				sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
+				defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
+			}
+
+			if err := c.do(); err != nil {
+				return false, err
+			}
+
+		case segmentindex.StrategyRoaringSet:
+			leftCursor := leftSegment.newRoaringSetCursor()
+			rightCursor := rightSegment.newRoaringSetCursor()
+
+			c := roaringset.NewCompactor(f, leftCursor, rightCursor,
+				level, scratchSpacePath, cleanupTombstones)
+
+			if sg.metrics != nil {
+				sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
+				defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(0)
+			}
+
+			if err := c.Do(); err != nil {
+				return false, err
+			}
+
+		default:
+			return false, errors.Errorf("unrecognized strategy %v", strategy)
+		}
 	}
 
 	if err := f.Sync(); err != nil {

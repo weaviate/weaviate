@@ -70,6 +70,51 @@ func (s segmentInvertedNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, 
 	return out, nil
 }
 
+func (s segmentInvertedNode) KeyIndexAndWriteToLegacy(w io.Writer) (segmentindex.Key, error) {
+	out := segmentindex.Key{}
+	written := 0
+	valueLen := uint64(len(s.values))
+	buf := make([]byte, 8) // uint64 size
+	binary.LittleEndian.PutUint64(buf, valueLen)
+	if _, err := w.Write(buf[0:8]); err != nil {
+		return out, errors.Wrapf(err, "write values len for node")
+	}
+	written += 8
+
+	for i, v := range s.values {
+		n1, err := w.Write(v.value[2:10])
+		if err != nil {
+			return out, errors.Wrapf(err, "write value %d", i)
+		}
+		n2, err := w.Write(v.value[12:20])
+		if err != nil {
+			return out, errors.Wrapf(err, "write value %d", i)
+		}
+		written += n1 + n2
+	}
+
+	keyLength := uint32(len(s.primaryKey))
+	binary.LittleEndian.PutUint32(buf[0:4], keyLength)
+	if _, err := w.Write(buf[0:4]); err != nil {
+		return out, errors.Wrapf(err, "write key length encoding for node")
+	}
+	written += 4
+
+	n, err := w.Write(s.primaryKey)
+	if err != nil {
+		return out, errors.Wrapf(err, "write node")
+	}
+	written += n
+
+	out = segmentindex.Key{
+		ValueStart: s.offset,
+		ValueEnd:   s.offset + written,
+		Key:        s.primaryKey,
+	}
+
+	return out, nil
+}
+
 // ParseInvertedNode reads from r and parses the Inverted values into a segmentInvertedNode
 //
 // When only given an offset, r is constructed as a *bufio.Reader to avoid first reading the

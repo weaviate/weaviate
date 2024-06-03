@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"encoding/binary"
 	"math"
 
 	"github.com/pkg/errors"
@@ -67,6 +68,33 @@ func (kv InvertedPair) Bytes() ([]byte, error) {
 	}
 
 	return out.Bytes(), nil
+}
+
+func (kv *InvertedPair) FromBytesLegacy(in []byte, keyOnly bool) error {
+	var read uint16
+
+	keyLen := binary.LittleEndian.Uint16(in[:2])
+	read += 2 // uint16 -> 2 bytes
+
+	kv.Key = in[read : read+keyLen]
+	read += keyLen
+
+	if keyOnly {
+		return nil
+	}
+
+	valueLen := binary.LittleEndian.Uint16(in[read : read+2])
+	read += 2
+
+	kv.Value = in[read : read+valueLen]
+	read += valueLen
+
+	if read != uint16(len(in)) {
+		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
+			read, len(in))
+	}
+
+	return nil
 }
 
 func (kv *InvertedPair) FromBytes(in []byte, keyOnly bool, invertedKeyLen, invertedValueLen uint16) error {
