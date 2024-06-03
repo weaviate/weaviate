@@ -240,6 +240,16 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			expectedResource: "batch/objects",
 		},
 		{
+			methodName: "MergeObjects",
+			additionalArgs: []interface{}{
+				[]*models.Object{},
+				(*additional.ReplicationProperties)(nil),
+
+			},
+			expectedVerb:     "merge",
+			expectedResource: "batch/objects",
+		},
+		{
 			methodName: "DeleteObjectsFromGRPC",
 			additionalArgs: []interface{}{
 				BatchDeleteParams{},
@@ -312,6 +322,7 @@ func callFuncByName(manager interface{}, funcName string, params ...interface{})
 	for i, param := range params {
 		in[i] = reflect.ValueOf(param)
 	}
+	fmt.Printf("Calling %s with %v\n", funcName, params)
 	out = m.Call(in)
 	return
 }

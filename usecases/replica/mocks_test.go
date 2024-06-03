@@ -82,7 +82,7 @@ func (f *fakeClient) MergeObject(ctx context.Context, host, index, shard, reques
 }
 
 func (f *fakeClient) MergeObjects(ctx context.Context, host, index, shard, requestID string,
-	docs []*objects.BatchMergeDocument,
+	docs []*objects.BatchMergeDocument, schemaVersion uint64,
 ) (SimpleResponse, error) {
 	args := f.Called(ctx, host, index, shard, requestID, docs)
 	return args.Get(0).(SimpleResponse), args.Error(1)
