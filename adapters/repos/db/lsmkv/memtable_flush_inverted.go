@@ -27,6 +27,8 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic
 	flat := make([]*binarySearchNodeMulti, len(flatA))
+	actuallyWritten := 0
+	actuallyWrittenKeys := make(map[string]struct{})
 	tombstonesMap := make(map[uint64]interface{})
 	tombstones := make([]uint64, 0)
 	for i, mapNode := range flatA {
@@ -45,19 +47,20 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 					value:     enc,
 					tombstone: false,
 				})
+				actuallyWritten++
+				actuallyWrittenKeys[string(mapNode.key)] = struct{}{}
 			} else {
 				docId := binary.LittleEndian.Uint64(mapNode.values[j].Key)
-				if _, ok := tombstonesMap[docId]; ok {
-					tombstones = append(tombstones, docId)
-				} else {
+				if _, ok := tombstonesMap[docId]; !ok {
 					tombstonesMap[docId] = struct{}{}
+					tombstones = append(tombstones, docId)
 				}
 			}
 
 		}
 
 	}
-	totalDataLength := totalValueSizeInverted(flat) + (2 + 2) + (8 + len(tombstonesMap)*8) // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+	totalDataLength := totalValueSizeInverted(actuallyWrittenKeys, actuallyWritten) + (2 + 2) + (8 + len(tombstonesMap)*8) // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
@@ -86,47 +89,51 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 
 	totalWritten += 4
 
-	binary.LittleEndian.PutUint64(buf, uint64(len(tombstonesMap)))
+	binary.LittleEndian.PutUint64(buf, uint64(len(tombstones)))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
 	}
 
-	for docId := range tombstonesMap {
+	for _, docId := range tombstones {
 		binary.LittleEndian.PutUint64(buf, docId)
 		if _, err := f.Write(buf); err != nil {
 			return nil, nil, err
 		}
 	}
 
-	totalWritten += len(tombstonesMap)*8 + 8
+	totalWritten += len(tombstones)*8 + 8
 
 	keys := make([]segmentindex.Key, len(flat))
-
+	actuallyWritten = 0
 	for i, node := range flat {
-		ki, err := (&segmentInvertedNode{
-			values:     node.values,
-			primaryKey: node.key,
-			offset:     totalWritten,
-		}).KeyIndexAndWriteTo(f)
-		if err != nil {
-			return nil, nil, errors.Wrapf(err, "write node %d", i)
-		}
+		if len(node.values) > 0 {
+			ki, err := (&segmentInvertedNode{
+				values:     node.values,
+				primaryKey: node.key,
+				offset:     totalWritten,
+			}).KeyIndexAndWriteTo(f)
+			if err != nil {
+				return nil, nil, errors.Wrapf(err, "write node %d", i)
+			}
 
-		keys[i] = ki
-		totalWritten = ki.ValueEnd
+			keys[actuallyWritten] = ki
+			totalWritten = ki.ValueEnd
+			actuallyWritten++
+		}
 	}
 
-	return keys, tombstones, nil
+	return keys[:actuallyWritten], tombstones, nil
 }
 
-func totalValueSizeInverted(in []*binarySearchNodeMulti) int {
+func totalValueSizeInverted(actuallyWrittenKeys map[string]struct{}, actuallyWritten int) int {
 	var sum int
-	for _, n := range in {
-		sum += 8                  // uint64 to indicate array length
-		sum += 16 * len(n.values) // uint64 to indicate value size
-		sum += 4                  // uint32 to indicate key size
-		sum += len(n.key)
+	for key := range actuallyWrittenKeys {
+		sum += 8 // uint64 to indicate array length
+		sum += 4 // uint32 to indicate key size
+		sum += len(key)
 	}
+
+	sum += actuallyWritten * 16 // 8 bytes for value length, 8 bytes for value
 
 	return sum
 }
