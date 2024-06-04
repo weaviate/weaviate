@@ -45,6 +45,7 @@ func NewSlowQueryReporterFromEnv(logger logrus.FieldLogger) SlowQueryReporter {
 	if enabledStr, ok := os.LookupEnv(enabledEnvVar); ok {
 		// TODO: Log warning if bool can't be parsed
 		enabled, _ = strconv.ParseBool(enabledStr)
+		fmt.Println("en", enabledStr, enabled)
 	}
 	if !enabled {
 		return &NoopSlowReporter{}

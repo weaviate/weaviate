@@ -110,6 +110,11 @@ func TestSlowQueryReporterFromEnv(t *testing.T) {
 
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			// Unset env from previous cases
+			// TODO: Pass config instead of using env directly to avoid this
+			os.Unsetenv(enabledEnvVar)
+			os.Unsetenv(thresholdEnvVar)
+
 			if tt.enabledStr != "" {
 				os.Setenv(enabledEnvVar, tt.enabledStr)
 			}
