@@ -44,14 +44,15 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/locks"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -63,8 +64,6 @@ import (
 )
 
 var (
-	errTenantNotFound  = errors.New("tenant not found")
-	errTenantNotActive = errors.New("tenant not active")
 
 	// Use runtime.GOMAXPROCS instead of runtime.NumCPU because NumCPU returns
 	// the physical CPU cores. However, in a containerization context, that might
@@ -113,7 +112,12 @@ func (m *shardMap) Load(name string) ShardLike {
 	if !ok {
 		return nil
 	}
-	return v.(ShardLike)
+
+	shard, ok := v.(ShardLike)
+	if !ok {
+		return nil
+	}
+	return shard
 }
 
 // Store sets a shard giving its name and value
@@ -198,9 +202,8 @@ type Index struct {
 	// loading will be set to true once the last shard was loaded.
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
-	shardCreateLocks *locks.NamedLocks
-	shardInUseLocks  *locks.NamedRWLocks
-	modules          *modules.Provider
+	shardCreateLocks *esync.KeyLocker
+	shardInUseLocks  *esync.KeyRWLocker
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -269,8 +272,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:    indexCheckpoints,
 		allocChecker:        allocChecker,
-		shardCreateLocks:    locks.NewNamedLocks(),
-		shardInUseLocks:     locks.NewNamedRWLocks(),
+		shardCreateLocks:    esync.NewKeyLocker(),
+		shardInUseLocks:     esync.NewKeyRWLocker(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -555,7 +558,9 @@ type IndexConfig struct {
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
-	ReplicationFactor         int64
+	MaxSegmentSize            int64
+	HNSWMaxLogSize            int64
+	ReplicationFactor         *atomic.Int64
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
 
@@ -596,9 +601,14 @@ func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shar
 		if status == models.TenantActivityStatusHOT {
 			return tenant, nil
 		}
-		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+		return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", enterrors.ErrTenantNotActive, tenant))
 	}
-	return "", objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+	class := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
+	if class == nil {
+		return "", fmt.Errorf("class %q not found in schema", i.Config.ClassName)
+	}
+	return "", objects.NewErrMultiTenancy(
+		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
@@ -674,19 +684,15 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return ErrShardNotFound
+		return err
 	}
 	defer release()
 
-	if err := shard.PutObject(ctx, object); err != nil {
-		return err
-	}
-
-	return nil
+	return shard.PutObject(ctx, object)
 }
 
 func (i *Index) replicationEnabled() bool {
-	return i.Config.ReplicationFactor > 1
+	return i.Config.ReplicationFactor.Load() > 1
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -900,7 +906,7 @@ func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return duplicateErr(ErrShardNotFound, len(objects))
+		return duplicateErr(err, len(objects))
 	}
 	defer release()
 
@@ -975,7 +981,7 @@ func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return duplicateErr(ErrShardNotFound, len(refs))
+		return duplicateErr(err, len(refs))
 	}
 	defer release()
 
@@ -1040,9 +1046,13 @@ func (i *Index) IncomingGetObject(ctx context.Context, shardName string,
 ) (*storobj.Object, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, ErrShardNotFound
+		return nil, err
 	}
 	defer release()
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
 
 	return shard.ObjectByID(ctx, id, props, additional)
 }
@@ -1052,9 +1062,13 @@ func (i *Index) IncomingMultiGetObjects(ctx context.Context, shardName string,
 ) ([]*storobj.Object, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, ErrShardNotFound
+		return nil, err
 	}
 	defer release()
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
 
 	return shard.MultiObjectByID(ctx, wrapIDsInMulti(ids))
 }
@@ -1188,9 +1202,13 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 ) (bool, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return false, ErrShardNotFound
+		return false, err
 	}
 	defer release()
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return false, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
 
 	return shard.Exists(ctx, id)
 }
@@ -1352,6 +1370,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				nodeName = i.getSchema.NodeName()
 
 			} else {
+
+				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
+
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, "", limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
@@ -1446,6 +1467,9 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike,
 ) ([]*storobj.Object, []float32, error) {
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
+	}
 	res, resDists, err := shard.ObjectVectorSearch(
 		ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
 	if err != nil {
@@ -1474,9 +1498,10 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		if tenantShards[tenant] == models.TenantActivityStatusHOT {
 			return []string{tenant}, nil
 		}
-		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", errTenantNotActive, tenant))
+		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", enterrors.ErrTenantNotActive, tenant))
 	}
-	return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", errTenantNotFound, tenant))
+	return []string{}, objects.NewErrMultiTenancy(
+		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
@@ -1611,9 +1636,13 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, nil, ErrShardNotFound
+		return nil, nil, err
 	}
 	defer release()
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
 
 	if searchVector == nil {
 		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
@@ -1687,7 +1716,7 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return ErrShardNotFound
+		return err
 	}
 	defer release()
 
@@ -1721,12 +1750,12 @@ func (i *Index) getOrInitLocalShardNoShutdown(ctx context.Context, shardName str
 
 	shard, err := i.getOrInitLocalShard(ctx, shardName)
 	if err != nil {
-		return nil, func() {}, err
+		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
 	}
 
 	release, err := shard.preventShutdown()
 	if err != nil {
-		return nil, func() {}, err
+		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
 	}
 	return shard, release, nil
 }
@@ -1816,7 +1845,7 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return ErrShardNotFound
+		return err
 	}
 	defer release()
 
@@ -1865,15 +1894,19 @@ func (i *Index) aggregate(ctx context.Context,
 }
 
 func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
-	params aggregation.Params,
+	params aggregation.Params, mods interface{},
 ) (*aggregation.Result, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, ErrShardNotFound
+		return nil, err
 	}
 	defer release()
 
-	return shard.Aggregate(ctx, params, i.modules)
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
+
+	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
 }
 
 func (i *Index) drop() error {
@@ -2043,10 +2076,13 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return 0, ErrShardNotFound
+		return 0, err
 	}
 	defer release()
 
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
 	if !shard.hasTargetVectors() {
 		return shard.Queue().Size(), nil
 	}
@@ -2098,10 +2134,13 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return "", ErrShardNotFound
+		return "", err
 	}
 	defer release()
 
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return "", enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
 	return shard.GetStatus().String(), nil
 }
 
@@ -2120,7 +2159,7 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return ErrShardNotFound
+		return err
 	}
 	defer release()
 
@@ -2179,9 +2218,13 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 ) ([]strfmt.UUID, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
-		return nil, ErrShardNotFound
+		return nil, err
 	}
 	defer release()
+
+	if shard.GetStatus() == storagestate.StatusLoading {
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	}
 
 	return shard.FindUUIDs(ctx, filters)
 }
@@ -2255,7 +2298,7 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
 		return objects.BatchSimpleObjects{
-			objects.BatchSimpleObject{Err: ErrShardNotFound},
+			objects.BatchSimpleObject{Err: err},
 		}
 	}
 	defer release()

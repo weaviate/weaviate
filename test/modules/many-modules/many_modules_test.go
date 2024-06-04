@@ -32,6 +32,17 @@ func Test_ManyModules_SingleNode(t *testing.T) {
 	t.Run("create schema with specific text2vec-openai settings", createSchemaOpenAISanityChecks(endpoint))
 }
 
+func Test_ManyModules_SingleNode_Enabled_API_Based_Modules(t *testing.T) {
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+	t.Run("api based modules", apiBasedModulesTests(endpoint))
+}
+
 func Test_ManyModules_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := createClusterEnvironment(ctx)
@@ -46,6 +57,14 @@ func Test_ManyModules_Cluster(t *testing.T) {
 
 func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
+		WithWeaviate().
+		Start(ctx)
+	return
+}
+
+func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) (compose *docker.DockerCompose, err error) {
+	compose, err = composeModules().
+		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true").
 		WithWeaviate().
 		Start(ctx)
 	return
@@ -67,11 +86,11 @@ func composeModules() (composeModules *docker.Compose) {
 		WithText2VecVoyageAI().
 		WithText2VecPaLM(os.Getenv("PALM_APIKEY")).
 		WithText2VecHuggingFace().
-		WithText2VecAWS().
+		WithText2VecAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeOpenAI().
 		WithGenerativeCohere().
 		WithGenerativePaLM(os.Getenv("PALM_APIKEY")).
-		WithGenerativeAWS().
+		WithGenerativeAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeAnyscale().
 		WithQnAOpenAI().
 		WithRerankerCohere().

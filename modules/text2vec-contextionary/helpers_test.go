@@ -31,6 +31,7 @@ import (
 	text2vecadditionalsempath "github.com/weaviate/weaviate/modules/text2vec-contextionary/additional/sempath"
 	text2vecadditionalprojector "github.com/weaviate/weaviate/usecases/modulecomponents/additional/projector"
 	text2vecneartext "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 

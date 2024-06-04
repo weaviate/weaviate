@@ -222,23 +222,21 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return err
 		}
 
-		// TODO: fix PushShard issues before enabling scale out
-		//       https://github.com/weaviate/weaviate/issues/4840
-		//initialRF := initial.ReplicationConfig.Factor
-		//updatedRF := updated.ReplicationConfig.Factor
-		//
-		//if initialRF != updatedRF {
-		//	ss, _, err := h.metaWriter.QueryShardingState(className)
-		//	if err != nil {
-		//		return fmt.Errorf("query sharding state for %q: %w", className, err)
-		//	}
-		//	shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-		//	if err != nil {
-		//		return fmt.Errorf(
-		//			"scale %q from %d replicas to %d: %w",
-		//			className, initialRF, updatedRF, err)
-		//	}
-		//}
+		initialRF := initial.ReplicationConfig.Factor
+		updatedRF := updated.ReplicationConfig.Factor
+
+		if initialRF != updatedRF {
+			ss, _, err := h.metaWriter.QueryShardingState(className)
+			if err != nil {
+				return fmt.Errorf("query sharding state for %q: %w", className, err)
+			}
+			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
+			if err != nil {
+				return fmt.Errorf(
+					"scale %q from %d replicas to %d: %w",
+					className, initialRF, updatedRF, err)
+			}
+		}
 
 		if err := validateImmutableFields(initial, updated); err != nil {
 			return err
@@ -557,6 +555,10 @@ func (h *Handler) validateCanAddClass(
 		return err
 	}
 
+	if err := validateMT(class); err != nil {
+		return err
+	}
+
 	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
 		return err
 	}
@@ -627,12 +629,12 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	return nil
 }
 
-func (m *Handler) validateVectorSettings(class *models.Class) error {
+func (h *Handler) validateVectorSettings(class *models.Class) error {
 	if !hasTargetVectors(class) {
-		if err := m.validateVectorizer(class.Vectorizer); err != nil {
+		if err := h.validateVectorizer(class.Vectorizer); err != nil {
 			return err
 		}
-		if err := m.validateVectorIndexType(class.VectorIndexType); err != nil {
+		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
 		return nil
@@ -650,24 +652,24 @@ func (m *Handler) validateVectorSettings(class *models.Class) error {
 		// other cases are handled in module config validation
 		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
 			for vectorizer := range vm {
-				if err := m.validateVectorizer(vectorizer); err != nil {
+				if err := h.validateVectorizer(vectorizer); err != nil {
 					return fmt.Errorf("target vector %q: %w", name, err)
 				}
 			}
 		}
-		if err := m.validateVectorIndexType(cfg.VectorIndexType); err != nil {
+		if err := h.validateVectorIndexType(cfg.VectorIndexType); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func (m *Handler) validateVectorizer(vectorizer string) error {
+func (h *Handler) validateVectorizer(vectorizer string) error {
 	if vectorizer == config.VectorizerModuleNone {
 		return nil
 	}
 
-	if err := m.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
+	if err := h.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
 		return errors.Wrap(err, "vectorizer")
 	}
 
@@ -684,6 +686,19 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	}
 }
 
+func validateMT(class *models.Class) error {
+	enabled := schema.MultiTenancyEnabled(class)
+	if !enabled && schema.AutoTenantCreationEnabled(class) {
+		return fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
+	}
+
+	if !enabled && schema.AutoTenantActivationEnabled(class) {
+		return fmt.Errorf("can't enable autoTenantActivation on a non-multi-tenant class")
+	}
+
+	return nil
+}
+
 // validateUpdatingMT validates toggling MT and returns whether mt is enabled
 func validateUpdatingMT(current, update *models.Class) (enabled bool, err error) {
 	enabled = schema.MultiTenancyEnabled(current)
@@ -693,10 +708,10 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 		} else {
 			err = fmt.Errorf("enabling multi-tenancy for an existing class is not supported")
 		}
+	} else {
+		err = validateMT(update)
 	}
-	if !enabled && schema.AutoTenantCreationEnabled(update) {
-		err = fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
-	}
+
 	return
 }
 
