@@ -20,7 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/store"
+	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
@@ -134,7 +134,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	req.Method = OpCreate
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
-		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, store.ErrLeaderNotFound)
+		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
 	}
 	groups, err := c.groupByShard(ctx, req.Classes, leader)
 	if err != nil {

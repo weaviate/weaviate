@@ -78,7 +78,7 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	ObjectCountAsync() int
-	GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker
+	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
@@ -136,12 +136,12 @@ type ShardLike interface {
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
-	Dimensions() int // dim(vector)*number vectors
+	Dimensions(ctx context.Context) int // dim(vector)*number vectors
 	// TODO tests only
-	QuantizedDimensions(segments int) int
+	QuantizedDimensions(ctx context.Context, segments int) int
 	extendDimensionTrackerLSM(dimLength int, docID uint64) error
 	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
-	publishDimensionMetrics()
+	publishDimensionMetrics(ctx context.Context)
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
@@ -184,7 +184,7 @@ type Shard struct {
 	metrics          *Metrics
 	promMetrics      *monitoring.PrometheusMetrics
 	propertyIndices  propertyspecific.Indices
-	propLenTracker   *inverted.JsonPropertyLengthTracker
+	propLenTracker   *inverted.JsonShardMetaData
 	versioner        *shardVersioner
 
 	status              storagestate.Status
@@ -241,6 +241,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
+
+		status: storagestate.StatusLoading,
 	}
 
 	s.activityTracker.Store(1) // initial state
@@ -280,7 +282,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 	}
 
-	s.initDimensionTracking()
+	s.initDimensionTracking(ctx)
 
 	if asyncEnabled() {
 		f := func() {
@@ -532,7 +534,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	s.versioner = versioner
 
 	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonPropertyLengthTracker(plPath, s.index.logger)
+	tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
 	}

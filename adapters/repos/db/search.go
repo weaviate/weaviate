@@ -308,7 +308,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 						continue
 					}
 					// tenant does belong to this class
-					if errors.As(err, &errTenantNotFound) {
+					if errors.Is(err, enterrors.ErrTenantNotFound) {
 						continue // tenant does belong to this class
 					}
 				}
