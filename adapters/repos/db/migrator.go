@@ -346,7 +346,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			continue
 		}
 
-		go func(name string) {
+		name := name // prevent loop variable capture
+		enterrors.GoWrapper(func() {
 			// The timeout is rather arbitrary. It's meant to be so high that it can
 			// never stop a valid tenant activation use case, but low enough to
 			// prevent a context-leak.
@@ -359,7 +360,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 					"shard":  name,
 				}).WithError(err).Errorf("loading shard %q failed", name)
 			}
-		}(name)
+		}, idx.logger)
 	}
 
 	if len(updatesCold) > 0 {
