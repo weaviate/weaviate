@@ -63,10 +63,12 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxSizeMB:        m.db.config.MemtablesMaxSizeMB,
 			MemtablesMinActiveSeconds: m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds: m.db.config.MemtablesMaxActiveSeconds,
+			MaxSegmentSize:            m.db.config.MaxSegmentSize,
+			HNSWMaxLogSize:            m.db.config.HNSWMaxLogSize,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
 			AvoidMMap:                 m.db.config.AvoidMMap,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
-			ReplicationFactor:         class.ReplicationConfig.Factor,
+			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -454,6 +456,16 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	return idx.updateInvertedIndexConfig(ctx, conf)
 }
 
+func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
+	}
+
+	idx.Config.ReplicationFactor.Store(factor)
+	return nil
+}
+
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	count := 0
 	m.logger.
@@ -525,14 +537,14 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 				return nil
 			}
 
-			shard.GetPropertyLengthTracker().Flush(false)
+			shard.GetPropertyLengthTracker().Flush()
 
 			return nil
 		})
 
 		// Flush the GetPropertyLengthTracker() to disk
 		err := index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
-			return shard.GetPropertyLengthTracker().Flush(false)
+			return shard.GetPropertyLengthTracker().Flush()
 		})
 		if err != nil {
 			m.logger.WithField("error", err).Error("could not flush prop lengths")

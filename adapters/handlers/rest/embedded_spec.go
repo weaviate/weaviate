@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.0-rc.0"
+    "version": "1.25.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -4083,6 +4083,11 @@ func init() {
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
+        "autoTenantActivation": {
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "autoTenantCreation": {
           "description": "Nonexistent tenants should (not) be created implicitly",
           "type": "boolean",
@@ -5294,7 +5299,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.0-rc.0"
+    "version": "1.25.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -9610,6 +9615,11 @@ func init() {
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
+        "autoTenantActivation": {
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "autoTenantCreation": {
           "description": "Nonexistent tenants should (not) be created implicitly",
           "type": "boolean",

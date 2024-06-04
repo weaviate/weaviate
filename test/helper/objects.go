@@ -72,6 +72,16 @@ func CreateObject(t *testing.T, object *models.Object) error {
 	return err
 }
 
+func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Object, error) {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)

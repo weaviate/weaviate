@@ -36,6 +36,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -99,8 +100,8 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager),
-		n.repo, clusterapi.NewNoopAuthHandler())
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider()),
+		n.repo, clusterapi.NewNoopAuthHandler(), logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 

@@ -438,6 +438,11 @@
           "description": "Nonexistent tenants should (not) be created implicitly",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "autoTenantActivation": {
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -2112,7 +2117,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.25.0-rc.0"
+    "version": "1.25.2"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
