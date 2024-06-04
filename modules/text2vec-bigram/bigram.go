@@ -202,7 +202,7 @@ func bytePairs2Vector(input string) ([]float32, error) {
 		vector[index] = vector[index] + 1
 	}
 
-	return normaliseVector(vector[1:]), nil //Max length is 16k-1
+	return normaliseVector(vector[1:]), nil // Max length is 16k-1
 }
 
 func text2vec(input, activeVectoriser string) ([]float32, error) {
@@ -262,8 +262,10 @@ func (m *BigramModule) Texts(ctx context.Context, inputs []string, cfg moduletoo
 }
 
 func (m *BigramModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
-	var vectors [][]float32
-	var errors = map[int]error{}
+	var (
+		vectors [][]float32
+		errors  = map[int]error{}
+	)
 	for i, obj := range objs {
 		if skipObject[i] {
 			continue
