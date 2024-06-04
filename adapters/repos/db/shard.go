@@ -128,12 +128,12 @@ type ShardLike interface {
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// TODO tests only
-	Dimensions() int // dim(vector)*number vectors
+	Dimensions(ctx context.Context) int // dim(vector)*number vectors
 	// TODO tests only
-	QuantizedDimensions(segments int) int
+	QuantizedDimensions(ctx context.Context, segments int) int
 	extendDimensionTrackerLSM(dimLength int, docID uint64) error
 	extendDimensionTrackerForVecLSM(dimLength int, docID uint64, vecName string) error
-	publishDimensionMetrics()
+	publishDimensionMetrics(ctx context.Context)
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
@@ -256,7 +256,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 	}
 
-	s.initDimensionTracking()
+	s.initDimensionTracking(ctx)
 
 	if asyncEnabled() {
 		f := func() {
