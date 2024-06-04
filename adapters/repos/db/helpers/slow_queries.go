@@ -50,7 +50,7 @@ func NewSlowQueryReporterFromEnv(logger logrus.FieldLogger) SlowQueryReporter {
 		return &NoopSlowReporter{}
 	}
 
-	threshold := 5 * time.Second
+	threshold := defaultSlowLogThreshold
 	if thresholdStr, ok := os.LookupEnv(thresholdEnvVar); ok {
 		thresholdP, err := time.ParseDuration(thresholdStr)
 		if err != nil {
