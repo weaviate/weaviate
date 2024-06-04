@@ -659,7 +659,6 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
-
   local-gpt4all)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
@@ -674,6 +673,22 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-bigram)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-bigram \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
+      ENABLE_MODULES="text2vec-bigram,backup-filesystem" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
   *)
     echo "Invalid config" 2>&1
     exit 1
