@@ -11,8 +11,12 @@ install-gofumpt:
 	fi
 
 # Target to format code using gofumpt
+.PHONY: install-gofumpt format
 format: install-gofumpt
 	$(GOFUMPT) -w .
 
-# .PHONY ensures that these targets will run even if there are files named install-gofumpt or format
-.PHONY: install-gofumpt format
+# Target to run the swagger code generation script
+.PHONY: generate-code
+generate-code:
+	@echo "Running Swagger code generation script..."
+	@sh ./tools/gen-code-from-swagger.sh

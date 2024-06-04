@@ -35,17 +35,17 @@ type BackupCreateRequest struct {
 	// List of classes to exclude from the backup creation process
 	Exclude []string `json:"exclude"`
 
+	// List of regular expressions specifying additional classes to be excluded in the backup creation process. Classes matching any of these patterns will be excluded along with those listed in the 'exclude' field
+	ExcludePatterns []string `json:"exclude_patterns"`
+
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
 	// List of classes to include in the backup creation process
 	Include []string `json:"include"`
 
-	// List of regular expressions (patterns) specifying classes to be included from the backup. Classes matching any of these patterns will be include in the backup creation process.
+	// List of regular expressions specifying additional classes to be included in the backup creation process. Classes matching any of these patterns will be included along with those listed in the 'include' field
 	IncludePatterns []string `json:"include_patterns"`
-
-	// List of regular expressions (patterns) specifying classes to be excluded from the backup. Classes matching any of these patterns will be exclude in the backup creation process.
-	ExcludePatterns []string `json:"exclude_patterns"`
 }
 
 // Validate validates this backup create request

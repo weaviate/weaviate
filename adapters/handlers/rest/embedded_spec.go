@@ -3133,12 +3133,26 @@ func init() {
             "type": "string"
           }
         },
+        "exclude_patterns": {
+          "description": "List of regular expressions specifying additional classes to be excluded in the backup creation process. Classes matching any of these patterns will be excluded along with those listed in the 'exclude' field",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
         "include": {
           "description": "List of classes to include in the backup creation process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include_patterns": {
+          "description": "List of regular expressions specifying additional classes to be included in the backup creation process. Classes matching any of these patterns will be included along with those listed in the 'include' field",
           "type": "array",
           "items": {
             "type": "string"
@@ -8506,12 +8520,26 @@ func init() {
             "type": "string"
           }
         },
+        "exclude_patterns": {
+          "description": "List of regular expressions specifying additional classes to be excluded in the backup creation process. Classes matching any of these patterns will be excluded along with those listed in the 'exclude' field",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
         "include": {
           "description": "List of classes to include in the backup creation process",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "include_patterns": {
+          "description": "List of regular expressions specifying additional classes to be included in the backup creation process. Classes matching any of these patterns will be included along with those listed in the 'include' field",
           "type": "array",
           "items": {
             "type": "string"
