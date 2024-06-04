@@ -13,9 +13,8 @@ package backup
 
 import (
 	"fmt"
-	"time"
-
 	"regexp"
+	"time"
 )
 
 // NodeDescriptor contains data related to one participant in DBRO
