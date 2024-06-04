@@ -91,7 +91,7 @@ type Config struct {
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
 	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
-	Bigram							  Bigram                   `json:"bigram" yaml:"bigram"`
+	Bigram                              Bigram                   `json:"bigram" yaml:"bigram"`
 	Authentication                      Authentication           `json:"authentication" yaml:"authentication"`
 	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
 	Origin                              string                   `json:"origin" yaml:"origin"`

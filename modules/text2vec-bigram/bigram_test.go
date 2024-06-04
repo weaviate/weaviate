@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package t2vbigram
 
 import (
@@ -33,7 +44,6 @@ func TestBigramModule_Init(t *testing.T) {
 	assert.Equal(t, "alphabet", mod.activeVectoriser)
 }
 
-
 type fakeModuleParams struct {
 	logger   logrus.FieldLogger
 	provider fakeStorageProvider
@@ -46,7 +56,7 @@ func newFakeModuleParams(dataPath string) *fakeModuleParams {
 	return &fakeModuleParams{
 		logger:   logger,
 		provider: fakeStorageProvider{dataPath: dataPath},
-		appState: &state.State{ServerConfig: &config.WeaviateConfig{Config: config.Config{Bigram: config.Bigram{Method: "alphabet"}} }},
+		appState: &state.State{ServerConfig: &config.WeaviateConfig{Config: config.Config{Bigram: config.Bigram{Method: "alphabet"}}}},
 	}
 }
 
@@ -66,7 +76,6 @@ func (f *fakeModuleParams) GetConfig() config.Config {
 	return f.config
 }
 
-
 type fakeStorageProvider struct {
 	dataPath string
 }
@@ -78,7 +87,6 @@ func (f *fakeStorageProvider) Storage(name string) (moduletools.Storage, error) 
 func (f *fakeStorageProvider) DataPath() string {
 	return f.dataPath
 }
-
 
 func TestBigramModule_VectorizeInput(t *testing.T) {
 	mod := New()

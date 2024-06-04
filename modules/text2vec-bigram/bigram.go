@@ -168,7 +168,7 @@ func alphabet2Vector(input string) ([]float32, error) {
 	return vector, nil
 }
 
-//Maybe we should do this for bytes instead of letters?
+// Maybe we should do this for bytes instead of letters?
 func mod26Vector(input string) ([]float32, error) {
 	input = strings.ToLower(input)
 	vector := make([]float32, 26*26)
@@ -198,9 +198,9 @@ func trigramVector(input string) ([]float32, error) {
 	input = strings.ToLower(input)
 	vector := make([]float32, 26*26*26)
 	for i := 0; i < len(input)-2; i++ {
-		first := ord(rune(input[i]))%26
-		second := ord(rune(input[i+1]))%26
-		third := ord(rune(input[i+2]))%26
+		first := ord(rune(input[i])) % 26
+		second := ord(rune(input[i+1])) % 26
+		third := ord(rune(input[i+2])) % 26
 		index := first*26*26 + second*26 + third
 		vector[index] = vector[index] + 1
 	}
