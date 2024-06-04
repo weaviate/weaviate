@@ -15,12 +15,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -373,6 +375,12 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 		}
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, "digest objects: "+err.Error(),
+				http.StatusUnprocessableEntity)
+			return
+		}
+
 		if err != nil {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusInternalServerError)
@@ -600,6 +608,12 @@ func (i *replicatedIndices) getObject() http.Handler {
 		)
 
 		resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, "digest objects: "+err.Error(),
+				http.StatusUnprocessableEntity)
+			return
+		}
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -651,6 +665,11 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 		}
 
 		resp, err := i.shards.FetchObjects(r.Context(), index, shard, ids)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, "digest objects: "+err.Error(),
+				http.StatusUnprocessableEntity)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
