@@ -12,6 +12,7 @@
 package helpers
 
 import (
+	"os"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSlowQueryReporter_LogIfSlow(t *testing.T) {
+func TestBaseSlowReporter_LogIfSlow(t *testing.T) {
 	tests := map[string]struct {
 		// input
 		enabled   bool
@@ -68,6 +69,64 @@ func TestSlowQueryReporter_LogIfSlow(t *testing.T) {
 				assert.Equal(t, tt.message, hook.LastEntry().Message)
 				assert.Equal(t, logrus.Fields(tt.fields), hook.LastEntry().Data)
 			}
+		})
+	}
+}
+
+func TestSlowQueryReporterFromEnv(t *testing.T) {
+	tests := map[string]struct {
+		enabledStr   string
+		thresholdStr string
+		expected     SlowQueryReporter
+	}{
+		"sanity": {
+			enabledStr:   "true",
+			thresholdStr: "16s",
+			expected: &BaseSlowReporter{
+				threshold: 16 * time.Second,
+			},
+		},
+		"empty env vars": {
+			expected: &NoopSlowReporter{},
+		},
+		"default threshold": {
+			enabledStr: "true",
+			expected: &BaseSlowReporter{
+				threshold: defaultSlowLogThreshold,
+			},
+		},
+		"unparseable threshold": {
+			enabledStr:   "true",
+			thresholdStr: "foo",
+			expected: &BaseSlowReporter{
+				threshold: defaultSlowLogThreshold,
+			},
+		},
+		"unparseable enabled": {
+			enabledStr: "foo",
+			expected:   &NoopSlowReporter{},
+		},
+	}
+
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if tt.enabledStr != "" {
+				os.Setenv(enabledEnvVar, tt.enabledStr)
+			}
+			if tt.thresholdStr != "" {
+				os.Setenv(thresholdEnvVar, tt.thresholdStr)
+			}
+
+			logger, _ := test.NewNullLogger()
+			res := NewSlowQueryReporterFromEnv(logger)
+
+			// Set logger if needed
+			// This could be refactored to SlowQueryReporter.WithLogger(logger) if needed.
+			if rep, ok := tt.expected.(*BaseSlowReporter); ok {
+				rep.logger = logger
+			}
+
+			assert.Equal(t, tt.expected, res)
 		})
 	}
 }

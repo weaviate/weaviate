@@ -21,8 +21,9 @@ import (
 )
 
 const (
-	enabledEnvVar   = "QUERY_SLOW_LOG_ENABLED"
-	thresholdEnvVar = "QUERY_SLOW_LOG_THRESHOLD"
+	enabledEnvVar           = "QUERY_SLOW_LOG_ENABLED"
+	thresholdEnvVar         = "QUERY_SLOW_LOG_THRESHOLD"
+	defaultSlowLogThreshold = 5 * time.Second
 )
 
 type SlowQueryReporter interface {
@@ -31,10 +32,15 @@ type SlowQueryReporter interface {
 
 type BaseSlowReporter struct {
 	threshold time.Duration
-	log       logrus.FieldLogger
+	logger    logrus.FieldLogger
 }
 
 func NewSlowQueryReporterFromEnv(logger logrus.FieldLogger) SlowQueryReporter {
+	if logger == nil {
+		fmt.Println("Unexpected nil logger for SlowQueryReporter. Reporter disabled.")
+		return &NoopSlowReporter{}
+	}
+
 	enabled := false
 	if enabledStr, ok := os.LookupEnv(enabledEnvVar); ok {
 		// TODO: Log warning if bool can't be parsed
@@ -60,7 +66,7 @@ func NewSlowQueryReporter(threshold time.Duration, logger logrus.FieldLogger) *B
 	logger.WithField("action", "startup").Printf("Starting SlowQueryReporter with %s threshold", threshold)
 	return &BaseSlowReporter{
 		threshold: threshold,
-		log:       logger,
+		logger:    logger,
 	}
 }
 
@@ -77,7 +83,7 @@ func NewSlowQueryReporter(threshold time.Duration, logger logrus.FieldLogger) *B
 func (sq *BaseSlowReporter) LogIfSlow(startTime time.Time, fields map[string]any) {
 	took := time.Since(startTime)
 	if took > sq.threshold {
-		sq.log.WithFields(fields).Warn(fmt.Sprintf("Slow query detected (%s)", took.Round(time.Millisecond)))
+		sq.logger.WithFields(fields).Warn(fmt.Sprintf("Slow query detected (%s)", took.Round(time.Millisecond)))
 	}
 }
 
