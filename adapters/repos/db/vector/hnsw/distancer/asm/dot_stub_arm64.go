@@ -107,5 +107,4 @@ func DotByteARM64(x []uint8, y []uint8) uint32 {
 		unsafe.Pointer(&l))
 
 	return res
-
 }
