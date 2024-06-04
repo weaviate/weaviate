@@ -37,6 +37,7 @@ func TestBigramModule_Type(t *testing.T) {
 }
 
 func TestBigramModule_Init(t *testing.T) {
+	t.Setenv("BIGRAM", "alphabet")
 	mod := New()
 	params := newFakeModuleParams("data")
 	err := mod.Init(context.Background(), params)
@@ -56,7 +57,6 @@ func newFakeModuleParams(dataPath string) *fakeModuleParams {
 	return &fakeModuleParams{
 		logger:   logger,
 		provider: fakeStorageProvider{dataPath: dataPath},
-		appState: &state.State{ServerConfig: &config.WeaviateConfig{Config: config.Config{Bigram: config.Bigram{Method: "alphabet"}}}},
 	}
 }
 

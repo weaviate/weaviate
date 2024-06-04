@@ -13,7 +13,6 @@ package t2vbigram
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -22,7 +21,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -63,29 +61,16 @@ func (m *BigramModule) Type() modulecapabilities.ModuleType {
 
 func (m *BigramModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.storageProvider = params.GetStorageProvider()
-	appState, ok := params.GetAppState().(*state.State)
-	if !ok {
-		return errors.New("appState is not a *state.State")
-	}
-
-	m.activeVectoriser = appState.ServerConfig.Config.Bigram.Method
 	m.logger = params.GetLogger()
 
-	bigramConfig := os.Getenv("BIGRAM")
-	if bigramConfig != "" {
-		switch bigramConfig {
-		case "alphabet":
-			m.activeVectoriser = "alphabet"
-		case "trigram":
-			m.activeVectoriser = "trigram"
-		case "bytepairs":
-			m.activeVectoriser = "bytepairs"
-		default:
-			m.activeVectoriser = "mod26"
-		}
-	}
-
-	if m.activeVectoriser == "" {
+	switch strings.ToLower(os.Getenv("BIGRAM")) {
+	case "alphabet":
+		m.activeVectoriser = "alphabet"
+	case "trigram":
+		m.activeVectoriser = "trigram"
+	case "bytepairs":
+		m.activeVectoriser = "bytepairs"
+	default:
 		m.activeVectoriser = "mod26"
 	}
 
