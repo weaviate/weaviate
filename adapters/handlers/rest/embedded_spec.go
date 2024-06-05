@@ -4936,9 +4936,10 @@ func init() {
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
-            "FROZEN"
+            "FROZEN",
+            "FREEZING",
+            "UNFREEZING"
           ]
         },
         "name": {
@@ -10486,9 +10487,10 @@ func init() {
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
-            "FROZEN"
+            "FROZEN",
+            "FREEZING",
+            "UNFREEZING"
           ]
         },
         "name": {
