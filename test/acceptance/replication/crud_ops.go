@@ -54,10 +54,12 @@ func createObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.CreateObjectsBatch(t, batch)
 }
 
+/*
 func createObjectsCL(t *testing.T, host string, batch []*models.Object, cl replica.ConsistencyLevel) {
 	helper.SetupClient(host)
 	helper.CreateObjectsBatchCL(t, batch, cl)
 }
+*/
 
 func createTenantObjects(t *testing.T, host string, batch []*models.Object) {
 	t.Helper()
@@ -259,6 +261,7 @@ func gqlTenantGet(t *testing.T, host, class string, cl replica.ConsistencyLevel,
 	return result.Result.([]interface{})
 }
 
+/*
 func countObjects(t *testing.T, host, class string) int64 {
 	helper.SetupClient(host)
 
@@ -273,6 +276,7 @@ func countObjects(t *testing.T, host, class string) int64 {
 	require.Nil(t, err)
 	return count
 }
+*/
 
 func countTenantObjects(t *testing.T, host, class string,
 	tenant string,
