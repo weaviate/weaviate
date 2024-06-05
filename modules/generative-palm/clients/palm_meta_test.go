@@ -24,7 +24,7 @@ func TestGetMeta(t *testing.T) {
 	t.Run("when the server is providing meta", func(t *testing.T) {
 		server := httptest.NewServer(&testMetaHandler{t: t})
 		defer server.Close()
-		c := New(server.URL, 0, nullLogger())
+		c := New(server.URL, false, 0, nullLogger())
 		meta, err := c.MetaInfo()
 
 		assert.Nil(t, err)
