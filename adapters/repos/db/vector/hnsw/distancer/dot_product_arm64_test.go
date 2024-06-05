@@ -38,8 +38,8 @@ func testDotProductFixedValue(t *testing.T, size uint) {
 		vec1 := make([]float32, size)
 		vec2 := make([]float32, size)
 		for i := range vec1 {
-			vec1[i] = 1
-			vec2[i] = 1
+			vec1[i] = 129
+			vec2[i] = 129
 		}
 		vec1 = Normalize(vec1)
 		vec2 = Normalize(vec2)

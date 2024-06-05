@@ -92,16 +92,12 @@ func Dot_SVE(x []float32, y []float32) float32 {
 
 	var res float32
 
-	// The C function expects pointers to the underlying array, not slices.
-	hdrx := (*reflect.SliceHeader)(unsafe.Pointer(&x))
-	hdry := (*reflect.SliceHeader)(unsafe.Pointer(&y))
-
 	l := len(x)
 	dot_sve(
 		// The slice header contains the address of the underlying array.
 		// We only need to cast it to a pointer.
-		unsafe.Pointer(hdrx.Data),
-		unsafe.Pointer(hdry.Data),
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
 		// The C function expects pointers to the result and the length of the arrays.
 		unsafe.Pointer(&res),
 		unsafe.Pointer(&l))

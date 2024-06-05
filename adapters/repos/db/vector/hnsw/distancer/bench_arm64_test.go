@@ -57,7 +57,7 @@ func benchmarkDotNeon(b *testing.B, dims int) {
 }
 
 func BenchmarkDot(b *testing.B) {
-	dims := []int{30, 32, 128, 256, 300, 384, 600, 768, 1024}
+	dims := []int{30, 32, 128, 256, 300, 384, 600, 768, 1024, 1536}
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
 			b.Run("pure go", func(b *testing.B) { benchmarkDotGo(b, dim) })
