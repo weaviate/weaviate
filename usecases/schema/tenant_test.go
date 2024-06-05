@@ -111,6 +111,7 @@ func TestAddTenants(t *testing.T) {
 			tenants: []*models.Tenant{
 				{Name: "Aaaa", ActivityStatus: "DOES_NOT_EXIST_1"},
 				{Name: "Bbbb", ActivityStatus: "DOES_NOT_EXIST_2"},
+				{Name: "Bbbb", ActivityStatus: "WARM"},
 			},
 			errMsgs: []string{
 				"invalid activity status",
@@ -120,16 +121,18 @@ func TestAddTenants(t *testing.T) {
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {},
 		},
 		{
-			name:  "UnsupportedActivityStatus",
+			name:  "NotAllowedActivityStatus",
 			class: mtEnabledClass.Class,
 			tenants: []*models.Tenant{
-				{Name: "Aaaa", ActivityStatus: models.TenantActivityStatusWARM},
-				{Name: "Bbbb", ActivityStatus: models.TenantActivityStatusFROZEN},
+				{Name: "Aaaa", ActivityStatus: models.TenantActivityStatusFROZEN},
+				{Name: "Bbbb", ActivityStatus: models.TenantActivityStatusFREEZING},
+				{Name: "Cccc", ActivityStatus: models.TenantActivityStatusUNFREEZING},
 			},
 			errMsgs: []string{
-				"not yet supported activity status",
-				models.TenantActivityStatusWARM,
+				"not allowed activity status",
 				models.TenantActivityStatusFROZEN,
+				models.TenantActivityStatusFREEZING,
+				models.TenantActivityStatusUNFREEZING,
 			},
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {},
 		},
@@ -265,27 +268,12 @@ func TestUpdateTenants(t *testing.T) {
 			class: mtEnabledClass.Class,
 			updateTenants: []*models.Tenant{
 				{Name: tenants[0].Name, ActivityStatus: "DOES_NOT_EXIST_1"},
-				{Name: tenants[1].Name, ActivityStatus: "DOES_NOT_EXIST_2"},
+				{Name: tenants[1].Name, ActivityStatus: "WARM"},
 			},
 			errMsgs: []string{
 				"invalid activity status",
 				"DOES_NOT_EXIST_1",
-				"DOES_NOT_EXIST_2",
-			},
-			expectedTenants: tenants,
-			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
-		},
-		{
-			name:  "UnsupportedActivityStatus",
-			class: mtEnabledClass.Class,
-			updateTenants: []*models.Tenant{
-				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusWARM},
-				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusFROZEN},
-			},
-			errMsgs: []string{
-				"not yet supported activity status",
-				models.TenantActivityStatusWARM,
-				models.TenantActivityStatusFROZEN,
+				"WARM",
 			},
 			expectedTenants: tenants,
 			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
@@ -306,12 +294,16 @@ func TestUpdateTenants(t *testing.T) {
 			class: mtEnabledClass.Class,
 			updateTenants: []*models.Tenant{
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
-				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusFREEZING},
+				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusUNFREEZING},
 			},
 			errMsgs: []string{},
 			expectedTenants: []*models.Tenant{
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
-				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusFREEZING},
+				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusUNFREEZING},
 			},
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
