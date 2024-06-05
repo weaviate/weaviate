@@ -188,6 +188,20 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	var err error
+
+	// Report slow queries if this method takes longer than expected
+	startTime := time.Now()
+	defer func() {
+		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
+			"collection": s.index.Config.ClassName,
+			"shard":      s.ID(),
+			"tenant":     s.tenant(),
+			"query":      "ObjectSearch",
+			"version":    s.versioner.Version(),
+		})
+	}()
+
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
@@ -197,13 +211,11 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		var bm25objs []*storobj.Object
 		var bm25count []float32
-		var err error
 		var objs helpers.AllowList
 		var filterDocIds helpers.AllowList
 
 		if filters != nil {
-			objs, err = inverted.NewSearcher(s.index.logger, s.store,
-				s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices,
+			objs, err = inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.GetSchemaSkipAuth(), s.propertyIndices,
 				s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 				s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit,
 				s.bitmapFactory).
@@ -256,6 +268,17 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 }
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	startTime := time.Now()
+	defer func() {
+		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
+			"collection": s.index.Config.ClassName,
+			"shard":      s.ID(),
+			"tenant":     s.tenant(),
+			"query":      "ObjectVectorSearch",
+			"version":    s.versioner.Version(),
+		})
+	}()
+
 	var (
 		ids       []uint64
 		dists     []float32
