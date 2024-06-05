@@ -47,7 +47,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		return 0, err
 	}
 
-	if err = validateActivityStatuses(validated, true); err != nil {
+	if err = validateActivityStatuses(validated, true, false); err != nil {
 		return 0, err
 	}
 
@@ -93,16 +93,20 @@ func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err 
 	return
 }
 
-func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
+func validateActivityStatuses(tenants []*models.Tenant, allowEmpty, allowFrozen bool) error {
 	msgs := make([]string, 0, len(tenants))
 
 	for _, tenant := range tenants {
 		switch status := tenant.ActivityStatus; status {
 		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
-			// ok
-		case models.TenantActivityStatusWARM, models.TenantActivityStatusFROZEN:
-			msgs = append(msgs, fmt.Sprintf(
-				"not yet supported activity status '%s' for tenant %q", status, tenant.Name))
+			continue
+		case models.TenantActivityStatusFREEZING, models.TenantActivityStatusUNFREEZING, models.TenantActivityStatusFROZEN:
+			if !allowFrozen {
+				msgs = append(msgs, fmt.Sprintf(
+					"not allowed activity status '%s' for tenant %q", status, tenant.Name))
+			}
+			continue
+
 		default:
 			if status == "" && allowEmpty {
 				continue
@@ -131,7 +135,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return err
 	}
-	if err := validateActivityStatuses(validated, false); err != nil {
+	if err := validateActivityStatuses(validated, false, true); err != nil {
 		return err
 	}
 
