@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.1"
+    "version": "1.25.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -4934,11 +4934,10 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage",
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
             "FROZEN"
           ]
@@ -5301,7 +5300,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.1"
+    "version": "1.25.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -10486,11 +10485,10 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage",
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
             "FROZEN"
           ]

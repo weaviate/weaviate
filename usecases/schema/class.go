@@ -641,12 +641,12 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	return nil
 }
 
-func (m *Handler) validateVectorSettings(class *models.Class) error {
+func (h *Handler) validateVectorSettings(class *models.Class) error {
 	if !hasTargetVectors(class) {
-		if err := m.validateVectorizer(class.Vectorizer); err != nil {
+		if err := h.validateVectorizer(class.Vectorizer); err != nil {
 			return err
 		}
-		if err := m.validateVectorIndexType(class.VectorIndexType); err != nil {
+		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
 		return nil
@@ -664,24 +664,24 @@ func (m *Handler) validateVectorSettings(class *models.Class) error {
 		// other cases are handled in module config validation
 		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
 			for vectorizer := range vm {
-				if err := m.validateVectorizer(vectorizer); err != nil {
+				if err := h.validateVectorizer(vectorizer); err != nil {
 					return fmt.Errorf("target vector %q: %w", name, err)
 				}
 			}
 		}
-		if err := m.validateVectorIndexType(cfg.VectorIndexType); err != nil {
+		if err := h.validateVectorIndexType(cfg.VectorIndexType); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func (m *Handler) validateVectorizer(vectorizer string) error {
+func (h *Handler) validateVectorizer(vectorizer string) error {
 	if vectorizer == config.VectorizerModuleNone {
 		return nil
 	}
 
-	if err := m.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
+	if err := h.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
 		return errors.Wrap(err, "vectorizer")
 	}
 
