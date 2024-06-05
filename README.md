@@ -18,6 +18,9 @@ To get started quickly, have a look at one of these pages:
 
 For more details, read through the summary on this page or see the system [documentation](https://weaviate.io/developers/weaviate/).
 
+> [!NOTE]
+> **Help us improve your experience** by sharing your feedback, ideas and thoughts: Fill out our [Community Experience Survey](https://forms.gle/hrFGMqtVkdSG6ne48), preferably by June 14th, 2024.
+
 ---
 
 ## Why Weaviate?
@@ -59,7 +62,7 @@ Weaviate doesn't just power lightning-fast vector searches. Other superpowers in
   - Weaviate is a fast, flexible vector database
   - Use your own ML model or third party models
   - Run locally or with an inference service
-  
+
 - **Data Scientists**
 
    - Seamless handover of Machine Learning models to engineers and MLOps
@@ -72,13 +75,13 @@ A Weaviate vector database can search text, images, or a combination of both. Fa
 
 Here are some examples that show how Weaviate integrates with other AI and ML tools:
 
-### Use Weaviate with third part embeddings 
+### Use Weaviate with third part embeddings
 
 - [Cohere](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-cohere) ([blogpost](https://txt.cohere.com/embedding-archives-wikipedia/))
 - [Hugging Face](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface)
 - [OpenAI](https://github.com/openai/openai-cookbook/tree/main/examples/vector_databases/weaviate)
 
-### Use Weaviate as a document store 
+### Use Weaviate as a document store
 
 - [DocArray](https://docarray.jina.ai/advanced/document-store/weaviate/)
 - [Haystack](https://docs.haystack.deepset.ai/reference/document-store-api#weaviatedocumentstore) ([blogpost](https://www.deepset.ai/weaviate-vector-search-engine-integration))
@@ -92,7 +95,7 @@ Here are some examples that show how Weaviate integrates with other AI and ML to
 
 ### Demos
 
-These demos are working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub. 
+These demos are working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub.
 
 - [Verba, the Golden RAGtreiver](https://verba.weaviate.io) ([GitHub](https://github.com/weaviate/verba))
 - [Healthsearch](https://healthsearch.weaviate.io) ([GitHub](https://github.com/weaviate/healthsearch-demo))
@@ -100,7 +103,7 @@ These demos are working applications that highlight some of Weaviate's capabilit
 
 ## How can you connect to Weaviate?
 
-Weaviate exposes a [GraphQL API](https://weaviate.io/developers/weaviate/api/graphql) and a [REST API](https://weaviate.io/developers/weaviate/api/rest). Starting in v1.23, a new [gRPC API](https://weaviate.io/developers/weaviate/api/grpc) provides even faster access to your data. 
+Weaviate exposes a [GraphQL API](https://weaviate.io/developers/weaviate/api/graphql) and a [REST API](https://weaviate.io/developers/weaviate/api/rest). Starting in v1.23, a new [gRPC API](https://weaviate.io/developers/weaviate/api/grpc) provides even faster access to your data.
 
 Weaviate provides client libraries for several popular languages:
 
@@ -117,7 +120,7 @@ Free, self-paced courses in [Weaviate Academy](https://weaviate.io/developers/ac
 
 The [Weaviate blog](https://weaviate.io/blog) and [podcast](https://weaviate.io/podcast) regularly post stories on Weaviate and AI.
 
-Here are some popular posts: 
+Here are some popular posts:
 
 ### Blogs
 
@@ -160,4 +163,4 @@ Please reach out, and join our community:
 - [Slack](https://weaviate.io/slack)
 - [X (Twitter)](https://twitter.com/weaviate_io)
 
-To keep up to date with new releases, meetup news, and more, subscribe to our [newsletter](https://newsletter.weaviate.io/) 
+To keep up to date with new releases, meetup news, and more, subscribe to our [newsletter](https://newsletter.weaviate.io/)

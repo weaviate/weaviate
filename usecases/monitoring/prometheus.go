@@ -75,9 +75,11 @@ type PrometheusMetrics struct {
 	ShardsLoading   *prometheus.GaugeVec
 	ShardsUnloading *prometheus.GaugeVec
 
-	SchemaTxOpened   *prometheus.CounterVec
-	SchemaTxClosed   *prometheus.CounterVec
-	SchemaTxDuration *prometheus.SummaryVec
+	// RAFT-based schema metrics
+	SchemaWrites         *prometheus.SummaryVec
+	SchemaReadsLocal     *prometheus.SummaryVec
+	SchemaReadsLeader    *prometheus.SummaryVec
+	SchemaWaitForVersion *prometheus.SummaryVec
 
 	TombstoneFindLocalEntrypoint  *prometheus.CounterVec
 	TombstoneFindGlobalEntrypoint *prometheus.CounterVec
@@ -85,6 +87,13 @@ type PrometheusMetrics struct {
 	TombstoneDeleteListSize       *prometheus.GaugeVec
 
 	Group bool
+
+	// Deprecated metrics, keeping around because the classification features
+	// seems to sill use the old logic. However, those metrics are not actually
+	// used for the schema anymore, but only for the classification features.
+	SchemaTxOpened   *prometheus.CounterVec
+	SchemaTxClosed   *prometheus.CounterVec
+	SchemaTxDuration *prometheus.SummaryVec
 }
 
 // Delete Shard deletes existing label combinations that match both
@@ -387,6 +396,25 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "schema_tx_duration_seconds",
 			Help: "Mean duration of a tx by status",
 		}, []string{"ownership", "status"}),
+
+		// RAFT-based schema metrics
+		SchemaWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_writes_seconds",
+			Help: "Duration of schema writes (which always involve the leader)",
+		}, []string{"type"}),
+		SchemaReadsLocal: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_reads_local_seconds",
+			Help: "Duration of local schema reads that do not involve the leader",
+		}, []string{"type"}),
+		SchemaReadsLeader: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_reads_leader_seconds",
+			Help: "Duration of schema reads that are passed to the leader",
+		}, []string{"type"}),
+		SchemaWaitForVersion: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "schema_wait_for_version_seconds",
+			Help: "Duration of waiting for a schema version to be reached",
+		}, []string{"type"}),
+
 		TombstoneFindLocalEntrypoint: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "tombstone_find_local_entrypoint",
 			Help: "Total number of tombstone delete local entrypoint calls",

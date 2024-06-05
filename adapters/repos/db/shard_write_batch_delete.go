@@ -30,6 +30,7 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects {
+	s.activityTracker.Add(1)
 	if s.isReadOnly() {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
@@ -130,7 +131,7 @@ func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if err := b.shard.GetPropertyLengthTracker().Flush(false); err != nil {
+	if err := b.shard.GetPropertyLengthTracker().Flush(); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)
 		}

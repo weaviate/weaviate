@@ -25,9 +25,10 @@ import (
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
-	listLock sync.RWMutex
-	list     *memberlist.Memberlist
-	delegate delegate
+	listLock        sync.RWMutex
+	list            *memberlist.Memberlist
+	nonStorageNodes map[string]struct{}
+	delegate        delegate
 }
 
 type Config struct {
@@ -57,14 +58,13 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
-	if userConfig.Hostname != "" {
-		cfg.Name = userConfig.Hostname
-	}
+	cfg.Name = userConfig.Hostname
 	state := State{
-		config: userConfig,
+		config:          userConfig,
+		nonStorageNodes: nonStorageNodes,
 		delegate: delegate{
 			Name:     cfg.Name,
 			dataPath: dataPath,
@@ -72,7 +72,8 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 		},
 	}
 	if err := state.delegate.init(diskSpace); err != nil {
-		logger.WithField("action", "init_state.delete_init").Error(err)
+		logger.WithField("action", "init_state.delete_init").WithError(err).
+			Error("delegate init failed")
 	}
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
@@ -89,14 +90,13 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {
-		logger.WithField("action", "memberlist_init").
-			WithField("hostname", userConfig.Hostname).
-			WithField("bind_port", userConfig.GossipBindPort).
-			WithError(err).
-			Error("memberlist not created")
+		logger.WithFields(logrus.Fields{
+			"action":    "memberlist_init",
+			"hostname":  userConfig.Hostname,
+			"bind_port": userConfig.GossipBindPort,
+		}).WithError(err).Error("memberlist not created")
 		return nil, errors.Wrap(err, "create member list")
 	}
-
 	var joinAddr []string
 	if userConfig.Join != "" {
 		joinAddr = strings.Split(userConfig.Join, ",")
@@ -105,18 +105,19 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	if len(joinAddr) > 0 {
 		_, err := net.LookupIP(strings.Split(joinAddr[0], ":")[0])
 		if err != nil {
-			logger.WithField("action", "cluster_attempt_join").
-				WithField("remote_hostname", joinAddr[0]).
-				WithError(err).
-				Warn("specified hostname to join cluster cannot be resolved. This is fine" +
+			logger.WithFields(logrus.Fields{
+				"action":          "cluster_attempt_join",
+				"remote_hostname": joinAddr[0],
+			}).WithError(err).Warn(
+				"specified hostname to join cluster cannot be resolved. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
 			_, err := state.list.Join(joinAddr)
 			if err != nil {
-				logger.WithField("action", "memberlist_init").
-					WithField("remote_hostname", joinAddr).
-					WithError(err).
-					Error("memberlist join not successful")
+				logger.WithFields(logrus.Fields{
+					"action":          "memberlist_init",
+					"remote_hostname": joinAddr,
+				}).WithError(err).Error("memberlist join not successful")
 				return nil, errors.Wrap(err, "join cluster")
 			}
 		}
@@ -173,10 +174,29 @@ func (s *State) AllNames() []string {
 	return out
 }
 
+// StorageNodes returns all nodes except non storage nodes
+func (s *State) StorageNodes() []string {
+	if len(s.nonStorageNodes) == 0 {
+		return s.AllNames()
+	}
+	members := s.list.Members()
+	out := make([]string, len(members))
+	n := 0
+	for _, m := range members {
+		name := m.Name
+		if _, ok := s.nonStorageNodes[name]; !ok {
+			out[n] = m.Name
+			n++
+		}
+	}
+
+	return out[:n]
+}
+
 // Candidates returns list of nodes (names) sorted by the
 // free amount of disk space in descending order
 func (s *State) Candidates() []string {
-	return s.delegate.sortCandidates(s.AllNames())
+	return s.delegate.sortCandidates(s.StorageNodes())
 }
 
 // All node names (not their hostnames!) for live members, including self.

@@ -33,6 +33,7 @@ import (
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	s.activityTracker.Add(1)
 	if s.isReadOnly() {
 		return []error{storagestate.ErrStatusReadOnly}
 	}
@@ -508,7 +509,7 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if err := ob.shard.GetPropertyLengthTracker().Flush(false); err != nil {
+	if err := ob.shard.GetPropertyLengthTracker().Flush(); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}

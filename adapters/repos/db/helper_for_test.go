@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -257,6 +258,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			RootPath:            tmpDir,
 			ClassName:           schema.ClassName(class.Class),
 			QueryMaximumResults: maxResults,
+			ReplicationFactor:   NewAtomicInt64(1),
 		},
 		invertedIndexConfig:   iic,
 		vectorIndexUserConfig: vic,
@@ -266,7 +268,8 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
 		allocChecker:          memwatch.NewDummyMonitor(),
-		shardCreateLocks:      newShardCreateLocks(),
+		shardCreateLocks:      esync.NewKeyLocker(),
+		shardInUseLocks:       esync.NewKeyRWLocker(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -292,7 +295,7 @@ func testObject(className string) *storobj.Object {
 	}
 }
 
-func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.Object {
+func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim int) []*storobj.Object {
 	obj := make([]*storobj.Object, numObj)
 
 	for i := 0; i < numObj; i++ {
@@ -302,7 +305,11 @@ func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.
 				ID:    strfmt.UUID(uuid.NewString()),
 				Class: className,
 			},
-			Vector: []float32{r.Float32(), r.Float32(), r.Float32(), r.Float32()},
+			Vector: make([]float32, vectorDim),
+		}
+
+		for d := 0; d < vectorDim; d++ {
+			obj[i].Vector[d] = r.Float32()
 		}
 	}
 	return obj

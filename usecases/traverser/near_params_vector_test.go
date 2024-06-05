@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -283,10 +284,84 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 	}
 }
 
+func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
+	type args struct {
+		ctx          context.Context
+		nearVector   *searchparams.NearVector
+		nearObject   *searchparams.NearObject
+		moduleParams map[string]interface{}
+		className    string
+	}
+	tests := []struct {
+		name             string
+		args             args
+		want             []float32
+		wantErr          bool
+		wantTargetVector string
+	}{
+		{
+			name: "Should get vector from nearObject with single multi vector no target vector",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					ID: "uuid",
+				},
+				className: "SingleMultiVector",
+			},
+			want:             []float32{2.0, 2.0, 2.0},
+			wantErr:          false,
+			wantTargetVector: "Vector",
+		},
+		{
+			name: "Should get vector from nearObject with single multi vector and target vector",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					ID:            "uuid",
+					TargetVectors: []string{"Vector"},
+				},
+				className: "SingleMultiVector",
+			},
+			want:             []float32{2.0, 2.0, 2.0},
+			wantErr:          false,
+			wantTargetVector: "Vector",
+		},
+		{
+			name: "Should get vector from nearObject with multi vector no target vector",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					ID:            "uuid",
+					TargetVectors: []string{"B"},
+				},
+				className: "MultiMultiVector",
+			},
+			want:             []float32{4.0, 4.0, 4.0},
+			wantErr:          false,
+			wantTargetVector: "B",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &nearParamsVector{
+				modulesProvider: &fakeModulesProvider{},
+				search:          &fakeNearParamsSearcher{},
+			}
+			got, targetVector, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "")
+			if (err != nil) != tt.wantErr {
+				t.Errorf("nearParamsVector.vectorFromParams() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("nearParamsVector.vectorFromParams() = %v, want %v", got, tt.want)
+			}
+			assert.Equal(t, tt.wantTargetVector, targetVector)
+		})
+	}
+}
+
 func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 	type args struct {
 		nearVector   *searchparams.NearVector
 		nearObject   *searchparams.NearObject
+		hybrid       *searchparams.HybridSearch
 		moduleParams map[string]interface{}
 	}
 	tests := []struct {
@@ -355,6 +430,53 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 			},
 			want: 0.77,
 		},
+		{
+			name: "Should extract distance from hybrid nearVector",
+			args: args{
+				hybrid: &searchparams.HybridSearch{
+					NearVectorParams: &searchparams.NearVector{
+						Distance:     0.88,
+						WithDistance: true,
+					},
+				},
+			},
+			want: 1 - 0.88/2,
+		},
+		{
+			name: "Should extract certainty from hybrid nearText",
+			args: args{
+				hybrid: &searchparams.HybridSearch{
+					NearTextParams: &searchparams.NearTextParams{
+						Certainty: 0.77,
+					},
+				},
+			},
+			want: 0.77,
+		},
+		{
+			name: "Should extract distance from hybrid nearText",
+			args: args{
+				hybrid: &searchparams.HybridSearch{
+					NearTextParams: &searchparams.NearTextParams{
+						Distance:     0.77,
+						WithDistance: true,
+					},
+				},
+			},
+			want: 1 - 0.77/2,
+		},
+		{
+			name: "Should extract distance from hybrid nearVector",
+			args: args{
+				hybrid: &searchparams.HybridSearch{
+					NearVectorParams: &searchparams.NearVector{
+						Distance:     0.88,
+						WithDistance: true,
+					},
+				},
+			},
+			want: 1 - 0.88/2,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -362,7 +484,7 @@ func Test_nearParamsVector_extractCertaintyFromParams(t *testing.T) {
 				modulesProvider: &fakeModulesProvider{},
 				search:          &fakeNearParamsSearcher{},
 			}
-			got := e.extractCertaintyFromParams(tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams)
+			got := e.extractCertaintyFromParams(tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.hybrid)
 			if !assert.InDelta(t, tt.want, got, 1e-9) {
 				t.Errorf("nearParamsVector.extractCertaintyFromParams() = %v, want %v", got, tt.want)
 			}
@@ -387,6 +509,19 @@ func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, i
 	if className == "SpecifiedClass" {
 		return &search.Result{
 			Vector: []float32{0.0, 0.0, 0.0},
+		}, nil
+	} else if className == "SingleMultiVector" {
+		return &search.Result{
+			Vectors: models.Vectors{
+				"Vector": []float32{2.0, 2.0, 2.0},
+			},
+		}, nil
+	} else if className == "MultiMultiVector" {
+		return &search.Result{
+			Vectors: models.Vectors{
+				"A": []float32{3.0, 3.0, 3.0},
+				"B": []float32{4.0, 4.0, 4.0},
+			},
 		}, nil
 	} else {
 		return &search.Result{

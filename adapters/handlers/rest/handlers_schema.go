@@ -31,7 +31,7 @@ type schemaHandlers struct {
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	_, err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
+	_, _, err := s.manager.AddClass(params.HTTPRequest.Context(), principal, params.ObjectClass)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ObjectClass.Class, err)
 		switch err.(type) {
@@ -118,7 +118,7 @@ func (s *schemaHandlers) deleteClass(params schema.SchemaObjectsDeleteParams, pr
 func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesAddParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	_, err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, s.manager.ReadOnlyClass(params.ClassName), false, params.Body)
+	_, _, err := s.manager.AddClassProperty(params.HTTPRequest.Context(), principal, s.manager.ReadOnlyClass(params.ClassName), false, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
 		switch err.(type) {
@@ -154,33 +154,17 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	return schema.NewSchemaDumpOK().WithPayload(payload)
 }
 
-func (s *schemaHandlers) getClusterStatus(params schema.SchemaClusterStatusParams, principal *models.Principal) middleware.Responder {
-	status, err := s.manager.ClusterStatus(params.HTTPRequest.Context())
-	if err == nil {
-		s.metricRequestsTotal.logOk("")
-		return schema.NewSchemaClusterStatusOK().WithPayload(status)
-	} else {
-		s.metricRequestsTotal.logServerError("", err)
-		return schema.NewSchemaClusterStatusInternalServerError().WithPayload(status)
-	}
-}
-
 func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	// TODO-RAFT START
-	// Fix changed interface GetShardsStatus -> ShardsStatus
-	// Previous definition:
-	// status, err := s.manager.GetShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
-	// var tenant string
-	// if params.Tenant == nil {
-	// 	tenant = ""
-	// } else {
-	// 	tenant = *params.Tenant
-	// }
+	var tenant string
+	if params.Tenant == nil {
+		tenant = ""
+	} else {
+		tenant = *params.Tenant
+	}
 
-	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName)
-	// TODO-RAFT END
+	status, err := s.manager.ShardsStatus(params.HTTPRequest.Context(), principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -240,7 +224,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsCreateOK() //.WithPayload(created)
+	return schema.NewTenantsCreateOK().WithPayload(params.Body)
 }
 
 func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
@@ -343,8 +327,6 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		SchemaObjectsGetHandlerFunc(h.getClass)
 	api.SchemaSchemaDumpHandler = schema.
 		SchemaDumpHandlerFunc(h.getSchema)
-	api.SchemaSchemaClusterStatusHandler = schema.
-		SchemaClusterStatusHandlerFunc(h.getClusterStatus)
 
 	api.SchemaSchemaObjectsShardsGetHandler = schema.
 		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)

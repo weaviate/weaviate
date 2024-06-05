@@ -186,6 +186,14 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
 		}
 		return res.Vectors[targetVector], targetVector, nil
+	} else {
+		if len(res.Vectors) == 1 {
+			for key, vec := range res.Vectors {
+				return vec, key, nil
+			}
+		} else if len(res.Vectors) > 1 {
+			return nil, "", errors.New("multiple vectors found, specify target vector")
+		}
 	}
 	return res.Vector, targetVector, nil
 }
@@ -202,6 +210,14 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 		if targetVector != "" {
 			if len(res[0].Vectors) == 0 || res[0].Vectors[targetVector] == nil {
 				return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
+			}
+		} else {
+			if len(res[0].Vectors) == 1 {
+				for key, vec := range res[0].Vectors {
+					return vec, key, nil
+				}
+			} else if len(res[0].Vectors) > 1 {
+				return nil, "", errors.New("multiple vectors found, specify target vector")
 			}
 		}
 		return res[0].Vector, targetVector, nil
@@ -270,7 +286,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 }
 
 func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.NearVector,
-	nearObject *searchparams.NearObject, moduleParams map[string]interface{},
+	nearObject *searchparams.NearObject, moduleParams map[string]interface{}, hybrid *searchparams.HybridSearch,
 ) float64 {
 	if nearVector != nil {
 		if nearVector.Certainty != 0 {
@@ -285,6 +301,23 @@ func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 			return nearObject.Certainty
 		} else if nearObject.WithDistance {
 			return additional.DistToCertainty(nearObject.Distance)
+		}
+	}
+
+	if hybrid != nil {
+		if hybrid.NearVectorParams != nil {
+			if hybrid.NearVectorParams.Certainty != 0 {
+				return hybrid.NearVectorParams.Certainty
+			} else if hybrid.NearVectorParams.WithDistance {
+				return additional.DistToCertainty(hybrid.NearVectorParams.Distance)
+			}
+		}
+		if hybrid.NearTextParams != nil {
+			if hybrid.NearTextParams.Certainty != 0 {
+				return hybrid.NearTextParams.Certainty
+			} else if hybrid.NearTextParams.WithDistance {
+				return additional.DistToCertainty(hybrid.NearTextParams.Distance)
+			}
 		}
 	}
 

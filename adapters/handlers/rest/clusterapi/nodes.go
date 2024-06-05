@@ -25,6 +25,7 @@ import (
 
 type nodesManager interface {
 	GetNodeStatus(ctx context.Context, className, output string) (*models.NodeStatus, error)
+	GetStatistics(ctx context.Context) (*models.Statistics, error)
 }
 
 type nodes struct {
@@ -39,6 +40,7 @@ func NewNodes(manager nodesManager, auth auth) *nodes {
 var (
 	regxNodes      = regexp.MustCompile(`/status`)
 	regxNodesClass = regexp.MustCompile(`/status/(` + entschema.ClassNameRegexCore + `)`)
+	regxStatistics = regexp.MustCompile(`/statistics`)
 )
 
 func (s *nodes) Nodes() http.Handler {
@@ -57,6 +59,15 @@ func (s *nodes) nodesHandler() http.HandlerFunc {
 			}
 
 			s.incomingNodeStatus().ServeHTTP(w, r)
+			return
+		case regxStatistics.MatchString(path):
+			if r.Method != http.MethodGet {
+				msg := fmt.Sprintf("/nodes api path %q not found", path)
+				http.Error(w, msg, http.StatusMethodNotAllowed)
+				return
+			}
+
+			s.incomingStatistics().ServeHTTP(w, r)
 			return
 		default:
 			http.Error(w, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -101,5 +112,31 @@ func (s *nodes) incomingNodeStatus() http.Handler {
 		}
 
 		w.Write(nodeStatusBytes)
+	})
+}
+
+func (s *nodes) incomingStatistics() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		statistics, err := s.nodesManager.GetStatistics(r.Context())
+		if err != nil {
+			http.Error(w, "/nodes fulfill request: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		if statistics == nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		statisticsBytes, err := json.Marshal(statistics)
+		if err != nil {
+			http.Error(w, "/nodes marshal response: "+err.Error(),
+				http.StatusInternalServerError)
+		}
+
+		w.Write(statisticsBytes)
 	})
 }

@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"fmt"
 	"math"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
@@ -144,13 +143,14 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		}
 	}
 
-	// TODO: remove debug logging
-	compID := rand.Intn(10000)
-	sg.logger.WithField("action", "lsm_compaction").WithField("compaction", compID).Infof("start lsm compaction")
-	defer sg.logger.WithField("action", "lsm_compaction_finished").WithField("compaction", compID).Infof("start lsm compaction")
-
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
+
+	if !sg.compactionFitsSizeLimit(leftSegment, rightSegment) {
+		// nothing to do this round, let's wait for the next round in the hopes
+		// that we'll find smaller (lower-level) segments that can still fit.
+		return false, nil
+	}
 
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 
@@ -262,6 +262,36 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		sg.segments[old2].countNetAdditions
 	sg.maintenanceLock.RUnlock()
 
+	err := func() error {
+		sg.maintenanceLock.Lock()
+		defer sg.maintenanceLock.Unlock()
+
+		leftSegment := sg.segments[old1]
+		rightSegment := sg.segments[old2]
+		newSegmentId := "segment-" + segmentID(leftSegment.path) + "_" + segmentID(rightSegment.path)
+
+		// delete any existing bloom tmp files in the form of segment-<seg1>_<seg2>*bloom.tmp
+		tmpFiles, err := filepath.Glob(filepath.Join(sg.dir, newSegmentId+"*bloom.tmp"))
+		if err != nil {
+			return errors.Wrap(err, "glob tmp files")
+		}
+
+		for _, tmpFile := range tmpFiles {
+			err = os.Remove(tmpFile)
+			if err != nil {
+				return errors.Wrap(err, "remove tmp file")
+			}
+		}
+		return nil
+	}()
+	if err != nil {
+		return err
+	}
+
+	leftSegment := sg.segments[old1]
+	rightSegment := sg.segments[old2]
+
+	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
 		updatedCountNetAdditions, sg.logger,
 		sg.useBloomFilter, sg.calcCountNetAdditions)
@@ -271,9 +301,6 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
-
-	leftSegment := sg.segments[old1]
-	rightSegment := sg.segments[old2]
 
 	if err := leftSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
@@ -475,4 +502,14 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 			"path":     dir,
 		}).Set(float64(count))
 	}
+}
+
+func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
+	if sg.maxSegmentSize == 0 {
+		// no limit is set, always return true
+		return true
+	}
+
+	totalSize := left.size + right.size
+	return totalSize <= sg.maxSegmentSize
 }

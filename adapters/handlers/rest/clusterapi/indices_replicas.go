@@ -15,12 +15,14 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -30,21 +32,19 @@ import (
 type replicator interface {
 	// Write endpoints
 	ReplicateObject(ctx context.Context, indexName, shardName,
-		requestID string, object *storobj.Object) replica.SimpleResponse
+		requestID string, object *storobj.Object, schemaVersion uint64) replica.SimpleResponse
 	ReplicateObjects(ctx context.Context, indexName, shardName,
 		requestID string, objects []*storobj.Object, schemaVersion uint64) replica.SimpleResponse
 	ReplicateUpdate(ctx context.Context, indexName, shardName,
-		requestID string, mergeDoc *objects.MergeDocument) replica.SimpleResponse
+		requestID string, mergeDoc *objects.MergeDocument, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, indexName, shardName,
-		requestID string, uuid strfmt.UUID) replica.SimpleResponse
+		requestID string, uuid strfmt.UUID, schemaVersion uint64) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName, shardName,
 		requestID string, uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName, shardName,
-		requestID string, refs []objects.BatchReference) replica.SimpleResponse
-	CommitReplication(indexName,
-		shardName, requestID string) interface{}
-	AbortReplication(indexName,
-		shardName, requestID string) interface{}
+		requestID string, refs []objects.BatchReference, schemaVersion uint64) replica.SimpleResponse
+	CommitReplication(indexName, shardName, requestID string) interface{}
+	AbortReplication(indexName, shardName, requestID string) interface{}
 	OverwriteObjects(ctx context.Context, index, shard string,
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 	// Read endpoints
@@ -273,7 +273,11 @@ func (i *replicatedIndices) postObject() http.Handler {
 			return
 		}
 
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		index, shard := args[1], args[2]
 
@@ -284,7 +288,7 @@ func (i *replicatedIndices) postObject() http.Handler {
 		switch ct {
 
 		case IndicesPayloads.SingleObject.MIME():
-			i.postObjectSingle(w, r, index, shard, requestID)
+			i.postObjectSingle(w, r, index, shard, requestID, schemaVersion)
 			return
 		case IndicesPayloads.ObjectList.MIME():
 			i.postObjectBatch(w, r, index, shard, requestID, schemaVersion)
@@ -324,7 +328,12 @@ func (i *replicatedIndices) patchObject() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		resp := i.shards.ReplicateUpdate(r.Context(), index, shard, requestID, &mergeDoc, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -366,6 +375,12 @@ func (i *replicatedIndices) getObjectsDigest() http.Handler {
 		}
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, "digest objects: "+err.Error(),
+				http.StatusUnprocessableEntity)
+			return
+		}
+
 		if err != nil {
 			http.Error(w, "digest objects: "+err.Error(),
 				http.StatusInternalServerError)
@@ -441,7 +456,12 @@ func (i *replicatedIndices) deleteObject() http.Handler {
 
 		defer r.Body.Close()
 
-		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id))
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		resp := i.shards.ReplicateDeletion(r.Context(), index, shard, requestID, strfmt.UUID(id), schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return
@@ -486,7 +506,11 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 			return
 		}
 
-		schemaVersion := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		resp := i.shards.ReplicateDeletions(r.Context(), index, shard, requestID, uuids, dryRun, schemaVersion)
 		if localIndexNotReady(resp) {
@@ -505,7 +529,7 @@ func (i *replicatedIndices) deleteObjects() http.Handler {
 }
 
 func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Request,
-	index, shard, requestID string,
+	index, shard, requestID string, schemaVersion uint64,
 ) {
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
@@ -519,7 +543,7 @@ func (i *replicatedIndices) postObjectSingle(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj)
+	resp := i.shards.ReplicateObject(r.Context(), index, shard, requestID, obj, schemaVersion)
 	if localIndexNotReady(resp) {
 		http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 		return
@@ -584,6 +608,12 @@ func (i *replicatedIndices) getObject() http.Handler {
 		)
 
 		resp, err = i.shards.FetchObject(r.Context(), index, shard, strfmt.UUID(id))
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, "digest objects: "+err.Error(),
+				http.StatusUnprocessableEntity)
+			return
+		}
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -635,6 +665,11 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 		}
 
 		resp, err := i.shards.FetchObjects(r.Context(), index, shard, ids)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, "digest objects: "+err.Error(),
+				http.StatusUnprocessableEntity)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -677,7 +712,13 @@ func (i *replicatedIndices) postRefs() http.Handler {
 			return
 		}
 
-		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		resp := i.shards.ReplicateReferences(r.Context(), index, shard, requestID, refs, schemaVersion)
 		if localIndexNotReady(resp) {
 			http.Error(w, resp.FirstError().Error(), http.StatusServiceUnavailable)
 			return

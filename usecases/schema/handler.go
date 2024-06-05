@@ -19,10 +19,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -43,12 +44,13 @@ type metaWriter interface {
 
 	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
 	// from an up to date schema.
-	QueryReadOnlyClass(name string) (*models.Class, uint64, error)
+	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
 	// QueryTenants returns the tenants for a class. If tenants is empty, all tenants are returned.
 	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
-	QueryTenantShard(class, tenant string) (string, string, uint64, error)
+	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
+	QueryShardingState(class string) (*sharding.State, uint64, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
@@ -58,10 +60,13 @@ type metaWriter interface {
 }
 
 type metaReader interface {
+	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
+	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
+
 	ClassEqual(name string) string
 	// MultiTenancy checks for multi-tenancy support
 	MultiTenancy(class string) models.MultiTenancyConfig
-	ClassInfo(class string) (ci store.ClassInfo)
+	ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	// ReadOnlyClass return class model.
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlySchema() models.Schema
@@ -69,18 +74,17 @@ type metaReader interface {
 	ShardReplicas(class, shard string) ([]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardOwner(class, shard string) (string, error)
-	TenantShard(class, tenant string) (string, string)
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
-	GetShardsStatus(class string) (models.ShardStatusList, error)
+	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 
 	// WithVersion endpoints return the data with the schema version
-	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (store.ClassInfo, error)
+	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error)
 	MultiTenancyWithVersion(ctx context.Context, class string, version uint64) (models.MultiTenancyConfig, error)
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
 	ShardOwnerWithVersion(ctx context.Context, lass, shard string, version uint64) (string, error)
 	ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (string, error)
 	ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) ([]string, error)
-	TenantShardWithVersion(ctx context.Context, class, tenant string, version uint64) (name string, st string, err error)
+	TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error)
 	CopyShardingStateWithVersion(ctx context.Context, class string, version uint64) (*sharding.State, error)
 }
 
@@ -155,16 +159,16 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 }
 
 // GetSchema retrieves a locally cached copy of the schema
-func (m *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := m.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return schema.Schema{}, err
 	}
 
 	if !consistency {
-		return m.getSchema(), nil
+		return h.getSchema(), nil
 	}
 
-	if consistentSchema, err := m.metaWriter.QuerySchema(); err != nil {
+	if consistentSchema, err := h.metaWriter.QuerySchema(); err != nil {
 		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
 	} else {
 		return schema.Schema{
@@ -206,14 +210,14 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,
-	principal *models.Principal, class string,
+	principal *models.Principal, class, tenant string,
 ) (models.ShardStatusList, error) {
 	err := h.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", class))
 	if err != nil {
 		return nil, err
 	}
 
-	return h.metaReader.GetShardsStatus(class)
+	return h.metaReader.GetShardsStatus(class, tenant)
 }
 
 // JoinNode adds the given node to the cluster.
@@ -232,12 +236,18 @@ func (h *Handler) JoinNode(ctx context.Context, node string, nodePort string, vo
 		nodePort = fmt.Sprintf("%d", config.DefaultRaftPort)
 	}
 
-	return h.metaWriter.Join(ctx, node, nodeAddr+":"+nodePort, voter)
+	if err := h.metaWriter.Join(ctx, node, nodeAddr+":"+nodePort, voter); err != nil {
+		return fmt.Errorf("node failed to join cluster: %w", err)
+	}
+	return nil
 }
 
 // RemoveNode removes the given node from the cluster.
 func (h *Handler) RemoveNode(ctx context.Context, node string) error {
-	return h.metaWriter.Remove(ctx, node)
+	if err := h.metaWriter.Remove(ctx, node); err != nil {
+		return fmt.Errorf("node failed to leave cluster: %w", err)
+	}
+	return nil
 }
 
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.

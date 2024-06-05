@@ -16,12 +16,15 @@ import (
 	"context"
 	"encoding/binary"
 	"math"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -58,14 +61,20 @@ type IndexQueue struct {
 	// queue of not-yet-indexed vectors
 	queue *vectorQueue
 
-	// keeps track of the last call to Push()
-	lastPushed atomic.Pointer[time.Time]
-
 	pqMaxPool *pqMaxPool
 
 	checkpoints *indexcheckpoint.Checkpoints
 
 	paused atomic.Bool
+
+	// tracks the jobs that are currently being processed
+	doneChans struct {
+		sync.Mutex
+
+		chans []chan struct{}
+	}
+
+	lastPushed atomic.Pointer[time.Time]
 }
 
 type vectorDescriptor struct {
@@ -91,6 +100,12 @@ type IndexQueueOptions struct {
 	// Maximum number of vectors to use for brute force search
 	// when vectors are not indexed.
 	BruteForceSearchLimit int
+
+	// Maximum number of chunks to send to the workers in a single tick.
+	MaxChunksPerTick int
+
+	// Enable throttling of the indexing process.
+	Throttle bool
 }
 
 type batchIndexer interface {
@@ -102,13 +117,13 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
+	AlreadyIndexed() uint64
 }
 
-type compressedIndexer interface {
-	Compressed() bool
-	AlreadyIndexed() uint64
-	TurnOnCompression(callback func()) error
-	ShouldCompress() (bool, int)
+type upgradableIndexer interface {
+	Upgraded() bool
+	Upgrade(callback func()) error
+	ShouldUpgrade() (bool, int)
 }
 
 type shardStatusUpdater interface {
@@ -127,14 +142,22 @@ func NewIndexQueue(
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
 	}
-	opts.Logger = opts.Logger.WithField("component", "index_queue")
+	opts.Logger = opts.Logger.
+		WithField("component", "index_queue").
+		WithField("shard_id", shardID)
 
 	if opts.BatchSize == 0 {
 		opts.BatchSize = 1000
 	}
+	if v, _ := strconv.Atoi(os.Getenv("ASYNC_BATCH_SIZE")); v > 0 {
+		opts.BatchSize = v
+	}
 
 	if opts.IndexInterval == 0 {
 		opts.IndexInterval = 1 * time.Second
+	}
+	if v, _ := time.ParseDuration(os.Getenv("ASYNC_INDEX_INTERVAL")); v > 0 {
+		opts.IndexInterval = v
 	}
 
 	if opts.BruteForceSearchLimit == 0 {
@@ -142,7 +165,17 @@ func NewIndexQueue(
 	}
 
 	if opts.StaleTimeout == 0 {
-		opts.StaleTimeout = 1 * time.Minute
+		opts.StaleTimeout = 30 * time.Second
+	}
+
+	if opts.MaxChunksPerTick == 0 {
+		opts.MaxChunksPerTick = runtime.GOMAXPROCS(0) - 1
+	}
+	if v, _ := strconv.Atoi(os.Getenv("ASYNC_MAX_CHUNKS_PER_TICK")); v > 0 {
+		opts.MaxChunksPerTick = v
+	}
+	if configbase.Enabled(os.Getenv("ASYNC_THROTTLING")) {
+		opts.Throttle = true
 	}
 
 	q := IndexQueue{
@@ -188,12 +221,13 @@ func (q *IndexQueue) Close() error {
 
 	q.wg.Wait()
 
-	// loop over the chunks of the queue
-	// wait for the done chan to be closed
-	// then return
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// wait for the workers to finish their current tasks
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	q.queue.wait(ctx)
+
+	q.wait(ctx)
+
+	q.Logger.Debug("index queue closed")
 
 	return nil
 }
@@ -207,7 +241,6 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 		return errors.New("index queue closed")
 	}
 
-	// store the time of the last push
 	now := time.Now()
 	q.lastPushed.Store(&now)
 
@@ -377,24 +410,32 @@ func (q *IndexQueue) Drop() error {
 		return q.checkpoints.Delete(q.shardID, q.targetVector)
 	}
 
+	q.Logger.Debug("index queue dropped")
+
 	return nil
 }
 
 func (q *IndexQueue) indexer() {
 	t := time.NewTicker(q.IndexInterval)
 
-	workerNb := runtime.GOMAXPROCS(0) - 1
+	maxPerTick := q.MaxChunksPerTick
 
 	for {
 		select {
 		case <-t.C:
+			if q.paused.Load() {
+				continue
+			}
+
+			if q.checkCompressionSettings() {
+				continue
+			}
+
 			if q.Size() == 0 {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 				continue
 			}
-			if q.paused.Load() {
-				continue
-			}
+
 			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 			if status != storagestate.StatusIndexing || err != nil {
 				q.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in " + q.IndexInterval.String())
@@ -402,19 +443,18 @@ func (q *IndexQueue) indexer() {
 			}
 
 			lastPushed := q.lastPushed.Load()
-			if lastPushed == nil || time.Since(*lastPushed) > time.Second {
-				// send at most 2 times the number of workers in one go,
-				// then wait for the next tick in case more vectors
-				// are added to the queue
-				q.pushToWorkers(2*workerNb, false)
+			var chunksSent int
+			if !q.Throttle || lastPushed == nil || time.Since(*lastPushed) > time.Second {
+				// send at most maxPerTick chunks at a time, without waiting for them to be indexed
+				chunksSent = q.pushToWorkers(maxPerTick, false)
 			} else {
 				// send only one batch at a time and wait for it to be indexed
-				// to avoid competing for resources with the Push() method.
-				// This ensures the resources are used for queueing vectors in priority,
-				// then for indexing them.
-				q.pushToWorkers(1, true)
+				// to avoid competing for resources with the inverted index.
+				// This ensures the resources are used for storing / queueing vectors in priority.
+				chunksSent = q.pushToWorkers(1, true)
 			}
-			q.checkCompressionSettings()
+
+			q.logStats(chunksSent)
 		case <-q.ctx.Done():
 			// stop the ticker
 			t.Stop()
@@ -423,29 +463,101 @@ func (q *IndexQueue) indexer() {
 	}
 }
 
-func (q *IndexQueue) pushToWorkers(max int, wait bool) {
-	chunks := q.queue.borrowChunks(max)
-	for i, c := range chunks {
-		select {
-		case <-q.ctx.Done():
-			// release unsent borrowed chunks
-			for _, c := range chunks[i:] {
-				q.queue.releaseChunk(c)
+func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
+	chunks := q.queue.dequeue(max)
+	if len(chunks) == 0 {
+		return 0
+	}
+
+	var minID uint64
+
+	doneChans := make([]chan struct{}, 0, len(chunks))
+
+	for i := range chunks {
+		c := chunks[i]
+		ids := make([]uint64, 0, c.cursor)
+		vectors := make([][]float32, 0, c.cursor)
+		var deleted []uint64
+
+		for i := range c.data[:c.cursor] {
+			if minID == 0 || c.data[i].id < minID {
+				minID = c.data[i].id
 			}
 
-			return
+			if q.queue.IsDeleted(c.data[i].id) {
+				deleted = append(deleted, c.data[i].id)
+			} else {
+				ids = append(ids, c.data[i].id)
+				vectors = append(vectors, c.data[i].vector)
+			}
+		}
+
+		if len(ids) == 0 {
+			q.Logger.Debug("all vectors in the chunk are deleted. skipping")
+			continue
+		}
+
+		done := make(chan struct{})
+		doneChans = append(doneChans, done)
+
+		select {
+		case <-q.ctx.Done():
+			return i
 		case q.indexCh <- job{
-			chunk:   c,
 			indexer: q.Index,
-			queue:   q.queue,
 			ctx:     q.ctx,
+			ids:     ids,
+			vectors: vectors,
+			done:    done,
 		}:
+			q.queue.ResetDeleted(deleted...)
 		}
 	}
 
+	q.doneChans.Lock()
+	q.doneChans.chans = append(q.doneChans.chans, doneChans...)
+	q.doneChans.Unlock()
+
+	q.queue.persistCheckpoint(minID)
+
 	if wait {
-		q.queue.wait(q.ctx)
+		q.wait(q.ctx)
 	}
+
+	return len(chunks)
+}
+
+// waits for all workers to finish their current tasks.
+func (q *IndexQueue) wait(ctx context.Context) {
+	q.doneChans.Lock()
+	chans := q.doneChans.chans
+	q.doneChans.Unlock()
+
+	for i := range chans {
+		select {
+		case <-ctx.Done():
+			return
+		case <-chans[i]:
+		}
+	}
+}
+
+func (q *IndexQueue) logStats(chunksSent int) {
+	var ready int
+	q.queue.fullChunks.Lock()
+	e := q.queue.fullChunks.list.Front()
+	for e != nil {
+		ready++
+		e = e.Next()
+	}
+	q.queue.fullChunks.Unlock()
+
+	qSize := q.Size()
+	q.Logger.
+		WithField("queue_size", qSize).
+		WithField("chunks_sent", chunksSent).
+		WithField("chunks_ready", ready).
+		Debug("queue stats")
 }
 
 // SearchByVector performs the search through the index first, then uses brute force to
@@ -522,24 +634,28 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 	return ids, dists, nil
 }
 
-func (q *IndexQueue) checkCompressionSettings() {
-	ci, ok := q.Index.(compressedIndexer)
+func (q *IndexQueue) checkCompressionSettings() bool {
+	ci, ok := q.Index.(upgradableIndexer)
 	if !ok {
-		return
+		return false
 	}
 
-	shouldCompress, shouldCompressAt := ci.ShouldCompress()
-	if !shouldCompress || ci.Compressed() {
-		return
+	shouldUpgrade, shouldUpgradeAt := ci.ShouldUpgrade()
+	if !shouldUpgrade || ci.Upgraded() {
+		return false
 	}
 
-	if ci.AlreadyIndexed() > uint64(shouldCompressAt) {
+	if q.Index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		q.pauseIndexing()
-		err := ci.TurnOnCompression(q.resumeIndexing)
+		err := ci.Upgrade(q.resumeIndexing)
 		if err != nil {
-			q.Logger.WithError(err).Error("failed to turn on compression")
+			q.Logger.WithError(err).Error("failed to upgrade")
 		}
+
+		return true
 	}
+
+	return false
 }
 
 // pause indexing and wait for the workers to finish their current tasks
@@ -547,7 +663,7 @@ func (q *IndexQueue) checkCompressionSettings() {
 func (q *IndexQueue) pauseIndexing() {
 	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
 	q.paused.Store(true)
-	q.queue.wait(q.ctx)
+	q.wait(context.Background())
 	q.Logger.Debug("indexing paused")
 }
 
@@ -632,7 +748,6 @@ func (pqh *pqMaxPool) Put(pq *priorityqueue.Queue[any]) {
 
 type vectorQueue struct {
 	IndexQueue *IndexQueue
-	pool       sync.Pool
 	curBatch   struct {
 		sync.Mutex
 
@@ -653,12 +768,6 @@ type vectorQueue struct {
 func newVectorQueue(iq *IndexQueue) *vectorQueue {
 	q := vectorQueue{
 		IndexQueue: iq,
-		pool: sync.Pool{
-			New: func() any {
-				buf := make([]vectorDescriptor, iq.BatchSize)
-				return &buf
-			},
-		},
 	}
 
 	q.fullChunks.list = list.New()
@@ -668,52 +777,14 @@ func newVectorQueue(iq *IndexQueue) *vectorQueue {
 }
 
 func (q *vectorQueue) getBuffer() []vectorDescriptor {
-	buff := *(q.pool.Get().(*[]vectorDescriptor))
-	return buff[:q.IndexQueue.BatchSize]
+	return make([]vectorDescriptor, q.IndexQueue.BatchSize)
 }
 
 func (q *vectorQueue) getFreeChunk() *chunk {
 	c := chunk{
 		data: q.getBuffer(),
 	}
-	c.indexed = make(chan struct{})
 	return &c
-}
-
-func (q *vectorQueue) wait(ctx context.Context) {
-	for {
-		// get first non-closed channel
-		var ch chan struct{}
-
-		q.fullChunks.Lock()
-		e := q.fullChunks.list.Front()
-	LOOP:
-		for e != nil {
-			c := e.Value.(*chunk)
-			if c.borrowed {
-				select {
-				case <-c.indexed:
-				default:
-					ch = c.indexed
-					break LOOP
-				}
-			}
-
-			e = e.Next()
-		}
-		q.fullChunks.Unlock()
-
-		if ch == nil {
-			return
-		}
-
-		select {
-		case <-ch:
-		case <-time.After(5 * time.Second):
-		case <-ctx.Done():
-			return
-		}
-	}
 }
 
 func (q *vectorQueue) Add(vectors []vectorDescriptor) {
@@ -741,8 +812,8 @@ func (q *vectorQueue) Add(vectors []vectorDescriptor) {
 
 	if len(full) > 0 {
 		q.fullChunks.Lock()
-		for _, f := range full {
-			f.elem = q.fullChunks.list.PushBack(f)
+		for i := range full {
+			q.fullChunks.list.PushBack(full[i])
 		}
 		q.fullChunks.Unlock()
 	}
@@ -769,7 +840,7 @@ func (q *vectorQueue) ensureHasSpace() *chunk {
 	return c
 }
 
-func (q *vectorQueue) borrowChunks(max int) []*chunk {
+func (q *vectorQueue) dequeue(max int) []*chunk {
 	if max <= 0 {
 		max = math.MaxInt64
 	}
@@ -779,68 +850,25 @@ func (q *vectorQueue) borrowChunks(max int) []*chunk {
 	e := q.fullChunks.list.Front()
 	count := 0
 	for e != nil && count < max {
-		c := e.Value.(*chunk)
-		if !c.borrowed {
-			count++
-			c.borrowed = true
-			chunks = append(chunks, c)
-		}
+		next := e.Next()
+		c := q.fullChunks.list.Remove(e).(*chunk)
+		chunks = append(chunks, c)
+		count++
 
-		e = e.Next()
+		e = next
 	}
 	q.fullChunks.Unlock()
 
 	if count < max {
-		var incompleteChunk *chunk
 		q.curBatch.Lock()
 		if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.IndexQueue.StaleTimeout && q.curBatch.c.cursor > 0 {
-			q.curBatch.c.borrowed = true
 			chunks = append(chunks, q.curBatch.c)
-			incompleteChunk = q.curBatch.c
 			q.curBatch.c = nil
 		}
 		q.curBatch.Unlock()
-
-		// add the incomplete chunk to the full chunks list
-		if incompleteChunk != nil {
-			q.fullChunks.Lock()
-			q.fullChunks.list.PushBack(incompleteChunk)
-			q.fullChunks.Unlock()
-		}
 	}
 
 	return chunks
-}
-
-func (q *vectorQueue) releaseChunk(c *chunk) {
-	if c == nil {
-		return
-	}
-
-	if c.indexed != nil {
-		close(c.indexed)
-	}
-
-	q.fullChunks.Lock()
-	if c.elem != nil {
-		q.fullChunks.list.Remove(c.elem)
-	}
-
-	// reset the chunk to notify the search
-	// that it was released
-	c.borrowed = false
-	c.cursor = 0
-	c.elem = nil
-	c.createdAt = nil
-	c.indexed = nil
-	data := c.data
-	c.data = nil
-
-	q.fullChunks.Unlock()
-
-	if len(data) == q.IndexQueue.BatchSize {
-		q.pool.Put(&data)
-	}
 }
 
 // persistCheckpoint update the on-disk checkpoint that tracks the last indexed id
@@ -850,22 +878,10 @@ func (q *vectorQueue) releaseChunk(c *chunk) {
 // minus the number of vectors in the queue (delta), which is capped at 10k vectors.
 // The calculation looks like this:
 // checkpoint = min(ids) - max(queueSize, 10_000)
-func (q *vectorQueue) persistCheckpoint(ids []uint64) {
-	if len(ids) == 0 {
-		return
-	}
-
+func (q *vectorQueue) persistCheckpoint(minID uint64) {
 	q.fullChunks.Lock()
 	cl := q.fullChunks.list.Len()
 	q.fullChunks.Unlock()
-
-	// get the lowest id in the current batch
-	var minID uint64
-	for _, id := range ids {
-		if minID == 0 || id < minID {
-			minID = id
-		}
-	}
 
 	delta := uint64(cl * q.IndexQueue.BatchSize)
 	// cap the delta to 10k vectors
@@ -890,7 +906,6 @@ func (q *vectorQueue) persistCheckpoint(ids []uint64) {
 // in the allowlist are returned.
 func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vectorDescriptor) error) error {
 	buf := q.getBuffer()
-	defer q.pool.Put(&buf)
 
 	var count int
 
@@ -1007,9 +1022,9 @@ func (q *vectorQueue) IsDeleted(id uint64) bool {
 	return ok
 }
 
-func (q *vectorQueue) ResetDeleted(id ...uint64) {
+func (q *vectorQueue) ResetDeleted(ids ...uint64) {
 	q.deleted.Lock()
-	for _, id := range id {
+	for _, id := range ids {
 		delete(q.deleted.m, id)
 	}
 	q.deleted.Unlock()
@@ -1017,9 +1032,6 @@ func (q *vectorQueue) ResetDeleted(id ...uint64) {
 
 type chunk struct {
 	cursor    int
-	borrowed  bool
 	data      []vectorDescriptor
-	elem      *list.Element
 	createdAt *time.Time
-	indexed   chan struct{}
 }

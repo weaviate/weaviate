@@ -196,6 +196,8 @@ type Config struct {
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
+	MaxSegmentSize            int64
+	HNSWMaxLogSize            int64
 	TrackVectorDimensions     bool
 	ServerVersion             string
 	GitHash                   string
@@ -232,10 +234,26 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil
 }
 
-// GetIndexForIncoming returns the index if it exists or nil if it doesn't
+// TODO-RAFT: Because of interfaces and import order we can't have this function just return the same index interface
+// for both sharding and replica usage. With a refactor of the interfaces this can be done and we can remove the
+// deduplication
+
+// GetIndexForIncomingSharding returns the index if it exists or nil if it doesn't
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
-func (db *DB) GetIndexForIncoming(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+	index := db.GetIndex(className)
+	if index == nil {
+		return nil
+	}
+
+	return index
+}
+
+// GetIndexForIncomingReplica returns the index if it exists or nil if it doesn't
+// by default it will retry 3 times between 0-150 ms to get the index
+// to handle the eventual consistency.
+func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.RemoteIndexIncomingRepo {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil
@@ -335,70 +353,40 @@ type job struct {
 	batcher *objectsBatcher
 
 	// async only
-	chunk   *chunk
 	indexer batchIndexer
-	queue   *vectorQueue
+	ids     []uint64
+	vectors [][]float32
+	done    chan struct{}
 }
 
 func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
-	var ids []uint64
-	var vectors [][]float32
-	var deleted []uint64
-
 	for job := range ch {
-		c := job.chunk
-		for i := range c.data[:c.cursor] {
-			if job.queue.IsDeleted(c.data[i].id) {
-				deleted = append(deleted, c.data[i].id)
-			} else {
-				ids = append(ids, c.data[i].id)
-				vectors = append(vectors, c.data[i].vector)
+	LOOP:
+		for {
+			err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
+			if err == nil {
+				break LOOP
+			}
+
+			if errors.Is(err, context.Canceled) {
+				logger.WithError(err).Info("skipping indexing batch due to context cancellation")
+				break LOOP
+			}
+
+			logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
+
+			t := time.NewTimer(retryInterval)
+			select {
+			case <-job.ctx.Done():
+				// drain the timer
+				if !t.Stop() {
+					<-t.C
+				}
+				return
+			case <-t.C:
 			}
 		}
 
-		var err error
-
-		if len(ids) > 0 {
-		LOOP:
-			for {
-				err = job.indexer.AddBatch(job.ctx, ids, vectors)
-				if err == nil {
-					break LOOP
-				}
-
-				if errors.Is(err, context.Canceled) {
-					logger.WithError(err).Debugf("skipping indexing batch due to context cancellation")
-					break LOOP
-				}
-
-				logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
-
-				t := time.NewTimer(retryInterval)
-				select {
-				case <-job.ctx.Done():
-					// drain the timer
-					if !t.Stop() {
-						<-t.C
-					}
-					return
-				case <-t.C:
-				}
-			}
-		}
-
-		// only persist checkpoint if we indexed a full batch
-		if err == nil {
-			job.queue.persistCheckpoint(ids)
-		}
-
-		job.queue.releaseChunk(c)
-
-		if len(deleted) > 0 {
-			job.queue.ResetDeleted(deleted...)
-		}
-
-		ids = ids[:0]
-		vectors = vectors[:0]
-		deleted = deleted[:0]
+		close(job.done)
 	}
 }

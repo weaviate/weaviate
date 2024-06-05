@@ -33,6 +33,9 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		Properties: params.HybridSearch.Properties,
 	}
 
+	params.Group = nil
+	params.GroupBy = nil
+
 	if params.Pagination == nil {
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
 	}
@@ -70,6 +73,8 @@ func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e 
 	if params.Pagination.Limit < hybrid.DefaultLimit {
 		params.Pagination.Limit = hybrid.DefaultLimit
 	}
+	params.Group = nil
+	params.GroupBy = nil
 
 	targetVector := ""
 	if len(params.HybridSearch.TargetVectors) > 0 {
@@ -149,21 +154,17 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	if len(params.HybridSearch.TargetVectors) > 0 {
 		targetVector = params.HybridSearch.TargetVectors[0]
 	}
-	/*
-		//FIXME?
-
-		// Subsearch takes precedence over the top level
-		if len(subSearchParams.TargetVectors) > 0 {
-			targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
-		}
-	*/
+	// Subsearch takes precedence over the top level
+	if len(params.HybridSearch.NearTextParams.TargetVectors) > 0 {
+		targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
+	}
 
 	targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
 	if err != nil {
 		return nil, "", err
 	}
 
-	subSearchParams.TargetVectors = []string{targetVector}
+	subSearchParams.TargetVectors = []string{targetVector} // TODO support multiple target vectors
 
 	subsearchWrap := params
 	if subsearchWrap.ModuleParams == nil {
@@ -173,6 +174,8 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	subsearchWrap.ModuleParams["nearText"] = &subSearchParams
 
 	subsearchWrap.HybridSearch = nil
+	subsearchWrap.Group = nil
+	subsearchWrap.GroupBy = nil
 	partial_results, vector, err := e.getClassVectorSearch(ctx, subsearchWrap)
 	if err != nil {
 		return nil, "", err
@@ -194,6 +197,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 
 // Hybrid search.  This is the main entry point to the hybrid search algorithm
 func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	var err error
 	var results [][]*search.Result
 	var weights []float64
 	var names []string
@@ -205,12 +209,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	if len(params.HybridSearch.TargetVectors) > 0 {
 		targetVector = params.HybridSearch.TargetVectors[0]
-	}
-
-	var err error
-	targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
-	if err != nil {
-		return nil, err
 	}
 
 	origParams := params
@@ -246,6 +244,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = append(results, res)
 			names = append(names, name)
 		} else {
+			targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
+			if err != nil {
+				return nil, err
+			}
 			sch := e.schemaGetter.GetSchemaSkipAuth()
 			class := sch.FindClassByName(schema.ClassName(params.ClassName))
 			if class == nil {
@@ -317,7 +319,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return res, nil
 	}
 
-	res, err := hybrid.HybridSubsearch(ctx, &hybrid.Params{
+	res, err := hybrid.HybridCombiner(ctx, &hybrid.Params{
 		HybridSearch: origParams.HybridSearch,
 		Keyword:      origParams.KeywordRanking,
 		Class:        origParams.ClassName,
@@ -354,5 +356,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		out = append(out, *pointerResult)
 	}
 
+	if origParams.GroupBy != nil {
+		groupedResults, err := e.groupSearchResults(ctx, out, origParams.GroupBy)
+		if err != nil {
+			return nil, err
+		}
+		return groupedResults, nil
+	}
 	return out, nil
 }

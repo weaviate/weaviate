@@ -45,6 +45,10 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 				className, id, err)
 		}
 
+		if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+			return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
+		}
+
 		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, obj.Vectors, nil, schemaVersion); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}

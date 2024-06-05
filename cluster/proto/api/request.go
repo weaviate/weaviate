@@ -13,6 +13,7 @@ package api
 
 import (
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -39,13 +40,12 @@ type UpdateShardStatusRequest struct {
 	SchemaVersion        uint64
 }
 
-type QueryReadOnlyClassRequest struct {
-	Class string
+type QueryReadOnlyClassesRequest struct {
+	Classes []string
 }
 
 type QueryReadOnlyClassResponse struct {
-	Class        *models.Class
-	ClassVersion uint64
+	Classes map[string]versioned.Class
 }
 
 type QueryTenantsRequest struct {
@@ -76,13 +76,21 @@ type QueryShardOwnerResponse struct {
 	Owner        string
 }
 
-type QueryTenantShardRequest struct {
-	Class  string
-	Tenant string
+type QueryTenantsShardsRequest struct {
+	Class   string
+	Tenants []string
 }
 
-type QueryTenantShardResponse struct {
-	Tenant         string
-	ActivityStatus string
-	SchemaVersion  uint64
+type QueryTenantsShardsResponse struct {
+	TenantsActivityStatus map[string]string // map[tenant]status
+	SchemaVersion         uint64
+}
+
+type QueryShardingStateRequest struct {
+	Class string
+}
+
+type QueryShardingStateResponse struct {
+	State   *sharding.State
+	Version uint64
 }

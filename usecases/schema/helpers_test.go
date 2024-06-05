@@ -20,17 +20,18 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func newTestHandler(t *testing.T, db store.Indexer) (*Handler, *fakeMetaHandler) {
+func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeMetaHandler) {
 	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
@@ -43,12 +44,12 @@ func newTestHandler(t *testing.T, db store.Indexer) (*Handler, *fakeMetaHandler)
 	handler, err := NewHandler(
 		metaHandler, metaHandler, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, newFakeClusterState(), &fakeScaleOutManager{})
+		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
 
-func newTestHandlerWithCustomAuthorizer(t *testing.T, db store.Indexer, authorizer authorizer) (*Handler, *fakeMetaHandler) {
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorizer) (*Handler, *fakeMetaHandler) {
 	cfg := config.Config{}
 	metaHandler := &fakeMetaHandler{}
 	logger, _ := test.NewNullLogger()
@@ -60,7 +61,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db store.Indexer, authoriz
 	handler, err := NewHandler(
 		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, newFakeClusterState(), &fakeScaleOutManager{})
+		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -121,9 +122,13 @@ func (f *fakeDB) UpdateShardStatus(cmd *command.UpdateShardStatusRequest) error 
 	return nil
 }
 
-func (f *fakeDB) GetShardsStatus(class string) (models.ShardStatusList, error) {
-	args := f.Called(class)
+func (f *fakeDB) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
+	args := f.Called(class, tenant)
 	return args.Get(0).(models.ShardStatusList), nil
+}
+
+func (f *fakeDB) TriggerSchemaUpdateCallbacks() {
+	f.Called()
 }
 
 type fakeAuthorizer struct {
@@ -221,68 +226,6 @@ func (f *fakeVectorizerValidator) ValidateVectorizer(moduleName string) error {
 	return fmt.Errorf("invalid vectorizer %q", moduleName)
 }
 
-type fakeClusterState struct {
-	hosts       []string
-	syncIgnored bool
-	skipRepair  bool
-}
-
-func newFakeClusterState(hosts ...string) *fakeClusterState {
-	return &fakeClusterState{
-		hosts: func() []string {
-			if len(hosts) == 0 {
-				return []string{"node-1"}
-			}
-			return hosts
-		}(),
-	}
-}
-
-func (f *fakeClusterState) SchemaSyncIgnored() bool {
-	return f.syncIgnored
-}
-
-func (f *fakeClusterState) SkipSchemaRepair() bool {
-	return f.skipRepair
-}
-
-func (f *fakeClusterState) Hostnames() []string {
-	return f.hosts
-}
-
-func (f *fakeClusterState) AllNames() []string {
-	return f.hosts
-}
-
-func (f *fakeClusterState) Candidates() []string {
-	return f.hosts
-}
-
-func (f *fakeClusterState) LocalName() string {
-	return "node1"
-}
-
-func (f *fakeClusterState) NodeCount() int {
-	return 1
-}
-
-func (f *fakeClusterState) ClusterHealthScore() int {
-	return 0
-}
-
-func (f *fakeClusterState) ResolveParentNodes(string, string,
-) (map[string]string, error) {
-	return nil, nil
-}
-
-func (f *fakeClusterState) NodeHostname(string) (string, bool) {
-	return "", false
-}
-
-func (f *fakeClusterState) Execute(cmd *command.ApplyRequest) error {
-	return nil
-}
-
 type fakeVectorConfig struct {
 	raw interface{}
 }
@@ -378,6 +321,10 @@ func (*fakeMigrator) ValidateInvertedIndexConfigUpdate(old, updated *models.Inve
 func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
 	args := f.Called(ctx, className, updated)
 	return args.Error(0)
+}
+
+func (f *fakeMigrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+	return nil
 }
 
 func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {

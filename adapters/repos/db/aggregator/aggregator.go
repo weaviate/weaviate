@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/modules"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -42,21 +43,23 @@ type Aggregator struct {
 	vectorIndex            vectorIndex
 	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
-	propLenTracker         *inverted.JsonPropertyLengthTracker
+	propLenTracker         *inverted.JsonShardMetaData
 	isFallbackToSearchable inverted.IsFallbackToSearchable
 	tenant                 string
 	nestedCrossRefLimit    int64
 	bitmapFactory          *roaringset.BitmapFactory
+	modules                *modules.Provider
 }
 
 func New(store *lsmkv.Store, params aggregation.Params,
 	getSchema schemaUC.SchemaGetter, classSearcher inverted.ClassSearcher,
 	stopwords stopwords.StopwordDetector, shardVersion uint16,
 	vectorIndex vectorIndex, logger logrus.FieldLogger,
-	propLenTracker *inverted.JsonPropertyLengthTracker,
+	propLenTracker *inverted.JsonShardMetaData,
 	isFallbackToSearchable inverted.IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64,
 	bitmapFactory *roaringset.BitmapFactory,
+	modules *modules.Provider,
 ) *Aggregator {
 	return &Aggregator{
 		logger:                 logger,
@@ -72,10 +75,11 @@ func New(store *lsmkv.Store, params aggregation.Params,
 		tenant:                 tenant,
 		nestedCrossRefLimit:    nestedCrossRefLimit,
 		bitmapFactory:          bitmapFactory,
+		modules:                modules,
 	}
 }
 
-func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+func (a *Aggregator) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	return a.propLenTracker
 }
 

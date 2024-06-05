@@ -20,35 +20,13 @@ import (
 
 const (
 	apiEndpointProperty = "apiEndpoint"
-	modelIDProperty     = "modelId"
+	modelProperty       = "model"
 )
 
 const (
 	DefaultApiEndpoint = "http://localhost:11434"
-	DefaultModelID     = "llama3"
+	DefaultModel       = "llama3"
 )
-
-var availableOllamaModels = []string{
-	DefaultModelID,
-	"mistral",
-	"dolphin-phi",
-	"phi",
-	"neural-chat",
-	"starling-lm",
-	"codellama",
-	"llama3:8b",
-	"llama3:instruct",
-	"llama3:8b-instruct-q4_0",
-	"llama2",
-	"llama2-uncensored",
-	"llama2:13b",
-	"llama2:70b",
-	"orca-mini",
-	"vicuna",
-	"llava",
-	"gemma:2b",
-	"gemma:7b",
-}
 
 type classSettings struct {
 	cfg                  moduletools.ClassConfig
@@ -67,9 +45,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.ApiEndpoint() == "" {
 		return errors.New("apiEndpoint cannot be empty")
 	}
-	model := ic.ModelID()
-	if model == "" || !contains(availableOllamaModels, model) {
-		return errors.Errorf("wrong Ollama model name, available model names are: %v", availableOllamaModels)
+	model := ic.Model()
+	if model == "" {
+		return errors.New("model cannot be empty")
 	}
 	return nil
 }
@@ -82,15 +60,6 @@ func (ic *classSettings) ApiEndpoint() string {
 	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
 }
 
-func (ic *classSettings) ModelID() string {
-	return ic.getStringProperty(modelIDProperty, DefaultModelID)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
+func (ic *classSettings) Model() string {
+	return ic.getStringProperty(modelProperty, DefaultModel)
 }

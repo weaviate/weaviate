@@ -36,6 +36,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -99,8 +100,8 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	n.migrator = db.NewMigrator(n.repo, logger)
 
-	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager),
-		n.repo, clusterapi.NewNoopAuthHandler())
+	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider()),
+		n.repo, clusterapi.NewNoopAuthHandler(), logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
@@ -153,6 +154,10 @@ func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	return f.shardState
 }
 
+func (f *fakeSchemaManager) Statistics() map[string]any {
+	return nil
+}
+
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) {
 	ss := f.shardState
 	x, ok := ss.Physical[shard]
@@ -174,8 +179,18 @@ func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error)
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaManager) TenantShard(class, tenant string) (string, string) {
-	return tenant, models.TenantActivityStatusHOT
+func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	res := map[string]string{}
+	for _, t := range tenants {
+		res[t] = models.TenantActivityStatusHOT
+	}
+	return res, nil
+}
+
+func (f *fakeSchemaManager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
 }
 
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {

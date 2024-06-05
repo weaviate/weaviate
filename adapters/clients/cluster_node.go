@@ -64,3 +64,33 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, out
 
 	return &nodeStatus, nil
 }
+
+func (c *RemoteNode) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+	p := "/nodes/statistics"
+	method := http.MethodGet
+	url := url.URL{Scheme: "http", Host: hostName, Path: p}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return nil, enterrors.NewErrOpenHttpRequest(err)
+	}
+
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, enterrors.NewErrSendHttpRequest(err)
+	}
+
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusOK {
+		return nil, enterrors.NewErrUnexpectedStatusCode(res.StatusCode, body)
+	}
+
+	var statistics models.Statistics
+	err = json.Unmarshal(body, &statistics)
+	if err != nil {
+		return nil, enterrors.NewErrUnmarshalBody(err)
+	}
+
+	return &statistics, nil
+}

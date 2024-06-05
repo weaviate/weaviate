@@ -11,10 +11,6 @@
 
 package schema
 
-/// TODO-RAFT START
-/// Fix unit tests
-/// TODO-RAFT END
-
 import (
 	"context"
 	"errors"
@@ -30,7 +26,6 @@ import (
 
 // A component-test like test suite that makes sure that every available UC is
 // potentially protected with the Authorization plugin
-
 func Test_Schema_Authorization(t *testing.T) {
 	type testCase struct {
 		methodName       string
@@ -107,7 +102,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "ShardsStatus",
-			additionalArgs:   []interface{}{"className"},
+			additionalArgs:   []interface{}{"className", "tenant"},
 			expectedVerb:     "list",
 			expectedResource: "schema/className/shards",
 		},

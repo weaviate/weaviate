@@ -85,8 +85,10 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		// bytes vector has precedent for being more efficient
 		if len(nv.VectorBytes) > 0 {
 			vector = byteops.Float32FromByteVector(nv.VectorBytes)
-		} else {
+		} else if len(nv.Vector) > 0 {
 			vector = nv.Vector
+		} else {
+			return dto.GetParams{}, fmt.Errorf("near_vector: vector is required")
 		}
 		out.NearVector = &searchparams.NearVector{
 			Vector:        vector,
@@ -111,8 +113,11 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if no := req.NearObject; no != nil {
+		if no.Id == "" {
+			return dto.GetParams{}, fmt.Errorf("near_object: id is required")
+		}
 		out.NearObject = &searchparams.NearObject{
-			ID:            req.NearObject.Id,
+			ID:            no.Id,
 			TargetVectors: no.TargetVectors,
 		}
 
@@ -258,7 +263,13 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		}
 
 		if nearTxt != nil {
-			out.HybridSearch.NearTextParams = &searchparams.NearTextParams{Values: nearTxt.Values, Limit: nearTxt.Limit, MoveAwayFrom: searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values}, MoveTo: searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values}}
+			out.HybridSearch.NearTextParams = &searchparams.NearTextParams{
+				Values:        nearTxt.Values,
+				Limit:         nearTxt.Limit,
+				MoveAwayFrom:  searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values},
+				MoveTo:        searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values},
+				TargetVectors: nearTxt.TargetVectors,
+			}
 		}
 	}
 
@@ -321,6 +332,15 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		out.GroupBy = groupBy
 	}
 
+	if out.HybridSearch != nil && out.HybridSearch.NearTextParams != nil && out.HybridSearch.NearVectorParams != nil {
+		return dto.GetParams{}, errors.New("cannot combine nearText and nearVector in hybrid search")
+	}
+	if out.HybridSearch != nil && out.HybridSearch.NearTextParams != nil && out.HybridSearch.Vector != nil {
+		return dto.GetParams{}, errors.New("cannot combine nearText and query in hybrid search")
+	}
+	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != nil {
+		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
+	}
 	return out, nil
 }
 
@@ -348,12 +368,6 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string
 	var targetVectors *[]string
 	if hs := req.HybridSearch; hs != nil {
 		targetVectors = &hs.TargetVectors
-		if hs.NearText != nil {
-			targetVectors = &hs.NearText.TargetVectors
-		}
-		if hs.NearVector != nil {
-			targetVectors = &hs.NearVector.TargetVectors
-		}
 	}
 	if na := req.NearAudio; na != nil {
 		targetVectors = &na.TargetVectors

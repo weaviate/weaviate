@@ -28,17 +28,12 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// Note: Scaling out feature disabled
-// Reason: The current implementation of scaling out is experimental and deemed unreliable.
-// It has been disabled to prevent potential issues and ensure system stability.
-// Re-enable this feature only after addressing its reliability concerns and implementing a more robust solution.
 func multiShardScaleOut(t *testing.T) {
-	t.Skip("Re-enable this feature only after addressing its reliability concerns and implementing a more robust solution.")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -103,17 +98,20 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("assert paragraphs were scaled out", func(t *testing.T) {
-		n := getNodes(t, compose.GetWeaviate().URI())
-		var shardsFound int
-		for _, node := range n.Nodes {
-			for _, shard := range node.Shards {
-				if shard.Class == paragraphClass.Class {
-					assert.EqualValues(t, 10, shard.ObjectCount)
-					shardsFound++
+		// shard.ObjectCount is eventually consistent, see Bucket::CountAsync()
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+			n := getNodes(t, compose.GetWeaviate().URI())
+			var shardsFound int
+			for _, node := range n.Nodes {
+				for _, shard := range node.Shards {
+					if shard.Class == paragraphClass.Class {
+						assert.EqualValues(collect, int64(10), shard.ObjectCount)
+						shardsFound++
+					}
 				}
 			}
-		}
-		assert.Equal(t, 2, shardsFound)
+			assert.Equal(collect, 2, shardsFound)
+		}, 10*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("scale out articles", func(t *testing.T) {
@@ -123,17 +121,20 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("assert articles were scaled out", func(t *testing.T) {
-		n := getNodes(t, compose.GetWeaviate().URI())
-		var shardsFound int
-		for _, node := range n.Nodes {
-			for _, shard := range node.Shards {
-				if shard.Class == articleClass.Class {
-					assert.EqualValues(t, 10, shard.ObjectCount)
-					shardsFound++
+		// shard.ObjectCount is eventually consistent, see Bucket::CountAsync()
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+			n := getNodes(t, compose.GetWeaviate().URI())
+			var shardsFound int
+			for _, node := range n.Nodes {
+				for _, shard := range node.Shards {
+					if shard.Class == articleClass.Class {
+						assert.EqualValues(collect, int64(10), shard.ObjectCount)
+						shardsFound++
+					}
 				}
 			}
-		}
-		assert.Equal(t, 2, shardsFound)
+			assert.Equal(collect, 2, shardsFound)
+		}, 10*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {

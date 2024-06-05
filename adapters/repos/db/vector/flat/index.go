@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
@@ -58,6 +59,7 @@ type flat struct {
 
 	compression string
 	bqCache     cache.Cache[uint64]
+	count       uint64
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -266,6 +268,8 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
 	}
+	newCount := atomic.LoadUint64(&index.count)
+	atomic.StoreUint64(&index.count, newCount+1)
 	return nil
 }
 
@@ -662,6 +666,27 @@ func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 }
 
 func (index *flat) ContainsNode(id uint64) bool {
+	var bucketName string
+
+	// logic modeled after SearchByVector which indicates that the PQ bucket is
+	// the same as the uncompressed bucket "for now"
+	switch index.compression {
+	case compressionBQ:
+		bucketName = index.getCompressedBucketName()
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		bucketName = index.getBucketName()
+	}
+
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+	v, err := index.store.Bucket(bucketName).Get(idBytes)
+	if v == nil || err == entlsmkv.NotFound {
+		return false
+	}
+
 	return true
 }
 
@@ -734,4 +759,8 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 		}
 	}
 	return nil
+}
+
+func (index *flat) AlreadyIndexed() uint64 {
+	return atomic.LoadUint64(&index.count)
 }

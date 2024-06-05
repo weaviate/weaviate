@@ -35,3 +35,10 @@ func WithAllocChecker(mm memwatch.AllocChecker) CommitlogOption {
 		return nil
 	}
 }
+
+func WithCondensor(condensor Condensor) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.condensor = condensor
+		return nil
+	}
+}

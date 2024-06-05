@@ -105,6 +105,15 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &Error{
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Code: StatusInternalServerError,
+			Err:  err,
+		}
+	}
+
 	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
 	if err != nil {
 		return &Error{"repo.putobject", StatusInternalServerError, err}
@@ -126,11 +135,12 @@ func (req *DeleteReferenceInput) validate(
 		return nil, 0, err
 	}
 
-	class, schemaVersion, err := sm.GetCachedClass(ctx, principal, req.Class)
+	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
 	if err != nil {
 		return nil, 0, err
 	}
-	return class, schemaVersion, validateReferenceSchema(sm, class, req.Property)
+	vclass := vclasses[req.Class]
+	return vclass.Class, vclass.Version, validateReferenceSchema(sm, vclass.Class, req.Property)
 }
 
 // removeReference removes ref from object obj with property prop.

@@ -76,7 +76,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				tracker, err := NewJsonPropertyLengthTracker(trackerPath+test.name, l)
+				tracker, err := NewJsonShardMetaData(trackerPath+test.name, l)
 				require.Nil(t, err)
 
 				actualMean := float32(0)
@@ -100,13 +100,13 @@ func Test_PropertyLengthTracker(t *testing.T) {
 	})
 
 	t.Run("test untrack", func(t *testing.T) {
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
+		tracker, err := NewJsonShardMetaData(trackerPath, l)
 		require.Nil(t, err)
 
 		tracker.TrackProperty("test-prop", 1)
 		tracker.TrackProperty("test-prop", 2)
 		tracker.TrackProperty("test-prop", 3)
-		tracker.Flush(false)
+		tracker.Flush()
 
 		sum, count, mean, err := tracker.PropertyTally("test-prop")
 		require.Nil(t, err)
@@ -121,12 +121,16 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		assert.Equal(t, 2, count)
 		assert.InEpsilon(t, 2, mean, 0.1)
 
+		require.Nil(t, tracker.Flush())
+
 		tracker.UnTrackProperty("test-prop", 1)
 		sum, count, mean, err = tracker.PropertyTally("test-prop")
 		require.Nil(t, err)
 		assert.Equal(t, 3, sum)
 		assert.Equal(t, 1, count)
 		assert.InEpsilon(t, 3, mean, 0.1)
+
+		require.Nil(t, tracker.Flush())
 
 		require.Nil(t, tracker.Close())
 	})
@@ -156,7 +160,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 		}
 
 		// This time we use a single tracker
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
+		tracker, err := NewJsonShardMetaData(trackerPath, l)
 		require.Nil(t, err)
 
 		for _, prop := range props {
@@ -183,7 +187,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 
 	t.Run("with more properties that can fit on one page", func(t *testing.T) {
 		// This time we use a single tracker
-		tracker, err := NewJsonPropertyLengthTracker(trackerPath, l)
+		tracker, err := NewJsonShardMetaData(trackerPath, l)
 		require.Nil(t, err)
 
 		create20PropsAndVerify(t, tracker)
@@ -192,7 +196,7 @@ func Test_PropertyLengthTracker(t *testing.T) {
 	})
 }
 
-func create20PropsAndVerify(t *testing.T, tracker *JsonPropertyLengthTracker) {
+func create20PropsAndVerify(t *testing.T, tracker *JsonShardMetaData) {
 	type prop struct {
 		values   []float32
 		propName string
@@ -244,35 +248,69 @@ func Test_PropertyLengthTracker_Persistence(t *testing.T) {
 
 	path := path.Join(dirName, "my_test_shard")
 
-	var tracker *JsonPropertyLengthTracker
+	var tracker *JsonShardMetaData
 	l := logrus.New()
 
 	t.Run("initializing an empty tracker, no file present", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path, l)
+		tr, err := NewJsonShardMetaData(path, l)
 		require.Nil(t, err)
 		tracker = tr
 	})
 
 	t.Run("importing multi-page data and verifying", func(t *testing.T) {
 		create20PropsAndVerify(t, tracker)
+		require.Nil(t, tracker.Flush())
+	})
+
+	var dupeTracker *JsonShardMetaData
+	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
+		tr, err := NewJsonShardMetaData(path, l)
+		require.Nil(t, err)
+		dupeTracker = tr
+	})
+
+	t.Run("verify data is correct after read from disk (duplicate tracker test)", func(t *testing.T) {
+		// root page
+		actualMeanForProp0 := float32(1+4+3+17) / 4.0
+		res, err := dupeTracker.PropertyMean("prop_0")
+		require.Nil(t, err)
+		assert.InEpsilon(t, actualMeanForProp0, res, 0.1)
+
+		// later page
+		actualMeanForProp20 := float32(1+4+3+17+25) / 5.0
+		res, err = dupeTracker.PropertyMean("prop_19")
+		require.Nil(t, err)
+		assert.InEpsilon(t, actualMeanForProp20, res, 0.1)
 	})
 
 	t.Run("commit the state to disk", func(t *testing.T) {
-		require.Nil(t, tracker.Flush(false))
+		require.Nil(t, tracker.Flush())
 	})
 
 	t.Run("shut down the tracker", func(t *testing.T) {
 		require.Nil(t, tracker.Close())
 	})
 
-	var secondTracker *JsonPropertyLengthTracker
+	t.Run("catch use after free propmean", func(t *testing.T) {
+		_, err := tracker.PropertyMean("prop_0")
+		require.NotNil(t, err)
+		require.ErrorContains(t, err, "tracker is closed")
+	})
+
+	t.Run("catch use after free trackproperty", func(t *testing.T) {
+		err := tracker.TrackProperty("prop_0", 1.0)
+		require.NotNil(t, err)
+		require.ErrorContains(t, err, "tracker is closed")
+	})
+
+	var secondTracker *JsonShardMetaData
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path, l)
+		tr, err := NewJsonShardMetaData(path, l)
 		require.Nil(t, err)
 		secondTracker = tr
 	})
 
-	t.Run("verify data is correct after read from disk", func(t *testing.T) {
+	t.Run("verify data is correct after read from disk (after close test)", func(t *testing.T) {
 		// root page
 		actualMeanForProp0 := float32(1+4+3+17) / 4.0
 		res, err := secondTracker.PropertyMean("prop_0")
@@ -313,16 +351,16 @@ func TestFormatConversion(t *testing.T) {
 		require.Nil(t, tracker.Close())
 	})
 
-	var newTracker *JsonPropertyLengthTracker
+	var newTracker *JsonShardMetaData
 	l := logrus.New()
 
 	t.Run("initializing a new tracker from the same file", func(t *testing.T) {
-		tr, err := NewJsonPropertyLengthTracker(path, l)
+		tr, err := NewJsonShardMetaData(path, l)
 		require.Nil(t, err)
 		newTracker = tr
 	})
 
-	t.Run("verify data is correct after read from disk", func(t *testing.T) {
+	t.Run("verify data is correct after read from disk(format conversion)", func(t *testing.T) {
 		// root page
 		actualMeanForProp0 := float32(1+4+3+17) / 4.0
 		res, err := newTracker.PropertyMean("prop_0")
@@ -605,7 +643,7 @@ func TestOldPropertyLengthTracker_Persistence(t *testing.T) {
 		secondTracker = tr
 	})
 
-	t.Run("verify data is correct after read from disk", func(t *testing.T) {
+	t.Run("verify data is correct after read from disk (old tracker persistence)", func(t *testing.T) {
 		// root page
 		actualMeanForProp0 := float32(1+4+3+17) / 4.0
 		res, err := secondTracker.PropertyMean("prop_0")

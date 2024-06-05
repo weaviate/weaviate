@@ -438,6 +438,11 @@
           "description": "Nonexistent tenants should (not) be created implicitly",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "autoTenantActivation": {
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status",
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -1229,6 +1234,138 @@
         }
       }
     },
+    "RaftStatistics": {
+      "description": "The definition of Raft statistics.",
+      "properties": {
+        "appliedIndex": {
+          "type": "string"
+        },
+        "commitIndex": {
+          "type": "string"
+        },
+        "fsmPending": {
+          "type": "string"
+        },
+        "lastContact": {
+          "type": "string"
+        },
+        "lastLogIndex": {
+          "type": "string"
+        },
+        "lastLogTerm": {
+          "type": "string"
+        },
+        "lastSnapshotIndex": {
+          "type": "string"
+        },
+        "lastSnapshotTerm": {
+          "type": "string"
+        },
+        "latestConfiguration": {
+          "description": "Weaviate Raft nodes.",
+          "type": "object"
+        },
+        "latestConfigurationIndex": {
+          "type": "string"
+        },
+        "numPeers": {
+          "type": "string"
+        },
+        "protocolVersion": {
+          "type": "string"
+        },
+        "protocolVersionMax": {
+          "type": "string"
+        },
+        "protocolVersionMin": {
+          "type": "string"
+        },
+        "snapshotVersionMax": {
+          "type": "string"
+        },
+        "snapshotVersionMin": {
+          "type": "string"
+        },
+        "state": {
+          "type": "string"
+        },
+        "term": {
+          "type": "string"
+        }
+      }
+    },
+    "Statistics": {
+      "description": "The definition of node statistics.",
+      "properties": {
+        "name": {
+          "description": "The name of the node.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Node's status.",
+          "type": "string",
+          "default": "HEALTHY",
+          "enum": [
+            "HEALTHY",
+            "UNHEALTHY",
+            "UNAVAILABLE",
+            "TIMEOUT"
+          ]
+        },
+        "bootstrapped": {
+          "type": "boolean"
+        },
+        "dbLoaded": {
+          "type": "boolean"
+        },
+        "initialLastAppliedIndex": {
+          "type": "number",
+          "format": "uint64"
+        },
+        "lastAppliedIndex": {
+          "type": "number"
+        },
+        "isVoter": {
+          "type": "boolean"
+        },
+        "leaderId": {
+          "type": "object"
+        },
+        "leaderAddress": {
+          "type": "object"
+        },
+        "open": {
+          "type": "boolean"
+        },
+        "ready": {
+          "type": "boolean"
+        },
+        "candidates": {
+          "type": "object"
+        },
+        "raft": {
+          "description": "Weaviate Raft statistics.",
+          "type": "object",
+          "$ref": "#/definitions/RaftStatistics"
+        }
+      }
+    },
+    "ClusterStatisticsResponse": {
+      "description": "The cluster statistics of all of the Weaviate nodes",
+      "type": "object",
+      "properties": {
+        "statistics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Statistics"
+          }
+        },
+        "synchronized": {
+          "type": "boolean",
+          "x-omitempty": false
+        }
+      }
+    },
     "SingleRef": {
       "description": "Either set beacon (direct reference) or set class and schema (concept reference)",
       "properties": {
@@ -1980,7 +2117,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.25.0-raft"
+    "version": "1.25.2"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -3862,28 +3999,6 @@
         "x-available-in-websocket": false
       }
     },
-    "/schema/cluster-status": {
-      "get": {
-        "operationId": "schema.cluster.status",
-        "tags": [
-          "schema"
-        ],
-        "responses": {
-          "200": {
-            "description": "The schema in the cluster is in sync.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          },
-          "500": {
-            "description": "The schema is either out of sync (see response body) or the sync check could not be completed.",
-            "schema": {
-              "$ref": "#/definitions/SchemaClusterStatus"
-            }
-          }
-        }
-      }
-    },
     "/schema": {
       "get": {
         "summary": "Dump the current the database schema.",
@@ -4837,6 +4952,47 @@
           },
           "404": {
             "description": "Not Found - Backup does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/cluster/statistics": {
+      "get": {
+        "description": "Returns Raft cluster statistics of Weaviate DB.",
+        "operationId": "cluster.get.statistics",
+        "x-serviceIds": [
+          "weaviate.cluster.statistics.get"
+        ],
+        "tags": [
+          "cluster"
+        ],
+        "responses": {
+          "200": {
+            "description": "Cluster statistics successfully returned",
+            "schema": {
+              "$ref": "#/definitions/ClusterStatisticsResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid backup restoration status attempt.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
