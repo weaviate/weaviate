@@ -141,6 +141,40 @@ func TestIndexQueue(t *testing.T) {
 		}
 	}
 
+	t.Run("bad vector lengths", func(t *testing.T) {
+		var idx mockBatchIndexer
+		idx.addBatchFn = func(ids []uint64, vector [][]float32) error {
+			t.Fatal("should not have been called")
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize: 1,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		// inconsistent vector lengths
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		}, vectorDescriptor{
+			id:     2,
+			vector: []float32{4, 5},
+		})
+		require.EqualError(t, err, "inconsistent vector lengths: 2 != 3")
+
+		// empty vectors
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{},
+		}, vectorDescriptor{
+			id:     2,
+			vector: []float32{4, 5},
+		})
+		require.EqualError(t, err, "vector is empty")
+	})
+
 	t.Run("pushes to indexer if batch is full", func(t *testing.T) {
 		var idx mockBatchIndexer
 		idsCh := make(chan []uint64, 1)
