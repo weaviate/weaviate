@@ -73,7 +73,16 @@ type diskIndex interface {
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, mmapContents bool,
 	useBloomFilter bool, calcCountNetAdditions bool, overwriteDerived bool,
-) (*segment, error) {
+) (_ *segment, err error) {
+	defer func() {
+		p := recover()
+		if p == nil {
+			return
+		}
+
+		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+	}()
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
