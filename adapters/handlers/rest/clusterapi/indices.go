@@ -66,7 +66,7 @@ const (
 	cl = entschema.ClassNameRegexCore
 	sh = entschema.ShardNameRegexCore
 	ob = `[A-Za-z0-9_+-]+`
-	l  = "[0-9]{1,2}"
+	l  = "[0-9]+"
 
 	urlPatternObjects = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`
