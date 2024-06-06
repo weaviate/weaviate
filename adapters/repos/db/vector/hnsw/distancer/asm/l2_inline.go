@@ -127,3 +127,113 @@ func l212[T number, U number](x []T, y []T) U {
 
 	return l24[T, U](x, y) + sum
 }
+
+func l22FloatByte(x []float32, y []byte) float32 {
+	diff := x[1] - float32(y[1])
+	sum := diff * diff
+
+	diff = x[0] - float32(y[0])
+	sum += diff * diff
+
+	return sum
+}
+
+func l23FloatByte(x []float32, y []byte) float32 {
+	diff := x[2] - float32(y[2])
+	sum := diff * diff
+
+	return l22FloatByte(x, y) + sum
+}
+
+func l24FloatByte(x []float32, y []byte) float32 {
+	diff := x[3] - float32(y[3])
+	sum := diff * diff
+
+	diff = x[2] - float32(y[2])
+	sum += diff * diff
+
+	return l22FloatByte(x, y) + sum
+}
+
+func l25FloatByte(x []float32, y []byte) float32 {
+	diff := x[4] - float32(y[4])
+	sum := diff * diff
+
+	return l24FloatByte(x, y) + sum
+}
+
+func l26FloatByte(x []float32, y []byte) float32 {
+	diff := x[5] - float32(y[5])
+	sum := diff * diff
+
+	diff = x[4] - float32(y[4])
+	sum += diff * diff
+
+	return l24FloatByte(x, y) + sum
+}
+
+func l28FloatByte(x []float32, y []byte) float32 {
+	diff := x[7] - float32(y[7])
+	sum := diff * diff
+
+	diff = x[6] - float32(y[6])
+	sum += diff * diff
+
+	diff = x[5] - float32(y[5])
+	sum += diff * diff
+
+	diff = x[4] - float32(y[4])
+	sum += diff * diff
+
+	return l24FloatByte(x, y) + sum
+}
+
+func l210FloatByte(x []float32, y []byte) float32 {
+	diff := x[9] - float32(y[9])
+	sum := diff * diff
+
+	diff = x[8] - float32(y[8])
+	sum += diff * diff
+
+	diff = x[7] - float32(y[7])
+	sum += diff * diff
+
+	diff = x[6] - float32(y[6])
+	sum += diff * diff
+
+	diff = x[5] - float32(y[5])
+	sum += diff * diff
+
+	diff = x[4] - float32(y[4])
+	sum += diff * diff
+
+	return l24FloatByte(x, y) + sum
+}
+
+func l212FloatByte(x []float32, y []byte) float32 {
+	diff := x[11] - float32(y[11])
+	sum := diff * diff
+
+	diff = x[10] - float32(y[10])
+	sum += diff * diff
+
+	diff = x[9] - float32(y[9])
+	sum += diff * diff
+
+	diff = x[8] - float32(y[8])
+	sum += diff * diff
+
+	diff = x[7] - float32(y[7])
+	sum += diff * diff
+
+	diff = x[6] - float32(y[6])
+	sum += diff * diff
+
+	diff = x[5] - float32(y[5])
+	sum += diff * diff
+
+	diff = x[4] - float32(y[4])
+	sum += diff * diff
+
+	return l24FloatByte(x, y) + sum
+}
