@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"os"
 	"reflect"
 	"time"
 
@@ -455,9 +456,17 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 	}
 
 	before := time.Now()
-	if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
-		return fmt.Errorf("put inverted indices props: %w", err)
+
+	if prevObject != nil && os.Getenv("USE_INVERTED_FORMAT") == "true" {
+		if err := s.extendInvertedIndicesLSM(props, nilprops, status.docID); err != nil {
+			return fmt.Errorf("put inverted indices props: %w", err)
+		}
+	} else {
+		if err := s.extendInvertedIndicesLSM(propsToAdd, nilpropsToAdd, status.docID); err != nil {
+			return fmt.Errorf("put inverted indices props: %w", err)
+		}
 	}
+
 	s.metrics.InvertedExtend(before, len(propsToAdd))
 
 	if s.index.Config.TrackVectorDimensions {
