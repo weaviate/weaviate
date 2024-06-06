@@ -597,7 +597,7 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
 
-	// Store automatically as a lock here would be very expensive, this value is
+	// Store atomically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
 	atomic.StoreInt64(&index.rescore, extractCompressionRescore(parsed))
 
@@ -644,10 +644,39 @@ func (index *flat) PostStartup() {
 	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
 	defer cursor.Close()
 
+	// The idea here is to first read everything from disk in one go, then grow
+	// the cache just once before inserting all vectors. A previous iteration
+	// would grow the cache as part of the cursor loop and this ended up making
+	// up 75% of the CPU time needed. This new implementation with two loops is
+	// much more efficient and only ever-so-slightly more memory-consuming (about
+	// one additional struct per vector while loading. Should be negligible)
+	type vec struct {
+		id  uint64
+		vec []uint64
+	}
+
+	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
+	// this slice dynamically should be quite cheap compared to other operations
+	// involved here, e.g. disk reads.
+	vecs := make([]vec, 0, 10_000)
+	maxID := uint64(0)
+
 	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
 		id := binary.BigEndian.Uint64(key)
-		index.bqCache.Grow(id)
-		index.bqCache.Preload(id, uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)))
+		vecs = append(vecs, vec{
+			id:  id,
+			vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
+		})
+		if id > maxID {
+			maxID = id
+		}
+	}
+
+	// Grow cache just once
+	index.bqCache.Grow(maxID)
+
+	for _, vec := range vecs {
+		index.bqCache.Preload(vec.id, vec.vec)
 	}
 }
 
@@ -736,10 +765,6 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 			accessor: func(c flatent.UserConfig) interface{} { return c.Distance },
 		},
 		{
-			name:     "bq.cache",
-			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Cache },
-		},
-		{
 			name:     "pq.cache",
 			accessor: func(c flatent.UserConfig) interface{} { return c.PQ.Cache },
 		},
@@ -751,6 +776,10 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 			name:     "bq",
 			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Enabled },
 		},
+		// as of v1.25.2, updating the BQ cache setting is now possible.
+		// Note that the change does not take effect until the tenant is
+		// reloaded, either from a complete restart or from
+		// activating/deactivating it.
 	}
 
 	for _, u := range immutableFields {

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -52,8 +53,9 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := &palm{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
 			buildUrlFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string {
 				return server.URL
 			},
@@ -83,8 +85,9 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := &palm{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
 			buildUrlFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string {
 				return server.URL
 			},
