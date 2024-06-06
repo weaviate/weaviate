@@ -714,6 +714,10 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	return shard.PutObject(ctx, object)
 }
 
+func (i *Index) partitioningEnabled() bool {
+	return i.shardState.PartitioningEnabled
+}
+
 func (i *Index) replicationEnabled() bool {
 	return i.Config.ReplicationFactor.Load() > 1
 }
