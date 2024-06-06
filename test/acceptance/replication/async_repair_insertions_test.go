@@ -11,7 +11,6 @@
 
 package replication
 
-/*
 import (
 	"context"
 	"fmt"
@@ -28,6 +27,8 @@ import (
 )
 
 func asyncRepairObjectInsertionScenario(t *testing.T) {
+	t.Skip()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -103,4 +104,3 @@ func asyncRepairObjectInsertionScenario(t *testing.T) {
 		})
 	}
 }
-*/

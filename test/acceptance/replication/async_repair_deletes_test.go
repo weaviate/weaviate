@@ -11,7 +11,6 @@
 
 package replication
 
-/*
 import (
 	"context"
 	"fmt"
@@ -29,6 +28,8 @@ import (
 )
 
 func asyncRepairObjectDeleteScenario(t *testing.T) {
+	t.Skip()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
@@ -156,4 +157,3 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		}
 	})
 }
-*/
