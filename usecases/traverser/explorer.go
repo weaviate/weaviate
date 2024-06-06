@@ -250,7 +250,7 @@ func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVecto
 			if searchVectors != nil && len(searchVectors) == len(targetVectors) {
 				searchVector = searchVectors[index]
 			}
-			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectorsReturn, searchVector)
+			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectorsReturn, searchVector, len(targetVectors) > 1)
 		}
 		eg.Go(f)
 	}
@@ -259,14 +259,14 @@ func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVecto
 		return nil, nil, err
 	}
 
-	res, err := e.combineResults(ress, params.Pagination.Limit, params.TargetVectorJoinMethod)
+	res, err := e.combineResults(ress, params.Pagination.Limit, params.TargetVectorJoin, targetVectors)
 	if err != nil {
 		return nil, nil, err
 	}
 	return res, searchVectorsReturn, nil
 }
 
-func (e *Explorer) combineResults(results [][]search.Result, limit int, joinMethod int) ([]search.Result, error) {
+func (e *Explorer) combineResults(results [][]search.Result, limit int, join *dto.TargetVectorJoin, targetVectors []string) ([]search.Result, error) {
 	if len(results) == 0 {
 		return []search.Result{}, nil
 	}
@@ -274,33 +274,38 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int, joinMeth
 	if len(results) == 1 {
 		return results[0], nil
 	}
-	averageCounter := make(map[uint64]uint64)
 
 	combinedResults := make(map[uint64]search.Result, len(results[0]))
-	for _, res := range results {
+	for i, res := range results {
 		for _, r := range res {
 			id := *(r.DocID)
-			if _, ok := combinedResults[id]; !ok {
-				combinedResults[id] = r
-			} else {
-				if joinMethod == dto.TargetVectorJoinSum || joinMethod == dto.TargetVectorJoinAvg {
-					tmp := combinedResults[id]
-					tmp.Score += r.Score
-					tmp.SecondarySortValue += r.SecondarySortValue
-					tmp.Dist += r.Dist
-					tmp.Certainty += r.Certainty
-					combinedResults[id] = tmp
-					averageCounter[id] += 1
-				} else if joinMethod == dto.TargetVectorJoinMin {
-					tmp := combinedResults[id]
-					tmp.Score = min(r.Score, tmp.Score)
-					tmp.SecondarySortValue += min(r.SecondarySortValue, tmp.SecondarySortValue)
-					tmp.Dist += min(r.Dist, tmp.Dist)
-					tmp.Certainty += min(r.Certainty, tmp.Certainty)
-					combinedResults[id] = tmp
-				} else {
-					return nil, fmt.Errorf("Unknown join method %v", joinMethod)
+
+			if join.Min {
+				tmp := r
+				if _, ok := combinedResults[id]; ok {
+					tmp = combinedResults[id]
 				}
+
+				tmp.Score = min(r.Score, tmp.Score)
+				tmp.SecondarySortValue = min(r.SecondarySortValue, tmp.SecondarySortValue)
+				tmp.Dist = min(r.Dist, tmp.Dist)
+				tmp.Certainty = min(r.Certainty, tmp.Certainty)
+				combinedResults[id] = tmp
+			} else {
+				if len(join.Weights) != len(results) {
+					return nil, fmt.Errorf("number of weights in join does not match number of results")
+				}
+				weight := join.Weights[targetVectors[i]]
+				r.Score *= weight
+				r.SecondarySortValue *= weight
+				r.Dist *= weight
+				if _, ok := combinedResults[id]; ok {
+					r.Score += combinedResults[id].Score
+					r.SecondarySortValue += combinedResults[id].SecondarySortValue
+					r.Dist += combinedResults[id].Dist
+					r.Certainty += combinedResults[id].Certainty
+				}
+				combinedResults[id] = r
 			}
 		}
 	}
@@ -319,26 +324,21 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int, joinMeth
 		returnResults = append(returnResults, combinedResults[item.ID])
 	}
 
-	if joinMethod == dto.TargetVectorJoinAvg {
-		for _, res := range returnResults {
-			count := float32(averageCounter[*(res.DocID)])
-			res.Dist /= count
-			res.Score /= count
-			res.SecondarySortValue /= count
-			res.Certainty /= count
-		}
-	}
-
 	return returnResults, nil
 }
 
-func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParam *searchparams.NearVector) error {
+func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParam *searchparams.NearVector, oversearch bool) error {
 	// params need to be copied, because the searchvector is unique per target
 	paramsForTarget := params
 	paramsForTarget.TargetVector = targetVector
 	paramsForTarget.AdditionalProperties = params.AdditionalProperties
-	paramsForTarget.Pagination = params.Pagination
 	paramsForTarget.ModuleParams = params.ModuleParams
+	paginationCopy := *params.Pagination
+	paramsForTarget.Pagination = &paginationCopy
+	// we need to oversearch to avoid missing entries for some of the searches
+	if oversearch {
+		paramsForTarget.Pagination.Limit = max(100, params.Pagination.Limit*2)
+	}
 
 	if params.NearVector != nil {
 		paramsForTarget.NearVector = params.NearVector

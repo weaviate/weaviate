@@ -18,37 +18,36 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
-const (
-	TargetVectorJoinSum = iota
-	TargetVectorJoinMin
-	TargetVectorJoinAvg
-)
-const TargetVectorJoinDefault = TargetVectorJoinSum
-
 type GroupParams struct {
 	Strategy string
 	Force    float32
 }
 
+type TargetVectorJoin struct {
+	// one or the other, strategy has precedence
+	Min     bool
+	Weights map[string]float32
+}
+
 type GetParams struct {
-	Filters                *filters.LocalFilter
-	ClassName              string
-	Pagination             *filters.Pagination
-	Cursor                 *filters.Cursor
-	Sort                   []filters.Sort
-	Properties             search.SelectProperties
-	NearVector             *searchparams.NearVector
-	NearObject             *searchparams.NearObject
-	KeywordRanking         *searchparams.KeywordRanking
-	HybridSearch           *searchparams.HybridSearch
-	GroupBy                *searchparams.GroupBy
-	SearchVector           []float32
-	TargetVector           string
-	TargetVectorJoinMethod int
-	Group                  *GroupParams
-	ModuleParams           map[string]interface{}
-	AdditionalProperties   additional.Properties
-	ReplicationProperties  *additional.ReplicationProperties
-	Tenant                 string
-	IsRefOrigin            bool // is created by ref filter
+	Filters               *filters.LocalFilter
+	ClassName             string
+	Pagination            *filters.Pagination
+	Cursor                *filters.Cursor
+	Sort                  []filters.Sort
+	Properties            search.SelectProperties
+	NearVector            *searchparams.NearVector
+	NearObject            *searchparams.NearObject
+	KeywordRanking        *searchparams.KeywordRanking
+	HybridSearch          *searchparams.HybridSearch
+	GroupBy               *searchparams.GroupBy
+	SearchVector          []float32
+	TargetVector          string
+	TargetVectorJoin      *TargetVectorJoin
+	Group                 *GroupParams
+	ModuleParams          map[string]interface{}
+	AdditionalProperties  additional.Properties
+	ReplicationProperties *additional.ReplicationProperties
+	Tenant                string
+	IsRefOrigin           bool // is created by ref filter
 }

@@ -54,11 +54,15 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
 	out.Tenant = req.Tenant
-	out.TargetVectorJoinMethod = extractTargetVectorJoin(req.TargetVectorJoinMethod)
 
 	targetVectors, err := extractTargetVectors(req, class)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract target vectors")
+	}
+
+	out.TargetVectorJoin, err = extractTargetVectorJoin(req.TargetVectorJoin, targetVectors)
+	if err != nil {
+		return dto.GetParams{}, errors.Wrap(err, "extract target vector weights")
 	}
 
 	if req.Metadata != nil {
@@ -1004,13 +1008,57 @@ func parseNearIMU(n *pb.NearIMUSearch) (*nearImu.NearIMUParams, error) {
 	return out, nil
 }
 
-func extractTargetVectorJoin(join pb.TargetVectorJoinMethod) int {
-	if join == pb.TargetVectorJoinMethod_FUSION_TYPE_AVERAGE {
-		return dto.TargetVectorJoinAvg
-	} else if join == pb.TargetVectorJoinMethod_FUSION_TYPE_MIN {
-		return dto.TargetVectorJoinMin
-	} else if join == pb.TargetVectorJoinMethod_FUSION_TYPE_SUM {
-		return dto.TargetVectorJoinSum
+func extractTargetVectorJoin(join *pb.TargetVectorJoin, targetVectors *[]string) (*dto.TargetVectorJoin, error) {
+	if targetVectors == nil || len(*targetVectors) <= 1 {
+		return nil, nil
 	}
-	return dto.TargetVectorJoinDefault
+	targets := *targetVectors
+
+	if join == nil {
+		return &dto.TargetVectorJoin{Min: true}, nil
+	}
+
+	weights := make(map[string]float32, len(targets))
+
+	switch join.TargetJoin.(type) {
+	case *pb.TargetVectorJoin_Join:
+		val := join.GetJoin()
+		if val == pb.TargetVectorJoinMethod_FUSION_TYPE_AVERAGE {
+			for _, target := range targets {
+				weights[target] = 1.0 / float32(len(targets))
+			}
+		} else if val == pb.TargetVectorJoinMethod_FUSION_TYPE_MIN {
+			return &dto.TargetVectorJoin{Min: true}, nil
+		} else if val == pb.TargetVectorJoinMethod_FUSION_TYPE_SUM {
+			for _, target := range targets {
+				weights[target] = 1.0
+			}
+		} else {
+			return &dto.TargetVectorJoin{}, fmt.Errorf("unknown target vector join method %v", val)
+		}
+
+		return &dto.TargetVectorJoin{Min: false, Weights: weights}, nil
+	case *pb.TargetVectorJoin_ManualWeights_:
+		manual := join.GetManualWeights()
+		if len(manual.Val) != len(targets) {
+			return nil, fmt.Errorf("manual weights must have the same number of weights %v as target vectors: %v", manual, *targetVectors)
+		}
+		targetSet := make(map[string]struct{})
+		for _, target := range targets {
+			targetSet[target] = struct{}{}
+		}
+
+		for _, val := range manual.Val {
+			// make sure that weights and given target vectors are compatible
+			_, ok := targetSet[val.Key]
+			if !ok {
+				return nil, fmt.Errorf("manual weight key %v not found in target vectors %v", val.Key, targets)
+			}
+			delete(targetSet, val.Key)
+			weights[val.Key] = val.Value
+		}
+		return &dto.TargetVectorJoin{Min: false, Weights: weights}, nil
+	default:
+		return nil, fmt.Errorf("unknown target vector join type %T", join.TargetJoin)
+	}
 }

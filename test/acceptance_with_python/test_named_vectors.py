@@ -1,9 +1,10 @@
 import pytest
 import weaviate.classes as wvc
-from typing_extensions import Protocol, Generator
-from weaviate.collections import Collection
+import math
+from typing_extensions import Union
+from weaviate.collections.classes.internal import TargetVectorJoinType
 
-from conftest import CollectionFactory, NamedCollection
+from .conftest import CollectionFactory, NamedCollection
 
 
 def test_create_named_vectors_with_and_without_vectorizer(
@@ -99,9 +100,7 @@ def test_hybrid_search_with_multiple_target_vectors(named_collection: NamedColle
     assert near_vector_sub_search.objects[2].metadata.score == 0
 
 
-def test_near_object(
-    named_collection: NamedCollection,
-) -> None:
+def test_near_object(named_collection: NamedCollection) -> None:
     collection = named_collection()
 
     uuid1 = collection.data.insert(
@@ -110,7 +109,7 @@ def test_near_object(
     uuid2 = collection.data.insert(
         properties={"title1": "cocoa", "title2": "apple"},
     )
-    uuid3 = collection.data.insert(
+    collection.data.insert(
         properties={"title1": "mountain", "title2": "ridge line"},
     )
 
@@ -128,6 +127,7 @@ def test_near_object(
     near_obj2 = collection.query.near_object(
         uuid1,
         target_vector=["title1", "title2"],
+        multi_target_fusion_method="Sum",
         distance=0.9,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
@@ -136,9 +136,7 @@ def test_near_object(
     assert sorted([obj.uuid for obj in near_obj2.objects]) == sorted([uuid1, uuid2])
 
 
-def test_near_text(
-    named_collection: NamedCollection,
-) -> None:
+def test_near_text(named_collection: NamedCollection) -> None:
     collection = named_collection()
 
     uuid1 = collection.data.insert(
@@ -147,7 +145,7 @@ def test_near_text(
     uuid2 = collection.data.insert(
         properties={"title1": "cocoa", "title2": "apple"},
     )
-    uuid3 = collection.data.insert(
+    collection.data.insert(
         properties={"title1": "mountain", "title2": "ridge line"},
     )
 
@@ -164,6 +162,7 @@ def test_near_text(
     near_text2 = collection.query.near_text(
         "apple",
         target_vector=["title1", "title2"],
+        multi_target_fusion_method="Sum",
         distance=0.9,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
@@ -172,9 +171,7 @@ def test_near_text(
     assert sorted([obj.uuid for obj in near_text2.objects]) == sorted([uuid1, uuid2])
 
 
-def test_near_vector(
-    named_collection: NamedCollection,
-) -> None:
+def test_near_vector(named_collection: NamedCollection) -> None:
     collection = named_collection()
 
     uuid1 = collection.data.insert(
@@ -183,7 +180,7 @@ def test_near_vector(
     uuid2 = collection.data.insert(
         properties={"title1": "cocoa", "title2": "apple"},
     )
-    uuid3 = collection.data.insert(
+    collection.data.insert(
         properties={"title1": "mountain", "title2": "ridge line"},
     )
 
@@ -202,9 +199,42 @@ def test_near_vector(
     near_vector2 = collection.query.near_vector(
         obj1.vector["title1"],
         target_vector=["title1", "title2"],
+        multi_target_fusion_method="Sum",
         distance=0.9,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
     assert len(near_vector2.objects) == 2
     # order is not guaranteed
     assert sorted([obj.uuid for obj in near_vector2.objects]) == sorted([uuid1, uuid2])
+
+
+CAR_DISTANCE = 0.7892138957977295
+APPLE_DISTANCE = 0.5168729424476624
+
+
+@pytest.mark.parametrize(
+    "multi_target_fusion_method,distance",
+    [
+        ("Sum", CAR_DISTANCE + APPLE_DISTANCE),
+        ("Average", (CAR_DISTANCE + APPLE_DISTANCE) / 2),
+        ("Minimum", APPLE_DISTANCE),
+        ({"title1": 0.4, "title2": 1.2}, APPLE_DISTANCE * 0.4 + CAR_DISTANCE * 1.2),
+    ],
+)
+def test_different_target_fusion_methods(
+    named_collection: NamedCollection,
+    multi_target_fusion_method: TargetVectorJoinType,
+    distance: float,
+) -> None:
+    collection = named_collection()
+
+    collection.data.insert(properties={"title1": "apple", "title2": "car"})
+
+    nt = collection.query.near_text(
+        "fruit",
+        target_vector=["title1", "title2"],
+        multi_target_fusion_method=multi_target_fusion_method,
+        return_metadata=wvc.query.MetadataQuery.full(),
+    )
+    assert len(nt.objects) == 1
+    assert math.isclose(nt.objects[0].metadata.distance, distance, rel_tol=1e-5)

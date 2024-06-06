@@ -17,7 +17,7 @@ message SearchRequest {
   // parameters
   string tenant = 10;
   optional ConsistencyLevel consistency_level = 11;
-  TargetVectorJoinMethod target_vector_join_method = 12;
+  TargetVectorJoin target_vector_join = 12;
 
   // what is returned
   optional PropertiesRequest properties = 20;
@@ -108,6 +108,20 @@ enum TargetVectorJoinMethod {
   FUSION_TYPE_SUM = 1;
   FUSION_TYPE_MIN = 2;
   FUSION_TYPE_AVERAGE = 3;
+}
+
+message TargetVectorJoin {
+  message ManualWeights {
+    string key = 1;
+    float value = 2;
+  }
+  message ManualWeightsArrays {
+    repeated ManualWeights val = 1;
+  }
+  oneof target_join {
+    TargetVectorJoinMethod join = 1;
+    ManualWeightsArrays manual_weights = 2; // no maps in oneof allowed
+  }
 }
 
 message Hybrid {

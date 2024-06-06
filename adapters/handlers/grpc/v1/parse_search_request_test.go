@@ -389,6 +389,7 @@ func TestGRPCRequest(t *testing.T) {
 					Vector:        []float32{1, 2, 3},
 					TargetVectors: []string{"custom", "first"},
 				},
+				TargetVectorJoin: &dto.TargetVectorJoin{Min: true},
 			}, error: false,
 		},
 		{
@@ -1485,6 +1486,108 @@ func TestGRPCRequest(t *testing.T) {
 				},
 			},
 			error: false,
+		},
+		{
+			name: "Target vector join min",
+			req: &pb.SearchRequest{
+				Collection:       classname,
+				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_FUSION_TYPE_MIN}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				TargetVectorJoin: &dto.TargetVectorJoin{Min: true},
+				NearVector:       &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Target vector join min",
+			req: &pb.SearchRequest{
+				Collection:       classname,
+				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_FUSION_TYPE_MIN}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				TargetVectorJoin: &dto.TargetVectorJoin{Min: true},
+				NearVector:       &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Target vector join avg",
+			req: &pb.SearchRequest{
+				Collection:       classname,
+				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_FUSION_TYPE_AVERAGE}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				TargetVectorJoin: &dto.TargetVectorJoin{Min: false, Weights: map[string]float32{"first": 0.5, "second": 0.5}},
+				NearVector:       &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Target vector join manual weights",
+			req: &pb.SearchRequest{
+				Collection:       classname,
+				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Val: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "second", Value: 0.8}}}}},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
+				Properties: defaultTestClassProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				TargetVectorJoin: &dto.TargetVectorJoin{Min: false, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
+				NearVector:       &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Target vector join manual weights duplicate",
+			req: &pb.SearchRequest{
+				Collection:       classname,
+				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Val: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "first", Value: 0.8}}}}},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "Target vector join manual weights missing",
+			req: &pb.SearchRequest{
+				Collection:       classname,
+				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Val: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}}}}},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "Target vector join manual weights non-existing",
+			req: &pb.SearchRequest{
+				Collection:       classname,
+				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Val: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "other", Value: 0.5}}}}},
+			},
+			out:   dto.GetParams{},
+			error: true,
 		},
 	}
 
