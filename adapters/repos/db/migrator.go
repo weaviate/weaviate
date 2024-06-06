@@ -69,6 +69,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			AvoidMMap:                 m.db.config.AvoidMMap,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
 			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
+			AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -489,6 +490,15 @@ func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string
 
 	idx.Config.ReplicationFactor.Store(factor)
 	return nil
+}
+
+func (m *Migrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
+	}
+
+	return idx.updateAsyncReplication(ctx, enabled)
 }
 
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {

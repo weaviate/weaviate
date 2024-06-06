@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestShardActivity(t *testing.T) {
@@ -31,16 +32,20 @@ func TestShardActivity(t *testing.T) {
 					ClassName:         "Col1",
 					ReplicationFactor: NewAtomicInt64(1),
 				},
-				partitioningEnabled: true,
-				shards:              shardMap{},
+				shardState: &sharding.State{
+					PartitioningEnabled: true,
+				},
+				shards: shardMap{},
 			},
 			"NonMT": {
 				Config: IndexConfig{
 					ClassName:         "NonMT",
 					ReplicationFactor: NewAtomicInt64(1),
 				},
-				partitioningEnabled: false,
-				shards:              shardMap{},
+				shardState: &sharding.State{
+					PartitioningEnabled: false,
+				},
+				shards: shardMap{},
 			},
 		},
 	}
