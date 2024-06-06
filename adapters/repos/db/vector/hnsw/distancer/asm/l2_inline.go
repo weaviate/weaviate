@@ -162,32 +162,6 @@ func l25FloatByte(x []float32, y []byte) float32 {
 	return l24FloatByte(x, y) + sum
 }
 
-func l26FloatByte(x []float32, y []byte) float32 {
-	diff := x[5] - float32(y[5])
-	sum := diff * diff
-
-	diff = x[4] - float32(y[4])
-	sum += diff * diff
-
-	return l24FloatByte(x, y) + sum
-}
-
-func l28FloatByte(x []float32, y []byte) float32 {
-	diff := x[7] - float32(y[7])
-	sum := diff * diff
-
-	diff = x[6] - float32(y[6])
-	sum += diff * diff
-
-	diff = x[5] - float32(y[5])
-	sum += diff * diff
-
-	diff = x[4] - float32(y[4])
-	sum += diff * diff
-
-	return l24FloatByte(x, y) + sum
-}
-
 func l210FloatByte(x []float32, y []byte) float32 {
 	diff := x[9] - float32(y[9])
 	sum := diff * diff
