@@ -17,6 +17,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -124,7 +125,30 @@ func (s *Store) bucketDir(bucketName string) string {
 //	b := store.Bucket("my_bucket_name")
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
-) error {
+) (err error) {
+	defer func() {
+		p := recover()
+		if p == nil {
+			// happy path
+			return
+		}
+
+		err = fmt.Errorf("unexpected error loading bucket %q at path %q: %v",
+			bucketName, s.rootDir, p)
+		// logger is already annotated to identify the store (e.g. collection +
+		// shard), we only need to annotate it with the exact path of this
+		// bucket.
+		s.logger.
+			WithFields(logrus.Fields{
+				"action":   "lsm_create_or_load_bucket",
+				"root_dir": s.rootDir,
+				"dir":      s.dir,
+				"bucket":   bucketName,
+			}).
+			WithError(err).Errorf("unexpected error loading shard")
+		debug.PrintStack()
+	}()
+
 	s.bucketsLocks.Lock(bucketName)
 	defer s.bucketsLocks.Unlock(bucketName)
 

@@ -172,20 +172,21 @@ type ShardLike interface {
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index            *Index // a reference to the underlying index, which in turn contains schema information
-	queue            *IndexQueue
-	queues           map[string]*IndexQueue
-	name             string
-	store            *lsmkv.Store
-	counter          *indexcounter.Counter
-	indexCheckpoints *indexcheckpoint.Checkpoints
-	vectorIndex      VectorIndex
-	vectorIndexes    map[string]VectorIndex
-	metrics          *Metrics
-	promMetrics      *monitoring.PrometheusMetrics
-	propertyIndices  propertyspecific.Indices
-	propLenTracker   *inverted.JsonShardMetaData
-	versioner        *shardVersioner
+	index             *Index // a reference to the underlying index, which in turn contains schema information
+	queue             *IndexQueue
+	queues            map[string]*IndexQueue
+	name              string
+	store             *lsmkv.Store
+	counter           *indexcounter.Counter
+	indexCheckpoints  *indexcheckpoint.Checkpoints
+	vectorIndex       VectorIndex
+	vectorIndexes     map[string]VectorIndex
+	metrics           *Metrics
+	promMetrics       *monitoring.PrometheusMetrics
+	slowQueryReporter helpers.SlowQueryReporter
+	propertyIndices   propertyspecific.Indices
+	propLenTracker    *inverted.JsonShardMetaData
+	versioner         *shardVersioner
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
@@ -234,10 +235,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		stopMetrics:      make(chan struct{}),
-		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:  jobQueueCh,
-		indexCheckpoints: indexCheckpoints,
+		slowQueryReporter: helpers.NewSlowQueryReporterFromEnv(index.logger),
+		stopMetrics:       make(chan struct{}),
+		replicationMap:    pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:   jobQueueCh,
+		indexCheckpoints:  indexCheckpoints,
 
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
