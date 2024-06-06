@@ -476,7 +476,7 @@
     "timeRangeUpdatedDuringEditOrView": false,
     "timepicker": {},
     "timezone": "browser",
-    "title": "Index queue",
+    "title": "Async Indexing",
     "uid": "cdnvmrjxw1ds0d",
     "version": 12,
     "weekStart": ""

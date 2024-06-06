@@ -275,7 +275,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
 
-		// Index queue metrics
+		// Async indexing metrics
 		IndexQueuePushDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "index_queue_push_duration_ms",
 			Help: "Duration of pushing one or more vectors to the index queue",
