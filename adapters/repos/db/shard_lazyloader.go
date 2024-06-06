@@ -570,6 +570,11 @@ func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint6
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
+func (l *LazyLoadShard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key uint64) error {
+	l.mustLoad()
+	return l.shard.addToPropertyRangeBucket(bucket, docID, key)
+}
+
 func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
 	l.mustLoad()
 	return l.shard.addToPropertyMapBucket(bucket, pair, key)
@@ -620,6 +625,11 @@ func (l *LazyLoadShard) mutableMergeObjectLSM(merge objects.MergeDocument, idByt
 func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	l.mustLoad()
 	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
+}
+
+func (l *LazyLoadShard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key uint64) error {
+	l.mustLoad()
+	return l.shard.deleteFromPropertyRangeBucket(bucket, docID, key)
 }
 
 func (l *LazyLoadShard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error {

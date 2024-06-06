@@ -152,3 +152,9 @@ func (s *Shard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, 
 
 	return bucket.RoaringSetRemoveOne(key, docID)
 }
+
+func (s *Shard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key uint64) error {
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyRoaringSetRange)
+
+	return bucket.RoaringSetRangeRemove(key, docID)
+}

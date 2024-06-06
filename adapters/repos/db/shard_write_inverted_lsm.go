@@ -172,6 +172,12 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	return bucket.RoaringSetAddOne(key, docID)
 }
 
+func (s *Shard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key uint64) error {
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyRoaringSetRange)
+
+	return bucket.RoaringSetRangeAdd(key, docID)
+}
+
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 	item inverted.MergeItem,
 ) error {
