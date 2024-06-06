@@ -244,6 +244,23 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	now := time.Now()
 	q.lastPushed.Store(&now)
 
+	// ensure the vector length is the same
+	var dims int
+	for i := range vectors {
+		if len(vectors[i].vector) == 0 {
+			return errors.Errorf("vector is empty")
+		}
+
+		if dims == 0 {
+			dims = len(vectors[i].vector)
+			continue
+		}
+
+		if len(vectors[i].vector) != dims {
+			return errors.Errorf("inconsistent vector lengths: %d != %d", len(vectors[i].vector), dims)
+		}
+	}
+
 	q.queue.Add(vectors)
 	return nil
 }
