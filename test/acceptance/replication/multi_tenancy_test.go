@@ -70,8 +70,6 @@ func multiTenancyEnabled(t *testing.T) {
 		helper.CreateClass(t, articleClass)
 	})
 
-	time.Sleep(1 * time.Second) // remove once eventual consistency has been addressed
-
 	t.Run("AddTenants", func(t *testing.T) {
 		tenants := []*models.Tenant{{Name: tenantID.String()}}
 		helper.CreateTenants(t, paragraphClass.Class, tenants)

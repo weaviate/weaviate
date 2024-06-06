@@ -57,8 +57,6 @@ func readRepair(t *testing.T) {
 		helper.CreateClass(t, articleClass)
 	})
 
-	time.Sleep(time.Second) // remove once eventual consistency has been addressed
-
 	t.Run("InsertParagraphs/Node-1", func(t *testing.T) {
 		batch := make([]*models.Object, len(paragraphIDs))
 		for i, id := range paragraphIDs {
