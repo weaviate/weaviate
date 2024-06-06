@@ -63,6 +63,8 @@ type diskIndex interface {
 	// value (or the exact value if present)
 	Seek(key []byte) (segmentindex.Node, error)
 
+	Next(key []byte) (segmentindex.Node, error)
+
 	// AllKeys in no specific order, e.g. for building a bloom filter
 	AllKeys() ([][]byte, error)
 
