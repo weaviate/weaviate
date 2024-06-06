@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/weaviate/sroar"
@@ -83,6 +84,25 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 	if isEmpty {
 		return newDocBitmap(), nil
 	}
+	return out, nil
+}
+
+func (s *Searcher) docBitmapInvertedRoaringSetRange(ctx context.Context, b *lsmkv.Bucket,
+	pv *propValuePair,
+) (docBitmap, error) {
+	if len(pv.value) != 8 {
+		return newDocBitmap(), fmt.Errorf("readerRoaringSetRange: invalid value length %d, should be 8 bytes", len(pv.value))
+	}
+
+	reader := lsmkv.NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange)
+
+	docIds, err := reader.Read(ctx, binary.LittleEndian.Uint64(pv.value), pv.operator)
+	if err != nil {
+		return newDocBitmap(), fmt.Errorf("readerRoaringSetRange: %w", err)
+	}
+
+	out := newUninitializedDocBitmap()
+	out.docIDs = docIds
 	return out, nil
 }
 
