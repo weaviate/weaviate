@@ -22,13 +22,13 @@ import (
 )
 
 var dotByteImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {
-	var sum uint16
+	var sum uint32
 
 	for i := range a {
-		sum += uint16(a[i]) * uint16(b[i])
+		sum += uint32(a[i]) * uint32(b[i])
 	}
 
-	return uint32(sum)
+	return sum
 }
 
 func testDotProductFixedValue(t *testing.T, size uint, dotFn func(x []float32, y []float32) float32) {
@@ -178,13 +178,16 @@ func testDotProductByteRandomValue(t *testing.T, size uint, dotFn func(x []byte,
 			vec1[j] = byte(r.Uint32() % 256)
 			vec2[j] = byte(r.Uint32() % 256)
 		}
+
+		vec1s[i] = vec1
+		vec2s[i] = vec2
 	}
 
 	for i := 0; i < count; i++ {
 		res := dotFn(vec1s[i], vec2s[i])
 
 		resControl := dotByteImpl(vec1s[i], vec2s[i])
-		if uint32(resControl) != res {
+		if resControl != res {
 			t.Logf("for dim: %d -> want: %d, got: %d", size, resControl, res)
 			t.Fail()
 		}
