@@ -256,7 +256,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 	}
 
-	s.initDimensionTracking(ctx)
+	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {
