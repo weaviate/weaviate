@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"net"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -134,12 +136,12 @@ func (s *Server) Open() error {
 		grpc.MaxRecvMsgSize(s.grpcMessageMaxSize),
 	)
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
-	go func() {
+	enterrors.GoWrapper(func() {
 		if err := s.grpcServer.Serve(listener); err != nil {
 			s.log.WithError(err).Error("serving incoming requests")
 			panic("error accepting incoming requests")
 		}
-	}()
+	}, s.log)
 	return nil
 }
 
