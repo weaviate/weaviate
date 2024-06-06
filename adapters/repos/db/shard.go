@@ -1477,7 +1477,7 @@ func (s *Shard) isFallbackToSearchable() bool {
 
 func (s *Shard) tenant() string {
 	// TODO provide better impl
-	if s.index.partitioningEnabled {
+	if s.index.shardState.PartitioningEnabled {
 		return s.name
 	}
 	return ""

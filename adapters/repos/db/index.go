@@ -189,8 +189,6 @@ type Index struct {
 	centralJobQueue  chan job
 	indexCheckpoints *indexcheckpoint.Checkpoints
 
-	partitioningEnabled bool
-
 	cycleCallbacks *indexCycleCallbacks
 
 	backupMutex backupMutex
@@ -206,6 +204,8 @@ type Index struct {
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *esync.KeyLocker
 	shardInUseLocks  *esync.KeyRWLocker
+
+	asyncReplicationLock sync.RWMutex
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -270,14 +270,13 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		shardState:             shardState,
 		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
 			nodeResolver, remoteClient),
-		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
-		centralJobQueue:     jobQueueCh,
-		partitioningEnabled: shardState.PartitioningEnabled,
-		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
-		indexCheckpoints:    indexCheckpoints,
-		allocChecker:        allocChecker,
-		shardCreateLocks:    esync.NewKeyLocker(),
-		shardInUseLocks:     esync.NewKeyRWLocker(),
+		metrics:          NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
+		centralJobQueue:  jobQueueCh,
+		backupMutex:      backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		indexCheckpoints: indexCheckpoints,
+		allocChecker:     allocChecker,
+		shardCreateLocks: esync.NewKeyLocker(),
+		shardInUseLocks:  esync.NewKeyRWLocker(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -552,7 +551,9 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 }
 
 func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error {
-	// TODO: this method as many others are not thread-safe
+	i.asyncReplicationLock.Lock()
+	defer i.asyncReplicationLock.Unlock()
+
 	i.Config.AsyncReplicationEnabled = enabled
 
 	err := i.ForEachShard(func(name string, shard ShardLike) error {
@@ -718,6 +719,9 @@ func (i *Index) replicationEnabled() bool {
 }
 
 func (i *Index) asyncReplicationEnabled() bool {
+	i.asyncReplicationLock.RLock()
+	defer i.asyncReplicationLock.RUnlock()
+
 	return i.replicationEnabled() && i.Config.AsyncReplicationEnabled
 }
 
@@ -1507,7 +1511,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 // to be called after validating multi-tenancy
 func (i *Index) targetShardNames(tenant string) ([]string, error) {
 	className := i.Config.ClassName.String()
-	if !i.partitioningEnabled {
+	if !i.shardState.PartitioningEnabled {
 		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
 	}
 
@@ -2355,11 +2359,11 @@ func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []f
 }
 
 func (i *Index) validateMultiTenancy(tenant string) error {
-	if i.partitioningEnabled && tenant == "" {
+	if i.shardState.PartitioningEnabled && tenant == "" {
 		return objects.NewErrMultiTenancy(
 			fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName),
 		)
-	} else if !i.partitioningEnabled && tenant != "" {
+	} else if !i.shardState.PartitioningEnabled && tenant != "" {
 		return objects.NewErrMultiTenancy(
 			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
 		)
