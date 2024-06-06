@@ -62,6 +62,8 @@ type segment struct {
 	// length for all nodes
 	invertedKeyLength   uint16
 	invertedValueLength uint16
+
+	tombstones map[uint64]struct{}
 }
 
 type diskIndex interface {
@@ -308,9 +310,13 @@ func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
 	return bufio.NewReader(r), nil
 }
 
-func (s *segment) tombstones() (map[uint64]struct{}, error) {
+func (s *segment) GetTombstones() (map[uint64]struct{}, error) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
+	}
+
+	if s.tombstones != nil {
+		return s.tombstones, nil
 	}
 
 	// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
@@ -322,6 +328,8 @@ func (s *segment) tombstones() (map[uint64]struct{}, error) {
 	for i := uint64(0); i < tombstoneCount; i++ {
 		tombstones[binary.BigEndian.Uint64(s.contents[s.dataStartPos+keyLengths+8+i*8:s.dataStartPos+keyLengths+8+(i+1)*8])] = struct{}{}
 	}
+
+	s.tombstones = tombstones
 
 	return tombstones, nil
 }

@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -657,6 +658,16 @@ func MapListLegacySortingRequired() MapListOption {
 	}
 }
 
+func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+	if b.strategy == StrategyMapCollection {
+		return b.MapListMap(ctx, key, cfgs...)
+	} else if b.strategy == StrategyInverted {
+		return b.MapListInverted(ctx, key, cfgs...)
+	} else {
+		return nil, fmt.Errorf("unsupported strategy %q", b.strategy)
+	}
+}
+
 // MapList returns all map entries for a given row key. The order of map pairs
 // has no specific meaning. For efficient merge operations, pair entries are
 // stored sorted on disk, however that is an implementation detail and not a
@@ -664,7 +675,7 @@ func MapListLegacySortingRequired() MapListOption {
 //
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
-func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+func (b *Bucket) MapListMap(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -709,6 +720,99 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 			return nil, err
 		}
 
+		segments = append(segments, v)
+	}
+
+	// before = time.Now()
+	v, err := b.active.getMap(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+	segments = append(segments, v)
+	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// defer func() {
+	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
+	// }()
+
+	if c.legacyRequireManualSorting {
+		// Sort to support segments which were stored in an unsorted fashion
+		for i := range segments {
+			sort.Slice(segments[i], func(a, b int) bool {
+				return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
+			})
+		}
+	}
+
+	return newSortedMapMerger().do(ctx, segments)
+}
+
+// MapList returns all map entries for a given row key. The order of map pairs
+// has no specific meaning. For efficient merge operations, pair entries are
+// stored sorted on disk, however that is an implementation detail and not a
+// caller-facing guarantee.
+//
+// MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
+// Replace use [Bucket.Get].
+func (b *Bucket) MapListInverted(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
+
+	segments := [][]MapPair{}
+	// before := time.Now()
+	disk, err := b.disk.getCollectionBySegments(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+
+	allTombstones := make([]map[uint64]struct{}, len(b.disk.segments))
+
+	for i, segment := range b.disk.segments {
+		tombstones, err := segment.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[i] = tombstones
+	}
+
+	for i := range disk {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		segmentDecoded := make([]MapPair, len(disk[i]))
+		for j, v := range disk[i] {
+			if err := segmentDecoded[j].FromBytesInverted(v.value, false, defaultInvertedKeyLength, defaultInvertedValueLength); err != nil {
+				return nil, err
+			}
+			docId := binary.LittleEndian.Uint64(segmentDecoded[j].Key[:8])
+			// check if there are any tombstones between the i and len(disk) segments
+			for _, tombstone := range allTombstones[i+1:] {
+				if _, ok := tombstone[docId]; ok {
+					segmentDecoded[j].Tombstone = true
+					break
+				}
+			}
+		}
+		segments = append(segments, segmentDecoded)
+	}
+
+	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
+
+	if b.flushing != nil {
+		v, err := b.flushing.getMap(key)
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
+		}
 		segments = append(segments, v)
 	}
 

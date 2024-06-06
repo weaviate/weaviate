@@ -187,12 +187,12 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, []uint64, error) {
 
 	var err error
 
-	c.tombstonesToWrite, err = c.c1.segment.tombstones()
+	c.tombstonesToWrite, err = c.c1.segment.GetTombstones()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get tombstones")
 	}
 
-	c.tombstonesToClean, err = c.c2.segment.tombstones()
+	c.tombstonesToClean, err = c.c2.segment.GetTombstones()
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get tombstones")
 	}
@@ -355,7 +355,7 @@ func (c *compactorInverted) writeKeysLength() error {
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, c.keysLen)
 
-	_, err := c.bufw.Write(buf)
+	_, err := c.w.Write(buf)
 
 	return err
 }

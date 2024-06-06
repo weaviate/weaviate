@@ -190,14 +190,14 @@ func (c *compactorMapInverted) writeKeys() ([]segmentindex.Key, []uint64, error)
 
 	var err error
 	if c.c1IsOlder {
-		c.tombstonesToClean, err = c.c2.segment.tombstones()
+		c.tombstonesToClean, err = c.c2.segment.GetTombstones()
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "get tombstones")
 		}
 		c.tombstonesCleaned = make(map[uint64]struct{}, len(c.tombstonesToClean))
 
 	} else {
-		c.tombstonesToWrite, err = c.c2.segment.tombstones()
+		c.tombstonesToWrite, err = c.c2.segment.GetTombstones()
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "get tombstones")
 		}
