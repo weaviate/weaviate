@@ -22,13 +22,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-palm/config"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
 type harmCategory string
@@ -132,15 +131,19 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID, region strin
 }
 
 type palm struct {
-	apiKey     string
-	buildUrlFn func(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string
-	httpClient *http.Client
-	logger     logrus.FieldLogger
+	apiKey        string
+	useGoogleAuth bool
+	googleApiKey  *apikey.GoogleApiKey
+	buildUrlFn    func(useGenerativeAI bool, apiEndoint, projectID, modelID, region string) string
+	httpClient    *http.Client
+	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *palm {
+func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *palm {
 	return &palm{
-		apiKey: apiKey,
+		apiKey:        apiKey,
+		useGoogleAuth: useGoogleAuth,
+		googleApiKey:  apikey.NewGoogleApiKey(),
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -414,40 +417,7 @@ func (v *palm) generateForPrompt(textProperties map[string]string, prompt string
 }
 
 func (v *palm) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
-	if useGenerativeAIEndpoint {
-		if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Studio-Api-Key"); apiKeyValue != "" {
-			return apiKeyValue, nil
-		}
-	} else {
-		if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Vertex-Api-Key"); apiKeyValue != "" {
-			return apiKeyValue, nil
-		}
-	}
-	if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Api-Key"); apiKeyValue != "" {
-		return apiKeyValue, nil
-	}
-	if apiKeyValue := v.getValueFromContext(ctx, "X-Palm-Api-Key"); apiKeyValue != "" {
-		return apiKeyValue, nil
-	}
-	if len(v.apiKey) > 0 {
-		return v.apiKey, nil
-	}
-	return "", errors.New("no api key found " +
-		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key or X-Google-Vertex-Api-Key or X-Google-Studio-Api-Key " +
-		"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
-}
-
-func (v *palm) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
+	return v.googleApiKey.GetApiKey(ctx, v.apiKey, useGenerativeAIEndpoint, v.useGoogleAuth)
 }
 
 func (v *palm) decodeFinishReason(reason string) string {
