@@ -250,9 +250,6 @@ func (kv MapPair) Bytes() ([]byte, error) {
 }
 
 func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
-	if len(in) == 16 { // 16 bytes, 8 for key, 8 for value means an inverted pair
-		return kv.FromBytesInverted(in, keyOnly, defaultInvertedKeyLength, defaultInvertedValueLength)
-	}
 	var read uint16
 
 	// NOTE: A previous implementation was using copy statements in here to avoid

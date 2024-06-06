@@ -50,7 +50,7 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 				actuallyWritten++
 				actuallyWrittenKeys[string(mapNode.key)] = struct{}{}
 			} else {
-				docId := binary.LittleEndian.Uint64(mapNode.values[j].Key)
+				docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
 				if _, ok := tombstonesMap[docId]; !ok {
 					tombstonesMap[docId] = struct{}{}
 					tombstones = append(tombstones, docId)
@@ -60,7 +60,7 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 		}
 
 	}
-	totalDataLength := totalValueSizeInverted(actuallyWrittenKeys, actuallyWritten) + (2 + 2) + (8 + len(tombstonesMap)*8) // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+	totalDataLength := (2 + 2) + 8 + totalValueSizeInverted(actuallyWrittenKeys, actuallyWritten) + 8 + len(tombstonesMap)*8 // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
@@ -77,6 +77,7 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 	totalWritten := headerSize
 
 	buf := make([]byte, 8)
+
 	binary.LittleEndian.PutUint16(buf, uint16(defaultInvertedKeyLength))
 	if _, err := f.Write(buf[:2]); err != nil {
 		return nil, nil, err
@@ -89,19 +90,13 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 
 	totalWritten += 4
 
-	binary.LittleEndian.PutUint64(buf, uint64(len(tombstones)))
+	keysLen := totalValueSizeInverted(actuallyWrittenKeys, actuallyWritten)
+	binary.LittleEndian.PutUint64(buf, uint64(keysLen))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
 	}
 
-	for _, docId := range tombstones {
-		binary.LittleEndian.PutUint64(buf, docId)
-		if _, err := f.Write(buf); err != nil {
-			return nil, nil, err
-		}
-	}
-
-	totalWritten += len(tombstones)*8 + 8
+	totalWritten += 8
 
 	keys := make([]segmentindex.Key, len(flat))
 	actuallyWritten = 0
@@ -121,6 +116,20 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 			actuallyWritten++
 		}
 	}
+
+	binary.LittleEndian.PutUint64(buf, uint64(len(tombstones)))
+	if _, err := f.Write(buf); err != nil {
+		return nil, nil, err
+	}
+
+	for _, docId := range tombstones {
+		binary.LittleEndian.PutUint64(buf, docId)
+		if _, err := f.Write(buf); err != nil {
+			return nil, nil, err
+		}
+	}
+
+	totalWritten += len(tombstones)*8 + 8
 
 	return keys[:actuallyWritten], tombstones, nil
 }

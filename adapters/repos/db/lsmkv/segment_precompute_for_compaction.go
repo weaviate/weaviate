@@ -82,6 +82,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	compactionMutex := sync.RWMutex{}
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
+	dataEndPos := header.IndexStart
 
 	var invertedKeyLength, invertedValueLength uint16
 	if header.Strategy == segmentindex.StrategyInverted {
@@ -89,8 +90,11 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
 		invertedKeyLength = binary.LittleEndian.Uint16(contents[dataStartPos : dataStartPos+2])
 		invertedValueLength = binary.LittleEndian.Uint16(contents[dataStartPos+2 : dataStartPos+4])
-		tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos+4 : dataStartPos+12])
-		dataStartPos += 2 + 2 + 8*(tombstoneCount+1)
+		keysLength := binary.LittleEndian.Uint64(contents[dataStartPos+4 : dataStartPos+12])
+
+		dataEndPos = dataStartPos + 12 + keysLength
+		// tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos+12+keysLength : dataStartPos+12+keysLength+8])
+		dataStartPos += 2 + 2 + 8
 	}
 
 	seg := &segment{
@@ -109,7 +113,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		segmentEndPos:         uint64(fileInfo.Size()),
 		strategy:              header.Strategy,
 		dataStartPos:          dataStartPos, // fixed value that's the same for all strategies
-		dataEndPos:            header.IndexStart,
+		dataEndPos:            dataEndPos,
 		index:                 primaryDiskIndex,
 		logger:                logger,
 		useBloomFilter:        useBloomFilter,

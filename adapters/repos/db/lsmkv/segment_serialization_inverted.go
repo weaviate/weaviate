@@ -27,7 +27,7 @@ type segmentInvertedNode struct {
 	offset     int
 }
 
-var payloadLen = 16
+var invPayloadLen = 16
 
 func (s segmentInvertedNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, error) {
 	out := segmentindex.Key{}
@@ -139,7 +139,55 @@ func ParseInvertedNode(r io.Reader) (segmentInvertedNode, error) {
 	valuesLen := binary.LittleEndian.Uint64(tmpBuf[0:8])
 	out.values = make([]value, valuesLen)
 	for i := range out.values {
-		out.values[i].value = make([]byte, payloadLen)
+		out.values[i].value = make([]byte, invPayloadLen)
+		n, err := io.ReadFull(r, out.values[i].value)
+		if err != nil {
+			return out, errors.Wrap(err, "read value")
+		}
+		out.offset += n
+	}
+
+	if n, err := io.ReadFull(r, tmpBuf[0:4]); err != nil {
+		return out, errors.Wrap(err, "read key len")
+	} else {
+		out.offset += n
+	}
+	keyLen := binary.LittleEndian.Uint32(tmpBuf[0:4])
+	out.primaryKey = make([]byte, keyLen)
+	n, err := io.ReadFull(r, out.primaryKey)
+	if err != nil {
+		return out, errors.Wrap(err, "read key")
+	}
+	out.offset += n
+
+	return out, nil
+}
+
+// ParseInvertedNode reads from r and parses the Inverted values into a segmentInvertedNode
+//
+// When only given an offset, r is constructed as a *bufio.Reader to avoid first reading the
+// entire segment (could be GBs). Each consecutive read will be buffered to avoid excessive
+// syscalls.
+//
+// When we already have a finite and manageable []byte (i.e. when we have already seeked to an
+// lsmkv node and have start+end offset), r should be constructed as a *bytes.Reader, since the
+// contents have already been `pread` from the segment contentFile.
+func ParseInvertedNodeIntoCollectionNode(r io.Reader) (segmentCollectionNode, error) {
+	out := segmentCollectionNode{}
+	// 8 bytes is the most we can ever read uninterrupted, i.e. without a dynamic
+	// read in between.
+	tmpBuf := make([]byte, 8)
+
+	if n, err := io.ReadFull(r, tmpBuf[0:8]); err != nil {
+		return out, errors.Wrap(err, "read values len")
+	} else {
+		out.offset += n
+	}
+
+	valuesLen := binary.LittleEndian.Uint64(tmpBuf[0:8])
+	out.values = make([]value, valuesLen)
+	for i := range out.values {
+		out.values[i].value = make([]byte, invPayloadLen)
 		n, err := io.ReadFull(r, out.values[i].value)
 		if err != nil {
 			return out, errors.Wrap(err, "read value")
@@ -202,7 +250,7 @@ func ParseInvertedNodeInto(r io.Reader, node *segmentInvertedNode) error {
 			return fmt.Errorf("read node value: %w", err)
 		}
 
-		offset += int(payloadLen)
+		offset += int(invPayloadLen)
 	}
 
 	_, err = io.ReadFull(r, buf[0:4])
@@ -232,7 +280,7 @@ func resizeValuesOfInvertedNode(node *segmentInvertedNode, size uint64) {
 		node.values = make([]value, size, int(float64(size)*1.25))
 	}
 	for i := range node.values {
-		node.values[i].value = make([]byte, payloadLen)
+		node.values[i].value = make([]byte, invPayloadLen)
 	}
 }
 

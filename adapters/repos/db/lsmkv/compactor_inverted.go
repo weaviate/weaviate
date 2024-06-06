@@ -46,6 +46,12 @@ type compactorInverted struct {
 	scratchSpacePath string
 
 	offset int
+
+	tombstonesToWrite map[uint64]struct{}
+	tombstonesToClean map[uint64]struct{}
+	tombstonesCleaned map[uint64]struct{}
+
+	keysLen uint64
 }
 
 func newCompactorInverted(w io.WriteSeeker,
@@ -66,28 +72,32 @@ func newCompactorInverted(w io.WriteSeeker,
 }
 
 func (c *compactorInverted) do() error {
+	var err error
+
 	if err := c.init(); err != nil {
 		return errors.Wrap(err, "init")
 	}
 
+	if err != nil {
+		return errors.Wrap(err, "get tombstones")
+	}
+
 	c.offset = segmentindex.HeaderSize
 
-	err := c.writeKeyValueLen()
+	err = c.writeKeyValueLen()
 	if err != nil {
 		return errors.Wrap(err, "write key and value length")
 	}
 	c.offset += 2 + 2 // 2 bytes for key length, 2 bytes for value length
 
-	tombstones, err := c.writeTombstones()
-
-	c.offset += (len(tombstones) + 1) * 8
-	if err != nil {
-		return errors.Wrap(err, "write tombstones")
-	}
-
-	kis, err := c.writeKeys()
+	kis, tombstones, err := c.writeKeys()
 	if err != nil {
 		return errors.Wrap(err, "write keys")
+	}
+
+	err = c.writeTombstones(tombstones)
+	if err != nil {
+		return errors.Wrap(err, "write tombstones")
 	}
 
 	if err := c.writeIndices(kis); err != nil {
@@ -99,13 +109,17 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	var dataEnd uint64 = segmentindex.HeaderSize + (2 + 2) + uint64((len(tombstones)+1)*8) // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+	var dataEnd uint64 = segmentindex.HeaderSize + 2 + 2 + 8 + uint64((len(tombstones)+1)*8)
 	if len(kis) > 0 {
-		dataEnd = uint64(kis[len(kis)-1].ValueEnd)
+		dataEnd = uint64(kis[len(kis)-1].ValueEnd) + uint64((len(tombstones)+1)*8)
 	}
 	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount,
 		dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
+	}
+
+	if err := c.writeKeysLength(); err != nil {
+		return errors.Wrap(err, "write keys length")
 	}
 
 	return nil
@@ -139,16 +153,51 @@ func (c *compactorInverted) writeKeyValueLen() error {
 	return nil
 }
 
-func (c *compactorInverted) writeTombstones() ([]uint64, error) {
+func (c *compactorInverted) writeTombstones(tombstones []uint64) error {
 	// TODO: right now, we don't deal with tombstones, so we'll just write a zero
 	// to keep the format consistent
-	_, err := c.bufw.Write(make([]byte, 8))
-	return make([]uint64, 0), err
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(len(tombstones)))
+	if _, err := c.bufw.Write(buf); err != nil {
+		return err
+	}
+
+	for _, docId := range tombstones {
+		binary.LittleEndian.PutUint64(buf, docId)
+		if _, err := c.bufw.Write(buf); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
-func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
+func (c *compactorInverted) writeKeys() ([]segmentindex.Key, []uint64, error) {
+	// placeholder for the keys length
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, 0)
+	if _, err := c.bufw.Write(buf); err != nil {
+		return nil, nil, err
+	}
+
+	c.offset += 8
+
 	key1, value1, _ := c.c1.first()
 	key2, value2, _ := c.c2.first()
+
+	var err error
+
+	c.tombstonesToWrite, err = c.c1.segment.tombstones()
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "get tombstones")
+	}
+
+	c.tombstonesToClean, err = c.c2.segment.tombstones()
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "get tombstones")
+	}
+
+	c.tombstonesCleaned = make(map[uint64]struct{}, len(c.tombstonesToClean))
 
 	// the (dummy) header was already written, this is our initial offset
 
@@ -167,13 +216,13 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 
 			for i, v := range value1 {
 				if err := pairs.left[i].FromBytes(v.value, false, c.c1.segment.invertedKeyLength, c.c1.segment.invertedValueLength); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
 
 			for i, v := range value2 {
 				if err := pairs.right[i].FromBytes(v.value, false, c.c2.segment.invertedKeyLength, c.c2.segment.invertedValueLength); err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 			}
 
@@ -181,18 +230,18 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 			mergedPairs, err := sim.
 				doKeepTombstonesReusable()
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			mergedEncoded, err := me.DoMultiReusable(mergedPairs)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 
 			if values, skip := c.cleanupValues(mergedEncoded); !skip {
 				ki, err := c.writeIndividualNode(c.offset, key2, values)
 				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (equal keys)")
+					return nil, nil, errors.Wrap(err, "write individual node (equal keys)")
 				}
 
 				c.offset = ki.ValueEnd
@@ -209,7 +258,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 			if values, skip := c.cleanupValues(value1); !skip {
 				ki, err := c.writeIndividualNode(c.offset, key1, values)
 				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (key1 smaller)")
+					return nil, nil, errors.Wrap(err, "write individual node (key1 smaller)")
 				}
 
 				c.offset = ki.ValueEnd
@@ -221,7 +270,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 			if values, skip := c.cleanupValues(value2); !skip {
 				ki, err := c.writeIndividualNode(c.offset, key2, values)
 				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (key2 smaller)")
+					return nil, nil, errors.Wrap(err, "write individual node (key2 smaller)")
 				}
 
 				c.offset = ki.ValueEnd
@@ -230,8 +279,8 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 			key2, value2, _ = c.c2.next()
 		}
 	}
-
-	return kis, nil
+	tombstones := c.computeTombstones()
+	return kis, tombstones, nil
 }
 
 func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
@@ -249,6 +298,8 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 	// reusable buffer for the key which surfaced this bug.
 	keyCopy := make([]byte, len(key))
 	copy(keyCopy, key)
+
+	c.keysLen += 8 + uint64(len(values)*invPayloadLen) + 4 + uint64(len(keyCopy))
 
 	return segmentInvertedNode{
 		values:     values,
@@ -293,6 +344,22 @@ func (c *compactorInverted) writeHeader(level, version, secondaryIndices uint16,
 	return nil
 }
 
+// writeKeysLength assumes that everything has been written to the underlying
+// writer and it is now safe to seek to the beginning and override the initial
+// header
+func (c *compactorInverted) writeKeysLength() error {
+	if _, err := c.w.Seek(16+2+2, io.SeekStart); err != nil {
+		return errors.Wrap(err, "seek to beginning to write header")
+	}
+
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, c.keysLen)
+
+	_, err := c.bufw.Write(buf)
+
+	return err
+}
+
 // Removes values with tombstone set from input slice. Output slice may be smaller than input one.
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
@@ -306,7 +373,8 @@ func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bo
 	// and reduce slice's length.
 	last := 0
 	for i := 0; i < len(values); i++ {
-		if !values[i].tombstone {
+		docId := binary.BigEndian.Uint64(values[i].value[0:8])
+		if _, ok := c.tombstonesToClean[docId]; ok {
 			// Swap both elements instead overwritting `last` by `i`.
 			// Overwrite would result in `values[last].value` pointing to the same slice
 			// as `values[i].value`.
@@ -314,6 +382,8 @@ func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bo
 			// `segmentInvertedReusable` using `segmentNode` as buffer)
 			// populating slice `values[i].value` would overwrite slice `values[last].value`.
 			// Swaps makes sure `values[i].value` and `values[last].value` point to different slices.
+			c.tombstonesCleaned[docId] = struct{}{}
+		} else {
 			values[last], values[i] = values[i], values[last]
 			last++
 		}
@@ -323,4 +393,20 @@ func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bo
 		return nil, true
 	}
 	return values[:last], false
+}
+
+func (c *compactorInverted) computeTombstones() []uint64 {
+	tombstones := make([]uint64, 0, len(c.tombstonesToWrite)+len(c.tombstonesToClean)-len(c.tombstonesCleaned))
+
+	for docId := range c.tombstonesToWrite {
+		tombstones = append(tombstones, docId)
+	}
+
+	for docId := range c.tombstonesToClean {
+		if _, ok := c.tombstonesCleaned[docId]; !ok {
+			tombstones = append(tombstones, docId)
+		}
+	}
+
+	return tombstones
 }

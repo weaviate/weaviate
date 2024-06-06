@@ -28,7 +28,7 @@ func Test_SerializeAndParseInvertedNode(t *testing.T) {
 	values := make([]value, len(tfs))
 
 	for i := range tfs {
-		buf := make([]byte, payloadLen)
+		buf := make([]byte, invPayloadLen)
 		binary.LittleEndian.PutUint64(buf[0:8], uint64(i))
 		binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(tfs[i]))
 		binary.LittleEndian.PutUint32(buf[12:16], lens[i])

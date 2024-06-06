@@ -121,6 +121,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	compactionMutex := &sync.RWMutex{}
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
+	dataEndPos := header.IndexStart
 
 	var invertedKeyLength, invertedValueLength uint16
 	if header.Strategy == segmentindex.StrategyInverted {
@@ -128,8 +129,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
 		invertedKeyLength = binary.LittleEndian.Uint16(contents[dataStartPos : dataStartPos+2])
 		invertedValueLength = binary.LittleEndian.Uint16(contents[dataStartPos+2 : dataStartPos+4])
-		tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos+4 : dataStartPos+12])
-		dataStartPos += 2 + 2 + 8*(tombstoneCount+1)
+		keysLength := binary.LittleEndian.Uint64(contents[dataStartPos+4 : dataStartPos+12])
+
+		dataEndPos = dataStartPos + 12 + keysLength
+		// tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos+12+keysLength : dataStartPos+12+keysLength+8])
+		dataStartPos += 2 + 2 + 8
 	}
 
 	seg := &segment{
@@ -142,7 +146,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		segmentEndPos:         uint64(fileInfo.Size()),
 		strategy:              header.Strategy,
 		dataStartPos:          dataStartPos, // fixed value that's the same for all strategies
-		dataEndPos:            header.IndexStart,
+		dataEndPos:            dataEndPos,
 		index:                 primaryDiskIndex,
 		logger:                logger,
 		metrics:               metrics,
@@ -302,4 +306,22 @@ func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
 
 	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
 	return bufio.NewReader(r), nil
+}
+
+func (s *segment) tombstones() (map[uint64]struct{}, error) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
+	}
+
+	// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+	keyLengths := binary.LittleEndian.Uint64(s.contents[s.dataStartPos-8 : s.dataStartPos])
+
+	tombstoneCount := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
+
+	tombstones := make(map[uint64]struct{}, tombstoneCount)
+	for i := uint64(0); i < tombstoneCount; i++ {
+		tombstones[binary.BigEndian.Uint64(s.contents[s.dataStartPos+keyLengths+8+i*8:s.dataStartPos+keyLengths+8+(i+1)*8])] = struct{}{}
+	}
+
+	return tombstones, nil
 }

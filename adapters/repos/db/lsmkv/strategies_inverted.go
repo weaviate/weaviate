@@ -31,6 +31,21 @@ func (kv InvertedPair) Size() int {
 	return len(kv.Key) + len(kv.Value)
 }
 
+func (kv *InvertedPair) FromDocIdAndTf(docID uint64, tf float32, propLength float32) {
+	kv.Key = make([]byte, 8)
+	binary.LittleEndian.PutUint64(kv.Key, docID)
+
+	kv.Value = make([]byte, 8)
+	binary.LittleEndian.PutUint32(kv.Value[0:4], math.Float32bits(tf))
+	binary.LittleEndian.PutUint32(kv.Value[4:8], math.Float32bits(propLength))
+}
+
+func (kv *InvertedPair) UpdateTf(tf float32, propLength float32) {
+	kv.Value = make([]byte, 8)
+	binary.LittleEndian.PutUint32(kv.Value[0:4], math.Float32bits(tf))
+	binary.LittleEndian.PutUint32(kv.Value[4:8], math.Float32bits(propLength))
+}
+
 func (kv InvertedPair) EncodeBytes(buf []byte) error {
 	if len(buf) != kv.Size() {
 		return errors.Errorf("buffer has size %d, but MapPair has size %d",
