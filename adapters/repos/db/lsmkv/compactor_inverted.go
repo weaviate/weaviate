@@ -163,7 +163,7 @@ func (c *compactorInverted) writeTombstones(tombstones []uint64) error {
 	}
 
 	for _, docId := range tombstones {
-		binary.LittleEndian.PutUint64(buf, docId)
+		binary.BigEndian.PutUint64(buf, docId)
 		if _, err := c.bufw.Write(buf); err != nil {
 			return err
 		}
@@ -364,9 +364,9 @@ func (c *compactorInverted) writeKeysLength() error {
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
 func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bool) {
-	if !c.cleanupTombstones {
+	/*if !c.cleanupTombstones {
 		return values, false
-	}
+	}*/
 
 	// Reuse input slice not to allocate new memory
 	// Rearrange slice in a way that tombstoned values are moved to the end

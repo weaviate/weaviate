@@ -168,7 +168,7 @@ func (c *compactorMapInverted) writeTombstones(tombstones []uint64) error {
 	}
 
 	for _, docId := range tombstones {
-		binary.LittleEndian.PutUint64(buf, docId)
+		binary.BigEndian.PutUint64(buf, docId)
 		if _, err := c.bufw.Write(buf); err != nil {
 			return err
 		}
@@ -218,16 +218,17 @@ func (c *compactorMapInverted) writeKeys() ([]segmentindex.Key, []uint64, error)
 					return nil, nil, err
 				}
 				pairs.left[i].Tombstone = v.tombstone
-				if c.c1IsOlder && c.cleanupTombstones {
-					docId := binary.BigEndian.Uint64(pairs.left[i].Key)
+				docId := binary.BigEndian.Uint64(pairs.left[i].Key)
+
+				if c.c1IsOlder {
 					if _, ok := c.tombstonesToClean[docId]; ok {
 						pairs.left[i].Tombstone = true
 						c.tombstonesCleaned[docId] = struct{}{}
 					} else if v.tombstone {
-						c.tombstonesToWrite[binary.BigEndian.Uint64(pairs.left[i].Key)] = struct{}{}
+						c.tombstonesToWrite[docId] = struct{}{}
 					}
 				} else if !c.c1IsOlder && v.tombstone {
-					c.tombstonesToClean[binary.BigEndian.Uint64(pairs.left[i].Key)] = struct{}{}
+					c.tombstonesToClean[docId] = struct{}{}
 				}
 			}
 

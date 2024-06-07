@@ -33,7 +33,7 @@ func (kv InvertedPair) Size() int {
 
 func (kv *InvertedPair) FromDocIdAndTf(docID uint64, tf float32, propLength float32) {
 	kv.Key = make([]byte, 8)
-	binary.LittleEndian.PutUint64(kv.Key, docID)
+	binary.BigEndian.PutUint64(kv.Key, docID)
 
 	kv.Value = make([]byte, 8)
 	binary.LittleEndian.PutUint32(kv.Value[0:4], math.Float32bits(tf))

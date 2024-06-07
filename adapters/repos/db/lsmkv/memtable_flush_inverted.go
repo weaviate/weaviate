@@ -123,7 +123,7 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 	}
 
 	for _, docId := range tombstones {
-		binary.LittleEndian.PutUint64(buf, docId)
+		binary.BigEndian.PutUint64(buf, docId)
 		if _, err := f.Write(buf); err != nil {
 			return nil, nil, err
 		}

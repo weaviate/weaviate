@@ -791,7 +791,7 @@ func (b *Bucket) MapListInverted(ctx context.Context, key []byte, cfgs ...MapLis
 			if err := segmentDecoded[j].FromBytesInverted(v.value, false, defaultInvertedKeyLength, defaultInvertedValueLength); err != nil {
 				return nil, err
 			}
-			docId := binary.LittleEndian.Uint64(segmentDecoded[j].Key[:8])
+			docId := binary.BigEndian.Uint64(segmentDecoded[j].Key[:8])
 			// check if there are any tombstones between the i and len(disk) segments
 			for _, tombstone := range allTombstones[i+1:] {
 				if _, ok := tombstone[docId]; ok {

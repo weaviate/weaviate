@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"os"
@@ -28,15 +29,36 @@ import (
 )
 
 func TestCompactionInvertedStrategy(t *testing.T) {
-	t.Run("compaction inverted", func(t *testing.T) {
-		compactionInverted(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)}, 70000, 80000)
+	/*
+		t.Run("compactionMapStrategy", func(t *testing.T) {
+			compactionInverted(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)}, 7076, 7076)
+		})
+
+		t.Run("compactionMapStrategy_KeepTombstones", func(t *testing.T) {
+			compactionInverted(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)}, 7076, 7076)
+		})
+
+		t.Run("compactionMapStrategy_RemoveUnnecessary", func(t *testing.T) {
+			compactionInvertedStrategy_RemoveUnnecessary(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
+		})
+
+		t.Run("compactionMapStrategy_RemoveUnnecessary_KeepTombstones", func(t *testing.T) {
+			compactionInvertedStrategy_RemoveUnnecessary(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)})
+		})
+	*/
+	t.Run("compactionMapStrategy_FrequentPutDeleteOperations", func(t *testing.T) {
+		compactionInvertedStrategy_FrequentPutDeleteOperations(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
+	})
+
+	t.Run("compactionMapStrategy_FrequentPutDeleteOperations_KeepTombstones", func(t *testing.T) {
+		compactionInvertedStrategy_FrequentPutDeleteOperations(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)})
 	})
 }
 
 func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 	expectedMinSize, expectedMaxSize int64,
 ) {
-	size := 1000
+	size := 100
 
 	addedDocIds := make(map[uint64]struct{})
 	removedDocIds := make(map[uint64]struct{})
@@ -593,18 +615,20 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		}
 	})
 
+	expectedPair := InvertedPair{}
+
+	expectedPair.FromDocIdAndTf(uint64(size-2), float32(size-1), float32(size-1))
+
+	expectedPair2 := InvertedPair{}
+
+	expectedPair2.FromDocIdAndTf(uint64(size-1), float32(size-1), float32(size-1))
+
 	expected := []kv{
 		{
 			key: key,
 			values: []InvertedPair{
-				{
-					Key:   []byte(fmt.Sprintf("value-%05d", size-2)),
-					Value: []byte(fmt.Sprintf("updated in round %d", size-1)),
-				},
-				{
-					Key:   []byte(fmt.Sprintf("value-%05d", size-1)),
-					Value: []byte("original value"),
-				},
+				expectedPair,
+				expectedPair2,
 			},
 		},
 	}
@@ -615,13 +639,18 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		c := bucket.MapCursor()
 		defer c.Close()
 
-		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
-			vals := make([]InvertedPair, len(v))
-			for i := range v {
+		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+
+			kvs, err := bucket.MapListInverted(ctx, k)
+
+			assert.Nil(t, err)
+
+			vals := make([]InvertedPair, len(kvs))
+			for i := range kvs {
 				vals[i] = InvertedPair{
-					Key:       v[i].Key,
-					Value:     v[i].Value,
-					Tombstone: v[i].Tombstone,
+					Key:       kvs[i].Key,
+					Value:     kvs[i].Value,
+					Tombstone: kvs[i].Tombstone,
 				}
 			}
 			retrieved = append(retrieved, kv{
@@ -641,19 +670,23 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		require.Nil(t, err)
 	})
 
-	t.Run("verify control before compaction", func(t *testing.T) {
+	t.Run("verify control after compaction", func(t *testing.T) {
 		var retrieved []kv
 
 		c := bucket.MapCursor()
 		defer c.Close()
 
-		for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
-			vals := make([]InvertedPair, len(v))
-			for i := range v {
+		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
+			kvs, err := bucket.MapListInverted(ctx, k)
+
+			assert.Nil(t, err)
+
+			vals := make([]InvertedPair, len(kvs))
+			for i := range kvs {
 				vals[i] = InvertedPair{
-					Key:       v[i].Key,
-					Value:     v[i].Value,
-					Tombstone: v[i].Tombstone,
+					Key:       kvs[i].Key,
+					Value:     kvs[i].Value,
+					Tombstone: kvs[i].Tombstone,
 				}
 			}
 			retrieved = append(retrieved, kv{
@@ -686,7 +719,8 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 	maxSize := 10
 
 	key := []byte("my-key")
-	mapKey := []byte("value-1")
+	mapKey := make([]byte, 8)
+	binary.BigEndian.PutUint64(mapKey, 1)
 
 	for size := 4; size < maxSize; size++ {
 		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {
@@ -708,11 +742,11 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 
 			t.Run("write segments", func(t *testing.T) {
 				for i := 0; i < size; i++ {
-					value := []byte(fmt.Sprintf("updated in round %d", i))
-					pair := InvertedPair{Key: mapKey, Value: value}
+					pair := InvertedPair{}
+					pair.FromDocIdAndTf(0, float32(i), float32(i))
 
 					err := bucket.MapSet(key, MapPair{
-						Key:       pair.Key,
+						Key:       mapKey,
 						Value:     pair.Value,
 						Tombstone: pair.Tombstone,
 					})

@@ -419,11 +419,12 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 	for _, segment := range sg.segments {
 		v, err := segment.getCollection(key)
 		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
+			if !errors.Is(err, lsmkv.NotFound) {
+				return nil, err
+			}
+			if sg.strategy != StrategyInverted {
 				continue
 			}
-
-			return nil, err
 		}
 
 		out[i] = v
