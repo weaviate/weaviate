@@ -3,10 +3,11 @@
 package protocol
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -372,6 +373,7 @@ var (
 		(*Tenant)(nil),            // 4: weaviate.v1.Tenant
 	}
 )
+
 var file_v1_tenants_proto_depIdxs = []int32{
 	2, // 0: weaviate.v1.TenantsGetRequest.names:type_name -> weaviate.v1.TenantNames
 	4, // 1: weaviate.v1.TenantsGetReply.tenants:type_name -> weaviate.v1.Tenant

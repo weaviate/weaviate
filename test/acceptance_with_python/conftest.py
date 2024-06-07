@@ -139,6 +139,7 @@ def named_collection(
             properties=[
                 wvc.config.Property(name="title1", data_type=wvc.config.DataType.TEXT),
                 wvc.config.Property(name="title2", data_type=wvc.config.DataType.TEXT),
+                wvc.config.Property(name="title3", data_type=wvc.config.DataType.TEXT),
             ],
             vectorizer_config=[
                 wvc.config.Configure.NamedVectors.text2vec_contextionary(
@@ -153,6 +154,11 @@ def named_collection(
                 wvc.config.Configure.NamedVectors.text2vec_contextionary(
                     name="title2",
                     source_properties=["title2"],
+                    vectorize_collection_name=False,
+                ),
+                wvc.config.Configure.NamedVectors.text2vec_contextionary(
+                    name="title3",
+                    source_properties=["title3"],
                     vectorize_collection_name=False,
                 ),
             ],

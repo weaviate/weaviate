@@ -3,11 +3,12 @@
 package protocol
 
 import (
+	reflect "reflect"
+	sync "sync"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -1113,6 +1114,7 @@ var (
 		(structpb.NullValue)(0), // 13: google.protobuf.NullValue
 	}
 )
+
 var file_v1_properties_proto_depIdxs = []int32{
 	12, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0,  // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties

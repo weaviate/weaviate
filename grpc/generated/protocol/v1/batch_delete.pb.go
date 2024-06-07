@@ -3,10 +3,11 @@
 package protocol
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -310,14 +311,17 @@ func file_v1_batch_delete_proto_rawDescGZIP() []byte {
 	return file_v1_batch_delete_proto_rawDescData
 }
 
-var file_v1_batch_delete_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_v1_batch_delete_proto_goTypes = []interface{}{
-	(*BatchDeleteRequest)(nil), // 0: weaviate.v1.BatchDeleteRequest
-	(*BatchDeleteReply)(nil),   // 1: weaviate.v1.BatchDeleteReply
-	(*BatchDeleteObject)(nil),  // 2: weaviate.v1.BatchDeleteObject
-	(*Filters)(nil),            // 3: weaviate.v1.Filters
-	(ConsistencyLevel)(0),      // 4: weaviate.v1.ConsistencyLevel
-}
+var (
+	file_v1_batch_delete_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+	file_v1_batch_delete_proto_goTypes  = []interface{}{
+		(*BatchDeleteRequest)(nil), // 0: weaviate.v1.BatchDeleteRequest
+		(*BatchDeleteReply)(nil),   // 1: weaviate.v1.BatchDeleteReply
+		(*BatchDeleteObject)(nil),  // 2: weaviate.v1.BatchDeleteObject
+		(*Filters)(nil),            // 3: weaviate.v1.Filters
+		(ConsistencyLevel)(0),      // 4: weaviate.v1.ConsistencyLevel
+	}
+)
+
 var file_v1_batch_delete_proto_depIdxs = []int32{
 	3, // 0: weaviate.v1.BatchDeleteRequest.filters:type_name -> weaviate.v1.Filters
 	4, // 1: weaviate.v1.BatchDeleteRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel

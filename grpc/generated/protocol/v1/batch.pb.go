@@ -3,11 +3,12 @@
 package protocol
 
 import (
+	reflect "reflect"
+	sync "sync"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -676,6 +677,7 @@ var (
 		(*ObjectArrayProperties)(nil),            // 15: weaviate.v1.ObjectArrayProperties
 	}
 )
+
 var file_v1_batch_proto_depIdxs = []int32{
 	1,  // 0: weaviate.v1.BatchObjectsRequest.objects:type_name -> weaviate.v1.BatchObject
 	7,  // 1: weaviate.v1.BatchObjectsRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel

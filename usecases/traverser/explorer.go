@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -273,6 +275,28 @@ func (e *Explorer) combineResults(results [][]search.Result, limit int, join *dt
 
 	if len(results) == 1 {
 		return results[0], nil
+	}
+
+	if join.ScoreFusion {
+		weights := make([]float64, len(results))
+		for i := range weights {
+			weights[i] = 1. / float64(len(results))
+		}
+		ress := make([][]*search.Result, len(results))
+		for i, res := range results {
+			ress[i] = make([]*search.Result, len(res))
+			for j := range res {
+				ress[i][j] = &res[j]
+				ress[i][j].SecondarySortValue = res[j].Dist
+			}
+		}
+		joined := hybrid.FusionRelativeScore(weights, ress, targetVectors, false)
+		joinedResults := make([]search.Result, len(joined))
+		for i := range joined {
+			joinedResults[i] = *joined[i]
+			joinedResults[i].Dist = joined[i].Score
+		}
+		return joinedResults, nil
 	}
 
 	combinedResults := make(map[uint64]search.Result, len(results[0]))

@@ -24,9 +24,10 @@ type GroupParams struct {
 }
 
 type TargetVectorJoin struct {
-	// one or the other, strategy has precedence
-	Min     bool
-	Weights map[string]float32
+	// just one of these can be set, precedence in order
+	Min         bool
+	ScoreFusion bool
+	Weights     map[string]float32
 }
 
 type GetParams struct {

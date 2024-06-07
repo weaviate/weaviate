@@ -1033,6 +1033,8 @@ func extractTargetVectorJoin(join *pb.TargetVectorJoin, targetVectors *[]string)
 			for _, target := range targets {
 				weights[target] = 1.0
 			}
+		} else if val == pb.TargetVectorJoinMethod_FUSION_TYPE_RELATIVE_SCORE {
+			return &dto.TargetVectorJoin{ScoreFusion: true}, nil
 		} else {
 			return &dto.TargetVectorJoin{}, fmt.Errorf("unknown target vector join method %v", val)
 		}

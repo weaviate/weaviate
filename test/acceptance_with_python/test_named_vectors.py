@@ -210,15 +210,19 @@ def test_near_vector(named_collection: NamedCollection) -> None:
 
 CAR_DISTANCE = 0.7892138957977295
 APPLE_DISTANCE = 0.5168729424476624
+KALE_DISTANCE = 0.5732871294021606
 
 
 @pytest.mark.parametrize(
     "multi_target_fusion_method,distance",
     [
-        ("Sum", CAR_DISTANCE + APPLE_DISTANCE),
-        ("Average", (CAR_DISTANCE + APPLE_DISTANCE) / 2),
+        ("Sum", CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE),
+        ("Average", (CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE) / 3),
         ("Minimum", APPLE_DISTANCE),
-        ({"title1": 0.4, "title2": 1.2}, APPLE_DISTANCE * 0.4 + CAR_DISTANCE * 1.2),
+        (
+            {"title1": 0.4, "title2": 1.2, "title3": 0.752},
+            APPLE_DISTANCE * 0.4 + CAR_DISTANCE * 1.2 + KALE_DISTANCE * 0.752,
+        ),
     ],
 )
 def test_different_target_fusion_methods(
@@ -228,13 +232,57 @@ def test_different_target_fusion_methods(
 ) -> None:
     collection = named_collection()
 
-    collection.data.insert(properties={"title1": "apple", "title2": "car"})
+    collection.data.insert(properties={"title1": "apple", "title2": "car", "title3": "kale"})
 
     nt = collection.query.near_text(
         "fruit",
-        target_vector=["title1", "title2"],
+        target_vector=["title1", "title2", "title3"],
         multi_target_fusion_method=multi_target_fusion_method,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
     assert len(nt.objects) == 1
     assert math.isclose(nt.objects[0].metadata.distance, distance, rel_tol=1e-5)
+
+
+def test_score_fusion(named_collection: NamedCollection) -> None:
+    collection = named_collection()
+
+    uuid0 = collection.data.insert(
+        properties={"title1": "first"},
+        vector={
+            "title1": [1, 0, 0],
+            "title2": [0, 0, 1],
+            "title3": [1, 0, 0],
+        },
+    )
+    uuid1 = collection.data.insert(
+        properties={"title1": "second"},
+        vector={
+            "title1": [0, 1, 0],
+            "title2": [1, 0, 0],
+            "title3": [0, 0, 1],
+        },
+    )
+    uuid2 = collection.data.insert(
+        properties={"title1": "third"},
+        vector={
+            "title1": [0, 1, 0],
+            "title2": [0, 0, 1],
+            "title3": [0, 0, 1],
+        },
+    )
+
+    nt = collection.query.near_vector(
+        [1.0, 0.0, 0.0],
+        target_vector=["title1", "title2", "title3"],
+        multi_target_fusion_method="Score_Fusion",
+        return_metadata=wvc.query.MetadataQuery.full(),
+    )
+    assert len(nt.objects) == 3
+
+    assert math.isclose(nt.objects[0].metadata.distance, 1 / 3, rel_tol=1e-5)
+    assert nt.objects[0].uuid == uuid0
+    assert math.isclose(nt.objects[1].metadata.distance, 2 / 3, rel_tol=1e-5)
+    assert nt.objects[1].uuid == uuid1
+    assert math.isclose(nt.objects[2].metadata.distance, 1, rel_tol=1e-5)
+    assert nt.objects[2].uuid == uuid2
