@@ -74,7 +74,11 @@ type IndexQueue struct {
 		chans []chan struct{}
 	}
 
+	// tracks the last time vectors were added to the queue
 	lastPushed atomic.Pointer[time.Time]
+
+	// tracks the dimensions of the vectors in the queue
+	dims atomic.Int32
 }
 
 type vectorDescriptor struct {
@@ -246,24 +250,25 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	q.lastPushed.Store(&now)
 
 	// ensure the vector length is the same
-	var dims int
 	for i := range vectors {
 		if len(vectors[i].vector) == 0 {
 			return errors.Errorf("vector is empty")
 		}
 
+		// delegate the validation to the index
 		err := q.Index.ValidateBeforeInsert(vectors[i].vector)
 		if err != nil {
 			return errors.Wrap(err, "validate vector")
 		}
 
-		if dims == 0 {
-			dims = len(vectors[i].vector)
+		// if the index is still empty, ensure the first batch is consistent
+		// by keeping track of the dimensions of the vectors.
+		if q.dims.CompareAndSwap(0, int32(len(vectors[i].vector))) {
 			continue
 		}
 
-		if len(vectors[i].vector) != dims {
-			return errors.Errorf("inconsistent vector lengths: %d != %d", len(vectors[i].vector), dims)
+		if q.dims.Load() != int32(len(vectors[i].vector)) {
+			return errors.Errorf("inconsistent vector length: %d != %d", len(vectors[i].vector), q.dims.Load())
 		}
 	}
 
