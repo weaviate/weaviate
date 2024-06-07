@@ -211,6 +211,12 @@ func NewIndexQueue(
 // Close immediately closes the queue and waits for workers to finish their current tasks.
 // Any pending vectors are discarded.
 func (q *IndexQueue) Close() error {
+	if q == nil {
+		// queue was never initialized, possibly because of a failed shard
+		// initialization. No op.
+		return nil
+	}
+
 	// check if the queue is closed
 	if q.ctx.Err() != nil {
 		return nil
