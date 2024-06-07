@@ -78,7 +78,11 @@ type IndexQueue struct {
 		chans []chan struct{}
 	}
 
+	// tracks the last time vectors were added to the queue
 	lastPushed atomic.Pointer[time.Time]
+
+	// tracks the dimensions of the vectors in the queue
+	dims atomic.Int32
 }
 
 type vectorDescriptor struct {
@@ -121,6 +125,7 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
+	ValidateBeforeInsert(vector []float32) error
 }
 
 type compressedIndexer interface {
@@ -220,6 +225,12 @@ func NewIndexQueue(
 // Close immediately closes the queue and waits for workers to finish their current tasks.
 // Any pending vectors are discarded.
 func (q *IndexQueue) Close() error {
+	if q == nil {
+		// queue was never initialized, possibly because of a failed shard
+		// initialization. No op.
+		return nil
+	}
+
 	// check if the queue is closed
 	if q.ctx.Err() != nil {
 		return nil
@@ -254,6 +265,29 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	defer q.metrics.Push(now, len(vectors))
 
 	q.lastPushed.Store(&now)
+
+	// ensure the vector length is the same
+	for i := range vectors {
+		if len(vectors[i].vector) == 0 {
+			return errors.Errorf("vector is empty")
+		}
+
+		// delegate the validation to the index
+		err := q.Index.ValidateBeforeInsert(vectors[i].vector)
+		if err != nil {
+			return errors.WithStack(err)
+		}
+
+		// if the index is still empty, ensure the first batch is consistent
+		// by keeping track of the dimensions of the vectors.
+		if q.dims.CompareAndSwap(0, int32(len(vectors[i].vector))) {
+			continue
+		}
+
+		if q.dims.Load() != int32(len(vectors[i].vector)) {
+			return errors.Errorf("inconsistent vector lengths: %d != %d", len(vectors[i].vector), q.dims.Load())
+		}
+	}
 
 	q.queue.Add(vectors)
 	return nil
