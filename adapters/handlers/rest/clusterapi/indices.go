@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -34,17 +35,20 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type indices struct {
-	shards                 shards
-	db                     db
-	auth                   auth
-	regexpObjects          *regexp.Regexp
-	regexpObjectsOverwrite *regexp.Regexp
-	regexObjectsDigest     *regexp.Regexp
-	regexpObjectsSearch    *regexp.Regexp
-	regexpObjectsFind      *regexp.Regexp
+	shards                          shards
+	db                              db
+	auth                            auth
+	regexpObjects                   *regexp.Regexp
+	regexpObjectsOverwrite          *regexp.Regexp
+	regexObjectsDigest              *regexp.Regexp
+	regexObjectsDigestsInTokenRange *regexp.Regexp
+	regexObjectsHashTreeLevel       *regexp.Regexp
+	regexpObjectsSearch             *regexp.Regexp
+	regexpObjectsFind               *regexp.Regexp
 
 	regexpObjectsAggregations *regexp.Regexp
 	regexpObject              *regexp.Regexp
@@ -62,6 +66,7 @@ const (
 	cl = entschema.ClassNameRegexCore
 	sh = entschema.ShardNameRegexCore
 	ob = `[A-Za-z0-9_+-]+`
+	l  = "[0-9]+"
 
 	urlPatternObjects = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`
@@ -69,6 +74,10 @@ const (
 		`\/shards\/(` + sh + `)\/objects:overwrite`
 	urlPatternObjectsDigest = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects:digest`
+	urlPatternObjectsDigestsInTokenRange = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects:digestsInTokenRange`
+	urlPatternHashTreeLevel = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`
 	urlPatternObjectsSearch = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/_search`
 	urlPatternObjectsFind = `\/indices\/(` + cl + `)` +
@@ -131,6 +140,10 @@ type shards interface {
 		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
 	DigestObjects(ctx context.Context, indexName, shardName string,
 		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
+	DigestObjectsInTokenRange(ctx context.Context, indexName, shardName string,
+		initialToken, finalToken uint64, limit int) (result []replica.RepairResponse, lastTokenRead uint64, err error)
+	HashTreeLevel(ctx context.Context, indexName, shardName string,
+		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 
 	// Scale-out Replication POC
 	FilePutter(ctx context.Context, indexName, shardName,
@@ -145,11 +158,13 @@ type db interface {
 
 func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *indices {
 	return &indices{
-		regexpObjects:          regexp.MustCompile(urlPatternObjects),
-		regexpObjectsOverwrite: regexp.MustCompile(urlPatternObjectsOverwrite),
-		regexObjectsDigest:     regexp.MustCompile(urlPatternObjectsDigest),
-		regexpObjectsSearch:    regexp.MustCompile(urlPatternObjectsSearch),
-		regexpObjectsFind:      regexp.MustCompile(urlPatternObjectsFind),
+		regexpObjects:                   regexp.MustCompile(urlPatternObjects),
+		regexpObjectsOverwrite:          regexp.MustCompile(urlPatternObjectsOverwrite),
+		regexObjectsDigest:              regexp.MustCompile(urlPatternObjectsDigest),
+		regexObjectsDigestsInTokenRange: regexp.MustCompile(urlPatternObjectsDigestsInTokenRange),
+		regexObjectsHashTreeLevel:       regexp.MustCompile(urlPatternHashTreeLevel),
+		regexpObjectsSearch:             regexp.MustCompile(urlPatternObjectsSearch),
+		regexpObjectsFind:               regexp.MustCompile(urlPatternObjectsFind),
 
 		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
 		regexpObject:              regexp.MustCompile(urlPatternObject),
@@ -210,6 +225,18 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 			}
 
 			i.getObjectsDigest().ServeHTTP(w, r)
+		case i.regexObjectsDigestsInTokenRange.MatchString(path):
+			if r.Method != http.MethodPost {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			}
+
+			i.getObjectsDigestsInTokenRange().ServeHTTP(w, r)
+		case i.regexObjectsHashTreeLevel.MatchString(path):
+			if r.Method != http.MethodPost {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			}
+
+			i.getHashTreeLevel().ServeHTTP(w, r)
 		case i.regexpObject.MatchString(path):
 			if r.Method == http.MethodGet {
 				i.getObject().ServeHTTP(w, r)
@@ -943,6 +970,98 @@ func (i *indices) getObjectsDigest() http.Handler {
 		}
 		if err != nil {
 			http.Error(w, "digest objects: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(results)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(resBytes)
+	})
+}
+
+func (i *indices) getObjectsDigestsInTokenRange() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexObjectsDigestsInTokenRange.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var tokenRangeReq replica.DigestObjectsInTokenRangeReq
+		if err := json.Unmarshal(reqPayload, &tokenRangeReq); err != nil {
+			http.Error(w, "unmarshal digest objects in token range params from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		digests, lastTokenRead, err := i.shards.DigestObjectsInTokenRange(r.Context(),
+			index, shard, tokenRangeReq.InitialToken, tokenRangeReq.FinalToken, tokenRangeReq.Limit)
+		if err != nil {
+			http.Error(w, "digest objects in range: "+err.Error(),
+				http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := json.Marshal(replica.DigestObjectsInTokenRangeResp{
+			Digests:       digests,
+			LastTokenRead: lastTokenRead,
+		})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Write(resBytes)
+	})
+}
+
+func (i *indices) getHashTreeLevel() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexObjectsHashTreeLevel.FindStringSubmatch(r.URL.Path)
+		if len(args) != 4 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		index, shard, level := args[1], args[2], args[3]
+
+		l, err := strconv.Atoi(level)
+		if err != nil {
+			http.Error(w, "unmarshal hashtree level params: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var discriminant hashtree.Bitset
+		if err := discriminant.Unmarshal(reqPayload); err != nil {
+			http.Error(w, "unmarshal hashtree level params from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		results, err := i.shards.HashTreeLevel(r.Context(), index, shard, l, &discriminant)
+		if err != nil {
+			http.Error(w, "hashtree level: "+err.Error(),
 				http.StatusInternalServerError)
 			return
 		}

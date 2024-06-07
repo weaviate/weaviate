@@ -318,6 +318,11 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		return errors.Wrap(err, "drop disk segment")
 	}
 
+	err = fsync(sg.dir)
+	if err != nil {
+		return fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
+	}
+
 	sg.segments[old1] = nil
 	sg.segments[old2] = nil
 

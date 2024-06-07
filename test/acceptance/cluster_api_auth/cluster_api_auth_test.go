@@ -30,7 +30,7 @@ func TestClusterAPIAuth(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().With3NodeCluster().
-		WithBasicAuth("user", "pass").
+		WithWeaviateBasicAuth("user", "pass").
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)

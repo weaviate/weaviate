@@ -55,7 +55,7 @@ func Test_BackupJourney(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
-			WithWeaviateCluster().
+			WithWeaviateCluster(2).
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -68,7 +68,7 @@ func Test_BackupJourney(t *testing.T) {
 		t.Run("backup-filesystem", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "filesystem",
 				fsBackupJourneyClassName, fsBackupJourneyBackupIDCluster, nil,
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }

@@ -73,7 +73,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 	// if this is reference search and tenant is given (as origin class is MT)
 	// but searched class is non-MT, then skip tenant to pass validation
 	tenant := params.Tenant
-	if !idx.partitioningEnabled && params.IsRefOrigin {
+	if !idx.partitioningEnabled() && params.IsRefOrigin {
 		tenant = ""
 	}
 
@@ -414,7 +414,13 @@ func (db *DB) getStoreObjectsWithScores(res []*storobj.Object, scores []float32,
 	if offset == 0 && limit == 0 {
 		return nil, nil
 	}
-	return res[offset:limit], scores[offset:limit]
+	res = res[offset:limit]
+	// not all search results have scores
+	if len(scores) == 0 {
+		return res, scores
+	}
+
+	return res, scores[offset:limit]
 }
 
 func (db *DB) getDists(dists []float32, pagination *filters.Pagination) []float32 {

@@ -76,11 +76,13 @@ import (
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
+	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -679,27 +681,71 @@ func registerModules(appState *state.State) error {
 
 	appState.Modules = modules.NewProvider()
 
-	enabledModules := map[string]bool{}
-	if len(appState.ServerConfig.Config.EnableModules) > 0 {
-		modules := strings.Split(appState.ServerConfig.Config.EnableModules, ",")
-		for _, module := range modules {
-			enabledModules[strings.TrimSpace(module)] = true
-		}
+	// Default modules
+	defaultVectorizers := []string{
+		modtext2vecaws.Name,
+		modcohere.Name,
+		modhuggingface.Name,
+		modjinaai.Name,
+		modoctoai.Name,
+		modopenai.Name,
+		modtext2vecpalm.Name,
+		modvoyageai.Name,
+	}
+	defaultGenerative := []string{
+		modgenerativeanyscale.Name,
+		modgenerativeaws.Name,
+		modgenerativecohere.Name,
+		modgenerativemistral.Name,
+		modgenerativeoctoai.Name,
+		modgenerativeopenai.Name,
+		modgenerativepalm.Name,
+	}
+	defaultOthers := []string{
+		modrerankercohere.Name,
+		modrerankervoyageai.Name,
 	}
 
-	if _, ok := enabledModules["text2vec-contextionary"]; ok {
-		appState.Modules.Register(modcontextionary.New())
+	defaultModules := append(defaultVectorizers, defaultGenerative...)
+	defaultModules = append(defaultModules, defaultOthers...)
+
+	var modules []string
+
+	if len(appState.ServerConfig.Config.EnableModules) > 0 {
+		modules = strings.Split(appState.ServerConfig.Config.EnableModules, ",")
+	}
+
+	if appState.ServerConfig.Config.EnableApiBasedModules {
+		// Concatenate modules with default modules
+		modules = append(modules, defaultModules...)
+	}
+
+	enabledModules := map[string]bool{}
+	for _, module := range modules {
+		enabledModules[strings.TrimSpace(module)] = true
+	}
+
+	if _, ok := enabledModules[modt2vbigram.Name]; ok {
+		appState.Modules.Register(modt2vbigram.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-contextionary").
+			WithField("module", modt2vbigram.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text2vec-transformers"]; ok {
+	if _, ok := enabledModules[modcontextionary.Name]; ok {
+		appState.Modules.Register(modcontextionary.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modcontextionary.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtransformers.Name]; ok {
 		appState.Modules.Register(modtransformers.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-transformers").
+			WithField("module", modtransformers.Name).
 			Debug("enabled module")
 	}
 
@@ -735,51 +781,51 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["qna-transformers"]; ok {
+	if _, ok := enabledModules[modqna.Name]; ok {
 		appState.Modules.Register(modqna.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "qna-transformers").
+			WithField("module", modqna.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["sum-transformers"]; ok {
+	if _, ok := enabledModules[modsum.Name]; ok {
 		appState.Modules.Register(modsum.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "sum-transformers").
+			WithField("module", modsum.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["img2vec-neural"]; ok {
+	if _, ok := enabledModules[modimage.Name]; ok {
 		appState.Modules.Register(modimage.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "img2vec-neural").
+			WithField("module", modimage.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["ner-transformers"]; ok {
+	if _, ok := enabledModules[modner.Name]; ok {
 		appState.Modules.Register(modner.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "ner-transformers").
+			WithField("module", modner.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text-spellcheck"]; ok {
+	if _, ok := enabledModules[modspellcheck.Name]; ok {
 		appState.Modules.Register(modspellcheck.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text-spellcheck").
+			WithField("module", modspellcheck.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["multi2vec-clip"]; ok {
+	if _, ok := enabledModules[modclip.Name]; ok {
 		appState.Modules.Register(modclip.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "multi2vec-clip").
+			WithField("module", modclip.Name).
 			Debug("enabled module")
 	}
 
@@ -791,19 +837,19 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text2vec-openai"]; ok {
+	if _, ok := enabledModules[modopenai.Name]; ok {
 		appState.Modules.Register(modopenai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-openai").
+			WithField("module", modopenai.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["qna-openai"]; ok {
+	if _, ok := enabledModules[modqnaopenai.Name]; ok {
 		appState.Modules.Register(modqnaopenai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "qna-openai").
+			WithField("module", modqnaopenai.Name).
 			Debug("enabled module")
 	}
 

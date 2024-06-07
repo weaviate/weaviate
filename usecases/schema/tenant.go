@@ -98,11 +98,9 @@ func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
 
 	for _, tenant := range tenants {
 		switch status := tenant.ActivityStatus; status {
-		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
-			// ok
-		case models.TenantActivityStatusWARM, models.TenantActivityStatusFROZEN:
-			msgs = append(msgs, fmt.Sprintf(
-				"not yet supported activity status '%s' for tenant %q", status, tenant.Name))
+		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD, models.TenantActivityStatusFROZEN:
+			continue
+
 		default:
 			if status == "" && allowEmpty {
 				continue
