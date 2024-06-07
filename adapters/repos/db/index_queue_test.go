@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func startWorker(t testing.TB, n int, retryInterval ...time.Duration) chan job {
@@ -148,9 +149,9 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("1", "", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 3,
-		})
+		}, monitoring.GetMetrics())
 		require.NoError(t, err)
 		defer q.Close()
 
