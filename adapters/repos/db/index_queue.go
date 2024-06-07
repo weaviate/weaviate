@@ -117,6 +117,7 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
+	ValidateBeforeInsert(vector []float32) error
 }
 
 type compressedIndexer interface {
@@ -249,6 +250,11 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	for i := range vectors {
 		if len(vectors[i].vector) == 0 {
 			return errors.Errorf("vector is empty")
+		}
+
+		err := q.Index.ValidateBeforeInsert(vectors[i].vector)
+		if err != nil {
+			return errors.Wrap(err, "validate vector")
 		}
 
 		if dims == 0 {
