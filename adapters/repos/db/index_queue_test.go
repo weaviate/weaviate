@@ -841,6 +841,10 @@ func (m *mockShard) compareAndSwapStatus(old, new string) (storagestate.Status, 
 	return m.compareAndSwapStatusFn(old, new)
 }
 
+func (m *mockShard) Name() string {
+	return "mock"
+}
+
 type mockBatchIndexer struct {
 	sync.Mutex
 	addBatchFn            func(id []uint64, vector [][]float32) error

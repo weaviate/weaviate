@@ -132,6 +132,7 @@ type compressedIndexer interface {
 
 type shardStatusUpdater interface {
 	compareAndSwapStatus(old, new string) (storagestate.Status, error)
+	Name() string
 }
 
 func NewIndexQueue(
@@ -194,7 +195,7 @@ func NewIndexQueue(
 		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
 		checkpoints:       checkpoints,
-		metrics:           NewIndexQueueMetrics(opts.Logger, promMetrics, className, shardID, targetVector),
+		metrics:           NewIndexQueueMetrics(opts.Logger, promMetrics, className, shard.Name(), targetVector),
 	}
 
 	q.queue = newVectorQueue(&q)
