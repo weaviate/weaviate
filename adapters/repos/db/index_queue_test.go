@@ -141,6 +141,63 @@ func TestIndexQueue(t *testing.T) {
 		}
 	}
 
+	t.Run("bad vector lengths", func(t *testing.T) {
+		var idx mockBatchIndexer
+		idx.addBatchFn = func(ids []uint64, vector [][]float32) error {
+			t.Fatal("should not have been called")
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize: 3,
+		})
+		require.NoError(t, err)
+		defer q.Close()
+
+		// inconsistent vector lengths
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		}, vectorDescriptor{
+			id:     2,
+			vector: []float32{4, 5},
+		})
+		require.EqualError(t, err, "inconsistent vector lengths: 2 != 3")
+
+		// empty vectors
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{},
+		}, vectorDescriptor{
+			id:     2,
+			vector: []float32{4, 5},
+		})
+		require.EqualError(t, err, "vector is empty")
+
+		// inconsistent vector lengths between batches
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		})
+		require.NoError(t, err)
+		err = q.Push(ctx, vectorDescriptor{
+			id:     2,
+			vector: []float32{1, 2},
+		})
+		require.EqualError(t, err, "inconsistent vector lengths: 2 != 3")
+
+		// calls ValidateBeforeInsert
+		idx.validateBeforeInsertFn = func(vector []float32) error {
+			return fmt.Errorf("validation error")
+		}
+
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		})
+		require.EqualError(t, err, "validation error")
+	})
+
 	t.Run("pushes to indexer if batch is full", func(t *testing.T) {
 		var idx mockBatchIndexer
 		idsCh := make(chan []uint64, 1)
@@ -843,17 +900,18 @@ func (m *mockShard) compareAndSwapStatus(old, new string) (storagestate.Status, 
 
 type mockBatchIndexer struct {
 	sync.Mutex
-	addBatchFn            func(id []uint64, vector [][]float32) error
-	vectors               map[uint64][]float32
-	containsNodeFn        func(id uint64) bool
-	deleteFn              func(ids ...uint64) error
-	distancerProvider     distancer.Provider
-	shouldCompress        bool
-	threshold             int
-	compressed            bool
-	alreadyIndexed        uint64
-	onCompressionTurnedOn func(func()) error
-	noLock                bool
+	addBatchFn             func(id []uint64, vector [][]float32) error
+	vectors                map[uint64][]float32
+	containsNodeFn         func(id uint64) bool
+	deleteFn               func(ids ...uint64) error
+	distancerProvider      distancer.Provider
+	shouldCompress         bool
+	threshold              int
+	compressed             bool
+	alreadyIndexed         uint64
+	onCompressionTurnedOn  func(func()) error
+	noLock                 bool
+	validateBeforeInsertFn func(vector []float32) error
 }
 
 func (m *mockBatchIndexer) AddBatch(ctx context.Context, ids []uint64, vector [][]float32) (err error) {
@@ -1050,6 +1108,14 @@ func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
 func (m *mockBatchIndexer) TurnOnCompression(callback func()) error {
 	if m.onCompressionTurnedOn != nil {
 		return m.onCompressionTurnedOn(callback)
+	}
+
+	return nil
+}
+
+func (m *mockBatchIndexer) ValidateBeforeInsert(vector []float32) error {
+	if m.validateBeforeInsertFn != nil {
+		return m.validateBeforeInsertFn(vector)
 	}
 
 	return nil
