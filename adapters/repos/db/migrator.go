@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -37,11 +38,17 @@ import (
 
 type Migrator struct {
 	db     *DB
+	cloud  modulecapabilities.OffloadCloud
 	logger logrus.FieldLogger
+	nodeId string
 }
 
-func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
-	return &Migrator{db: db, logger: logger}
+func NewMigrator(db *DB, logger logrus.FieldLogger, provider modulecapabilities.OffloadProvider, nodeName string) (*Migrator, error) {
+	cloud, err := provider.OffloadBackend("offload-s3")
+	if err != nil {
+		return nil, err
+	}
+	return &Migrator{db: db, logger: logger, cloud: cloud, nodeId: nodeName}, err
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
