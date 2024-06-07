@@ -224,7 +224,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
-	migrator := db.NewMigrator(repo, appState.Logger)
+
+	migrator, err := db.NewMigrator(repo, appState.Logger, appState.Modules, appState.Cluster.LocalName())
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("can not load migrator")
+	}
 	vectorRepo = repo
 	// migrator = vectorMigrator
 	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
