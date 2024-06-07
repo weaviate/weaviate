@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -178,7 +179,9 @@ type Shard struct {
 	status              storagestate.Status
 	statusLock          sync.Mutex
 	propertyIndicesLock sync.RWMutex
-	stopMetrics         chan struct{}
+
+	stopDimensionTracking        chan struct{}
+	dimensionTrackingInitialized atomic.Bool
 
 	centralJobQueue chan job // reference to queue used by all shards
 
@@ -204,22 +207,35 @@ type Shard struct {
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (*Shard, error) {
+) (_ *Shard, err error) {
 	before := time.Now()
-	var err error
+
 	s := &Shard{
 		index:       index,
 		name:        shardName,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		slowQueryReporter: helpers.NewSlowQueryReporterFromEnv(index.logger),
-		stopMetrics:       make(chan struct{}),
-		replicationMap:    pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:   jobQueueCh,
-		indexCheckpoints:  indexCheckpoints,
-		status:            storagestate.StatusLoading,
+		slowQueryReporter:     helpers.NewSlowQueryReporterFromEnv(index.logger),
+		stopDimensionTracking: make(chan struct{}),
+		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:       jobQueueCh,
+		indexCheckpoints:      indexCheckpoints,
+		status:                storagestate.StatusLoading,
 	}
+
+	defer func() {
+		if err != nil {
+			// spawn a new context as we cannot guarantee that the init context is
+			// still valid, but we want to make sure that we have enough time to clean
+			// up the partial init
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+
+			s.cleanupPartialInit(ctx)
+		}
+	}()
+
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -569,7 +585,7 @@ func (s *Shard) drop() error {
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
-		s.stopMetrics <- struct{}{}
+		s.stopDimensionTracking <- struct{}{}
 		// send 0 in when index gets dropped
 		s.clearDimensionMetrics()
 	}
@@ -899,13 +915,12 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	return err
 }
 
+// Shutdown needs to be idempotent, so it can also deal with a partial
+// initialization. In some parts, it relies on the underlying structs to have
+// idempotent Shutdown methods. In other parts, it explicitly checks if a
+// component was initialized. If not, it turns it into a noop to prevent
+// blocking.
 func (s *Shard) Shutdown(ctx context.Context) error {
-	if s.index.Config.TrackVectorDimensions {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// that's why we are trying to stop it only in this case
-		s.stopMetrics <- struct{}{}
-	}
-
 	var err error
 	if err = s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
@@ -919,6 +934,12 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 			}
 		}
 		for targetVector, vectorIndex := range s.vectorIndexes {
+			if vectorIndex == nil {
+				// a nil-vector index during shutdown would indicate that the shard was not
+				// fully initialized, the vector index shutdown becomes a no-op
+				continue
+			}
+
 			if err = vectorIndex.Flush(); err != nil {
 				return fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err)
 			}
@@ -930,16 +951,21 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		if err = s.queue.Close(); err != nil {
 			return errors.Wrap(err, "shut down vector index queue")
 		}
-		// to ensure that all commitlog entries are written to disk.
-		// otherwise in some cases the tombstone cleanup process'
-		// 'RemoveTombstone' entry is not picked up on restarts
-		// resulting in perpetually attempting to remove a tombstone
-		// which doesn't actually exist anymore
-		if err = s.vectorIndex.Flush(); err != nil {
-			return errors.Wrap(err, "flush vector index commitlog")
-		}
-		if err = s.vectorIndex.Shutdown(ctx); err != nil {
-			return errors.Wrap(err, "shut down vector index")
+		if s.vectorIndex != nil {
+			// a nil-vector index during shutdown would indicate that the shard was not
+			// fully initialized, the vector index shutdown becomes a no-op
+
+			// to ensure that all commitlog entries are written to disk.
+			// otherwise in some cases the tombstone cleanup process'
+			// 'RemoveTombstone' entry is not picked up on restarts
+			// resulting in perpetually attempting to remove a tombstone
+			// which doesn't actually exist anymore
+			if err = s.vectorIndex.Flush(); err != nil {
+				return errors.Wrap(err, "flush vector index commitlog")
+			}
+			if err = s.vectorIndex.Shutdown(ctx); err != nil {
+				return errors.Wrap(err, "shut down vector index")
+			}
 		}
 	}
 
@@ -957,7 +983,25 @@ func (s *Shard) Shutdown(ctx context.Context) error {
 		return errors.Wrap(err, "stop lsmkv store")
 	}
 
+	if s.dimensionTrackingInitialized.Load() {
+		// tracking vector dimensions goroutine only works when tracking is enabled
+		// _and_ when initialization completed, that's why we are trying to stop it
+		// only in this case
+		s.stopDimensionTracking <- struct{}{}
+	}
+
 	return nil
+}
+
+// cleanupPartialInit is called when the shard was only partially initialized.
+// Internally it just uses [Shutdown], but also adds some logging.
+func (s *Shard) cleanupPartialInit(ctx context.Context) {
+	log := s.index.logger.WithField("action", "cleanup_partial_initialization")
+	if err := s.Shutdown(ctx); err != nil {
+		log.WithError(err).Error("failed to shutdown store")
+	}
+
+	log.Debug("successfully cleaned up partially initialized shard")
 }
 
 func (s *Shard) NotifyReady() {

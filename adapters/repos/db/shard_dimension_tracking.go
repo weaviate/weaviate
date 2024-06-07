@@ -126,6 +126,10 @@ func (s *Shard) initDimensionTracking() {
 		// leak. The actual work should be much faster.
 		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
 		defer cancel()
+		defer func() {
+			s.dimensionTrackingInitialized.Store(true)
+		}()
+
 		// always send vector dimensions at startup if tracking is enabled
 		s.publishDimensionMetrics(ctx)
 		// start tracking vector dimensions goroutine only when tracking is enabled
@@ -134,7 +138,8 @@ func (s *Shard) initDimensionTracking() {
 			defer t.Stop()
 			for {
 				select {
-				case <-s.stopMetrics:
+				case <-s.stopDimensionTracking:
+					s.dimensionTrackingInitialized.Store(false)
 					return
 				case <-t.C:
 					func() {
