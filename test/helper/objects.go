@@ -72,6 +72,16 @@ func CreateObject(t *testing.T, object *models.Object) error {
 	return err
 }
 
+func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Object, error) {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)
@@ -87,6 +97,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 		WithBody(batch.BatchObjectsCreateBody{
 			Objects: objects,
 		})
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
+func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		}).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
@@ -140,6 +161,15 @@ func DeleteObject(t *testing.T, object *models.Object) {
 	t.Helper()
 	params := objects.NewObjectsClassDeleteParams().
 		WithClassName(object.Class).WithID(object.ID)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }

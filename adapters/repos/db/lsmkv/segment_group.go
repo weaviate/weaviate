@@ -163,16 +163,28 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		if !leftSegmentFound && rightSegmentFound {
+			// segment is initialized just to be erased
+			// there is no need of bloom filters nor net addition counter re-calculation
 			rightSegment, err := newSegment(rightSegmentPath, logger,
 				metrics, sg.makeExistsOnLower(segmentIndex),
-				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
 			if err != nil {
-				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+
+			err = rightSegment.close()
+			if err != nil {
+				return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
 			err = rightSegment.drop()
 			if err != nil {
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+
+			err = fsync(sg.dir)
+			if err != nil {
+				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}
 		}
 

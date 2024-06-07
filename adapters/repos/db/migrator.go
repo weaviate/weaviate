@@ -69,6 +69,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			AvoidMMap:                 m.db.config.AvoidMMap,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
 			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
+			AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -334,8 +335,33 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	ec := &errorcompounder.ErrorCompounder{}
 
 	for _, name := range updatesHot {
-		_, err := idx.getOrInitLocalShard(ctx, name)
+		shard, err := idx.getOrInitLocalShard(ctx, name)
 		ec.Add(err)
+		if err != nil {
+			continue
+		}
+
+		// if the shard is a lazy load shard, we need to force its activation now
+		asLL, ok := shard.(*LazyLoadShard)
+		if !ok {
+			continue
+		}
+
+		name := name // prevent loop variable capture
+		enterrors.GoWrapper(func() {
+			// The timeout is rather arbitrary. It's meant to be so high that it can
+			// never stop a valid tenant activation use case, but low enough to
+			// prevent a context-leak.
+			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+			defer cancel()
+
+			if err := asLL.Load(ctx); err != nil {
+				idx.logger.WithFields(logrus.Fields{
+					"action": "tenant_activation_lazy_laod_shard",
+					"shard":  name,
+				}).WithError(err).Errorf("loading shard %q failed", name)
+			}
+		}, idx.logger)
 	}
 
 	if len(updatesCold) > 0 {
@@ -466,6 +492,15 @@ func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string
 	return nil
 }
 
+func (m *Migrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
+	idx := m.db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
+	}
+
+	return idx.updateAsyncReplication(ctx, enabled)
+}
+
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	count := 0
 	m.logger.
@@ -537,14 +572,14 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 				return nil
 			}
 
-			shard.GetPropertyLengthTracker().Flush(false)
+			shard.GetPropertyLengthTracker().Flush()
 
 			return nil
 		})
 
 		// Flush the GetPropertyLengthTracker() to disk
 		err := index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
-			return shard.GetPropertyLengthTracker().Flush(false)
+			return shard.GetPropertyLengthTracker().Flush()
 		})
 		if err != nil {
 			m.logger.WithField("error", err).Error("could not flush prop lengths")

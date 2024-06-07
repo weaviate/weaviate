@@ -113,7 +113,7 @@ func createSingleNodeEnvironmentAsyncIndexing(ctx context.Context) (compose *doc
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		Start(ctx)
 	return
 }
@@ -121,7 +121,7 @@ func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompos
 func createClusterEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		Start(ctx)
 	return
 }

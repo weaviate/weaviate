@@ -32,6 +32,17 @@ func Test_ManyModules_SingleNode(t *testing.T) {
 	t.Run("create schema with specific text2vec-openai settings", createSchemaOpenAISanityChecks(endpoint))
 }
 
+func Test_ManyModules_SingleNode_Enabled_API_Based_Modules(t *testing.T) {
+	ctx := context.Background()
+	compose, err := createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	endpoint := compose.GetWeaviate().URI()
+	t.Run("api based modules", apiBasedModulesTests(endpoint))
+}
+
 func Test_ManyModules_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := createClusterEnvironment(ctx)
@@ -51,9 +62,17 @@ func createSingleNodeEnvironment(ctx context.Context) (compose *docker.DockerCom
 	return
 }
 
+func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) (compose *docker.DockerCompose, err error) {
+	compose, err = composeModules().
+		WithWeaviateEnv("ENABLE_API_BASED_MODULES", "true").
+		WithWeaviate().
+		Start(ctx)
+	return
+}
+
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		Start(ctx)
 	return
 }

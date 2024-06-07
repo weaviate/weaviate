@@ -202,6 +202,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
 	}
 	if err != nil {
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedListsLock.RUnlock()
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
 	connectionsReusable := make([]uint64, h.maximumConnectionsLayerZero)
@@ -279,6 +282,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					continue
 				} else {
 					if err != nil {
+						h.pools.visitedListsLock.RLock()
+						h.pools.visitedLists.Return(visited)
+						h.pools.visitedListsLock.RUnlock()
 						return nil, errors.Wrap(err, "calculate distance between candidate and query")
 					}
 				}

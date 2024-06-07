@@ -101,7 +101,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.migrator = db.NewMigrator(n.repo, logger)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider()),
-		n.repo, clusterapi.NewNoopAuthHandler())
+		n.repo, clusterapi.NewNoopAuthHandler(), logger)
 	mux := http.NewServeMux()
 	mux.Handle("/indices/", indices.Indices())
 
@@ -222,6 +222,10 @@ func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 type nodeResolver struct {
 	nodes *[]*node
 	local string
+}
+
+func (r nodeResolver) AllHostnames() []string {
+	panic("node resolving not implemented yet")
 }
 
 func (r nodeResolver) AllNames() []string {

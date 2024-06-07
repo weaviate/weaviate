@@ -19,7 +19,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	uco "github.com/weaviate/weaviate/usecases/objects"
@@ -98,11 +98,9 @@ func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
 
 	for _, tenant := range tenants {
 		switch status := tenant.ActivityStatus; status {
-		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
-			// ok
-		case models.TenantActivityStatusWARM, models.TenantActivityStatusFROZEN:
-			msgs = append(msgs, fmt.Sprintf(
-				"not yet supported activity status '%s' for tenant %q", status, tenant.Name))
+		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD, models.TenantActivityStatusFROZEN:
+			continue
+
 		default:
 			if status == "" && allowEmpty {
 				continue
@@ -216,7 +214,7 @@ func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
 	return ts, h.metaReader.Read(class, f)
 }
 
-func (h *Handler) multiTenancy(class string) (store.ClassInfo, error) {
+func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 	info := h.metaReader.ClassInfo(class)
 	if !info.Exists {
 		return info, fmt.Errorf("class %q: %w", class, ErrNotFound)
