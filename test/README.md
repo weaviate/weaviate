@@ -1,5 +1,4 @@
-## Testing 
-
+## Testing
 
 we use shell to run our (unit/ acceptance / integration) tests 
 
