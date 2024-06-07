@@ -122,10 +122,13 @@ func (s *Shard) initDimensionTracking() {
 	// https://github.com/weaviate/weaviate/issues/5091
 	rootCtx := context.Background()
 	if s.index.Config.TrackVectorDimensions {
+		s.dimensionTrackingInitialized.Store(true)
+
 		// The timeout is rather arbitrary, it's just meant to prevent a context
 		// leak. The actual work should be much faster.
 		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
 		defer cancel()
+
 		// always send vector dimensions at startup if tracking is enabled
 		s.publishDimensionMetrics(ctx)
 		// start tracking vector dimensions goroutine only when tracking is enabled
@@ -134,7 +137,8 @@ func (s *Shard) initDimensionTracking() {
 			defer t.Stop()
 			for {
 				select {
-				case <-s.stopMetrics:
+				case <-s.stopDimensionTracking:
+					s.dimensionTrackingInitialized.Store(false)
 					return
 				case <-t.C:
 					func() {
