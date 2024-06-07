@@ -258,7 +258,7 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 		// delegate the validation to the index
 		err := q.Index.ValidateBeforeInsert(vectors[i].vector)
 		if err != nil {
-			return errors.Wrap(err, "validate vector")
+			return errors.WithStack(err)
 		}
 
 		// if the index is still empty, ensure the first batch is consistent
@@ -268,7 +268,7 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 		}
 
 		if q.dims.Load() != int32(len(vectors[i].vector)) {
-			return errors.Errorf("inconsistent vector length: %d != %d", len(vectors[i].vector), q.dims.Load())
+			return errors.Errorf("inconsistent vector lengths: %d != %d", len(vectors[i].vector), q.dims.Load())
 		}
 	}
 
