@@ -29,29 +29,20 @@ import (
 )
 
 func TestCompactionInvertedStrategy(t *testing.T) {
-	/*
-		t.Run("compactionMapStrategy", func(t *testing.T) {
-			compactionInverted(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)}, 7076, 7076)
-		})
-
-		t.Run("compactionMapStrategy_KeepTombstones", func(t *testing.T) {
-			compactionInverted(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)}, 7076, 7076)
-		})
-
-		t.Run("compactionMapStrategy_RemoveUnnecessary", func(t *testing.T) {
-			compactionInvertedStrategy_RemoveUnnecessary(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
-		})
-
-		t.Run("compactionMapStrategy_RemoveUnnecessary_KeepTombstones", func(t *testing.T) {
-			compactionInvertedStrategy_RemoveUnnecessary(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)})
-		})
-	*/
-	t.Run("compactionMapStrategy_FrequentPutDeleteOperations", func(t *testing.T) {
-		compactionInvertedStrategy_FrequentPutDeleteOperations(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
+	t.Run("compactionMapStrategy", func(t *testing.T) {
+		compactionInverted(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)}, 7076, 7076)
 	})
 
-	t.Run("compactionMapStrategy_FrequentPutDeleteOperations_KeepTombstones", func(t *testing.T) {
-		compactionInvertedStrategy_FrequentPutDeleteOperations(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)})
+	t.Run("compactionMapStrategy_KeepTombstones", func(t *testing.T) {
+		compactionInverted(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)}, 7556, 7556)
+	})
+
+	t.Run("compactionMapStrategy_RemoveUnnecessary", func(t *testing.T) {
+		compactionInvertedStrategy_RemoveUnnecessary(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
+	})
+
+	t.Run("compactionMapStrategy_FrequentPutDeleteOperations", func(t *testing.T) {
+		compactionInvertedStrategy_FrequentPutDeleteOperations(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
 	})
 }
 
@@ -589,15 +580,12 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			if i > 1 {
 				// we can only delete two back an existing value if this isn't the
 				// first or second write
-				pair := InvertedPair{
-					Tombstone: true,
-				}
+				pair := InvertedPair{}
 
 				pair.FromDocIdAndTf(uint64(i-2), float32(i), float32(i))
 				err := bucket.MapSet(key, MapPair{
 					Key:       pair.Key,
-					Value:     pair.Value,
-					Tombstone: pair.Tombstone,
+					Tombstone: true,
 				})
 				require.Nil(t, err)
 			}
@@ -606,9 +594,8 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 			pair.FromDocIdAndTf(uint64(i), float32(i), float32(i))
 			err := bucket.MapSet(key, MapPair{
-				Key:       pair.Key,
-				Value:     pair.Value,
-				Tombstone: pair.Tombstone,
+				Key:   pair.Key,
+				Value: pair.Value,
 			})
 			require.Nil(t, err)
 			require.Nil(t, bucket.FlushAndSwitch())
@@ -706,10 +693,19 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			// _individual_ keys. Corrupting this index is exactly what happened in
 			// https://github.com/weaviate/weaviate/issues/3517
 			for _, pair := range expected {
-				retrieved, err := bucket.MapList(ctx, pair.key)
+				kvs, err := bucket.MapListInverted(ctx, pair.key)
 				require.NoError(t, err)
 
-				assert.Equal(t, pair.values, retrieved)
+				mkvs := make([]InvertedPair, len(kvs))
+				for i := range kvs {
+					mkvs[i] = InvertedPair{
+						Key:       kvs[i].Key,
+						Value:     kvs[i].Value,
+						Tombstone: kvs[i].Tombstone,
+					}
+				}
+
+				assert.Equal(t, pair.values, mkvs)
 			}
 		})
 }

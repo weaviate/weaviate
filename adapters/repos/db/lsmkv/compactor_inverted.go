@@ -154,8 +154,6 @@ func (c *compactorInverted) writeKeyValueLen() error {
 }
 
 func (c *compactorInverted) writeTombstones(tombstones []uint64) error {
-	// TODO: right now, we don't deal with tombstones, so we'll just write a zero
-	// to keep the format consistent
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(len(tombstones)))
 	if _, err := c.bufw.Write(buf); err != nil {
@@ -211,10 +209,17 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, []uint64, error) {
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			pairs.ResizeLeft(len(value1))
 			pairs.ResizeRight(len(value2))
 
-			for i, v := range value1 {
+			value1Clean, skip := c.cleanupValues(value1)
+			if skip {
+				key1, value1, _ = c.c1.next()
+				continue
+			}
+
+			pairs.ResizeLeft(len(value1Clean))
+
+			for i, v := range value1Clean {
 				if err := pairs.left[i].FromBytes(v.value, false, c.c1.segment.invertedKeyLength, c.c1.segment.invertedValueLength); err != nil {
 					return nil, nil, err
 				}
@@ -267,19 +272,19 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, []uint64, error) {
 			key1, value1, _ = c.c1.next()
 		} else {
 			// key 2 is smaller
-			if values, skip := c.cleanupValues(value2); !skip {
-				ki, err := c.writeIndividualNode(c.offset, key2, values)
-				if err != nil {
-					return nil, nil, errors.Wrap(err, "write individual node (key2 smaller)")
-				}
-
-				c.offset = ki.ValueEnd
-				kis = append(kis, ki)
+			ki, err := c.writeIndividualNode(c.offset, key2, value2)
+			if err != nil {
+				return nil, nil, errors.Wrap(err, "write individual node (key2 smaller)")
 			}
+
+			c.offset = ki.ValueEnd
+			kis = append(kis, ki)
+
 			key2, value2, _ = c.c2.next()
 		}
 	}
 	tombstones := c.computeTombstones()
+
 	return kis, tombstones, nil
 }
 
@@ -364,10 +369,6 @@ func (c *compactorInverted) writeKeysLength() error {
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
 func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bool) {
-	/*if !c.cleanupTombstones {
-		return values, false
-	}*/
-
 	// Reuse input slice not to allocate new memory
 	// Rearrange slice in a way that tombstoned values are moved to the end
 	// and reduce slice's length.
@@ -396,6 +397,9 @@ func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bo
 }
 
 func (c *compactorInverted) computeTombstones() []uint64 {
+	if c.cleanupTombstones { // no tombstones to write
+		return []uint64{}
+	}
 	tombstones := make([]uint64, 0, len(c.tombstonesToWrite)+len(c.tombstonesToClean)-len(c.tombstonesCleaned))
 
 	for docId := range c.tombstonesToWrite {
@@ -403,9 +407,7 @@ func (c *compactorInverted) computeTombstones() []uint64 {
 	}
 
 	for docId := range c.tombstonesToClean {
-		if _, ok := c.tombstonesCleaned[docId]; !ok {
-			tombstones = append(tombstones, docId)
-		}
+		tombstones = append(tombstones, docId)
 	}
 
 	return tombstones
