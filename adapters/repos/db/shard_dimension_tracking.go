@@ -115,8 +115,17 @@ func (s *Shard) calcDimensions(ctx context.Context, calcEntry func(k []byte, v [
 	return sum
 }
 
-func (s *Shard) initDimensionTracking(ctx context.Context) {
+func (s *Shard) initDimensionTracking() {
+	// do not use the context passed from NewShard, as that one is only meant for
+	// initialization. However, this goroutine keeps running forever, so if the
+	// startup context expires, this would error.
+	// https://github.com/weaviate/weaviate/issues/5091
+	rootCtx := context.Background()
 	if s.index.Config.TrackVectorDimensions {
+		// The timeout is rather arbitrary, it's just meant to prevent a context
+		// leak. The actual work should be much faster.
+		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
+		defer cancel()
 		// always send vector dimensions at startup if tracking is enabled
 		s.publishDimensionMetrics(ctx)
 		// start tracking vector dimensions goroutine only when tracking is enabled
@@ -128,7 +137,13 @@ func (s *Shard) initDimensionTracking(ctx context.Context) {
 				case <-s.stopMetrics:
 					return
 				case <-t.C:
-					s.publishDimensionMetrics(ctx)
+					func() {
+						// The timeout is rather arbitrary, it's just meant to prevent a context
+						// leak. The actual work should be much faster.
+						ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
+						defer cancel()
+						s.publishDimensionMetrics(ctx)
+					}()
 				}
 			}
 		}
