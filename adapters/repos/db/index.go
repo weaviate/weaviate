@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path"
@@ -57,6 +59,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+
+	"github.com/hashicorp/golang-lru/v2/expirable"
 )
 
 var (
@@ -200,6 +204,8 @@ type Index struct {
 	// loading will be set to true once the last shard was loaded.
 	allShardsReady atomic.Bool
 	allocChecker   memwatch.AllocChecker
+
+	scoredObjectsCache *expirable.LRU[[256]byte, *scoredObjects]
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -268,6 +274,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:    indexCheckpoints,
 		allocChecker:        allocChecker,
+		scoredObjectsCache:  expirable.NewLRU[[256]byte, *scoredObjects](30, nil, time.Second*10),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -1261,6 +1268,21 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return outObjects, outScores, nil
 }
 
+type ObjectSearchReq struct {
+	Limit          int
+	Filters        *filters.LocalFilter
+	KeywordRanking *searchparams.KeywordRanking
+	Sort           []filters.Sort
+	Cursor         *filters.Cursor
+	AddlProps      additional.Properties
+	Shards         []string
+}
+
+type scoredObjects struct {
+	objs   []*storobj.Object
+	scores []float32
+}
+
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, shards []string,
@@ -1283,10 +1305,43 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			if shard := i.localShard(shardName); shard != nil {
 				nodeName = i.getSchema.NodeName()
-				objs, scores, err = shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+
+				h := sha256.New()
+
+				params := &ObjectSearchReq{
+					Limit:          limit,
+					Filters:        filters,
+					KeywordRanking: keywordRanking,
+					Sort:           sort,
+					Cursor:         cursor,
+					AddlProps:      addlProps,
+					Shards:         shards,
+				}
+
+				err = json.NewEncoder(h).Encode(params)
 				if err != nil {
 					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err)
+						"local shard object search req digest %s: %w", shard.ID(), err)
+				}
+
+				var reqDigest [256]byte
+				copy(reqDigest[:], h.Sum(nil))
+
+				sobjs, ok := i.scoredObjectsCache.Get(reqDigest)
+				if ok {
+					objs = sobjs.objs
+					scores = sobjs.scores
+				} else {
+					objs, scores, err = shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+					if err != nil {
+						return fmt.Errorf(
+							"local shard object search %s: %w", shard.ID(), err)
+					}
+
+					i.scoredObjectsCache.Add(reqDigest, &scoredObjects{
+						objs:   objs,
+						scores: scores,
+					})
 				}
 			} else {
 
