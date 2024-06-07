@@ -232,7 +232,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("bm25f journey", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "journey"}
-		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		// Print results
@@ -259,7 +259,7 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f textField non-alpha", func(t *testing.T) {
 		kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 		addit = additional.Properties{}
-		resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0)
+		resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		// Print results
@@ -276,7 +276,7 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f textField caps", func(t *testing.T) {
 		kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"textField"}, Query: "YELLING IS FUN"}
 		addit := additional.Properties{}
-		resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0)
+		resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		// Print results
@@ -292,7 +292,7 @@ func TestBM25FJourney(t *testing.T) {
 	// Check basic text search WITH CAPS
 	t.Run("bm25f text with caps", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
-		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		// Print results
 		t.Log("--- Start results for search with caps ---")
 		for i, r := range res {
@@ -312,7 +312,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("bm25f journey boosted", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
-		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 
 		require.Nil(t, err)
 		// Print results
@@ -333,7 +333,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Check search with two terms", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 		// Check results in correct order
 		require.Equal(t, uint64(1), res[0].DocID)
@@ -346,7 +346,7 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f journey somewhere no properties", func(t *testing.T) {
 		// Check search with no properties (should include all properties)
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		// Check results in correct order
@@ -359,14 +359,14 @@ func TestBM25FJourney(t *testing.T) {
 	t.Run("bm25f non alphanums", func(t *testing.T) {
 		// Check search with no properties (should include all properties)
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
-		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 		require.Equal(t, uint64(7), res[0].DocID)
 	})
 
 	t.Run("First result has high score", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "about BM25F"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		require.Equal(t, uint64(0), res[0].DocID)
@@ -375,7 +375,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("More results than limit", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		require.Equal(t, uint64(4), res[0].DocID)
@@ -388,7 +388,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Results from three properties", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "none"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		require.Equal(t, uint64(9), res[0].DocID)
@@ -399,7 +399,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Include additional explanations", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey", AdditionalExplanations: true}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		// With additionalExplanations explainScore entry should be present
@@ -409,7 +409,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Array fields text", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTitles"}, Query: "dinner"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		require.Len(t, res, 2)
@@ -419,7 +419,7 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("Array fields string", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTextWhitespace"}, Query: "MuuultiYell!"}
-		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		require.Len(t, res, 2)
@@ -429,10 +429,10 @@ func TestBM25FJourney(t *testing.T) {
 
 	t.Run("With autocut", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "journey", Properties: []string{"description"}}
-		resNoAutoCut, noautocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0)
+		resNoAutoCut, noautocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
-		resAutoCut, autocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 1)
+		resAutoCut, autocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 1, false)
 		require.Nil(t, err)
 
 		require.Less(t, len(resAutoCut), len(resNoAutoCut))
@@ -476,7 +476,7 @@ func TestBM25FSingleProp(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+	res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 	t.Log("--- Start results for singleprop search ---")
 	for i, r := range res {
 		t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
@@ -547,7 +547,7 @@ func TestBM25FWithFilters(t *testing.T) {
 
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0)
+	res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0, false)
 
 	require.Nil(t, err)
 	require.True(t, len(res) == 1)
@@ -599,9 +599,9 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 	}
 
 	addit := additional.Properties{}
-	filtered, filteredScores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0)
+	filtered, filteredScores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0, false)
 	require.Nil(t, err)
-	unfiltered, unfilteredScores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+	unfiltered, unfilteredScores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 	require.Nil(t, err)
 
 	require.Len(t, filtered, 1)   // should match exactly one element
@@ -640,7 +640,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 	// Check boosted
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^2", "description"}, Query: "journey"}
 	addit := additional.Properties{}
-	res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+	res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, false)
 
 	// Print results
 	t.Log("--- Start results for boosted search ---")
@@ -890,7 +890,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
-		res, scores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		// Print results
@@ -913,14 +913,14 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 
 	t.Run("Results without stopwords", func(t *testing.T) {
 		kwrNoStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "example losing business"}
-		resNoStopwords, resNoScores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil, "", 0)
+		resNoStopwords, resNoScores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		classEn := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
 		idxEn := repo.GetIndex(schema.ClassName(classEn))
 		require.NotNil(t, idxEn)
 		kwrStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "an example on losing the business"}
-		resStopwords, resScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, nil, "", 0)
+		resStopwords, resScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		require.Equal(t, len(resNoStopwords), len(resStopwords))
@@ -931,7 +931,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 		}
 
 		kwrStopwordsDuplicate := &searchparams.KeywordRanking{Type: "bm25", Query: "on an example on losing the business on"}
-		resStopwordsDuplicate, duplicateScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit, nil, "", 0)
+		resStopwordsDuplicate, duplicateScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 		require.Equal(t, len(resNoStopwords), len(resStopwordsDuplicate))
 		for i, resNo := range resNoStopwords {
@@ -1028,7 +1028,7 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 
 	t.Run("single term", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
-		res, scores, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, scores, err := idx.objectSearch(context.TODO(), 1, nil, kwr, nil, nil, addit, nil, "", 0, false)
 		require.Nil(t, err)
 
 		// Print results

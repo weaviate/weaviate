@@ -1144,7 +1144,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
+	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int, useCache bool,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
@@ -1183,7 +1183,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames)
+		filters, keywordRanking, sort, cursor, addlProps, shardNames, useCache)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1285,7 +1285,7 @@ type scoredObjects struct {
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, shards []string,
+	addlProps additional.Properties, shards []string, useCache bool,
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
@@ -1306,43 +1306,52 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			if shard := i.localShard(shardName); shard != nil {
 				nodeName = i.getSchema.NodeName()
 
-				h := sha256.New()
+				if useCache {
+					h := sha256.New()
 
-				params := &ObjectSearchReq{
-					Limit:          limit,
-					Filters:        filters,
-					KeywordRanking: keywordRanking,
-					Sort:           sort,
-					Cursor:         cursor,
-					AddlProps:      addlProps,
-					Shards:         shards,
-				}
+					params := &ObjectSearchReq{
+						Limit:          limit,
+						Filters:        filters,
+						KeywordRanking: keywordRanking,
+						Sort:           sort,
+						Cursor:         cursor,
+						AddlProps:      addlProps,
+						Shards:         shards,
+					}
 
-				err = json.NewEncoder(h).Encode(params)
-				if err != nil {
-					return fmt.Errorf(
-						"local shard object search req digest %s: %w", shard.ID(), err)
-				}
+					err = json.NewEncoder(h).Encode(params)
+					if err != nil {
+						return fmt.Errorf(
+							"local shard object search req digest %s: %w", shard.ID(), err)
+					}
 
-				var reqDigest [256]byte
-				copy(reqDigest[:], h.Sum(nil))
+					var reqDigest [256]byte
+					copy(reqDigest[:], h.Sum(nil))
 
-				sobjs, ok := i.scoredObjectsCache.Get(reqDigest)
-				if ok {
-					objs = sobjs.objs
-					scores = sobjs.scores
+					sobjs, ok := i.scoredObjectsCache.Get(reqDigest)
+					if ok {
+						objs = sobjs.objs
+						scores = sobjs.scores
+					} else {
+						objs, scores, err = shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+						if err != nil {
+							return fmt.Errorf(
+								"local shard object search %s: %w", shard.ID(), err)
+						}
+
+						i.scoredObjectsCache.Add(reqDigest, &scoredObjects{
+							objs:   objs,
+							scores: scores,
+						})
+					}
 				} else {
 					objs, scores, err = shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
 					if err != nil {
 						return fmt.Errorf(
 							"local shard object search %s: %w", shard.ID(), err)
 					}
-
-					i.scoredObjectsCache.Add(reqDigest, &scoredObjects{
-						objs:   objs,
-						scores: scores,
-					})
 				}
+
 			} else {
 
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
