@@ -43,6 +43,7 @@ jobs:
         uses: Templum/govulncheck-action@v1.0.0
         with:
           go-version: '1.21'
+          vulncheck-version: 'latest'
           package: ./...
           fail-on-vuln: true
   Unit-Tests:
