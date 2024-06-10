@@ -18,6 +18,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/peak/s5cmd/v2/command"
 	"github.com/peak/s5cmd/v2/log"
@@ -35,6 +36,7 @@ const (
 	s3Endpoint  = "OFFLOAD_S3_ENDPOINT"
 	s3Bucket    = "OFFLOAD_S3_BUCKET"
 	concurrency = "OFFLOAD_S3_CONCURRENCY"
+	timeout     = "OFFLOAD_TIMEOUT"
 )
 
 // verify we implement the modules.Module interface
@@ -132,6 +134,7 @@ type Module struct {
 	Concurrency int
 	DataPath    string
 	logger      logrus.FieldLogger
+	timeout     time.Duration
 }
 
 func New() *Module {
@@ -140,6 +143,7 @@ func New() *Module {
 		Bucket:      "weaviate-offload",
 		Concurrency: 25,
 		DataPath:    config.DefaultPersistenceDataPath,
+		timeout:     10 * time.Second,
 	}
 }
 
@@ -170,6 +174,15 @@ func (m *Module) Init(ctx context.Context,
 		m.Endpoint = endpoint
 	}
 
+	eTimeout := os.Getenv(timeout)
+	if eTimeout != "" {
+		timeoutN, err := time.ParseDuration(fmt.Sprintf("%ss", eTimeout))
+		if err != nil {
+			return err
+		}
+		m.timeout = time.Duration(timeoutN.Seconds()) * time.Second
+	}
+
 	concc := os.Getenv(concurrency)
 	if concc != "" {
 		conccN, err := strconv.Atoi(concc)
@@ -182,8 +195,16 @@ func (m *Module) Init(ctx context.Context,
 	// create offloading bucket
 	err := m.create(ctx)
 	if err != nil && !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
-		return fmt.Errorf("can't create offload bucket %w", err)
+		return fmt.Errorf("can't create offload bucket %s %w", m.Endpoint, err)
 	}
+
+	m.logger.WithFields(logrus.Fields{
+		concurrency:             m.Concurrency,
+		timeout:                 m.timeout,
+		endpoint:                m.Endpoint,
+		bucket:                  m.Bucket,
+		"PERSISTENCE_DATA_PATH": m.DataPath,
+	}).Info("offload module loaded")
 	return nil
 }
 
@@ -192,6 +213,7 @@ func (m *Module) RootHandler() http.Handler {
 }
 
 func (m *Module) create(ctx context.Context) error {
+	ctx, _ = context.WithTimeout(ctx, m.timeout)
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"mb",
@@ -201,31 +223,50 @@ func (m *Module) create(ctx context.Context) error {
 	return app.RunContext(ctx, cmd)
 }
 
-// Upload uploads the context of a shard to s3
-// upload path is
-// s3://{}
-func (m *Module) Upload(ctx context.Context, className, shardName string) error {
+// Upload uploads the content of a shard to s3
+// upload shard content assigned to specific node
+// s3://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
+func (m *Module) Upload(ctx context.Context, className, shardName, nodeName string) error {
+	ctx, _ = context.WithTimeout(ctx, m.timeout)
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
 		fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", m.Concurrency)),
-		fmt.Sprintf("%s/%s/%s/*", m.DataPath, className, shardName),
-		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, className, shardName, strings.Split(m.DataPath, "/")[1]),
+		fmt.Sprintf("%s/%s/%s/*", m.DataPath, strings.ToLower(className), shardName),
+		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
 	}
 
 	return app.RunContext(ctx, cmd)
 }
 
-// Download uploads the context of a shard to s3
-// download s3 bucket content
-// s3://{}
-func (m *Module) Download(ctx context.Context, className, shardName string) error {
+// Download uploads the content of a shard to s3
+// download s3 bucket content to desired node
+// {dataPath}/{className}/{shardName}/{content}
+func (m *Module) Download(ctx context.Context, className, shardName, nodeName string) error {
+	ctx, _ = context.WithTimeout(ctx, m.timeout)
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
 		fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", m.Concurrency)),
-		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, className, shardName, strings.Split(m.DataPath, "/")[1]),
-		fmt.Sprintf("%s/%s/%s/", m.DataPath, className, shardName),
+		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName),
+		fmt.Sprintf("%s/%s/%s/", m.DataPath, strings.ToLower(className), shardName),
 	}
 	return app.RunContext(ctx, cmd)
+}
+
+// Delete deletes content of a shard to s3
+// upload shard content assigned to specific node
+// s3://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
+func (m *Module) Delete(ctx context.Context, className, shardName, nodeName string) error {
+	ctx, _ = context.WithTimeout(ctx, m.timeout)
+	cmd := []string{
+		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
+		"rm",
+		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName),
+	}
+	err := app.RunContext(ctx, cmd)
+	if err != nil && !strings.Contains(err.Error(), "no object found") {
+		return err
+	}
+	return nil
 }

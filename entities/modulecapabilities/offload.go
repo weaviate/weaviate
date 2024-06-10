@@ -16,8 +16,18 @@ import (
 )
 
 type OffloadCloud interface {
-	Upload(ctx context.Context, className, shardName string) error
-	Download(ctx context.Context, className, shardName string) error
+	// Upload uploads the content of a shard to s3
+	// upload shard content assigned to specific node
+	// s3://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
+	Upload(ctx context.Context, className, shardName, nodeName string) error
+	// Download uploads the content of a shard to s3
+	// download s3 bucket content to desired node
+	// {dataPath}/{className}/{shardName}/{content}
+	Download(ctx context.Context, className, shardName, nodeName string) error
+	// Delete deletes content of a shard to s3
+	// upload shard content assigned to specific node
+	// s3://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
+	Delete(ctx context.Context, className, shardName, nodeName string) error
 }
 
 type OffloadProvider interface {
