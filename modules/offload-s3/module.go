@@ -44,92 +44,6 @@ var (
 	_ = modulecapabilities.Module(New())
 )
 
-// we use custom cli app to avoid some bugs in underlying dependencies
-// specially with .After implementation.
-var app = &cli.App{
-	Name:                 "weaviate-s5cmd",
-	Usage:                "weaviate fast S3 and local filesystem execution tool",
-	EnableBashCompletion: true,
-	Commands:             command.Commands(),
-	Flags: []cli.Flag{
-		&cli.IntFlag{
-			Name:  "numworkers",
-			Value: 256,
-			Usage: "number of workers execute operation on each object",
-		},
-		&cli.IntFlag{
-			Name:    "retry-count",
-			Aliases: []string{"r"},
-			Value:   10,
-			Usage:   "number of times that a request will be retried for failures",
-		},
-		&cli.StringFlag{
-			Name:    "endpoint-url",
-			Usage:   "override default S3 host for custom services",
-			EnvVars: []string{"S3_ENDPOINT_URL"},
-		},
-		&cli.BoolFlag{
-			Name:  "no-verify-ssl",
-			Usage: "disable SSL certificate verification",
-		},
-	},
-	Before: func(c *cli.Context) error {
-		retryCount := c.Int("retry-count")
-		workerCount := c.Int("numworkers")
-		printJSON := c.Bool("json")
-		logLevel := c.String("log")
-		isStat := c.Bool("stat")
-		endpointURL := c.String("endpoint-url")
-
-		log.Init(logLevel, printJSON)
-		parallel.Init(workerCount)
-
-		if retryCount < 0 {
-			err := fmt.Errorf("retry count cannot be a negative value")
-			return err
-		}
-		if c.Bool("no-sign-request") && c.String("profile") != "" {
-			err := fmt.Errorf(`"no-sign-request" and "profile" flags cannot be used together`)
-			return err
-		}
-		if c.Bool("no-sign-request") && c.String("credentials-file") != "" {
-			err := fmt.Errorf(`"no-sign-request" and "credentials-file" flags cannot be used together`)
-			return err
-		}
-
-		if isStat {
-			stat.InitStat()
-		}
-
-		if endpointURL != "" {
-			if !strings.HasPrefix(endpointURL, "http") {
-				err := fmt.Errorf(`bad value for --endpoint-url %v: scheme is missing. Must be of the form http://<hostname>/ or https://<hostname>/`, endpointURL)
-				return err
-			}
-		}
-
-		return nil
-	},
-	Action: func(c *cli.Context) error {
-		if c.Bool("install-completion") {
-			return nil
-		}
-		args := c.Args()
-		if args.Present() {
-			cli.ShowCommandHelp(c, args.First())
-			return cli.Exit("", 1)
-		}
-
-		return cli.ShowAppHelp(c)
-	},
-	After: func(c *cli.Context) error {
-		if c.Bool("stat") && len(stat.Statistics()) > 0 {
-			log.Stat(stat.Statistics())
-		}
-		return nil
-	},
-}
-
 type Module struct {
 	Endpoint    string
 	Bucket      string
@@ -137,15 +51,102 @@ type Module struct {
 	DataPath    string
 	logger      logrus.FieldLogger
 	timeout     time.Duration
+	app         *cli.App
 }
 
 func New() *Module {
+
 	return &Module{
 		Endpoint:    "",
 		Bucket:      "weaviate-offload",
 		Concurrency: 25,
 		DataPath:    config.DefaultPersistenceDataPath,
 		timeout:     10 * time.Second,
+		// we use custom cli app to avoid some bugs in underlying dependencies
+		// specially with .After implementation.
+		app: &cli.App{
+			Name:                 "weaviate-s5cmd",
+			Usage:                "weaviate fast S3 and local filesystem execution tool",
+			EnableBashCompletion: true,
+			Commands:             command.Commands(),
+			Flags: []cli.Flag{
+				&cli.IntFlag{
+					Name:  "numworkers",
+					Value: 256,
+					Usage: "number of workers execute operation on each object",
+				},
+				&cli.IntFlag{
+					Name:    "retry-count",
+					Aliases: []string{"r"},
+					Value:   10,
+					Usage:   "number of times that a request will be retried for failures",
+				},
+				&cli.StringFlag{
+					Name:    "endpoint-url",
+					Usage:   "override default S3 host for custom services",
+					EnvVars: []string{"S3_ENDPOINT_URL"},
+				},
+				&cli.BoolFlag{
+					Name:  "no-verify-ssl",
+					Usage: "disable SSL certificate verification",
+				},
+			},
+			Before: func(c *cli.Context) error {
+				retryCount := c.Int("retry-count")
+				workerCount := c.Int("numworkers")
+				printJSON := c.Bool("json")
+				logLevel := c.String("log")
+				isStat := c.Bool("stat")
+				endpointURL := c.String("endpoint-url")
+
+				log.Init(logLevel, printJSON)
+				parallel.Init(workerCount)
+
+				if retryCount < 0 {
+					err := fmt.Errorf("retry count cannot be a negative value")
+					return err
+				}
+				if c.Bool("no-sign-request") && c.String("profile") != "" {
+					err := fmt.Errorf(`"no-sign-request" and "profile" flags cannot be used together`)
+					return err
+				}
+				if c.Bool("no-sign-request") && c.String("credentials-file") != "" {
+					err := fmt.Errorf(`"no-sign-request" and "credentials-file" flags cannot be used together`)
+					return err
+				}
+
+				if isStat {
+					stat.InitStat()
+				}
+
+				if endpointURL != "" {
+					if !strings.HasPrefix(endpointURL, "http") {
+						err := fmt.Errorf(`bad value for --endpoint-url %v: scheme is missing. Must be of the form http://<hostname>/ or https://<hostname>/`, endpointURL)
+						return err
+					}
+				}
+
+				return nil
+			},
+			Action: func(c *cli.Context) error {
+				if c.Bool("install-completion") {
+					return nil
+				}
+				args := c.Args()
+				if args.Present() {
+					cli.ShowCommandHelp(c, args.First())
+					return cli.Exit("", 1)
+				}
+
+				return cli.ShowAppHelp(c)
+			},
+			After: func(c *cli.Context) error {
+				if c.Bool("stat") && len(stat.Statistics()) > 0 {
+					log.Stat(stat.Statistics())
+				}
+				return nil
+			},
+		},
 	}
 }
 
@@ -223,12 +224,12 @@ func (m *Module) create(ctx context.Context) error {
 		fmt.Sprintf("s3://%s", m.Bucket),
 	}
 
-	return app.RunContext(ctx, cmd)
+	return m.app.RunContext(ctx, cmd)
 }
 
-// Upload uploads the content of a shard to s3
-// upload shard content assigned to specific node
-// s3://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
+// Upload uploads the content of a shard assigned to specific node to
+// cloud provider (S3, Azure Blob storage, Google cloud storage)
+// {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Upload(ctx context.Context, className, shardName, nodeName string) error {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
@@ -240,11 +241,11 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
 	}
 
-	return app.RunContext(ctx, cmd)
+	return m.app.RunContext(ctx, cmd)
 }
 
-// Download uploads the content of a shard to s3
-// download s3 bucket content to desired node
+// Download downloads the content of a shard to desired node from
+// cloud provider (S3, Azure Blob storage, Google cloud storage)
 // {dataPath}/{className}/{shardName}/{content}
 func (m *Module) Download(ctx context.Context, className, shardName, nodeName string) error {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
@@ -256,12 +257,12 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName),
 		fmt.Sprintf("%s/%s/%s/", m.DataPath, strings.ToLower(className), shardName),
 	}
-	return app.RunContext(ctx, cmd)
+	return m.app.RunContext(ctx, cmd)
 }
 
-// Delete deletes content of a shard to s3
-// upload shard content assigned to specific node
-// s3://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
+// Delete deletes content of a shard assigned to specific node in
+// cloud provider (S3, Azure Blob storage, Google cloud storage)
+// {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Delete(ctx context.Context, className, shardName, nodeName string) error {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
@@ -270,7 +271,7 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 		"rm",
 		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName),
 	}
-	err := app.RunContext(ctx, cmd)
+	err := m.app.RunContext(ctx, cmd)
 	if err != nil && !strings.Contains(err.Error(), "no object found") {
 		return err
 	}
