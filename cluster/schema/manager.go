@@ -318,7 +318,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 }
 
 func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOnly bool) error {
-	req := &command.TenantsProcessRequest{}
+	req := &command.TenantProcessRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
