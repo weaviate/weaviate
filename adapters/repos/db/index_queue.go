@@ -68,11 +68,7 @@ type IndexQueue struct {
 	paused atomic.Bool
 
 	// tracks the jobs that are currently being processed
-	doneChans struct {
-		sync.Mutex
-
-		chans []chan struct{}
-	}
+	jobWg sync.WaitGroup
 
 	// tracks the last time vectors were added to the queue
 	lastPushed atomic.Pointer[time.Time]
@@ -233,10 +229,7 @@ func (q *IndexQueue) Close() error {
 	q.wg.Wait()
 
 	// wait for the workers to finish their current tasks
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	q.wait(ctx)
+	q.jobWg.Wait()
 
 	q.Logger.Debug("index queue closed")
 
@@ -505,24 +498,22 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
 
 	var minID uint64
 
-	doneChans := make([]chan struct{}, 0, len(chunks))
-
 	for i := range chunks {
 		c := chunks[i]
 		ids := make([]uint64, 0, c.cursor)
 		vectors := make([][]float32, 0, c.cursor)
 		var deleted []uint64
 
-		for i := range c.data[:c.cursor] {
-			if minID == 0 || c.data[i].id < minID {
-				minID = c.data[i].id
+		for j := range c.data[:c.cursor] {
+			if minID == 0 || c.data[j].id < minID {
+				minID = c.data[j].id
 			}
 
-			if q.queue.IsDeleted(c.data[i].id) {
-				deleted = append(deleted, c.data[i].id)
+			if q.queue.IsDeleted(c.data[j].id) {
+				deleted = append(deleted, c.data[j].id)
 			} else {
-				ids = append(ids, c.data[i].id)
-				vectors = append(vectors, c.data[i].vector)
+				ids = append(ids, c.data[j].id)
+				vectors = append(vectors, c.data[j].vector)
 			}
 		}
 
@@ -531,49 +522,30 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
 			continue
 		}
 
-		done := make(chan struct{})
-		doneChans = append(doneChans, done)
+		q.jobWg.Add(1)
 
 		select {
 		case <-q.ctx.Done():
+			q.jobWg.Done()
 			return i
 		case q.indexCh <- job{
 			indexer: q.Index,
 			ctx:     q.ctx,
 			ids:     ids,
 			vectors: vectors,
-			done:    done,
+			done:    q.jobWg.Done,
 		}:
 			q.queue.ResetDeleted(deleted...)
 		}
 	}
 
-	q.doneChans.Lock()
-	q.doneChans.chans = append(q.doneChans.chans, doneChans...)
-	q.doneChans.Unlock()
-
 	q.queue.persistCheckpoint(minID)
 
 	if wait {
-		q.wait(q.ctx)
+		q.jobWg.Wait()
 	}
 
 	return len(chunks)
-}
-
-// waits for all workers to finish their current tasks.
-func (q *IndexQueue) wait(ctx context.Context) {
-	q.doneChans.Lock()
-	chans := q.doneChans.chans
-	q.doneChans.Unlock()
-
-	for i := range chans {
-		select {
-		case <-ctx.Done():
-			return
-		case <-chans[i]:
-		}
-	}
 }
 
 func (q *IndexQueue) logStats(chunksSent int) {
@@ -697,7 +669,7 @@ func (q *IndexQueue) checkCompressionSettings() bool {
 func (q *IndexQueue) pauseIndexing() {
 	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
 	q.paused.Store(true)
-	q.wait(context.Background())
+	q.jobWg.Wait()
 	q.Logger.Debug("indexing paused")
 }
 
