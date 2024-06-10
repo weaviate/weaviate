@@ -25,15 +25,17 @@ import (
 	"golang.org/x/exp/slices"
 )
 
-type NodesCloudStatus map[string]*api.TenantsProcess
-type metaClass struct {
-	sync.RWMutex
-	Class          models.Class
-	ClassVersion   uint64
-	Sharding       sharding.State
-	ShardVersion   uint64
-	ShardProcesses map[string]NodesCloudStatus
-}
+type (
+	NodesCloudStatus map[string]*api.TenantsProcess
+	metaClass        struct {
+		sync.RWMutex
+		Class          models.Class
+		ClassVersion   uint64
+		Sharding       sharding.State
+		ShardVersion   uint64
+		ShardProcesses map[string]NodesCloudStatus
+	}
+)
 
 func (m *metaClass) ClassInfo() (ci ClassInfo) {
 	if m == nil {
@@ -275,7 +277,6 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 		copy.Status = req.Process.Tenant.Status
 
 		for _, sProcess := range m.ShardProcesses[req.Process.Tenant.Name] {
-
 			if sProcess.Op == command.TenantsProcess_OP_ABORT {
 				// force tenant status to be old status in memory and in db
 				req.Process.Tenant.Status = sProcess.Tenant.Status
@@ -348,13 +349,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 
 		// means it's either hot or cold
 		if u.Status != models.TenantActivityStatusFROZEN && p.ActivityStatus() == models.TenantActivityStatusFROZEN {
-			// fmt.Println("unfreezing")
-			// fmt.Println(req.ClusterNodes)
-
 			// TODO: requested will be either hot or cold we need to know
-			// rStatus := u.Status
-			// u.Status = fmt.Sprintf("%s-%s", types.TenantActivityStatusUNFREEZING, u.Status)
-			// u.Name = fmt.Sprintf("%s-%s", u.Name, u.Status)
 			if len(m.ShardProcesses) == 0 {
 				m.ShardProcesses = make(map[string]NodesCloudStatus)
 			}
@@ -364,8 +359,6 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 				process = make(map[string]*api.TenantsProcess)
 			}
 
-			// TODO need to pass the available nodes
-			//req.ClusterNodes
 			partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, []string{u.Name}, m.Class.ReplicationConfig.Factor)
 			if err != nil {
 				return n, fmt.Errorf("get partitions: %w", err)
@@ -373,7 +366,6 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			// TODO-RAFT: Check in which cases can the partition not have assigned one to a tenant
 			// fmt.Println("new nodes")
 			newNodes, ok := partitions[u.Name]
-			// fmt.Println(newNodes)
 			if !ok {
 				// TODO-RAFT: Do we want to silently continue here or raise an error ?
 				continue
@@ -390,12 +382,11 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			// TODO what of oldNodes
 			// <
 			// > delete cloud and also has to be  done on replication factor change
-			nodesMap := map[string]string{}
+			newToOld := map[string]string{}
 			slices.Sort(newNodes)
 			slices.Sort(oldNodes)
-			//TODO  sort both nodes old and new
 			for idx, node := range newNodes {
-				nodesMap[node] = oldNodes[idx]
+				newToOld[node] = oldNodes[idx]
 
 				process[node] = &api.TenantsProcess{
 					Op: command.TenantsProcess_OP_START,
@@ -405,15 +396,13 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 				}
 			}
 
-			if _, exists := nodesMap[nodeID]; !exists {
-				// remove the request
+			if _, exists := newToOld[nodeID]; !exists {
+				// it does not belong to the new partitions
 				req.Tenants[i] = nil
-				continue // mooga todo wrong
-
+				continue
 			}
-			// req.Tenants[i] = u
 			m.ShardProcesses[u.Name] = process
-			req.Tenants[i].Name = fmt.Sprintf("%s-%s", req.Tenants[i].Name, nodesMap[nodeID])
+			req.Tenants[i].Name = fmt.Sprintf("%s-%s", req.Tenants[i].Name, newToOld[nodeID])
 			req.Tenants[i].Status = p.Status
 
 		}

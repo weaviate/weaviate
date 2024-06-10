@@ -132,7 +132,6 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
 					m.logger.Error(err)
 				}
-
 			}, idx.logger)
 
 			return nil
@@ -211,7 +210,6 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
 					m.logger.Error(err)
 				}
-
 			}, idx.logger)
 
 			return nil
