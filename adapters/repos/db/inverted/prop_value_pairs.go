@@ -72,12 +72,8 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 			return errors.Errorf("Timestamps must be indexed to be filterable! Add `IndexTimestamps: true` to the InvertedIndexConfig in %v", pv.Class.Class)
 		}
 
-		var bucketName string
-		if pv.hasFilterableIndex {
-			bucketName = helpers.BucketFromPropNameLSM(pv.prop)
-		} else if pv.hasSearchableIndex {
-			bucketName = helpers.BucketSearchableFromPropNameLSM(pv.prop)
-		} else {
+		bucketName := pv.getBucketName()
+		if bucketName == "" {
 			return errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 		}
 
@@ -159,4 +155,34 @@ func (pv *propValuePair) mergeDocIDs() (*docBitmap, error) {
 	return &docBitmap{
 		docIDs: roaringset.Condense(mergeRes),
 	}, nil
+}
+
+func (pv *propValuePair) getBucketName() string {
+	if pv.hasRangeableIndex {
+		switch pv.operator {
+		// decide whether handle equal/not_equal with rangeable index
+		case filters.OperatorGreaterThan,
+			filters.OperatorGreaterThanEqual,
+			filters.OperatorLessThan,
+			filters.OperatorLessThanEqual:
+			return helpers.BucketRangeableFromPropNameLSM(pv.prop)
+		default:
+		}
+	}
+	if pv.hasFilterableIndex {
+		return helpers.BucketFromPropNameLSM(pv.prop)
+	}
+	// fallback equal/not_equal to rangeable
+	if pv.hasRangeableIndex {
+		switch pv.operator {
+		case filters.OperatorEqual,
+			filters.OperatorNotEqual:
+			return helpers.BucketRangeableFromPropNameLSM(pv.prop)
+		default:
+		}
+	}
+	if pv.hasSearchableIndex {
+		return helpers.BucketSearchableFromPropNameLSM(pv.prop)
+	}
+	return ""
 }
