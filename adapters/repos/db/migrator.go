@@ -36,6 +36,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// offloadProvider is an interface has to be implemented by modules
+// to get the backend (s3, azure blob storage, google cloud storage) module
+type offloadProvider interface {
+	// OffloadBackend returns the backend module for (s3, azure blob storage, google cloud storage)
+	OffloadBackend(backend string) (modulecapabilities.OffloadCloud, error)
+}
+
 type Migrator struct {
 	db     *DB
 	cloud  modulecapabilities.OffloadCloud
@@ -43,7 +50,7 @@ type Migrator struct {
 	nodeId string
 }
 
-func NewMigrator(db *DB, logger logrus.FieldLogger, provider modulecapabilities.OffloadProvider, nodeName string) (*Migrator, error) {
+func NewMigrator(db *DB, logger logrus.FieldLogger, provider offloadProvider, nodeName string) (*Migrator, error) {
 	cloud, err := provider.OffloadBackend("offload-s3")
 	if err != nil {
 		// TODO-offload: proper config

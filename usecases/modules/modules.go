@@ -900,5 +900,5 @@ func (p *Provider) OffloadBackend(backend string) (modulecapabilities.OffloadClo
 			}
 		}
 	}
-	return nil, errors.Errorf("Offload: %s not found", backend)
+	return nil, errors.Errorf("offload: %s not found", backend)
 }
