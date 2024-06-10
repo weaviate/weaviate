@@ -83,3 +83,16 @@ func DotByteAVX256(x []uint8, y []uint8) uint32 {
 
 	return res
 }
+
+func DotFloatByteAVX256(x []float32, y []uint8) float32 {
+	var res float32
+
+	l := len(x)
+	dot_float_byte_256(
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	return res
+}
