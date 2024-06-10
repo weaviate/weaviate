@@ -32,6 +32,42 @@ jobs:
           else
             exit 0
           fi
+  Vulnerability-Scanning: 
+    permissions:
+      contents: read 
+      security-events: write 
+      actions: read 
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Build Docker image
+        run: |
+          #!/bin/bash
+
+          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+          docker buildx create --use
+          git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
+          tag="local/weaviate:ci-${git_hash}"
+          args=("--build-arg=GITHASH=$git_hash" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "-t=$tag" "--load")
+          docker buildx build "${args[@]}" .
+
+      - name: Run Snyk to check Docker image for vulnerabilities
+        continue-on-error: true
+        uses: snyk/actions/docker@14818c4695ecc4045f33c9cee9e795a788711ca4
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: local/weaviate:ci-${{ github.sha }}
+          args: --file=Dockerfile --sarif-file-output=snyk.sarif
+
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: snyk.sarif
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
@@ -159,8 +195,6 @@ jobs:
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
-
-
   Acceptance-Tests-windows:
     name: acceptance-tests-windows
     needs: Compile-and-upload-binaries
@@ -189,7 +223,6 @@ jobs:
       - name: run acceptance tests
         shell: bash
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
-
   Push-Docker:
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
     name: push-docker
@@ -211,23 +244,3 @@ jobs:
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
         run: ./ci/generate_docker_report.sh
-
-  Vulnerability-Scanning: 
-    permissions:
-      contents: read 
-      security-events: write
-      actions: read
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-      continue-on-error: true
-      uses: snyk/actions/docker@14818c4695ecc4045f33c9cee9e795a788711ca4
-      env:
-        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-      with:
-        image: semitechnologies/weaviate:${{ steps.push-container.outputs.PREVIEW_TAG }}
-        args: --file=Dockerfile --sarif-file-output=snyk.sarif
-    - name: Upload result to GitHub Code Scanning
-      uses: github/codeql-action/upload-sarif@v2
-      with:
-        sarif_file: snyk.sarif
