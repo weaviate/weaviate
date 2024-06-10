@@ -269,7 +269,8 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))
-	migrator := NewMigrator(db, logger)
+	migrator, err := NewMigrator(db, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	for _, class := range classes {
 		require.Nil(t,

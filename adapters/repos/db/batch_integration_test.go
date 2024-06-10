@@ -59,7 +59,8 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -94,7 +95,8 @@ func TestBatchPutObjects(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -124,7 +126,8 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
@@ -159,7 +162,8 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -189,7 +193,8 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the test class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -267,7 +272,8 @@ func TestBatchDeleteObjects(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -298,7 +304,8 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -337,7 +344,8 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))

@@ -67,7 +67,8 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 	defer repo.Shutdown(testCtx())
 
 	t.Run("creating the thing class", func(t *testing.T) {
@@ -185,7 +186,8 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the class", func(t *testing.T) {
 		require.Nil(t,

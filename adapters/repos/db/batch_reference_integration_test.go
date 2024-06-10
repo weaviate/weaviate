@@ -53,7 +53,8 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	s := schema.Schema{
 		Objects: &models.Schema{

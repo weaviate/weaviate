@@ -50,7 +50,8 @@ func TestRefFilters(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
@@ -473,7 +474,8 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
