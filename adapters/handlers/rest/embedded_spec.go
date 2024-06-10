@@ -4123,6 +4123,10 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "type": "boolean",
           "x-nullable": true
@@ -4545,6 +4549,11 @@ func init() {
         },
         "indexInverted": {
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters, bm25 or hybrid search. This property has no affect on vectorization decisions done by modules (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)",
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeable": {
+          "description": "Optional. TODO roaring-set-range",
           "type": "boolean",
           "x-nullable": true
         },
@@ -9659,6 +9668,10 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "type": "boolean",
           "x-nullable": true
@@ -10099,6 +10112,11 @@ func init() {
         },
         "indexInverted": {
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters, bm25 or hybrid search. This property has no affect on vectorization decisions done by modules (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)",
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeable": {
+          "description": "Optional. TODO roaring-set-range",
           "type": "boolean",
           "x-nullable": true
         },
