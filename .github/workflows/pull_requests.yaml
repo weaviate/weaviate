@@ -35,15 +35,26 @@ jobs:
   Vulnerability-Scanning:
     name: vulnerability-scanning
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v4
-      - name: Scan for Vulnerabilities in Code
-        uses: Templum/govulncheck-action@v1.0.0
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
         with:
           go-version: '1.21'
-          package: ./...
-          fail-on-vuln: true
+
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/golang@master
+        continue-on-error: true # To ensure SARIF upload gets called
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --sarif-file-output=snyk.sarif
+
+      - name: Upload result to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: snyk.sarif
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
