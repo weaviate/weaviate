@@ -157,8 +157,7 @@ func createRepo(t *testing.T) (*Migrator, *DB, *fakeSchemaGetter) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	migrator := NewMigrator(repo, logger)
-	return migrator, repo, schemaGetter
+	return NewMigrator(repo, logger), repo, schemaGetter
 }
 
 func createClassWithEverything(IndexNullState bool, IndexPropertyLength bool) *models.Class {
