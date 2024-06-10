@@ -47,8 +47,7 @@ func TestDeleteJourney(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	schema := libschema.Schema{
 		Objects: &models.Schema{

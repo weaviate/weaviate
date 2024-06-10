@@ -56,8 +56,7 @@ func TestUpdateJourney(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	schema := libschema.Schema{
 		Objects: &models.Schema{
@@ -293,8 +292,7 @@ func TestUpdateJourney(t *testing.T) {
 		assert.Equal(t, float64(0), mean)
 
 		logger := logrus.New()
-		migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-		require.Nil(t, err)
+		migrator := NewMigrator(repo, logger)
 		migrator.RecountProperties(context.Background())
 
 		sum, count, mean, err = tracker.PropertyTally("name")

@@ -49,8 +49,7 @@ func Test_Aggregations(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("prepare test schema and data ",
 		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
@@ -95,8 +94,7 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("prepare test schema and data ",
 		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))

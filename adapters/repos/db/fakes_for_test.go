@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -381,24 +380,4 @@ func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, 
 	discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return nil, nil
-}
-
-type fakeOffloadBackend struct{}
-
-func (f *fakeOffloadBackend) OffloadBackend(backend string) (modulecapabilities.OffloadCloud, error) {
-	return &fakeS3Backend{}, nil
-}
-
-type fakeS3Backend struct{}
-
-func (f *fakeS3Backend) Upload(ctx context.Context, className, shardName, nodeName string) error {
-	return nil
-}
-
-func (f *fakeS3Backend) Download(ctx context.Context, className, shardName, nodeName string) error {
-	return nil
-}
-
-func (f *fakeS3Backend) Delete(ctx context.Context, className, shardName, nodeName string) error {
-	return nil
 }

@@ -57,8 +57,7 @@ func Benchmark_Migration(b *testing.B) {
 			require.Nil(b, repo.WaitForStartup(testCtx()))
 			defer repo.Shutdown(context.Background())
 
-			migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-			require.Nil(b, err)
+			migrator := NewMigrator(repo, logger)
 
 			class := &models.Class{
 				Class:               "Test",
@@ -123,8 +122,7 @@ func Test_Migration(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -192,8 +190,7 @@ func Test_DimensionTracking(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -429,8 +426,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("set schema type=HNSW", func(t *testing.T) {
 		class := &models.Class{

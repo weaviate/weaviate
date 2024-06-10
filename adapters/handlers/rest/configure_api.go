@@ -225,7 +225,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.TenantActivity.SetSource(appState.DB)
 	}
 
-	migrator, err := db.NewMigrator(repo, appState.Logger, appState.Modules, appState.Cluster.LocalName())
+	migrator := db.NewMigrator(repo, appState.Logger)
+	migrator.SetNode(appState.Cluster.LocalName())
+	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
+	migrator.SetOffloadProvider(appState.Modules, "offload-s3")
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).

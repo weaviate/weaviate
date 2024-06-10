@@ -50,8 +50,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	// check nodes api response on empty DB
 	nodeStatues, err := repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
