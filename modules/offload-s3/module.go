@@ -55,7 +55,6 @@ type Module struct {
 }
 
 func New() *Module {
-
 	return &Module{
 		Endpoint:    "",
 		Bucket:      "weaviate-offload",
