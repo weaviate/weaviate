@@ -77,7 +77,7 @@ func multiShardScaleOut(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode2().URI(), batch)
+		createObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("AddReferences", func(t *testing.T) {

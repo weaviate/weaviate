@@ -426,7 +426,7 @@ func (s *State) distributeVirtualAmongPhysical() {
 	for i, vid := range ids {
 		pickedPhysical := physicalIDs[i%len(physicalIDs)]
 
-		virtual := s.virtualByName(vid)
+		virtual := s.VirtualByName(vid)
 		virtual.AssignedToPhysical = pickedPhysical
 		physical := s.Physical[pickedPhysical]
 		physical.OwnsVirtual = append(physical.OwnsVirtual, vid)
@@ -437,7 +437,7 @@ func (s *State) distributeVirtualAmongPhysical() {
 
 // uses linear search, but should only be used during shard init and update
 // operations, not in regular
-func (s *State) virtualByName(name string) *Virtual {
+func (s *State) VirtualByName(name string) *Virtual {
 	for i := range s.Virtual {
 		if s.Virtual[i].Name == name {
 			return &s.Virtual[i]

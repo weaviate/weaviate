@@ -12,7 +12,7 @@
 #include <arm_neon.h>
 
 // dot only works with length >= 16
-void dot(float *a, float *b, float *res, long *len)
+void dot_neon(float *a, float *b, float *res, long *len)
 {
     int size = *len;
 
