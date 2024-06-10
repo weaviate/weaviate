@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -121,26 +122,47 @@ func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
 // Class must exist and has partitioning enabled
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
-) error {
+) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
-		return err
+		return nil, err
 	}
+
+	h.logger.WithFields(logrus.Fields{
+		"class":   class,
+		"tenants": tenants,
+	}).Debug("update tenants status")
+
 	validated, err := validateTenants(tenants)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := validateActivityStatuses(validated, false); err != nil {
-		return err
+		return nil, err
 	}
 
 	req := api.UpdateTenantsRequest{
-		Tenants: make([]*api.Tenant, len(tenants)),
+		Tenants:      make([]*api.Tenant, len(tenants)),
+		ClusterNodes: h.clusterState.Candidates(),
 	}
 	for i, tenant := range tenants {
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 	_, err = h.metaWriter.UpdateTenants(class, &req)
-	return err
+
+	// we get the new state to return correct status
+	// specially in FREEZING and UNFREEZING
+	updatedShardState := h.metaReader.CopyShardingState(class)
+	updatedTenants := make([]*models.Tenant, len(tenants))
+	for idx, old := range tenants {
+		if new, ok := updatedShardState.Physical[old.Name]; ok {
+			updatedTenants[idx] = &models.Tenant{
+				Name:           new.Name,
+				ActivityStatus: new.Status,
+			}
+		}
+	}
+
+	return updatedTenants, err
 }
 
 // DeleteTenants is used to delete tenants of a class.

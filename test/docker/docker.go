@@ -51,6 +51,20 @@ func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *tim
 			if err := c.container.Stop(ctx, timeout); err != nil {
 				return fmt.Errorf("cannot stop %q: %w", c.name, err)
 			}
+			break
+		}
+	}
+	return nil
+}
+
+func (d *DockerCompose) TerminateContainer(ctx context.Context, container string) error {
+	for idx, c := range d.containers {
+		if c.name == container {
+			if err := c.container.Terminate(ctx); err != nil {
+				return fmt.Errorf("cannot stop %q: %w", c.name, err)
+			}
+			d.containers = append(d.containers[:idx], d.containers[idx+1:]...)
+			break
 		}
 	}
 	return nil

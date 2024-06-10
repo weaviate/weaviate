@@ -16,19 +16,23 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
 
+type NodesCloudStatus map[string]*api.TenantsProcess
 type metaClass struct {
 	sync.RWMutex
-	Class        models.Class
-	ClassVersion uint64
-	Sharding     sharding.State
-	ShardVersion uint64
+	Class          models.Class
+	ClassVersion   uint64
+	Sharding       sharding.State
+	ShardVersion   uint64
+	ShardProcesses map[string]NodesCloudStatus
 }
 
 func (m *metaClass) ClassInfo() (ci ClassInfo) {
@@ -238,6 +242,92 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) e
 	return nil
 }
 
+func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantsProcessRequest, v uint64) error {
+	m.Lock()
+	defer m.Unlock()
+	// defer func() {
+	// 	fmt.Println(m.ShardProcesses)
+	// }()
+
+	// fmt.Println("received")
+	// fmt.Println(req)
+	// fmt.Println(m.ShardProcesses)
+	// if req.TenantsProcess[0] != nil && req.TenantsProcess[0].Tenant != nil && req.TenantsProcess[0].Tenant.Status == types.TenantActivityStatusUNFROZEN {
+	// 	fmt.Println("mooga status when arrived")
+	// 	fmt.Println(m.Sharding.Physical[req.TenantsProcess[0].Tenant.Name].Status)
+	// 	fmt.Println(m.ShardProcesses[req.TenantsProcess[0].Tenant.Name][nodeID].Tenant.Status)
+	// }
+
+	for i, tp := range req.TenantsProcess {
+		tn, ok := m.ShardProcesses[tp.Tenant.Name]
+		if !ok {
+			tn = make(NodesCloudStatus)
+		}
+
+		if tp.Tenant.Status == types.TenantActivityStatusUNFROZEN {
+			_, texsists := m.ShardProcesses[tp.Tenant.Name]
+			if _, exists := m.ShardProcesses[tp.Tenant.Name][nodeID]; texsists && exists {
+				tp.Tenant.Status = m.ShardProcesses[tp.Tenant.Name][nodeID].Tenant.Status
+			}
+		}
+
+		tn[req.Node] = tp
+
+		shallBe := len(m.ShardProcesses[tp.Tenant.Name])
+		x := 0
+		for _, pro := range m.ShardProcesses[tp.Tenant.Name] {
+			if pro.Op > command.TenantsProcess_OP_START { // DONE or ABORT
+				x++
+			}
+		}
+
+		copy := m.Sharding.Physical[tp.Tenant.Name].DeepCopy() // mooga todo handle not found
+
+		if x != 0 && x == shallBe {
+			// completed uploading/downloading
+			copy.Status = tp.Tenant.Status
+
+			for _, sProcess := range m.ShardProcesses[tp.Tenant.Name] {
+
+				if sProcess.Op == command.TenantsProcess_OP_ABORT {
+					// force tenant status to be old status in memory and in db
+					req.TenantsProcess[i].Tenant.Status = sProcess.Tenant.Status
+					copy.Status = sProcess.Tenant.Status
+					break
+				}
+			}
+			if tp.Tenant.Status != types.TenantActivityStatusUNFROZEN {
+				delete(m.ShardProcesses, tp.Tenant.Name)
+			}
+
+		} else {
+			found := false
+			for _, sProcess := range m.ShardProcesses[tp.Tenant.Name] {
+				if sProcess.Op == command.TenantsProcess_OP_ABORT {
+					found = true
+					// force tenant status to be old status in memory and in db
+					req.TenantsProcess[i].Tenant.Status = sProcess.Tenant.Status
+					copy.Status = sProcess.Tenant.Status
+					delete(m.ShardProcesses, tp.Tenant.Name)
+					break
+				}
+			}
+			if !found {
+				req.TenantsProcess[i] = nil
+			}
+		}
+
+		m.Sharding.Physical[tp.Tenant.Name] = copy
+
+		if !slices.Contains(copy.BelongsToNodes, nodeID) {
+			req.TenantsProcess[i] = nil
+		}
+	}
+	m.ShardVersion = v
+	req.TenantsProcess = removeNilTenantsProcess(req.TenantsProcess)
+	return nil
+}
+
 func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (n int, err error) {
 	m.Lock()
 	defer m.Unlock()
@@ -255,6 +345,118 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			req.Tenants[i] = nil
 			continue
 		}
+
+		if len(m.ShardProcesses) > 0 {
+			if _, exists := m.ShardProcesses[u.Name]; exists {
+				return n, fmt.Errorf("there is process in progress")
+			}
+		}
+		if u.Status != models.TenantActivityStatusFROZEN && p.ActivityStatus() == types.TenantActivityStatusFREEZING {
+			return n, fmt.Errorf("there is freezing in progress")
+		}
+		if u.Status != models.TenantActivityStatusFROZEN && p.ActivityStatus() == types.TenantActivityStatusUNFREEZING {
+			return n, fmt.Errorf("there is unfreezing in progress")
+		}
+
+		// means it's either hot or cold
+		if u.Status != models.TenantActivityStatusFROZEN && p.ActivityStatus() == models.TenantActivityStatusFROZEN {
+			// fmt.Println("unfreezing")
+			// fmt.Println(req.ClusterNodes)
+
+			// TODO: requested will be either hot or cold we need to know
+			// rStatus := u.Status
+			// u.Status = fmt.Sprintf("%s-%s", types.TenantActivityStatusUNFREEZING, u.Status)
+			// u.Name = fmt.Sprintf("%s-%s", u.Name, u.Status)
+			if len(m.ShardProcesses) == 0 {
+				m.ShardProcesses = make(map[string]NodesCloudStatus)
+			}
+
+			process, ok := m.ShardProcesses[u.Name]
+			if !ok {
+				process = make(map[string]*api.TenantsProcess)
+			}
+
+			// TODO need to pass the avaliable nodes
+			//req.ClusterNodes
+			partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, []string{u.Name}, m.Class.ReplicationConfig.Factor)
+			if err != nil {
+				return n, fmt.Errorf("get partitions: %w", err)
+			}
+			// TODO-RAFT: Check in which cases can the partition not have assigned one to a tenant
+			// fmt.Println("new nodes")
+			newNodes, ok := partitions[u.Name]
+			// fmt.Println(newNodes)
+			if !ok {
+				// TODO-RAFT: Do we want to silently continue here or raise an error ?
+				continue
+			}
+
+			oldNodes := p.BelongsToNodes
+
+			// TODO here the details for download and don't replace the sharding state
+			// p = sharding.Physical{Name: u.Name, Status: types.TenantActivityStatusUNFREEZING, BelongsToNodes: newNodes}
+			p.Status = types.TenantActivityStatusUNFREEZING
+			p.BelongsToNodes = newNodes
+			m.Sharding.Physical[u.Name] = p
+
+			// TODO what of oldNodes
+			// <
+			// > delete cloud and also has to be  done on replication factor change
+			nodesMap := map[string]string{}
+			slices.Sort(newNodes)
+			slices.Sort(oldNodes)
+			//TODO  sort both nodes old and new
+			for idx, node := range newNodes {
+				nodesMap[node] = oldNodes[idx]
+
+				process[node] = &api.TenantsProcess{
+					Op: command.TenantsProcess_OP_START,
+					Tenant: &command.Tenant{
+						Status: u.Status,
+					},
+				}
+			}
+
+			if _, exists := nodesMap[nodeID]; !exists {
+				// remove the request
+				// fmt.Println("not exists in")
+				// fmt.Println(nodesMap)
+				// fmt.Println(nodeID)
+				req.Tenants[i] = nil
+				continue // mooga todo wrong
+
+			}
+			// req.Tenants[i] = u
+			m.ShardProcesses[u.Name] = process
+			req.Tenants[i].Name = fmt.Sprintf("%s-%s", req.Tenants[i].Name, nodesMap[nodeID])
+			req.Tenants[i].Status = p.Status
+			// fmt.Println(req.Tenants[i])
+			// fmt.Println(m.ShardProcesses[u.Name])
+
+		}
+
+		if u.Status == models.TenantActivityStatusFROZEN && p.ActivityStatus() != types.TenantActivityStatusFREEZING {
+			u.Status = types.TenantActivityStatusFREEZING
+			if len(m.ShardProcesses) == 0 {
+				m.ShardProcesses = make(map[string]NodesCloudStatus)
+			}
+
+			process, ok := m.ShardProcesses[u.Name]
+			if !ok {
+				process = make(map[string]*api.TenantsProcess)
+			}
+
+			for _, node := range p.BelongsToNodes {
+				process[node] = &api.TenantsProcess{
+					Op: command.TenantsProcess_OP_START,
+				}
+			}
+
+			// update request
+			req.Tenants[i] = u
+			m.ShardProcesses[u.Name] = process
+		}
+
 		copy := p.DeepCopy()
 		copy.Status = u.Status
 		ps[u.Name] = copy

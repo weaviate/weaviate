@@ -194,6 +194,36 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 	return nil
 }
 
+func (e *executor) UpdateTenantsProcess(class string, req *api.TenantsProcessRequest) error {
+	ctx := context.Background()
+	cls := e.store.ReadOnlyClass(class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+
+	if len(req.TenantsProcess) == 0 {
+		return nil
+	}
+
+	updates := make([]*UpdateTenantPayload, 0, len(req.TenantsProcess))
+	for _, tu := range req.TenantsProcess {
+		updates = append(updates, &UpdateTenantPayload{
+			Name:   tu.Tenant.Name,
+			Status: tu.Tenant.Status,
+		})
+	}
+
+	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action":     "update_tenants_process",
+			"sub-action": "update_tenants",
+			"class":      class,
+		}).WithError(err).Error("error updating tenants")
+		return err
+	}
+	return nil
+}
+
 func (e *executor) DeleteTenants(class string, req *api.DeleteTenantsRequest) error {
 	ctx := context.Background()
 	if err := e.migrator.DeleteTenants(ctx, class, req.Tenants); err != nil {
