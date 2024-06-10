@@ -98,10 +98,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.scheduler = ubak.NewScheduler(
 		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
 
-	n.migrator, err = db.NewMigrator(n.repo, logger, &fakeOffloadBackend{}, "node1")
-	if err != nil {
-		panic(err)
-	}
+	n.migrator = db.NewMigrator(n.repo, logger)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider()),
 		n.repo, clusterapi.NewNoopAuthHandler(), logger)
@@ -433,25 +430,5 @@ func (f *fakeBackupBackend) reset() {
 type fakeAuthorizer struct{}
 
 func (f *fakeAuthorizer) Authorize(_ *models.Principal, _, _ string) error {
-	return nil
-}
-
-type fakeOffloadBackend struct{}
-
-func (f *fakeOffloadBackend) OffloadBackend(backend string) (modulecapabilities.OffloadCloud, error) {
-	return &fakeS3Backend{}, nil
-}
-
-type fakeS3Backend struct{}
-
-func (f *fakeS3Backend) Upload(ctx context.Context, className, shardName, nodeName string) error {
-	return nil
-}
-
-func (f *fakeS3Backend) Download(ctx context.Context, className, shardName, nodeName string) error {
-	return nil
-}
-
-func (f *fakeS3Backend) Delete(ctx context.Context, className, shardName, nodeName string) error {
 	return nil
 }

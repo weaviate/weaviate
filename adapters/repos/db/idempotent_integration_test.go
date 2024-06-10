@@ -522,7 +522,6 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 	return migrator
 }

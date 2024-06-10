@@ -51,8 +51,7 @@ func TestFilters(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 	t.Run("prepare test schema and data ", prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
 
 	t.Run("primitive props without nesting", testPrimitiveProps(repo))
@@ -82,8 +81,7 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 	t.Run("prepare test schema and data ", prepareCarTestSchemaAndDataNoLength(repo, migrator, schemaGetter))
 	t.Run("primitive props without nesting", testPrimitivePropsWithNoLengthIndex(repo))
 }
@@ -1045,8 +1043,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	t.Run("import schema", func(t *testing.T) {
 		class := &models.Class{
@@ -1154,8 +1151,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 
 	class := &models.Class{
 		Class:               "FilterCasingBug",
@@ -1558,8 +1554,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator := NewMigrator(repo, logger)
 	class := &models.Class{
 		Class:               "DeletionClass",
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),

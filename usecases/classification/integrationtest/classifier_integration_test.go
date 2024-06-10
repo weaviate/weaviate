@@ -54,8 +54,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
-	migrator, err := db.NewMigrator(vrepo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator = db.NewMigrator(vrepo, logger)
 
 	// so we can reuse it for follow up requests, such as checking the status
 	size := 400
@@ -192,8 +191,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
-	migrator, err := db.NewMigrator(vrepo, logger, &fakeOffloadBackend{}, "node1")
-	require.Nil(t, err)
+	migrator = db.NewMigrator(vrepo, logger)
 
 	t.Run("preparations", func(t *testing.T) {
 		t.Run("creating the classes", func(t *testing.T) {

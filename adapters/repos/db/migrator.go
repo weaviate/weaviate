@@ -40,7 +40,7 @@ import (
 // to get the backend (s3, azure blob storage, google cloud storage) module
 type offloadProvider interface {
 	// OffloadBackend returns the backend module for (s3, azure blob storage, google cloud storage)
-	OffloadBackend(backend string) (modulecapabilities.OffloadCloud, error)
+	OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool)
 }
 
 type Migrator struct {
@@ -50,14 +50,23 @@ type Migrator struct {
 	nodeId string
 }
 
-func NewMigrator(db *DB, logger logrus.FieldLogger, provider offloadProvider, nodeName string) (*Migrator, error) {
-	cloud, err := provider.OffloadBackend("offload-s3")
-	if err != nil {
-		// TODO-offload: proper config
-		// here we just return migrator if the offload was not configured
-		return &Migrator{db: db, logger: logger, nodeId: nodeName}, nil
+func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
+	return &Migrator{db: db, logger: logger}
+}
+
+func (m *Migrator) SetNode(nodeID string) {
+	m.nodeId = nodeID
+}
+
+func (m *Migrator) SetOffloadProvider(provider offloadProvider, moduleName string) error {
+	cloud, enabled := provider.OffloadBackend(moduleName)
+	if !enabled {
+		m.logger.Debug(fmt.Sprintf("module %s is not enabled", moduleName))
+		return nil
 	}
-	return &Migrator{db: db, logger: logger, cloud: cloud, nodeId: nodeName}, nil
+	m.cloud = cloud
+	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
+	return nil
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
