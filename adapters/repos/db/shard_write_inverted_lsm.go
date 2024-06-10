@@ -98,6 +98,20 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
+	if property.HasRangeableIndex {
+		bucketValue := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(property.Name))
+		if bucketValue == nil {
+			return errors.Errorf("no bucket rangeable for prop '%s' found", property.Name)
+		}
+
+		for _, item := range property.Items {
+			key := item.Data
+			if err := s.addToPropertyRangeBucket(bucketValue, docID, key); err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -172,10 +186,14 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	return bucket.RoaringSetAddOne(key, docID)
 }
 
-func (s *Shard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key uint64) error {
+func (s *Shard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyRoaringSetRange)
 
-	return bucket.RoaringSetRangeAdd(key, docID)
+	if len(key) != 8 {
+		return fmt.Errorf("shard: invalid value length %d, should be 8 bytes", len(key))
+	}
+
+	return bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(key), docID)
 }
 
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,

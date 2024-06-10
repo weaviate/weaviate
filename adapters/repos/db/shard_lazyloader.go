@@ -570,7 +570,7 @@ func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint6
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key uint64) error {
+func (l *LazyLoadShard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	l.mustLoad()
 	return l.shard.addToPropertyRangeBucket(bucket, docID, key)
 }
@@ -627,7 +627,7 @@ func (l *LazyLoadShard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID 
 	return l.shard.deleteFromPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key uint64) error {
+func (l *LazyLoadShard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
 	l.mustLoad()
 	return l.shard.deleteFromPropertyRangeBucket(bucket, docID, key)
 }
