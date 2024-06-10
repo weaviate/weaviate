@@ -58,15 +58,13 @@ func (m *Migrator) SetNode(nodeID string) {
 	m.nodeId = nodeID
 }
 
-func (m *Migrator) SetOffloadProvider(provider offloadProvider, moduleName string) error {
+func (m *Migrator) SetOffloadProvider(provider offloadProvider, moduleName string) {
 	cloud, enabled := provider.OffloadBackend(moduleName)
 	if !enabled {
 		m.logger.Debug(fmt.Sprintf("module %s is not enabled", moduleName))
-		return nil
 	}
 	m.cloud = cloud
 	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
-	return nil
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
