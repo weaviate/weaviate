@@ -193,6 +193,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
 	migrator, err := db.NewMigrator(vrepo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("preparations", func(t *testing.T) {
 		t.Run("creating the classes", func(t *testing.T) {
