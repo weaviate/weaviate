@@ -194,26 +194,23 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 	return nil
 }
 
-func (e *executor) UpdateTenantsProcess(class string, req *api.TenantsProcessRequest) error {
+func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error {
 	ctx := context.Background()
 	cls := e.store.ReadOnlyClass(class)
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
 
-	if len(req.TenantsProcess) == 0 {
+	if req.Process == nil {
 		return nil
 	}
 
-	updates := make([]*UpdateTenantPayload, 0, len(req.TenantsProcess))
-	for _, tu := range req.TenantsProcess {
-		updates = append(updates, &UpdateTenantPayload{
-			Name:   tu.Tenant.Name,
-			Status: tu.Tenant.Status,
-		})
-	}
-
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, []*UpdateTenantPayload{
+		{
+			Name:   req.Process.Tenant.Name,
+			Status: req.Process.Tenant.Status,
+		},
+	}); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",

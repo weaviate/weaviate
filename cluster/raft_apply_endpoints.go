@@ -169,7 +169,7 @@ func (s *Raft) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) (uint6
 	return s.Execute(command)
 }
 
-func (s *Raft) UpdateTenantsProcess(class string, req *cmd.TenantsProcessRequest) (uint64, error) {
+func (s *Raft) UpdateTenantsProcess(class string, req *cmd.TenantProcessRequest) (uint64, error) {
 	if class == "" || req == nil {
 		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
 	}

@@ -242,89 +242,77 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) e
 	return nil
 }
 
-func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantsProcessRequest, v uint64) error {
+func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProcessRequest, v uint64) error {
 	m.Lock()
 	defer m.Unlock()
-	// defer func() {
-	// 	fmt.Println(m.ShardProcesses)
-	// }()
 
-	// fmt.Println("received")
-	// fmt.Println(req)
-	// fmt.Println(m.ShardProcesses)
-	// if req.TenantsProcess[0] != nil && req.TenantsProcess[0].Tenant != nil && req.TenantsProcess[0].Tenant.Status == types.TenantActivityStatusUNFROZEN {
-	// 	fmt.Println("mooga status when arrived")
-	// 	fmt.Println(m.Sharding.Physical[req.TenantsProcess[0].Tenant.Name].Status)
-	// 	fmt.Println(m.ShardProcesses[req.TenantsProcess[0].Tenant.Name][nodeID].Tenant.Status)
-	// }
+	tn, ok := m.ShardProcesses[req.Process.Tenant.Name]
+	if !ok {
+		tn = make(NodesCloudStatus)
+	}
 
-	for i, tp := range req.TenantsProcess {
-		tn, ok := m.ShardProcesses[tp.Tenant.Name]
-		if !ok {
-			tn = make(NodesCloudStatus)
-		}
-
-		if tp.Tenant.Status == types.TenantActivityStatusUNFROZEN {
-			_, texsists := m.ShardProcesses[tp.Tenant.Name]
-			if _, exists := m.ShardProcesses[tp.Tenant.Name][nodeID]; texsists && exists {
-				tp.Tenant.Status = m.ShardProcesses[tp.Tenant.Name][nodeID].Tenant.Status
-			}
-		}
-
-		tn[req.Node] = tp
-
-		shallBe := len(m.ShardProcesses[tp.Tenant.Name])
-		x := 0
-		for _, pro := range m.ShardProcesses[tp.Tenant.Name] {
-			if pro.Op > command.TenantsProcess_OP_START { // DONE or ABORT
-				x++
-			}
-		}
-
-		copy := m.Sharding.Physical[tp.Tenant.Name].DeepCopy() // mooga todo handle not found
-
-		if x != 0 && x == shallBe {
-			// completed uploading/downloading
-			copy.Status = tp.Tenant.Status
-
-			for _, sProcess := range m.ShardProcesses[tp.Tenant.Name] {
-
-				if sProcess.Op == command.TenantsProcess_OP_ABORT {
-					// force tenant status to be old status in memory and in db
-					req.TenantsProcess[i].Tenant.Status = sProcess.Tenant.Status
-					copy.Status = sProcess.Tenant.Status
-					break
-				}
-			}
-			if tp.Tenant.Status != types.TenantActivityStatusUNFROZEN {
-				delete(m.ShardProcesses, tp.Tenant.Name)
-			}
-
-		} else {
-			found := false
-			for _, sProcess := range m.ShardProcesses[tp.Tenant.Name] {
-				if sProcess.Op == command.TenantsProcess_OP_ABORT {
-					found = true
-					// force tenant status to be old status in memory and in db
-					req.TenantsProcess[i].Tenant.Status = sProcess.Tenant.Status
-					copy.Status = sProcess.Tenant.Status
-					delete(m.ShardProcesses, tp.Tenant.Name)
-					break
-				}
-			}
-			if !found {
-				req.TenantsProcess[i] = nil
-			}
-		}
-
-		m.Sharding.Physical[tp.Tenant.Name] = copy
-
-		if !slices.Contains(copy.BelongsToNodes, nodeID) {
-			req.TenantsProcess[i] = nil
+	if req.Process.Tenant.Status == types.TenantActivityStatusUNFROZEN {
+		_, texsists := m.ShardProcesses[req.Process.Tenant.Name]
+		if _, exists := m.ShardProcesses[req.Process.Tenant.Name][nodeID]; texsists && exists {
+			req.Process.Tenant.Status = m.ShardProcesses[req.Process.Tenant.Name][nodeID].Tenant.Status
 		}
 	}
+
+	tn[req.Node] = req.Process
+
+	shallBe := len(m.ShardProcesses[req.Process.Tenant.Name])
+	x := 0
+	for _, pro := range m.ShardProcesses[req.Process.Tenant.Name] {
+		if pro.Op > command.TenantsProcess_OP_START { // DONE or ABORT
+			x++
+		}
+	}
+
+	copy := m.Sharding.Physical[req.Process.Tenant.Name].DeepCopy() // mooga todo handle not found
+
+	if x != 0 && x == shallBe {
+		// completed uploading/downloading
+		copy.Status = req.Process.Tenant.Status
+
+		for _, sProcess := range m.ShardProcesses[req.Process.Tenant.Name] {
+
+			if sProcess.Op == command.TenantsProcess_OP_ABORT {
+				// force tenant status to be old status in memory and in db
+				req.Process.Tenant.Status = sProcess.Tenant.Status
+				copy.Status = sProcess.Tenant.Status
+				break
+			}
+		}
+		// if req.Process.Tenant.Status != types.TenantActivityStatusUNFROZEN {
+		delete(m.ShardProcesses, req.Process.Tenant.Name)
+		// }
+
+	} else {
+		found := false
+		for _, sProcess := range m.ShardProcesses[req.Process.Tenant.Name] {
+			if sProcess.Op == command.TenantsProcess_OP_ABORT {
+				found = true
+				// force tenant status to be old status in memory and in db
+				req.Process.Tenant.Status = sProcess.Tenant.Status
+				copy.Status = sProcess.Tenant.Status
+				delete(m.ShardProcesses, req.Process.Tenant.Name)
+				break
+			}
+		}
+		if !found {
+			req.Process = nil
+			return nil
+		}
+	}
+
+	m.Sharding.Physical[req.Process.Tenant.Name] = copy
+
+	if !slices.Contains(copy.BelongsToNodes, nodeID) {
+		req.Process = nil
+		return nil
+	}
+
 	m.ShardVersion = v
-	req.TenantsProcess = removeNilTenantsProcess(req.TenantsProcess)
 	return nil
 }
 
@@ -346,16 +334,16 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			continue
 		}
 
-		if len(m.ShardProcesses) > 0 {
-			if _, exists := m.ShardProcesses[u.Name]; exists {
-				return n, fmt.Errorf("there is process in progress")
-			}
-		}
 		if u.Status != models.TenantActivityStatusFROZEN && p.ActivityStatus() == types.TenantActivityStatusFREEZING {
 			return n, fmt.Errorf("there is freezing in progress")
 		}
 		if u.Status != models.TenantActivityStatusFROZEN && p.ActivityStatus() == types.TenantActivityStatusUNFREEZING {
 			return n, fmt.Errorf("there is unfreezing in progress")
+		}
+		if len(m.ShardProcesses) > 0 {
+			if _, exists := m.ShardProcesses[u.Name]; exists {
+				return n, fmt.Errorf("there is process in progress")
+			}
 		}
 
 		// means it's either hot or cold
@@ -419,9 +407,6 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 
 			if _, exists := nodesMap[nodeID]; !exists {
 				// remove the request
-				// fmt.Println("not exists in")
-				// fmt.Println(nodesMap)
-				// fmt.Println(nodeID)
 				req.Tenants[i] = nil
 				continue // mooga todo wrong
 
@@ -430,8 +415,6 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			m.ShardProcesses[u.Name] = process
 			req.Tenants[i].Name = fmt.Sprintf("%s-%s", req.Tenants[i].Name, nodesMap[nodeID])
 			req.Tenants[i].Status = p.Status
-			// fmt.Println(req.Tenants[i])
-			// fmt.Println(m.ShardProcesses[u.Name])
 
 		}
 

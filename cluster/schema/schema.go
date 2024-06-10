@@ -305,7 +305,7 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 	}
 }
 
-func (s *schema) updateTenantsProcess(class string, v uint64, req *command.TenantsProcessRequest) error {
+func (s *schema) updateTenantsProcess(class string, v uint64, req *command.TenantProcessRequest) error {
 	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
 		return err
 	} else {

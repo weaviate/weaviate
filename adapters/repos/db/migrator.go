@@ -38,23 +38,23 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// offloadProvider is an interface has to be implemented by modules
+// provider is an interface has to be implemented by modules
 // to get the backend (s3, azure blob storage, google cloud storage) module
-type offloadProvider interface {
+type provider interface {
 	// OffloadBackend returns the backend module for (s3, azure blob storage, google cloud storage)
 	OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool)
+}
+
+type processor interface {
+	UpdateTenantsProcess(class string, req *command.TenantProcessRequest) (uint64, error)
 }
 
 type Migrator struct {
 	db      *DB
 	cloud   modulecapabilities.OffloadCloud
 	logger  logrus.FieldLogger
-	cluster TenantProcess
+	cluster processor
 	nodeId  string
-}
-
-type TenantProcess interface {
-	UpdateTenantsProcess(class string, req *command.TenantsProcessRequest) (uint64, error)
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
@@ -65,17 +65,17 @@ func (m *Migrator) SetNode(nodeID string) {
 	m.nodeId = nodeID
 }
 
-func (m *Migrator) SetOffloadProvider(provider offloadProvider, moduleName string) {
+func (m *Migrator) SetCluster(c processor) {
+	m.cluster = c
+}
+
+func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
 	cloud, enabled := provider.OffloadBackend(moduleName)
 	if !enabled {
 		m.logger.Debug(fmt.Sprintf("module %s is not enabled", moduleName))
 	}
 	m.cloud = cloud
 	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
-}
-
-func (m *Migrator) SetCluster(c TenantProcess) {
-	m.cluster = c
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
@@ -380,12 +380,76 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	ec := &errorcompounder.ErrorCompounder{}
 	if len(hot) > 0 {
 		m.logger.WithField("tenants", hot).Debug("updating to HOT")
-		m.hot(ctx, idx, hot, ec)
+		for _, name := range hot {
+			shard, err := idx.getOrInitLocalShard(ctx, name)
+			ec.Add(err)
+			if err != nil {
+				continue
+			}
+
+			// if the shard is a lazy load shard, we need to force its activation now
+			asLL, ok := shard.(*LazyLoadShard)
+			if !ok {
+				continue
+			}
+
+			name := name // prevent loop variable capture
+			enterrors.GoWrapper(func() {
+				// The timeout is rather arbitrary. It's meant to be so high that it can
+				// never stop a valid tenant activation use case, but low enough to
+				// prevent a context-leak.
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+				defer cancel()
+
+				if err := asLL.Load(ctx); err != nil {
+					idx.logger.WithFields(logrus.Fields{
+						"action": "tenant_activation_lazy_laod_shard",
+						"shard":  name,
+					}).WithError(err).Errorf("loading shard %q failed", name)
+				}
+			}, idx.logger)
+		}
 	}
 
 	if len(cold) > 0 {
 		m.logger.WithField("tenants", cold).Debug("updating to COLD")
-		m.cold(ctx, idx, cold, ec)
+		idx.backupMutex.RLock()
+		defer idx.backupMutex.RUnlock()
+
+		eg := enterrors.NewErrorGroupWrapper(m.logger)
+		eg.SetLimit(_NUMCPU * 2)
+
+		for _, name := range cold {
+			name := name
+			eg.Go(func() error {
+				shard := func() ShardLike {
+					idx.shardInUseLocks.Lock(name)
+					defer idx.shardInUseLocks.Unlock(name)
+
+					return idx.shards.Load(name)
+				}()
+
+				if shard == nil {
+					return nil // shard already does not exist or inactive
+				}
+
+				idx.shardCreateLocks.Lock(name)
+				defer idx.shardCreateLocks.Unlock(name)
+
+				idx.shards.LoadAndDelete(name)
+
+				if err := shard.Shutdown(ctx); err != nil {
+					if !errors.Is(err, errAlreadyShutdown) {
+						ec.Add(err)
+						idx.logger.WithField("action", "shutdown_shard").
+							WithField("shard", shard.ID()).Error(err)
+					}
+					m.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
+				}
+				return nil
+			})
+		}
+		eg.Wait()
 	}
 
 	if len(frozen) > 0 {

@@ -25,13 +25,3 @@ func removeNilTenants(tenants []*cmd.Tenant) []*cmd.Tenant {
 	}
 	return tenants[:n]
 }
-
-func removeNilTenantsProcess(tenants []*cmd.TenantsProcess) []*cmd.TenantsProcess {
-	res := []*cmd.TenantsProcess{}
-	for i := range tenants {
-		if tenants[i] != nil && tenants[i].Tenant.Name != "" && tenants[i].Tenant.Status != "" {
-			res = append(res, tenants[i])
-		}
-	}
-	return res
-}

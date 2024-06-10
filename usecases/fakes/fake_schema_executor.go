@@ -72,7 +72,7 @@ func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsR
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) UpdateTenantsProcess(class string, req *cmd.TenantsProcessRequest) error {
+func (m *MockSchemaExecutor) UpdateTenantsProcess(class string, req *cmd.TenantProcessRequest) error {
 	args := m.Called(class, req)
 	return args.Error(0)
 }
