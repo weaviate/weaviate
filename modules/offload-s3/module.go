@@ -44,6 +44,8 @@ var (
 	_ = modulecapabilities.Module(New())
 )
 
+// we use custom cli app to avoid some bugs in underlying dependencies
+// specially with .After implementation.
 var app = &cli.App{
 	Name:                 "weaviate-s5cmd",
 	Usage:                "weaviate fast S3 and local filesystem execution tool",
