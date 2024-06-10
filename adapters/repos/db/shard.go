@@ -1070,8 +1070,22 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		}
 	}
 
-	if err = s.store.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "stop lsmkv store")
+	// unregister all callbacks at once, in parallel
+	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
+		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.flushCallbacksCtrl,
+		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+	).Unregister(ctx); err != nil {
+		return err
+	}
+
+	if s.store != nil {
+		// store would be nil if loading the objects bucket failed, as we would
+		// only return the store on success from s.initLSMStore()
+		if err = s.store.Shutdown(ctx); err != nil {
+			return errors.Wrap(err, "stop lsmkv store")
+		}
 	}
 
 	if s.dimensionTrackingInitialized.Load() {
