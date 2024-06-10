@@ -213,7 +213,8 @@ func (m *Module) RootHandler() http.Handler {
 }
 
 func (m *Module) create(ctx context.Context) error {
-	ctx, _ = context.WithTimeout(ctx, m.timeout)
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"mb",
@@ -227,7 +228,8 @@ func (m *Module) create(ctx context.Context) error {
 // upload shard content assigned to specific node
 // s3://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Upload(ctx context.Context, className, shardName, nodeName string) error {
-	ctx, _ = context.WithTimeout(ctx, m.timeout)
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
@@ -243,7 +245,8 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 // download s3 bucket content to desired node
 // {dataPath}/{className}/{shardName}/{content}
 func (m *Module) Download(ctx context.Context, className, shardName, nodeName string) error {
-	ctx, _ = context.WithTimeout(ctx, m.timeout)
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",

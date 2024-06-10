@@ -46,9 +46,11 @@ type Migrator struct {
 func NewMigrator(db *DB, logger logrus.FieldLogger, provider modulecapabilities.OffloadProvider, nodeName string) (*Migrator, error) {
 	cloud, err := provider.OffloadBackend("offload-s3")
 	if err != nil {
-		return nil, err
+		// TODO-offload: proper config
+		// here we just return migrator if the offload was not configured
+		return &Migrator{db: db, logger: logger, nodeId: nodeName}, nil
 	}
-	return &Migrator{db: db, logger: logger, cloud: cloud, nodeId: nodeName}, err
+	return &Migrator{db: db, logger: logger, cloud: cloud, nodeId: nodeName}, nil
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
