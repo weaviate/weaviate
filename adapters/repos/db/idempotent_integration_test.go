@@ -522,6 +522,5 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	migrator := NewMigrator(repo, logger)
-	return migrator
+	return NewMigrator(repo, logger)
 }
