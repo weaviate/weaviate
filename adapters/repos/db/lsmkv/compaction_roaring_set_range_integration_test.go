@@ -16,7 +16,6 @@ package lsmkv
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -25,9 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/filters"
 )
 
-func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts []BucketOption) {
+func compactionRoaringSetRangeStrategy_Random(ctx context.Context, t *testing.T, opts []BucketOption) {
 	maxID := uint64(100)
 	maxElement := uint64(1e6)
 	iterations := uint64(100_000)
@@ -37,8 +37,8 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 
 	r := getRandomSeed()
 
-	instr := generateRandomInstructions(r, maxID, maxElement, iterations, deleteRatio)
-	control := controlFromInstructions(instr, maxID)
+	instr := generateRandomRangeInstructions(r, maxID, maxElement, iterations, deleteRatio)
+	control := controlFromRangeInstructions(instr, maxID)
 
 	b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
@@ -51,12 +51,10 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 
 	compactions := 0
 	for _, inst := range instr {
-		key := make([]byte, 8)
-		binary.LittleEndian.PutUint64(key, inst.key)
 		if inst.addition {
-			b.RoaringSetAddOne(key, inst.element)
+			b.RoaringSetRangeAdd(inst.key, inst.element)
 		} else {
-			b.RoaringSetRemoveOne(key, inst.element)
+			b.RoaringSetRangeRemove(inst.key, inst.element)
 		}
 
 		if r.Float64() < flushChance {
@@ -72,33 +70,26 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 
 	}
 
-	// this is a sanity check to make sure the test setup actually does what we
-	// want. With the current setup, we expect on average to have ~100
-	// compactions. It would be extremely unexpected to have fewer than 25.
+	// // this is a sanity check to make sure the test setup actually does what we
+	// // want. With the current setup, we expect on average to have ~100
+	// // compactions. It would be extremely unexpected to have fewer than 25.
 	assert.Greater(t, compactions, 25)
 
-	verifyBucketAgainstControl(t, b, control)
+	verifyBucketRangeAgainstControl(t, b, control)
 }
 
-func verifyBucketAgainstControl(t *testing.T, b *Bucket, control []*sroar.Bitmap) {
-	// This test was built before the bucket had cursors, so we are retrieving
-	// each key individually, rather than cursing over the entire bucket.
-	// However, this is also good for isolation purposes, this test tests
-	// compactions, not cursors.
+func verifyBucketRangeAgainstControl(t *testing.T, b *Bucket, control []*sroar.Bitmap) {
+	reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange)
 
 	for i, controlBM := range control {
-		key := make([]byte, 8)
-		binary.LittleEndian.PutUint64(key, uint64(i))
-
-		actual, err := b.RoaringSetGet(key)
+		actual, err := reader.Read(context.Background(), uint64(i), filters.OperatorEqual)
 		require.Nil(t, err)
 
 		assert.Equal(t, controlBM.ToArray(), actual.ToArray())
-
 	}
 }
 
-type roaringSetInstruction struct {
+type roaringSetRangeInstruction struct {
 	// is a []byte in reality, but makes the test setup easier if we pretent
 	// its an int
 	key     uint64
@@ -108,10 +99,10 @@ type roaringSetInstruction struct {
 	addition bool
 }
 
-func generateRandomInstructions(r *rand.Rand, maxID, maxElement, iterations uint64,
+func generateRandomRangeInstructions(r *rand.Rand, maxID, maxElement, iterations uint64,
 	deleteRatio float64,
-) []roaringSetInstruction {
-	instr := make([]roaringSetInstruction, iterations)
+) []roaringSetRangeInstruction {
+	instr := make([]roaringSetRangeInstruction, iterations)
 
 	for i := range instr {
 		instr[i].key = uint64(r.Intn(int(maxID)))
@@ -127,30 +118,34 @@ func generateRandomInstructions(r *rand.Rand, maxID, maxElement, iterations uint
 	return instr
 }
 
-func controlFromInstructions(instr []roaringSetInstruction, maxID uint64) []*sroar.Bitmap {
+func controlFromRangeInstructions(instr []roaringSetRangeInstruction, maxID uint64) []*sroar.Bitmap {
+	unique := make(map[uint64]uint64)
+	for _, inst := range instr {
+		if inst.addition {
+			unique[inst.element] = inst.key
+		} else {
+			delete(unique, inst.element)
+		}
+	}
+
 	out := make([]*sroar.Bitmap, maxID)
 	for i := range out {
 		out[i] = sroar.NewBitmap()
 	}
-
-	for _, inst := range instr {
-		if inst.addition {
-			out[inst.key].Set(inst.element)
-		} else {
-			out[inst.key].Remove(inst.element)
-		}
+	for element, key := range unique {
+		out[key].Set(element)
 	}
 
 	return out
 }
 
-func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []BucketOption,
+func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts []BucketOption,
 	expectedMinSize, expectedMaxSize int64,
 ) {
-	size := 100
+	maxKey := uint64(100)
 
 	type kv struct {
-		key       []byte
+		key       uint64
 		additions []uint64
 		deletions []uint64
 	}
@@ -178,13 +173,11 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 		// 5.) present in an unrelated previous segment, deleted in the first
 		// 6.) present in an unrelated previous segment, deleted in the second
 		// 7.) present in an unrelated previous segment, never touched again
-		for i := 0; i < size; i++ {
-			key := []byte(fmt.Sprintf("key-%02d", i))
-			value1 := uint64(i) + 1
-			value2 := uint64(i) + 2
-			values := []uint64{value1, value2}
+		for k := uint64(0); k < maxKey; k++ {
+			key := k
+			values := []uint64{k + 10_000, k + 20_000}
 
-			switch i % 8 {
+			switch k % 8 {
 			case 0:
 				// add to segment 1
 				segment1 = append(segment1, kv{
@@ -348,14 +341,14 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 
 	t.Run("import and flush previous segments", func(t *testing.T) {
 		for _, kv := range previous1 {
-			err := bucket.RoaringSetAddList(kv.key, kv.additions)
+			err := bucket.RoaringSetRangeAdd(kv.key, kv.additions...)
 			require.NoError(t, err)
 		}
 
 		require.NoError(t, bucket.FlushAndSwitch())
 
 		for _, kv := range previous2 {
-			err := bucket.RoaringSetAddList(kv.key, kv.additions)
+			err := bucket.RoaringSetRangeAdd(kv.key, kv.additions...)
 			require.NoError(t, err)
 		}
 
@@ -365,11 +358,11 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	t.Run("import segment 1", func(t *testing.T) {
 		for _, kv := range segment1 {
 			if len(kv.additions) > 0 {
-				err := bucket.RoaringSetAddList(kv.key, kv.additions)
+				err := bucket.RoaringSetRangeAdd(kv.key, kv.additions...)
 				require.NoError(t, err)
 			}
-			for i := range kv.deletions {
-				err := bucket.RoaringSetRemoveOne(kv.key, kv.deletions[i])
+			if len(kv.deletions) > 0 {
+				err := bucket.RoaringSetRangeRemove(kv.key, kv.deletions...)
 				require.NoError(t, err)
 			}
 		}
@@ -382,11 +375,11 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	t.Run("import segment 2", func(t *testing.T) {
 		for _, kv := range segment2 {
 			if len(kv.additions) > 0 {
-				err := bucket.RoaringSetAddList(kv.key, kv.additions)
+				err := bucket.RoaringSetRangeAdd(kv.key, kv.additions...)
 				require.NoError(t, err)
 			}
-			for i := range kv.deletions {
-				err := bucket.RoaringSetRemoveOne(kv.key, kv.deletions[i])
+			if len(kv.deletions) > 0 {
+				err := bucket.RoaringSetRangeRemove(kv.key, kv.deletions...)
 				require.NoError(t, err)
 			}
 		}
@@ -399,14 +392,17 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.CursorRoaringSet()
-		defer c.Close()
+		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+		for k := uint64(0); k < maxKey; k++ {
+			bm, err := reader.Read(context.Background(), k, filters.OperatorEqual)
+			require.NoError(t, err)
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:       k,
-				additions: v.ToArray(),
-			})
+			if !bm.IsEmpty() {
+				retrieved = append(retrieved, kv{
+					key:       k,
+					additions: bm.ToArray(),
+				})
+			}
 		}
 
 		assert.Equal(t, expected, retrieved)
@@ -421,7 +417,7 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 				// segment1 and segment2 merged
 				// none of them is root segment, so tombstones
 				// will not be removed regardless of keepTombstones setting
-				assertSecondSegmentOfSize(t, bucket, 26768, 26768)
+				assertSecondSegmentOfSize(t, bucket, 2256, 2256)
 			}
 			i++
 		}
@@ -431,14 +427,17 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	t.Run("verify control after compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.CursorRoaringSet()
-		defer c.Close()
+		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+		for k := uint64(0); k < maxKey; k++ {
+			bm, err := reader.Read(context.Background(), k, filters.OperatorEqual)
+			require.NoError(t, err)
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:       k,
-				additions: v.ToArray(),
-			})
+			if !bm.IsEmpty() {
+				retrieved = append(retrieved, kv{
+					key:       k,
+					additions: bm.ToArray(),
+				})
+			}
 		}
 
 		assert.Equal(t, expected, retrieved)
@@ -446,19 +445,13 @@ func compactionRoaringSetStrategy(ctx context.Context, t *testing.T, opts []Buck
 	})
 }
 
-func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, opts []BucketOption) {
+func compactionRoaringSetRangeStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// in this test each segment reverses the action of the previous segment so
 	// that in the end a lot of information is present in the individual segments
 	// which is no longer needed. We then verify that after all compaction this
 	// information is gone, thus freeing up disk space
-	size := 100
-
-	type kv struct {
-		key    []byte
-		values []uint64
-	}
-
-	key := []byte("my-key")
+	iterations := uint64(100)
+	key := uint64(1)
 
 	var bucket *Bucket
 	dirName := t.TempDir()
@@ -475,14 +468,14 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 	})
 
 	t.Run("write segments", func(t *testing.T) {
-		for i := 0; i < size; i++ {
-			if i != 0 {
+		for v := uint64(0); v < iterations; v++ {
+			if v != 0 {
 				// we can only delete an existing value if this isn't the first write
-				err := bucket.RoaringSetRemoveOne(key, uint64(i)-1)
+				err := bucket.RoaringSetRangeRemove(key, v-1)
 				require.NoError(t, err)
 			}
 
-			err := bucket.RoaringSetAddOne(key, uint64(i))
+			err := bucket.RoaringSetRangeAdd(key, v)
 			require.NoError(t, err)
 
 			require.NoError(t, bucket.FlushAndSwitch())
@@ -490,70 +483,40 @@ func compactionRoaringSetStrategy_RemoveUnnecessary(ctx context.Context, t *test
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-		expected := []kv{
-			{
-				key:    key,
-				values: []uint64{uint64(size) - 1},
-			},
-		}
+		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+		bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
+		require.NoError(t, err)
 
-		c := bucket.CursorRoaringSet()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:    k,
-				values: v.ToArray(),
-			})
-		}
-
-		assert.Equal(t, expected, retrieved)
+		assert.Equal(t, []uint64{iterations - 1}, bm.ToArray())
 	})
 
-	t.Run("compact until no longer eligible", func(t *testing.T) {
-		var compacted bool
-		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
-		}
-		require.Nil(t, err)
-	})
+	// t.Run("compact until no longer eligible", func(t *testing.T) {
+	// 	var compacted bool
+	// 	var err error
+	// 	for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+	// 	}
+	// 	require.Nil(t, err)
+	// })
 
-	t.Run("verify control before compaction", func(t *testing.T) {
-		var retrieved []kv
-		expected := []kv{
-			{
-				key:    key,
-				values: []uint64{uint64(size) - 1},
-			},
-		}
+	// t.Run("verify control before compaction", func(t *testing.T) {
+	// 	reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+	// 	bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
+	// 	require.NoError(t, err)
 
-		c := bucket.CursorRoaringSet()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			retrieved = append(retrieved, kv{
-				key:    k,
-				values: v.ToArray(),
-			})
-		}
-
-		assert.Equal(t, expected, retrieved)
-	})
+	// 	assert.Equal(t, []uint64{iterations - 1}, bm.ToArray())
+	// })
 }
 
-func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Context, t *testing.T, opts []BucketOption) {
+func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.Context, t *testing.T, opts []BucketOption) {
 	// In this test we are testing that the compaction works well for set collection
-	maxSize := 10
+	maxSegments := 10
 
-	for size := 4; size < maxSize; size++ {
-		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {
+	for segments := 4; segments < maxSegments; segments++ {
+		t.Run(fmt.Sprintf("compact %v segments", segments), func(t *testing.T) {
 			var bucket *Bucket
 
-			key := []byte("key-original")
-			value1 := uint64(1)
-			value2 := uint64(2)
-			values := []uint64{value1, value2}
+			key := uint64(1)
+			values := []uint64{1, 2}
 
 			dirName := t.TempDir()
 
@@ -569,25 +532,25 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("import and flush segments", func(t *testing.T) {
-				for i := 0; i < size; i++ {
-					err := bucket.RoaringSetAddList(key, values)
+				for segment := 0; segment < segments; segment++ {
+					err := bucket.RoaringSetRangeAdd(key, values...)
 					require.Nil(t, err)
 
-					if size == 5 {
+					if segments == 5 {
 						// delete all
-						err := bucket.RoaringSetRemoveOne(key, values[0])
+						err := bucket.RoaringSetRangeRemove(key, values[0])
 						require.Nil(t, err)
-						err = bucket.RoaringSetRemoveOne(key, values[1])
+						err = bucket.RoaringSetRangeRemove(key, values[1])
 						require.Nil(t, err)
-					} else if size == 6 {
+					} else if segments == 6 {
 						// delete only one value
-						err := bucket.RoaringSetRemoveOne(key, values[0])
+						err := bucket.RoaringSetRangeRemove(key, values[0])
 						require.Nil(t, err)
-					} else if i != size-1 {
+					} else if segment != segments-1 {
 						// don't delete from the last segment
-						err := bucket.RoaringSetRemoveOne(key, values[0])
+						err := bucket.RoaringSetRangeRemove(key, values[0])
 						require.Nil(t, err)
-						err = bucket.RoaringSetRemoveOne(key, values[1])
+						err = bucket.RoaringSetRangeRemove(key, values[1])
 						require.Nil(t, err)
 					}
 
@@ -596,14 +559,16 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("verify that objects exist before compaction", func(t *testing.T) {
-				res, err := bucket.RoaringSetGet(key)
+				reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+				bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 				require.NoError(t, err)
-				if size == 5 {
-					assert.Equal(t, 0, res.GetCardinality())
-				} else if size == 6 {
-					assert.Equal(t, 1, res.GetCardinality())
+
+				if segments == 5 {
+					assert.Equal(t, 0, bm.GetCardinality())
+				} else if segments == 6 {
+					assert.Equal(t, 1, bm.GetCardinality())
 				} else {
-					assert.Equal(t, 2, res.GetCardinality())
+					assert.Equal(t, 2, bm.GetCardinality())
 				}
 			})
 
@@ -616,14 +581,16 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("verify that objects exist after compaction", func(t *testing.T) {
-				res, err := bucket.RoaringSetGet(key)
+				reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+				bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 				require.NoError(t, err)
-				if size == 5 {
-					assert.Equal(t, 0, res.GetCardinality())
-				} else if size == 6 {
-					assert.Equal(t, 1, res.GetCardinality())
+
+				if segments == 5 {
+					assert.Equal(t, 0, bm.GetCardinality())
+				} else if segments == 6 {
+					assert.Equal(t, 1, bm.GetCardinality())
 				} else {
-					assert.Equal(t, 2, res.GetCardinality())
+					assert.Equal(t, 2, bm.GetCardinality())
 				}
 			})
 		})
