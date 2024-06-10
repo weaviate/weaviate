@@ -147,7 +147,10 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	for i, tenant := range tenants {
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
-	_, err = h.metaWriter.UpdateTenants(class, &req)
+
+	if _, err = h.metaWriter.UpdateTenants(class, &req); err != nil {
+		return nil, err
+	}
 
 	// we get the new state to return correct status
 	// specially in FREEZING and UNFREEZING
