@@ -62,12 +62,16 @@ case $CONFIG in
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem,offload-s3" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
+      OFFLOAD_S3_ENDPOINT="localhost:9001" \
+      S3_ENDPOINT_URL="http://localhost:9000"\
+      AWS_ACCESS_KEY_ID="minioadmin" \
+      AWS_SECRET_KEY="minioadmin" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -91,8 +95,12 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
+      OFFLOAD_S3_ENDPOINT="localhost:9000" \
+      S3_ENDPOINT_URL="http://localhost:9000"\
+      AWS_ACCESS_KEY_ID="minioadmin" \
+      AWS_SECRET_KEY="minioadmin" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem,offload-s3" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -105,19 +113,24 @@ case $CONFIG in
         GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
+        PERSISTENCE_DATA_PATH="./data-weaviate-2" \
+        BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
         CLUSTER_HOSTNAME="weaviate-2" \
         CLUSTER_IN_LOCALHOST=true \
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
-      PROMETHEUS_MONITORING_PORT="2114" \
+        PROMETHEUS_MONITORING_PORT="2114" \
         RAFT_PORT="8304" \
         RAFT_INTERNAL_RPC_PORT="8305" \
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         RAFT_BOOTSTRAP_EXPECT=3 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        ENABLE_MODULES="text2vec-contextionary" \
+        ENABLE_MODULES="text2vec-contextionary,backup-filesystem,offload-s3" \
+        OFFLOAD_S3_ENDPOINT="localhost:9000" \
+        S3_ENDPOINT_URL="http://localhost:9000"\
+        AWS_ACCESS_KEY_ID="minioadmin" \
+        AWS_SECRET_KEY="minioadmin" \
         go_run ./cmd/weaviate-server \
           --scheme http \
           --host "127.0.0.1" \

@@ -36,6 +36,7 @@ type Indexer interface {
 	AddTenants(class string, req *api.AddTenantsRequest) error
 	UpdateTenants(class string, req *api.UpdateTenantsRequest) error
 	DeleteTenants(class string, req *api.DeleteTenantsRequest) error
+	UpdateTenantsProcess(class string, req *api.TenantsProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error

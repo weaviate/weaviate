@@ -18,6 +18,7 @@ import (
 	"sort"
 
 	"github.com/spaolacci/murmur3"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
@@ -309,7 +310,7 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 	partitions := make(map[string][]string, len(shards))
 	nodeSet := make(map[string]bool)
 	for _, name := range shards {
-		if _, alreadyExists := s.Physical[name]; alreadyExists {
+		if existedShard, alreadyExists := s.Physical[name]; alreadyExists && existedShard.Status != models.TenantActivityStatusFROZEN {
 			continue
 		}
 		owners := make([]string, 0, replFactor)

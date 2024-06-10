@@ -23,6 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -44,10 +46,15 @@ type offloadProvider interface {
 }
 
 type Migrator struct {
-	db     *DB
-	cloud  modulecapabilities.OffloadCloud
-	logger logrus.FieldLogger
-	nodeId string
+	db      *DB
+	cloud   modulecapabilities.OffloadCloud
+	logger  logrus.FieldLogger
+	cluster TenantProcess
+	nodeId  string
+}
+
+type TenantProcess interface {
+	UpdateTenantsProcess(class string, req *command.TenantsProcessRequest) (uint64, error)
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
@@ -65,6 +72,10 @@ func (m *Migrator) SetOffloadProvider(provider offloadProvider, moduleName strin
 	}
 	m.cloud = cloud
 	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
+}
+
+func (m *Migrator) SetCluster(c TenantProcess) {
+	m.cluster = c
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
@@ -344,88 +355,54 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	updatesHot := make([]string, 0, len(updates))
-	updatesCold := make([]string, 0, len(updates))
-	for _, update := range updates {
-		switch update.Status {
+	hot := make([]string, 0, len(updates))
+	cold := make([]string, 0, len(updates))
+	freezing := make([]string, 0, len(updates))
+	frozen := make([]string, 0, len(updates))
+	unfreezing := make([]string, 0, len(updates))
+
+	for _, tName := range updates {
+		switch tName.Status {
 		case models.TenantActivityStatusHOT:
-			updatesHot = append(updatesHot, update.Name)
+			hot = append(hot, tName.Name)
 		case models.TenantActivityStatusCOLD:
-			updatesCold = append(updatesCold, update.Name)
+			cold = append(cold, tName.Name)
+
+		case models.TenantActivityStatusFROZEN: // never arrives from user
+			frozen = append(frozen, tName.Name)
+		case types.TenantActivityStatusFREEZING: // never arrives from user
+			freezing = append(freezing, tName.Name)
+		case types.TenantActivityStatusUNFREEZING: // never arrives from user
+			unfreezing = append(freezing, tName.Name)
 		}
 	}
 
 	ec := &errorcompounder.ErrorCompounder{}
-
-	for _, name := range updatesHot {
-		shard, err := idx.getOrInitLocalShard(ctx, name)
-		ec.Add(err)
-		if err != nil {
-			continue
-		}
-
-		// if the shard is a lazy load shard, we need to force its activation now
-		asLL, ok := shard.(*LazyLoadShard)
-		if !ok {
-			continue
-		}
-
-		name := name // prevent loop variable capture
-		enterrors.GoWrapper(func() {
-			// The timeout is rather arbitrary. It's meant to be so high that it can
-			// never stop a valid tenant activation use case, but low enough to
-			// prevent a context-leak.
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
-			defer cancel()
-
-			if err := asLL.Load(ctx); err != nil {
-				idx.logger.WithFields(logrus.Fields{
-					"action": "tenant_activation_lazy_laod_shard",
-					"shard":  name,
-				}).WithError(err).Errorf("loading shard %q failed", name)
-			}
-		}, idx.logger)
+	if len(hot) > 0 {
+		m.logger.WithField("tenants", hot).Debug("updating to HOT")
+		m.hot(ctx, idx, hot, ec)
 	}
 
-	if len(updatesCold) > 0 {
-		idx.backupMutex.RLock()
-		defer idx.backupMutex.RUnlock()
-
-		eg := enterrors.NewErrorGroupWrapper(m.logger)
-		eg.SetLimit(_NUMCPU * 2)
-
-		for _, name := range updatesCold {
-			name := name
-			eg.Go(func() error {
-				shard := func() ShardLike {
-					idx.shardInUseLocks.Lock(name)
-					defer idx.shardInUseLocks.Unlock(name)
-
-					return idx.shards.Load(name)
-				}()
-
-				if shard == nil {
-					return nil // shard already does not exist or inactive
-				}
-
-				idx.shardCreateLocks.Lock(name)
-				defer idx.shardCreateLocks.Unlock(name)
-
-				idx.shards.LoadAndDelete(name)
-
-				if err := shard.Shutdown(ctx); err != nil {
-					if !errors.Is(err, errAlreadyShutdown) {
-						ec.Add(err)
-						idx.logger.WithField("action", "shutdown_shard").
-							WithField("shard", shard.ID()).Error(err)
-					}
-					m.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
-				}
-				return nil
-			})
-		}
-		eg.Wait()
+	if len(cold) > 0 {
+		m.logger.WithField("tenants", cold).Debug("updating to COLD")
+		m.cold(ctx, idx, cold, ec)
 	}
+
+	if len(frozen) > 0 {
+		m.logger.WithField("tenants", frozen).Debug("updating to FROZEN")
+		m.frozen(idx, frozen, ec)
+	}
+
+	if len(freezing) > 0 {
+		m.logger.WithField("tenants", freezing).Debug("updating to FREEZING")
+		m.freeze(ctx, idx, class.Class, freezing, ec)
+	}
+
+	if len(unfreezing) > 0 {
+		m.logger.WithField("tenants", unfreezing).Debug("updating to UNFREEZING")
+		m.unfreeze(ctx, idx, class.Class, unfreezing, ec)
+	}
+
 	return ec.ToError()
 }
 

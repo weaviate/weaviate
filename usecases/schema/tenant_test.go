@@ -299,7 +299,7 @@ func TestUpdateTenants(t *testing.T) {
 			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
 			test.mockCalls(fakeMetaHandler)
 
-			err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
+			_, err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
 			if len(test.errMsgs) == 0 {
 				require.NoError(t, err)
 			} else {
