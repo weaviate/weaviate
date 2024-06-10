@@ -350,3 +350,53 @@ def test_more_results_than_limit(
     assert nt3.objects[0].metadata.distance == nt.objects[0].metadata.distance
     assert nt3.objects[1].uuid == uuid2
     assert nt3.objects[1].metadata.distance == nt.objects[1].metadata.distance
+
+
+@pytest.mark.parametrize(
+    "multi_target_fusion_method,number_objects",
+    [
+        ("Sum", 1),
+        ("Average", 1),
+        ("Minimum", 2),
+        (
+            {"first": 0.4, "second": 1.2, "third": 0.752},
+            1,
+        ),
+        ("Score_Fusion", 1),
+    ],
+)
+def test_named_vectors_missing_entries(
+    collection_factory: CollectionFactory,
+    multi_target_fusion_method: TargetVectorJoinType,
+    number_objects: int,
+) -> None:
+    collection = collection_factory(
+        vectorizer_config=[
+            wvc.config.Configure.NamedVectors.none(
+                name=entry,
+            )
+            for entry in ["first", "second", "third"]
+        ]
+    )
+
+    # first object has all entries, second object is missing the third entry is missing.
+    uuid1 = collection.data.insert(
+        properties={}, vector={"first": [1, 0, 0], "second": [1, 0, 0], "third": [1, 0, 0]}
+    )
+    uuid2 = collection.data.insert(
+        properties={},
+        vector={"first": [0, 1, 0], "second": [0, math.sqrt(3), 0]},
+    )
+
+    nt = collection.query.near_vector(
+        [1, 0, 0],
+        target_vector=["first", "second", "third"],
+        multi_target_fusion_method=multi_target_fusion_method,
+        return_metadata=wvc.query.MetadataQuery.full(),
+    )
+
+    # first object is perfect fit, second object has a distance of 1
+    assert len(nt.objects) == number_objects
+    assert nt.objects[0].uuid == uuid1
+    if len(nt.objects) == 2:
+        assert nt.objects[1].uuid == uuid2

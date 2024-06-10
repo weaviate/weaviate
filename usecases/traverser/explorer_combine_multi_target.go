@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -26,11 +25,13 @@ import (
 
 type ResultContainer interface {
 	AddScores(id uint64, targets []string, distances []float32, weights map[string]float32)
+	RemoveIdFromResult(id uint64)
 }
 
 type ResultContainerHybrid struct {
-	ResultsIn []*search.Result
-	allIDs    map[uint64]*search.Result
+	ResultsIn   []*search.Result
+	IDsToRemove map[uint64]struct{}
+	allIDs      map[uint64]*search.Result
 }
 
 func (r ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
@@ -40,13 +41,12 @@ func (r ResultContainerHybrid) AddScores(id uint64, targets []string, distances 
 	r.ResultsIn = append(r.ResultsIn, &newResult)
 }
 
-type ResultContainerStandard struct {
-	ResultsIn map[uint64]search.Result
+func (r ResultContainerHybrid) RemoveIdFromResult(id uint64) {
+	r.IDsToRemove[id] = struct{}{}
 }
 
-type targetVectorData struct {
-	target       []string
-	searchVector [][]float32
+type ResultContainerStandard struct {
+	ResultsIn map[uint64]search.Result
 }
 
 func (r ResultContainerStandard) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
@@ -56,6 +56,15 @@ func (r ResultContainerStandard) AddScores(id uint64, targets []string, distance
 		tmp.Dist += distances[i] * float32(weights[targets[i]])
 	}
 	r.ResultsIn[id] = tmp
+}
+
+func (r ResultContainerStandard) RemoveIdFromResult(id uint64) {
+	delete(r.ResultsIn, id)
+}
+
+type targetVectorData struct {
+	target       []string
+	searchVector [][]float32
 }
 
 func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result, params dto.GetParams, targetVectors []string, searchVectors [][]float32) ([]search.Result, error) {
@@ -82,6 +91,9 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 			weights[i] = 1. / float64(len(results))
 			weightsMap[target] = float32(weights[i])
 		}
+
+		scoresToRemove := make(map[uint64]struct{})
+
 		ress := make([][]*search.Result, len(results))
 		for i, res := range results {
 			localIDs := make(map[uint64]*search.Result, len(allIDs))
@@ -96,12 +108,28 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 				ress[i][j].SecondarySortValue = res[j].Dist
 			}
 			e.collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
+			resultContainer := ResultContainerHybrid{ResultsIn: ress[i], allIDs: allIDs, IDsToRemove: make(map[uint64]struct{})}
 
-			if err := e.getScoresOfMissingResults(ctx, missingIDs, ResultContainerHybrid{ResultsIn: ress[i], allIDs: allIDs}, params, weightsMap); err != nil {
+			if err := e.getScoresOfMissingResults(ctx, missingIDs, resultContainer, params, weightsMap); err != nil {
 				return nil, err
+			}
+			for key := range resultContainer.IDsToRemove {
+				scoresToRemove[key] = struct{}{}
 			}
 			clear(missingIDs) // each target vector is handles separately for hybrid
 		}
+
+		// remove objects that have missing target vectors
+		if len(scoresToRemove) > 0 {
+			for i, res := range ress {
+				for j := range res {
+					if _, ok := scoresToRemove[*(res[j].DocID)]; ok {
+						results[i] = append(results[i][:j], results[i][j+1:]...)
+					}
+				}
+			}
+		}
+
 		joined := hybrid.FusionRelativeScore(weights, ress, targetVectors, false)
 		joinedResults := make([]search.Result, len(joined))
 		for i := range joined {
@@ -198,11 +226,12 @@ func (e *Explorer) getScoresOfMissingResults(ctx context.Context, missingIDs map
 	lock := sync.Mutex{}
 	for id, targets := range missingIDs {
 		distances, err := e.searcher.VectorDistanceForQuery(ctx, params.ClassName, id, targets.target, targets.searchVector, params.Tenant)
-		if err != nil {
-			return errors.Wrap(err, "multi target search")
-		}
 		lock.Lock()
-		combinedResults.AddScores(id, targets.target, distances, weights)
+		if err != nil {
+			combinedResults.RemoveIdFromResult(id)
+		} else {
+			combinedResults.AddScores(id, targets.target, distances, weights)
+		}
 		lock.Unlock()
 	}
 	if err := eg.Wait(); err != nil {
