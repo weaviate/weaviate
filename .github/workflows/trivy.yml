@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  fs-scan:
     permissions:
       contents: read # for actions/checkout to fetch code
       security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
@@ -42,3 +42,22 @@ jobs:
         uses: github/codeql-action/upload-sarif@v2
         with:
           sarif_file: 'trivy-results.sarif'
+  sbom:
+    permissions:
+      contents: write
+    jobs:
+      build:
+        name: Checks
+        runs-on: ubuntu-20.04
+        steps:
+          - name: Checkout code
+            uses: actions/checkout@v3
+
+          - name: Run Trivy in GitHub SBOM mode and submit results to Dependency Graph
+            uses: aquasecurity/trivy-action@0.20.0
+            with:
+              scan-type: 'fs'
+              format: 'github'
+              output: 'dependency-results.sbom.json'
+              image-ref: '.'
+              github-pat: ${{ secrets.GITHUB_TOKEN }}
