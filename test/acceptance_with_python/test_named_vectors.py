@@ -286,3 +286,67 @@ def test_score_fusion(named_collection: NamedCollection) -> None:
     assert nt.objects[1].uuid == uuid1
     assert math.isclose(nt.objects[2].metadata.distance, 1, rel_tol=1e-5)
     assert nt.objects[2].uuid == uuid2
+
+
+@pytest.mark.parametrize(
+    "multi_target_fusion_method,distance",
+    [
+        ("Sum", CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE),
+        # ("Average", (CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE) / 3),
+        # ("Minimum", APPLE_DISTANCE),
+        # (
+        #     {"title1": 0.4, "title2": 1.2, "title3": 0.752},
+        #     APPLE_DISTANCE * 0.4 + CAR_DISTANCE * 1.2 + KALE_DISTANCE * 0.752,
+        # ),
+    ],
+)
+def test_more_results_than_limit(
+    named_collection: NamedCollection,
+    multi_target_fusion_method: TargetVectorJoinType,
+    distance: float,
+) -> None:
+    collection = named_collection(props=["colour", "weather", "material"])
+
+    uuid1 = collection.data.insert(
+        properties={"colour": "bright", "weather": "summer", "material": "cotton"},
+    )
+    uuid2 = collection.data.insert(
+        properties={"colour": "beige", "weather": "warm", "material": "breezy"},
+    )
+    uuid3 = collection.data.insert(
+        properties={"colour": "white", "weather": "cold", "material": "heavy fur"},
+    )
+    uuid4 = collection.data.insert(
+        properties={"colour": "red", "weather": "summer", "material": "thick"},
+    )
+    uuid5 = collection.data.insert(
+        properties={"colour": "black", "weather": "arctic", "material": "lite"},
+    )
+
+    # uuid3 is the best match for colour but bad for the others targets => make sure that the extra distances are
+    # computed correctly
+    nt = collection.query.near_text(
+        "white summer clothing with breezy material",
+        target_vector=["colour", "weather", "material"],
+        multi_target_fusion_method=multi_target_fusion_method,
+        return_metadata=wvc.query.MetadataQuery.full(),
+        limit=2,
+    )
+
+    assert len(nt.objects) == 2
+    assert nt.objects[0].uuid == uuid1
+    assert nt.objects[1].uuid == uuid2
+
+    # get all results to check if the distances are correct
+    nt3 = collection.query.near_text(
+        "white summer clothing with breezy material",
+        target_vector=["colour", "weather", "material"],
+        multi_target_fusion_method=multi_target_fusion_method,
+        return_metadata=wvc.query.MetadataQuery.full(),
+        limit=5,
+    )
+
+    assert nt3.objects[0].uuid == uuid1
+    assert nt3.objects[0].metadata.distance == nt.objects[0].metadata.distance
+    assert nt3.objects[1].uuid == uuid2
+    assert nt3.objects[1].metadata.distance == nt.objects[1].metadata.distance

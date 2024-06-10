@@ -124,7 +124,7 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
 class NamedCollection(Protocol):
     """Typing for fixture."""
 
-    def __call__(self, name: str = "", multi_tenancy: bool = False) -> Collection:
+    def __call__(self, name: str = "", props: Optional[List[str]] = None) -> Collection:
         """Typing for fixture."""
         ...
 
@@ -133,35 +133,24 @@ class NamedCollection(Protocol):
 def named_collection(
     collection_factory: CollectionFactory,
 ) -> Generator[NamedCollection, None, None]:
-    def _factory(name: str = "") -> Collection:
+    def _factory(name: str = "", props: Optional[List[str]] = None) -> Collection:
+        if props is None:
+            props = ["title1", "title2", "title3"]
+
+        properties = [Property(name=prop, data_type=wvc.config.DataType.TEXT) for prop in props]
+        named_vectors = [
+            wvc.config.Configure.NamedVectors.text2vec_contextionary(
+                name=prop.name,
+                source_properties=[prop.name],
+                vectorize_collection_name=False,
+            )
+            for prop in properties
+        ]
+
         collection = collection_factory(
             name,
-            properties=[
-                wvc.config.Property(name="title1", data_type=wvc.config.DataType.TEXT),
-                wvc.config.Property(name="title2", data_type=wvc.config.DataType.TEXT),
-                wvc.config.Property(name="title3", data_type=wvc.config.DataType.TEXT),
-            ],
-            vectorizer_config=[
-                wvc.config.Configure.NamedVectors.text2vec_contextionary(
-                    name="All",
-                    vectorize_collection_name=False,
-                ),
-                wvc.config.Configure.NamedVectors.text2vec_contextionary(
-                    name="title1",
-                    source_properties=["title1"],
-                    vectorize_collection_name=False,
-                ),
-                wvc.config.Configure.NamedVectors.text2vec_contextionary(
-                    name="title2",
-                    source_properties=["title2"],
-                    vectorize_collection_name=False,
-                ),
-                wvc.config.Configure.NamedVectors.text2vec_contextionary(
-                    name="title3",
-                    source_properties=["title3"],
-                    vectorize_collection_name=False,
-                ),
-            ],
+            properties=properties,
+            vectorizer_config=named_vectors,
         )
 
         return collection

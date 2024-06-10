@@ -138,6 +138,12 @@ func (db *DB) VectorSearch(ctx context.Context,
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
+func (db *DB) VectorDistanceForQuery(ctx context.Context, className string, docId uint64, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+	idx := db.GetIndex(schema.ClassName(className))
+
+	return idx.vectorDistanceForQuery(ctx, docId, targetVectors, searchVectors, tenant)
+}
+
 func extractDistanceFromParams(params dto.GetParams) float32 {
 	certainty := traverser.ExtractCertaintyFromParams(params)
 	if certainty != 0 {

@@ -17,9 +17,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -88,6 +85,8 @@ type objectsSearcher interface {
 	// GraphQL Get{} queries
 	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
+
+	VectorDistanceForQuery(ctx context.Context, className string, docId uint64, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error)
 
 	// GraphQL Explore{} queries
 	CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
@@ -261,94 +260,11 @@ func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVecto
 		return nil, nil, err
 	}
 
-	res, err := e.combineResults(ress, params.Pagination.Limit, params.TargetVectorJoin, targetVectors)
+	res, err := e.combineResults(ctx, ress, params, targetVectors, searchVectorsReturn)
 	if err != nil {
 		return nil, nil, err
 	}
 	return res, searchVectorsReturn, nil
-}
-
-func (e *Explorer) combineResults(results [][]search.Result, limit int, join *dto.TargetVectorJoin, targetVectors []string) ([]search.Result, error) {
-	if len(results) == 0 {
-		return []search.Result{}, nil
-	}
-
-	if len(results) == 1 {
-		return results[0], nil
-	}
-
-	if join.ScoreFusion {
-		weights := make([]float64, len(results))
-		for i := range weights {
-			weights[i] = 1. / float64(len(results))
-		}
-		ress := make([][]*search.Result, len(results))
-		for i, res := range results {
-			ress[i] = make([]*search.Result, len(res))
-			for j := range res {
-				ress[i][j] = &res[j]
-				ress[i][j].SecondarySortValue = res[j].Dist
-			}
-		}
-		joined := hybrid.FusionRelativeScore(weights, ress, targetVectors, false)
-		joinedResults := make([]search.Result, len(joined))
-		for i := range joined {
-			joinedResults[i] = *joined[i]
-			joinedResults[i].Dist = joined[i].Score
-		}
-		return joinedResults, nil
-	}
-
-	combinedResults := make(map[uint64]search.Result, len(results[0]))
-	for i, res := range results {
-		for _, r := range res {
-			id := *(r.DocID)
-
-			if join.Min {
-				tmp := r
-				if _, ok := combinedResults[id]; ok {
-					tmp = combinedResults[id]
-				}
-
-				tmp.Score = min(r.Score, tmp.Score)
-				tmp.SecondarySortValue = min(r.SecondarySortValue, tmp.SecondarySortValue)
-				tmp.Dist = min(r.Dist, tmp.Dist)
-				tmp.Certainty = min(r.Certainty, tmp.Certainty)
-				combinedResults[id] = tmp
-			} else {
-				if len(join.Weights) != len(results) {
-					return nil, fmt.Errorf("number of weights in join does not match number of results")
-				}
-				weight := join.Weights[targetVectors[i]]
-				r.Score *= weight
-				r.SecondarySortValue *= weight
-				r.Dist *= weight
-				if _, ok := combinedResults[id]; ok {
-					r.Score += combinedResults[id].Score
-					r.SecondarySortValue += combinedResults[id].SecondarySortValue
-					r.Dist += combinedResults[id].Dist
-					r.Certainty += combinedResults[id].Certainty
-				}
-				combinedResults[id] = r
-			}
-		}
-	}
-	if limit > len(combinedResults) {
-		limit = len(combinedResults)
-	}
-
-	queue := priorityqueue.NewMin[float32](limit)
-
-	for id, res := range combinedResults {
-		queue.Insert(id, res.Dist)
-	}
-	returnResults := make([]search.Result, 0, queue.Len())
-	for i := 0; i < limit; i++ {
-		item := queue.Pop()
-		returnResults = append(returnResults, combinedResults[item.ID])
-	}
-
-	return returnResults, nil
 }
 
 func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParam *searchparams.NearVector, oversearch bool) error {
@@ -359,10 +275,7 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 	paramsForTarget.ModuleParams = params.ModuleParams
 	paginationCopy := *params.Pagination
 	paramsForTarget.Pagination = &paginationCopy
-	// we need to oversearch to avoid missing entries for some of the searches
-	if oversearch {
-		paramsForTarget.Pagination.Limit = max(100, params.Pagination.Limit*2)
-	}
+	paramsForTarget.Pagination.Limit = params.Pagination.Limit
 
 	if params.NearVector != nil {
 		paramsForTarget.NearVector = params.NearVector

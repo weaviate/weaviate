@@ -1538,6 +1538,51 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
+func (i *Index) vectorDistanceForQuery(ctx context.Context, docId uint64, targets []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+	if err := i.validateMultiTenancy(tenant); err != nil {
+		return nil, err
+	}
+	shardNames, err := i.targetShardNames(tenant)
+	if err != nil || len(shardNames) == 0 {
+		return nil, err
+	}
+
+	distances := make([]float32, len(targets))
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "tenant:", tenant)
+	eg.SetLimit(_NUMCPU * 2)
+
+	if len(shardNames) == 1 {
+		shard, release, err := i.getLocalShardNoShutdown(shardNames[0])
+		if err != nil {
+			return nil, err
+		}
+
+		if shard != nil {
+			defer release()
+			indexes := shard.VectorIndexes()
+			for j, target := range targets {
+				j := j
+				distancer := indexes[target].NewQueryVectorDistancer(searchVectors[j])
+				eg.Go(
+					func() error {
+						dist, err := distancer.DistanceToNode(docId)
+						if err != nil {
+							return err
+						}
+						distances[j] = dist
+						return nil
+					})
+			}
+		}
+
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+	return distances, nil
+}
+
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	targetVector string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additional additional.Properties,
