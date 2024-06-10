@@ -22,6 +22,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
@@ -33,7 +34,10 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
+
+var maxUUID [16]byte = [16]byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
 
 func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
@@ -117,6 +121,68 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 	return objects, nil
 }
 
+func (s *Shard) ObjectDigestsByTokenRange(ctx context.Context,
+	initialToken, finalToken uint64, limit int) (
+	res []replica.RepairResponse, lastTokenRead uint64, err error,
+) {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	if int(bucket.GetSecondaryIndices()) < helpers.ObjectsBucketLSMTokenRangeSecondaryIndex {
+		return nil, 0, fmt.Errorf("secondary index for token ranges not available")
+	}
+
+	cursor := bucket.CursorWithSecondaryIndex(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex)
+	defer cursor.Close()
+
+	n := 0
+
+	var objs []replica.RepairResponse
+
+	var initialTokenBytes, finalTokenBytes [8 + 16]byte
+
+	binary.BigEndian.PutUint64(initialTokenBytes[:], initialToken)
+
+	binary.BigEndian.PutUint64(finalTokenBytes[:], finalToken)
+	copy(finalTokenBytes[8:], maxUUID[:])
+
+	lastTokenRead = initialToken
+
+	for k, v := cursor.Seek(initialTokenBytes[:]); n < limit && k != nil && bytes.Compare(k, finalTokenBytes[:]) < 1; k, v = cursor.Next() {
+		obj, err := storobj.FromBinary(v)
+		if err != nil {
+			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %v", err)
+		}
+
+		uuidBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+		if err != nil {
+			return objs, lastTokenRead, fmt.Errorf("cannot unmarshal object: %v", err)
+		}
+
+		replicaObj := replica.RepairResponse{
+			ID:         obj.ID().String(),
+			UpdateTime: obj.LastUpdateTimeUnix(),
+			// TODO: use version when supported
+			Version: 0,
+		}
+
+		objs = append(objs, replicaObj)
+
+		h := murmur3.New64()
+		h.Write(uuidBytes)
+		lastTokenRead = h.Sum64()
+
+		n++
+	}
+
+	if n < limit {
+		return objs, finalToken, nil
+	} else if n == limit {
+		return objs, lastTokenRead, storobj.ErrLimitReached
+	}
+
+	return objs, lastTokenRead, nil
+}
+
 // TODO: This does an actual read which is not really needed, if we see this
 // come up in profiling, we could optimize this by adding an explicit Exists()
 // on the LSMKV which only checks the bloom filters, which at least in the case
@@ -191,6 +257,20 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	var err error
+
+	// Report slow queries if this method takes longer than expected
+	startTime := time.Now()
+	defer func() {
+		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
+			"collection": s.index.Config.ClassName,
+			"shard":      s.ID(),
+			"tenant":     s.tenant(),
+			"query":      "ObjectSearch",
+			"version":    s.versioner.Version(),
+		})
+	}()
+
 	s.activityTracker.Add(1)
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
@@ -201,7 +281,6 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 		var bm25objs []*storobj.Object
 		var bm25count []float32
-		var err error
 		var objs helpers.AllowList
 		var filterDocIds helpers.AllowList
 
@@ -260,6 +339,17 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 }
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+	startTime := time.Now()
+	defer func() {
+		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
+			"collection": s.index.Config.ClassName,
+			"shard":      s.ID(),
+			"tenant":     s.tenant(),
+			"query":      "ObjectVectorSearch",
+			"version":    s.versioner.Version(),
+		})
+	}()
+
 	s.activityTracker.Add(1)
 	var (
 		ids       []uint64
@@ -454,7 +544,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return err
 	}
 
-	var docID uint64
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	existing, err := bucket.Get(idBytes)
 	if err != nil {
@@ -468,7 +557,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, err = storobj.DocIDFromBinary(existing)
+	docID, updateTime, err := storobj.DocIDFromBinary(existing)
 	if err != nil {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}
@@ -493,6 +582,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		if err = s.queue.Delete(docID); err != nil {
 			return errors.Wrap(err, "delete from vector index queue")
 		}
+	}
+
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
 	return nil

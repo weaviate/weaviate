@@ -63,6 +63,8 @@ type diskIndex interface {
 	// value (or the exact value if present)
 	Seek(key []byte) (segmentindex.Node, error)
 
+	Next(key []byte) (segmentindex.Node, error)
+
 	// AllKeys in no specific order, e.g. for building a bloom filter
 	AllKeys() ([][]byte, error)
 
@@ -73,7 +75,16 @@ type diskIndex interface {
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, mmapContents bool,
 	useBloomFilter bool, calcCountNetAdditions bool, overwriteDerived bool,
-) (*segment, error) {
+) (_ *segment, err error) {
+	defer func() {
+		p := recover()
+		if p == nil {
+			return
+		}
+
+		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+	}()
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)

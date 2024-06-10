@@ -166,6 +166,8 @@ type Index struct {
 	stopwords                 *stopwords.Detector
 	replicator                *replica.Replicator
 
+	shardState *sharding.State
+
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
@@ -187,8 +189,6 @@ type Index struct {
 	centralJobQueue  chan job
 	indexCheckpoints *indexcheckpoint.Checkpoints
 
-	partitioningEnabled bool
-
 	cycleCallbacks *indexCycleCallbacks
 
 	backupMutex backupMutex
@@ -204,6 +204,8 @@ type Index struct {
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *esync.KeyLocker
 	shardInUseLocks  *esync.KeyRWLocker
+
+	asyncReplicationLock sync.RWMutex
 }
 
 func (i *Index) GetShards() []ShardLike {
@@ -225,6 +227,7 @@ func (i *Index) path() string {
 }
 
 type nodeResolver interface {
+	AllHostnames() []string
 	NodeHostname(nodeName string) (string, bool)
 }
 
@@ -260,26 +263,26 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		logger:                 logger,
 		classSearcher:          cs,
 		vectorIndexUserConfig:  vectorIndexUserConfig,
-		vectorIndexUserConfigs: vectorIndexUserConfigs,
 		invertedIndexConfig:    invertedIndexConfig,
+		vectorIndexUserConfigs: vectorIndexUserConfigs,
 		stopwords:              sd,
 		replicator:             repl,
+		shardState:             shardState,
 		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
 			nodeResolver, remoteClient),
-		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
-		centralJobQueue:     jobQueueCh,
-		partitioningEnabled: shardState.PartitioningEnabled,
-		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
-		indexCheckpoints:    indexCheckpoints,
-		allocChecker:        allocChecker,
-		shardCreateLocks:    esync.NewKeyLocker(),
-		shardInUseLocks:     esync.NewKeyRWLocker(),
+		metrics:          NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
+		centralJobQueue:  jobQueueCh,
+		backupMutex:      backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		indexCheckpoints: indexCheckpoints,
+		allocChecker:     allocChecker,
+		shardCreateLocks: esync.NewKeyLocker(),
+		shardInUseLocks:  esync.NewKeyRWLocker(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
 	index.initCycleCallbacks()
 
-	if err := index.checkSingleShardMigration(shardState); err != nil {
+	if err := index.checkSingleShardMigration(); err != nil {
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
@@ -287,7 +290,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
 
-	if err := index.initAndStoreShards(ctx, shardState, class, promMetrics); err != nil {
+	if err := index.initAndStoreShards(ctx, class, promMetrics); err != nil {
 		return nil, err
 	}
 
@@ -299,15 +302,15 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 // since called in Index's constructor there is no risk same shard will be inited/created in parallel,
 // therefore shardCreateLocks are not used here
-func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.State, class *models.Class,
+func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
 	if i.Config.DisableLazyLoadShards {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
-		for _, shardName := range shardState.AllLocalPhysicalShards() {
-			physical := shardState.Physical[shardName]
+		for _, shardName := range i.shardState.AllLocalPhysicalShards() {
+			physical := i.shardState.Physical[shardName]
 			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 				// do not instantiate inactive shard
 				continue
@@ -333,8 +336,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 		return nil
 	}
 
-	for _, shardName := range shardState.AllLocalPhysicalShards() {
-		physical := shardState.Physical[shardName]
+	for _, shardName := range i.shardState.AllLocalPhysicalShards() {
+		physical := i.shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
@@ -547,6 +550,25 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
+func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error {
+	i.asyncReplicationLock.Lock()
+	defer i.asyncReplicationLock.Unlock()
+
+	i.Config.AsyncReplicationEnabled = enabled
+
+	err := i.ForEachShard(func(name string, shard ShardLike) error {
+		if err := shard.UpdateAsyncReplication(ctx, enabled); err != nil {
+			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type IndexConfig struct {
 	RootPath                  string
 	ClassName                 schema.ClassName
@@ -561,6 +583,7 @@ type IndexConfig struct {
 	MaxSegmentSize            int64
 	HNSWMaxLogSize            int64
 	ReplicationFactor         *atomic.Int64
+	AsyncReplicationEnabled   bool
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
 
@@ -691,8 +714,19 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	return shard.PutObject(ctx, object)
 }
 
+func (i *Index) partitioningEnabled() bool {
+	return i.shardState.PartitioningEnabled
+}
+
 func (i *Index) replicationEnabled() bool {
 	return i.Config.ReplicationFactor.Load() > 1
+}
+
+func (i *Index) asyncReplicationEnabled() bool {
+	i.asyncReplicationLock.RLock()
+	defer i.asyncReplicationLock.RUnlock()
+
+	return i.replicationEnabled() && i.Config.AsyncReplicationEnabled
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -1481,7 +1515,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 // to be called after validating multi-tenancy
 func (i *Index) targetShardNames(tenant string) ([]string, error) {
 	className := i.Config.ClassName.String()
-	if !i.partitioningEnabled {
+	if !i.shardState.PartitioningEnabled {
 		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
 	}
 
@@ -2329,11 +2363,11 @@ func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []f
 }
 
 func (i *Index) validateMultiTenancy(tenant string) error {
-	if i.partitioningEnabled && tenant == "" {
+	if i.shardState.PartitioningEnabled && tenant == "" {
 		return objects.NewErrMultiTenancy(
 			fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName),
 		)
-	} else if !i.partitioningEnabled && tenant != "" {
+	} else if !i.shardState.PartitioningEnabled && tenant != "" {
 		return objects.NewErrMultiTenancy(
 			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
 		)

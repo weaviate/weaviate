@@ -391,7 +391,7 @@ func eventualReplicaCRUD(t *testing.T) {
 					Class:      "Article",
 					Properties: map[string]interface{}{"title": newTitle},
 				}
-				patchObject(t, compose.GetWeaviateNode2().URI(), patch)
+				patchObject(t, compose.GetWeaviateNode(2).URI(), patch)
 			})
 
 			t.Run("PatchedOnNode-1", func(t *testing.T) {

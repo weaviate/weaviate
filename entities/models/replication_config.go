@@ -28,6 +28,9 @@ import (
 // swagger:model ReplicationConfig
 type ReplicationConfig struct {
 
+	// Enable asynchronous replication
+	AsyncEnabled bool `json:"asyncEnabled,omitempty"`
+
 	// Number of times a class is replicated
 	Factor int64 `json:"factor,omitempty"`
 }
