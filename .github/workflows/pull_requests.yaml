@@ -15,10 +15,13 @@ concurrency:
 
 jobs:
   Buf-Checks:
+    name: buf-checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: bufbuild/buf-setup-action@v1
+        with:
+          github_token: ${{ github.token }}
       - uses: bufbuild/buf-lint-action@v1
         with:
           input: "cluster/proto"
@@ -251,7 +254,7 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           install-only: true
       - name: goreleaser
