@@ -261,7 +261,8 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 // upload shard content assigned to specific node
 // s3://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Delete(ctx context.Context, className, shardName, nodeName string) error {
-	ctx, _ = context.WithTimeout(ctx, m.timeout)
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"rm",
