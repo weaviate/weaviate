@@ -32,42 +32,26 @@ jobs:
           else
             exit 0
           fi
-  Vulnerability-Scanning: 
-    permissions:
-      contents: read 
-      security-events: write 
-      actions: read 
-    runs-on: ubuntu-latest
+  Vulnerability-Scanning:
+    name: vulnerability-scanning
+    runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-
-      - name: Build Docker image
-        run: |
-          #!/bin/bash
-
-          docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-          docker buildx create --use
-          git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
-          tag="local/weaviate:ci-${git_hash}"
-          args=("--build-arg=GITHASH=$git_hash" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "-t=$tag" "--load")
-          docker buildx build "${args[@]}" .
-
-      - name: Run Snyk to check Docker image for vulnerabilities
-        continue-on-error: true
-        uses: snyk/actions/docker@14818c4695ecc4045f33c9cee9e795a788711ca4
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      - name: Run Trivy vulnerability scanner in repo mode
+        uses: aquasecurity/trivy-action@0.20.0
         with:
-          image: local/weaviate:ci-${{ github.sha }}
-          args: --file=Dockerfile --sarif-file-output=snyk.sarif
+          scan-type: 'fs'
+          ignore-unfixed: true
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL'
 
-      - name: Upload result to GitHub Code Scanning
+      - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v2
         with:
-          sarif_file: snyk.sarif
+          sarif_file: 'trivy-results.sarif'
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
