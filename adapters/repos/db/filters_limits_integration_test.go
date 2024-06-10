@@ -53,7 +53,8 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the class", func(t *testing.T) {
 		schema := schema.Schema{
@@ -152,7 +153,8 @@ func Test_FilterLimitsAfterUpdates(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the class", func(t *testing.T) {
 		schema := schema.Schema{
@@ -280,7 +282,8 @@ func Test_AggregationsAfterUpdates(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the class", func(t *testing.T) {
 		schema := schema.Schema{

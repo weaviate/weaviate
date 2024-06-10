@@ -91,7 +91,8 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
@@ -253,8 +254,9 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			},
 		}
 
-		migrator := NewMigrator(repo, repo.logger)
-		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+		migrator, err := NewMigrator(repo, repo.logger, &fakeOffloadBackend{}, "node1")
+		require.Nil(t, err)
+		err = migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
 		require.Nil(t, err)
@@ -521,8 +523,9 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			},
 		}
 
-		migrator := NewMigrator(repo, repo.logger)
-		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+		migrator, err := NewMigrator(repo, repo.logger, &fakeOffloadBackend{}, "node1")
+		require.Nil(t, err)
+		err = migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
 		require.Nil(t, err)
@@ -871,8 +874,9 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			},
 		}
 
-		migrator := NewMigrator(repo, repo.logger)
-		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+		migrator, err := NewMigrator(repo, repo.logger, &fakeOffloadBackend{}, "node1")
+		require.Nil(t, err)
+		err = migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
 		require.Nil(t, err)

@@ -67,7 +67,8 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,

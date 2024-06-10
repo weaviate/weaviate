@@ -83,7 +83,8 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 	schemaGetter.schema = schema
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	// Load text from file standard_test_data.json
@@ -230,7 +231,8 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 
 	schemaGetter.schema = schema
 
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	addObj(repo, 0, map[string]interface{}{"title": "Our journey to BM25F", "description": "This is how we get to BM25F"}, []float32{

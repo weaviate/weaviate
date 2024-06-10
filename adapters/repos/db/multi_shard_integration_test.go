@@ -303,7 +303,8 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardSta
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)
-		migrator := NewMigrator(repo, logger)
+		migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+		require.Nil(t, err)
 
 		t.Run("creating the class", func(t *testing.T) {
 			for _, class := range classes {

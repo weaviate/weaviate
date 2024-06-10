@@ -98,7 +98,8 @@ func TestCRUD(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
@@ -1310,7 +1311,8 @@ func TestCRUD_Query(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
@@ -1549,7 +1551,8 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("prepare data for test", func(t *testing.T) {
 		data = make([]*models.Object, total)
@@ -1709,7 +1712,8 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("create required schema", func(t *testing.T) {
 		class = &models.Class{
@@ -1848,7 +1852,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	t.Run("create required schema", func(t *testing.T) {
 		class = &models.Class{
@@ -1996,7 +2001,8 @@ func Test_PutPatchRestart(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	defer repo.Shutdown(context.Background())
 	require.Nil(t, repo.WaitForStartup(ctx))
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 
 	require.Nil(t,
 		migrator.AddClass(ctx, testClass, schemaGetter.shardState))
@@ -2140,7 +2146,8 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 	require.Nil(t,
 		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 	require.Nil(t,
@@ -2274,7 +2281,8 @@ func TestOverwriteObjects(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 	t.Run("create the class", func(t *testing.T) {
 		require.Nil(t,
 			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
@@ -2376,7 +2384,8 @@ func TestIndexDigestObjects(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 	t.Run("create the class", func(t *testing.T) {
 		require.Nil(t,
 			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
@@ -2503,7 +2512,8 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator, err := NewMigrator(repo, logger, &fakeOffloadBackend{}, "node1")
+	require.Nil(t, err)
 	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{
