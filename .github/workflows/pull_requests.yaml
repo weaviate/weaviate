@@ -251,7 +251,7 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Install GoReleaser
-        uses: goreleaser/goreleaser-action@v5
+        uses: goreleaser/goreleaser-action@v6
         with:
           install-only: true
       - name: goreleaser
