@@ -364,7 +364,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 				process = make(map[string]*api.TenantsProcess)
 			}
 
-			// TODO need to pass the avaliable nodes
+			// TODO need to pass the available nodes
 			//req.ClusterNodes
 			partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, []string{u.Name}, m.Class.ReplicationConfig.Factor)
 			if err != nil {
