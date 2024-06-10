@@ -67,6 +67,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 						DataType:        DataTypeObject.PropString(),
 						IndexFilterable: &vTrue,
 						IndexSearchable: &vFalse,
+						IndexRangeable:  &vFalse,
 						Tokenization:    "",
 						NestedProperties: []*models.NestedProperty{
 							{
@@ -122,6 +123,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeInt.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vFalse,
+								IndexRangeable:  &vFalse,
 								Tokenization:    "",
 							},
 							{
@@ -129,6 +131,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeNumber.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vFalse,
+								IndexRangeable:  &vFalse,
 								Tokenization:    "",
 							},
 							{
@@ -136,6 +139,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeText.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								Tokenization:    models.PropertyTokenizationWord,
 							},
 							{
@@ -143,6 +147,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeObject.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vFalse,
+								IndexRangeable:  &vFalse,
 								Tokenization:    "",
 								NestedProperties: []*models.NestedProperty{
 									{
@@ -150,6 +155,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										DataType:        DataTypeBoolean.PropString(),
 										IndexFilterable: &vTrue,
 										IndexSearchable: &vFalse,
+										IndexRangeable:  &vFalse,
 										Tokenization:    "",
 									},
 									{
@@ -157,6 +163,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										DataType:        DataTypeNumberArray.PropString(),
 										IndexFilterable: &vTrue,
 										IndexSearchable: &vFalse,
+										IndexRangeable:  &vFalse,
 										Tokenization:    "",
 									},
 								},
@@ -166,6 +173,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeObjectArray.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vFalse,
+								IndexRangeable:  &vFalse,
 								Tokenization:    "",
 								NestedProperties: []*models.NestedProperty{
 									{
@@ -173,6 +181,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										DataType:        DataTypeBoolean.PropString(),
 										IndexFilterable: &vTrue,
 										IndexSearchable: &vFalse,
+										IndexRangeable:  &vFalse,
 										Tokenization:    "",
 									},
 									{
@@ -180,6 +189,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										DataType:        DataTypeNumberArray.PropString(),
 										IndexFilterable: &vTrue,
 										IndexSearchable: &vFalse,
+										IndexRangeable:  &vFalse,
 										Tokenization:    "",
 									},
 								},
@@ -208,6 +218,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 						IndexFilterable: &vTrue,
 						IndexInverted:   &vTrue,
 						IndexSearchable: &vFalse,
+						IndexRangeable:  &vFalse,
 						Tokenization:    "",
 						ModuleConfig:    emptyModuleConfig,
 						NestedProperties: []*models.NestedProperty{
@@ -215,72 +226,84 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								Name:            "text",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeText.PropString(),
 							},
 							{
 								Name:            "texts",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeTextArray.PropString(),
 							},
 							{
 								Name:            "number",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeNumber.PropString(),
 							},
 							{
 								Name:            "numbers",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeNumberArray.PropString(),
 							},
 							{
 								Name:            "int",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeInt.PropString(),
 							},
 							{
 								Name:            "ints",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeIntArray.PropString(),
 							},
 							{
 								Name:            "date",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeDate.PropString(),
 							},
 							{
 								Name:            "dates",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeDateArray.PropString(),
 							},
 							{
 								Name:            "bool",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeBoolean.PropString(),
 							},
 							{
 								Name:            "bools",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeBooleanArray.PropString(),
 							},
 							{
 								Name:            "uuid",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeUUID.PropString(),
 							},
 							{
 								Name:            "uuids",
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								DataType:        DataTypeUUIDArray.PropString(),
 							},
 							{
@@ -288,6 +311,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeInt.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vFalse,
+								IndexRangeable:  &vFalse,
 								Tokenization:    "",
 							},
 							{
@@ -295,6 +319,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeNumber.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vFalse,
+								IndexRangeable:  &vFalse,
 								Tokenization:    "",
 							},
 							{
@@ -302,6 +327,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeText.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vTrue,
+								IndexRangeable:  &vFalse,
 								Tokenization:    models.PropertyTokenizationWord,
 							},
 							{
@@ -309,6 +335,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeObject.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vFalse,
+								IndexRangeable:  &vFalse,
 								Tokenization:    "",
 								NestedProperties: []*models.NestedProperty{
 									{
@@ -316,6 +343,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										DataType:        DataTypeBoolean.PropString(),
 										IndexFilterable: &vTrue,
 										IndexSearchable: &vFalse,
+										IndexRangeable:  &vFalse,
 										Tokenization:    "",
 									},
 									{
@@ -323,6 +351,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										DataType:        DataTypeNumberArray.PropString(),
 										IndexFilterable: &vTrue,
 										IndexSearchable: &vFalse,
+										IndexRangeable:  &vFalse,
 										Tokenization:    "",
 									},
 								},
@@ -332,6 +361,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 								DataType:        DataTypeObjectArray.PropString(),
 								IndexFilterable: &vTrue,
 								IndexSearchable: &vFalse,
+								IndexRangeable:  &vFalse,
 								Tokenization:    "",
 								NestedProperties: []*models.NestedProperty{
 									{
@@ -339,6 +369,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										DataType:        DataTypeBoolean.PropString(),
 										IndexFilterable: &vTrue,
 										IndexSearchable: &vFalse,
+										IndexRangeable:  &vFalse,
 										Tokenization:    "",
 									},
 									{
@@ -346,6 +377,7 @@ func TestCollectionFromAndToModel(t *testing.T) {
 										DataType:        DataTypeNumberArray.PropString(),
 										IndexFilterable: &vTrue,
 										IndexSearchable: &vFalse,
+										IndexRangeable:  &vFalse,
 										Tokenization:    "",
 									},
 								},
