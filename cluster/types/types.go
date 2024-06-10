@@ -38,7 +38,4 @@ const (
 	TenantActivityStatusFREEZING   = "FREEZING"
 	TenantActivityStatusUNFREEZING = "UNFREEZING"
 	TenantActivityStatusUNFROZEN   = "UNFROZEN"
-
-	TenantProcessStart = "START"
-	TenantProcessDone  = "DONE"
 )
