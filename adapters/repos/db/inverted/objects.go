@@ -68,7 +68,7 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
-		if !HasInvertedIndex(prop) {
+		if !HasAnyInvertedIndex(prop) {
 			continue
 		}
 
@@ -606,7 +606,7 @@ func HasRangeableIndex(prop *models.Property) bool {
 	return *prop.IndexRangeable
 }
 
-func HasInvertedIndex(prop *models.Property) bool {
+func HasAnyInvertedIndex(prop *models.Property) bool {
 	return HasFilterableIndex(prop) || HasSearchableIndex(prop) || HasRangeableIndex(prop)
 }
 

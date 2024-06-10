@@ -371,9 +371,9 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		return nil, err
 	}
 
-	hasFilterableIndex := HasFilterableIndexMetaCount && HasInvertedIndex(prop)
-	hasSearchableIndex := HasSearchableIndexMetaCount && HasInvertedIndex(prop)
-	hasRangeableIndex := HasRangeableIndexMetaCount && HasInvertedIndex(prop)
+	hasFilterableIndex := HasFilterableIndexMetaCount && HasAnyInvertedIndex(prop)
+	hasSearchableIndex := HasSearchableIndexMetaCount && HasAnyInvertedIndex(prop)
+	hasRangeableIndex := HasRangeableIndexMetaCount && HasAnyInvertedIndex(prop)
 
 	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableMetaCountIndexError(prop.Name)
