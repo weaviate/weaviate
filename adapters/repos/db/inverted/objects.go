@@ -207,6 +207,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 	var items []Countable
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop)
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeTextArray:
@@ -327,6 +328,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 		Length:             len(values),
 		HasFilterableIndex: hasFilterableIndex,
 		HasSearchableIndex: hasSearchableIndex,
+		HasRangeableIndex:  hasRangeableIndex,
 	}, nil
 }
 
@@ -347,6 +349,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop)
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeText:
@@ -450,6 +453,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 		Length:             propertyLength,
 		HasFilterableIndex: hasFilterableIndex,
 		HasSearchableIndex: hasSearchableIndex,
+		HasRangeableIndex:  hasRangeableIndex,
 	}, nil
 }
 
@@ -516,6 +520,7 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 		Length:             len(value),
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
+		HasRangeableIndex:  HasRangeableIndex(prop),
 	}, nil
 }
 
@@ -532,6 +537,7 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 		Items:              items,
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
+		HasRangeableIndex:  HasRangeableIndex(prop),
 	}, nil
 }
 
@@ -593,30 +599,42 @@ func HasFilterableIndex(prop *models.Property) bool {
 	return *prop.IndexFilterable
 }
 
+func HasRangeableIndex(prop *models.Property) bool {
+	if prop.IndexRangeable == nil {
+		return false
+	}
+	return *prop.IndexRangeable
+}
+
 func HasInvertedIndex(prop *models.Property) bool {
-	return HasFilterableIndex(prop) || HasSearchableIndex(prop)
+	return HasFilterableIndex(prop) || HasSearchableIndex(prop) || HasRangeableIndex(prop)
 }
 
 const (
 	// always
 	HasFilterableIndexIdProp = true
 	HasSearchableIndexIdProp = false
+	HasRangeableIndexIdProp  = false
 
 	// only if index.invertedIndexConfig.IndexTimestamps set
 	HasFilterableIndexTimestampProp = true
 	HasSearchableIndexTimestampProp = false
+	HasRangeableIndexTimestampProp  = false
 
 	// only if property.indexFilterable or property.indexSearchable set
 	HasFilterableIndexMetaCount = true
 	HasSearchableIndexMetaCount = false
+	HasRangeableIndexMetaCount  = false
 
 	// only if index.invertedIndexConfig.IndexNullState set
 	// and either property.indexFilterable or property.indexSearchable set
 	HasFilterableIndexPropNull = true
 	HasSearchableIndexPropNull = false
+	HasRangeableIndexPropNull  = false
 
 	// only if index.invertedIndexConfig.IndexPropertyLength set
 	// and either property.indexFilterable or property.indexSearchable set
 	HasFilterableIndexPropLength = true
 	HasSearchableIndexPropLength = false
+	HasRangeableIndexPropLength  = false
 )

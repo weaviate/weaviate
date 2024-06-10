@@ -41,6 +41,7 @@ type propValuePair struct {
 	children           []*propValuePair
 	hasFilterableIndex bool
 	hasSearchableIndex bool
+	hasRangeableIndex  bool
 	Class              *models.Class // The schema
 	logger             logrus.FieldLogger
 }

@@ -299,11 +299,13 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object, ref objects.BatchRef
 		Items:              countItems,
 		HasFilterableIndex: inverted.HasFilterableIndexMetaCount && inverted.HasInvertedIndex(prop),
 		HasSearchableIndex: inverted.HasSearchableIndexMetaCount && inverted.HasInvertedIndex(prop),
+		HasRangeableIndex:  inverted.HasRangeableIndexMetaCount && inverted.HasInvertedIndex(prop),
 	}, {
 		Name:               ref.From.Property.String(),
 		Items:              valueItems,
 		HasFilterableIndex: inverted.HasFilterableIndex(prop),
 		HasSearchableIndex: inverted.HasSearchableIndex(prop),
+		HasRangeableIndex:  inverted.HasRangeableIndex(prop),
 	}}, nil
 }
 
