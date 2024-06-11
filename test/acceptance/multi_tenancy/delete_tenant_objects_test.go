@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestDeleteTenantObjects(t *testing.T) {
@@ -99,7 +100,7 @@ func TestDeleteTenantObjects(t *testing.T) {
 
 	t.Run("delete tenant objects", func(t *testing.T) {
 		for i, obj := range tenantObjects {
-			helper.DeleteTenantObject(t, obj.Class, obj.ID, tenantNames[i])
+			helper.DeleteTenantObject(t, obj.Class, obj.ID, tenantNames[i], replica.All)
 		}
 	})
 
