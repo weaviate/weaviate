@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -58,12 +59,11 @@ func (m *Manager) DeleteObject(ctx context.Context,
 
 	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant)
 	if err != nil {
-		switch err.(type) {
-		case ErrMultiTenancy:
-			return NewErrMultiTenancy(fmt.Errorf("check object existence: %w", err))
-		default:
-			return NewErrInternal("could not delete object from vector repo: %v", err)
+		var e ErrMultiTenancy
+		if errors.As(err, &e) {
+			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
 		}
+		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
 
 	return nil
