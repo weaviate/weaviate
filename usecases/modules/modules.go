@@ -903,3 +903,14 @@ func (p *Provider) BackupBackend(backend string) (modulecapabilities.BackupBacke
 	}
 	return nil, errors.Errorf("backup: %s not found", backend)
 }
+
+func (p *Provider) OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool) {
+	if module := p.GetByName(backend); module != nil {
+		if module.Type() == modulecapabilities.Offload {
+			if backend, ok := module.(modulecapabilities.OffloadCloud); ok {
+				return backend, true
+			}
+		}
+	}
+	return nil, false
+}
