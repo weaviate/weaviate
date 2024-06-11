@@ -25,6 +25,11 @@ import (
 )
 
 func (m *Migrator) frozen(idx *Index, frozen []string, ec *errorcompounder.ErrorCompounder) {
+	if m.cluster == nil {
+		ec.Add(fmt.Errorf("no cluster exists in the migrator"))
+		return
+	}
+
 	idx.backupMutex.RLock()
 	defer idx.backupMutex.RUnlock()
 
@@ -45,8 +50,9 @@ func (m *Migrator) frozen(idx *Index, frozen []string, ec *errorcompounder.Error
 				// shard already does not exist or inactive, so remove local files if exists
 				// this pass will happen if the shard was COLD for example
 				if err := os.RemoveAll(fmt.Sprintf("%s/%s", idx.path(), name)); err != nil {
+					err = fmt.Errorf("attempt to delete local fs for shard %s: %w", name, err)
 					ec.Add(err)
-					return fmt.Errorf("attempt to delete local fs for shard %s: %w", name, err)
+					return err
 				}
 				return nil
 			}
@@ -68,6 +74,11 @@ func (m *Migrator) frozen(idx *Index, frozen []string, ec *errorcompounder.Error
 func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze []string, ec *errorcompounder.ErrorCompounder) {
 	if m.cloud == nil {
 		ec.Add(fmt.Errorf("offload to cloud module is not enabled"))
+		return
+	}
+
+	if m.cluster == nil {
+		ec.Add(fmt.Errorf("no cluster exists in the migrator"))
 		return
 	}
 
@@ -97,11 +108,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			defer idx.shardCreateLocks.Unlock(name)
 
 			if shard != nil {
-				// if err := shard.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
-				// 	ec.Add(err)
-				// 	return fmt.Errorf("attempt to mark read-only: %w", err)
-				// }
-				if err := shard.BeginBackup(ctx); err != nil {
+				if err := shard.HaltForTransfer(ctx); err != nil {
 					ec.Add(err)
 					return fmt.Errorf("attempt to mark begin offloading: %w", err)
 				}
@@ -111,7 +118,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				cmd := command.TenantProcessRequest{Node: m.nodeId}
 				err := m.cloud.Upload(ctx, class, name, m.nodeId)
 				if err != nil {
-					m.logger.Error(err)
+					ec.Add(fmt.Errorf("uploading error: %w", err))
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
 							Name:   name,
@@ -130,7 +137,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				}
 
 				if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
-					m.logger.Error(err)
+					ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
 				}
 			}, idx.logger)
 
@@ -145,6 +152,12 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 		ec.Add(fmt.Errorf("offload to cloud module is not enabled"))
 		return
 	}
+
+	if m.cluster == nil {
+		ec.Add(fmt.Errorf("no cluster exists in the migrator"))
+		return
+	}
+
 	idx.backupMutex.RLock()
 	defer idx.backupMutex.RUnlock()
 
@@ -155,48 +168,18 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 		split := strings.Split(name, "-")
 		name := split[0]
 		nodeName := split[1]
-		// originalStatus := models.TenantActivityStatusHOT
 		eg.Go(func() error {
-			// shard := func() ShardLike {
-			// 	idx.shardInUseLocks.Lock(name)
-			// 	defer idx.shardInUseLocks.Unlock(name)
-
-			// 	return idx.shards.Load(name)
-			// }()
-
-			// if shard == nil {
-			// 	// shard already does not exist or inactive
-			// 	originalStatus = models.TenantActivityStatusCOLD
-			// }
-
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
-
-			// if shard != nil {
-			// 	// if err := shard.UpdateStatus(storagestate.StatusReadOnly.String()); err != nil {
-			// 	// 	ec.Add(err)
-			// 	// 	return fmt.Errorf("attempt to mark read-only: %w", err)
-			// 	// }
-			// 	if err := shard.BeginBackup(ctx); err != nil {
-			// 		ec.Add(err)
-			// 		return fmt.Errorf("attempt to mark begin offloading: %w", err)
-			// 	}
-			// }
 
 			enterrors.GoWrapper(func() {
 				cmd := command.TenantProcessRequest{Node: m.nodeId}
 				err := m.cloud.Download(ctx, class, name, nodeName)
 				if err != nil {
-					m.logger.Error(err)
-					// cmd.TenantsProcess = []*command.TenantsProcess{
-					// 	{
-					// 		Tenant: &command.Tenant{
-					// 			Name:   name,
-					// 			Status: models.TenantActivityStatusFROZEN,
-					// 		},
-					// 		Op: command.TenantsProcess_OP_ABORT,
-					// 	},
-					// }
+					ec.Add(fmt.Errorf("downloading error: %w", err))
+					// TODO-offload : we need to handle the case were one of the
+					// replicas errored
+
 				} else {
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
@@ -208,7 +191,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				}
 
 				if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
-					m.logger.Error(err)
+					ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
 				}
 			}, idx.logger)
 
