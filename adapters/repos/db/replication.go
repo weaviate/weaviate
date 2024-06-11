@@ -529,3 +529,9 @@ func (i *Index) FetchObjects(ctx context.Context,
 
 	return resp, nil
 }
+
+func (i *Index) IncomingVectorDistanceForQuery(ctx context.Context,
+	id strfmt.UUID, docId uint64, targets []string, searchVectors [][]float32, tenant string,
+) ([]float32, error) {
+	return i.vectorDistanceForQuery(ctx, id, docId, targets, searchVectors, tenant)
+}

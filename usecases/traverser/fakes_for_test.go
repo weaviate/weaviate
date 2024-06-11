@@ -112,7 +112,7 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func (f *fakeVectorSearcher) VectorDistanceForQuery(ctx context.Context, className string, docId uint64, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+func (f *fakeVectorSearcher) VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, docId uint64, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
 	returns := make([]float32, 0, len(targetVectors))
 	for range targetVectors {
 		returns = append(returns, 2)

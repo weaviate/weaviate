@@ -112,7 +112,7 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 			}
 			collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 			resultContainer := ResultContainerHybrid{ResultsIn: ress[i], allIDs: allIDs, IDsToRemove: make(map[uint64]struct{})}
-			if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &resultContainer, params, weightsMap); err != nil {
+			if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &resultContainer, params, weightsMap, allIDs); err != nil {
 				return nil, err
 			}
 			for key := range resultContainer.IDsToRemove {
@@ -186,7 +186,7 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 		collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 	}
 	if !params.TargetVectorJoin.Min {
-		if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &ResultContainerStandard{combinedResults}, params, params.TargetVectorJoin.Weights); err != nil {
+		if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &ResultContainerStandard{combinedResults}, params, params.TargetVectorJoin.Weights, allIDs); err != nil {
 			return nil, err
 		}
 	}
@@ -223,7 +223,7 @@ func collectMissingIds(localIDs map[uint64]*search.Result, missingIDs map[uint64
 	}
 }
 
-func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, logger logrus.FieldLogger, missingIDs map[uint64]targetVectorData, combinedResults ResultContainer, params dto.GetParams, weights map[string]float32) error {
+func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, logger logrus.FieldLogger, missingIDs map[uint64]targetVectorData, combinedResults ResultContainer, params dto.GetParams, weights map[string]float32, allIDs map[uint64]*search.Result) error {
 	if len(missingIDs) == 0 {
 		return nil
 	}
@@ -232,7 +232,7 @@ func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, lo
 	eg.SetLimit(_NUMCPU * 2)
 	lock := sync.Mutex{}
 	for id, targets := range missingIDs {
-		distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, id, targets.target, targets.searchVector, params.Tenant)
+		distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, allIDs[id].ID, id, targets.target, targets.searchVector, params.Tenant)
 		lock.Lock()
 		if err != nil {
 			combinedResults.RemoveIdFromResult(id)

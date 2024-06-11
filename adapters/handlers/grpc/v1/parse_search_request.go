@@ -1023,17 +1023,17 @@ func extractTargetVectorJoin(join *pb.TargetVectorJoin, targetVectors *[]string)
 	switch join.TargetJoin.(type) {
 	case *pb.TargetVectorJoin_Join:
 		val := join.GetJoin()
-		if val == pb.TargetVectorJoinMethod_FUSION_TYPE_AVERAGE {
+		if val == pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_AVERAGE {
 			for _, target := range targets {
 				weights[target] = 1.0 / float32(len(targets))
 			}
-		} else if val == pb.TargetVectorJoinMethod_FUSION_TYPE_MIN {
+		} else if val == pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_MIN {
 			return &dto.TargetVectorJoin{Min: true}, nil
-		} else if val == pb.TargetVectorJoinMethod_FUSION_TYPE_SUM {
+		} else if val == pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_SUM {
 			for _, target := range targets {
 				weights[target] = 1.0
 			}
-		} else if val == pb.TargetVectorJoinMethod_FUSION_TYPE_RELATIVE_SCORE {
+		} else if val == pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_RELATIVE_SCORE {
 			return &dto.TargetVectorJoin{ScoreFusion: true}, nil
 		} else {
 			return &dto.TargetVectorJoin{}, fmt.Errorf("unknown target vector join method %v", val)

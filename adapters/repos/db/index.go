@@ -1538,7 +1538,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
-func (i *Index) vectorDistanceForQuery(ctx context.Context, docId uint64, targets []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+func (i *Index) vectorDistanceForQuery(ctx context.Context, id strfmt.UUID, docId uint64, targets []string, searchVectors [][]float32, tenant string) ([]float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, err
 	}
@@ -1547,44 +1547,58 @@ func (i *Index) vectorDistanceForQuery(ctx context.Context, docId uint64, target
 		return nil, err
 	}
 
-	distances := make([]float32, len(targets))
-	eg, _ := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "tenant:", tenant)
-	eg.SetLimit(_NUMCPU * 2)
-
-	if len(shardNames) == 1 {
-		shard, release, err := i.getLocalShardNoShutdown(shardNames[0])
+	for _, shardName := range shardNames {
+		shard, release, err := i.getLocalShardNoShutdown(shardName)
 		if err != nil {
 			return nil, err
 		}
+		defer release()
 
 		if shard != nil {
-			defer release()
+			exists, err := shard.Exists(ctx, id)
+			if err != nil {
+				return nil, err
+			}
+			if !exists {
+				continue
+			}
+
+			distances := make([]float32, len(targets))
+
 			indexes := shard.VectorIndexes()
 			for j, target := range targets {
-				j := j
 				index, ok := indexes[target]
 				if !ok {
 					return nil, fmt.Errorf("index %s not found", target)
 				}
 				distancer := index.NewQueryVectorDistancer(searchVectors[j])
-				eg.Go(
-					func() error {
-						dist, err := distancer.DistanceToNode(docId)
-						if err != nil {
-							return err
-						}
-						distances[j] = dist
-						return nil
-					})
+				dist, err := distancer.DistanceToNode(docId)
+				if err != nil {
+					return nil, err
+				}
+				distances[j] = dist
 			}
+			return distances, err
+		} else {
+			exists, err := i.remote.Exists(ctx, shardName, id)
+			if err != nil {
+				return nil, err
+			}
+			if !exists {
+				continue
+			}
+
+			dist, _, err := i.remote.VectorDistanceForQuery(ctx,
+				shardName, id, docId, targets, searchVectors, tenant, i.replicationEnabled())
+			if err != nil {
+				return nil, errors.Wrapf(err, "remote shard %s", shardName)
+			}
+			return dist, nil
 		}
 
 	}
 
-	if err := eg.Wait(); err != nil {
-		return nil, err
-	}
-	return distances, nil
+	return nil, fmt.Errorf("object %s not found", id)
 }
 
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,

@@ -95,7 +95,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err := repo.VectorDistanceForQuery(
 			context.Background(),
 			"does not exist",
-			0,
+			ids[0], 0,
 			[]string{"custom1", "custom2", "custom3"},
 			[][]float32{vectors[1], vectors[2], vectors[3]},
 			"")
@@ -103,7 +103,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
-			class.Class,
+			class.Class, ids[0],
 			0,
 			[]string{"custom1", "custom2"},
 			[][]float32{vectors[1], vectors[2], vectors[3]},
@@ -112,7 +112,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
-			class.Class,
+			class.Class, ids[0],
 			0,
 			[]string{},
 			[][]float32{},
@@ -121,7 +121,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
-			class.Class,
+			class.Class, ids[0],
 			0,
 			[]string{"custom1", "doesNotExist"},
 			[][]float32{vectors[1], vectors[2]},
@@ -130,7 +130,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
-			class.Class,
+			class.Class, ids[0],
 			0,
 			[]string{"custom1", "custom2"},
 			[][]float32{vectors[1], {1, 0}},
@@ -141,7 +141,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 	t.Run("object with all vectors", func(t *testing.T) {
 		require.Nil(t, repo.PutObject(
 			context.Background(),
-			&models.Object{ID: ids[0], Class: class.Class},
+			&models.Object{ID: ids[1], Class: class.Class},
 			nil,
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
 			nil,
@@ -150,8 +150,8 @@ func TestVectorDistanceQuery(t *testing.T) {
 
 		distances, err := repo.VectorDistanceForQuery(
 			context.Background(),
-			class.Class,
-			0,
+			class.Class, ids[1],
+			1,
 			[]string{"custom1", "custom2", "custom3"},
 			[][]float32{vectors[1], vectors[2], vectors[3]},
 			"")
@@ -165,7 +165,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 	t.Run("Missing one vector", func(t *testing.T) {
 		require.Nil(t, repo.PutObject(
 			context.Background(),
-			&models.Object{ID: ids[0], Class: class.Class},
+			&models.Object{ID: ids[2], Class: class.Class},
 			nil,
 			map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
 			nil,
@@ -175,8 +175,8 @@ func TestVectorDistanceQuery(t *testing.T) {
 		// querying for existing target vectors works
 		distances, err := repo.VectorDistanceForQuery(
 			context.Background(),
-			class.Class,
-			0,
+			class.Class, ids[2],
+			2,
 			[]string{"custom1", "custom2"},
 			[][]float32{vectors[1], vectors[2]},
 			"")
@@ -188,8 +188,8 @@ func TestVectorDistanceQuery(t *testing.T) {
 		// error for non-existing target vector
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
-			class.Class,
-			0,
+			class.Class, ids[2],
+			2,
 			[]string{"custom1", "custom3"},
 			[][]float32{vectors[1], vectors[2]},
 			"")

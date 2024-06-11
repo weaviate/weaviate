@@ -1492,7 +1492,7 @@ func TestGRPCRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection:       classname,
 				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_FUSION_TYPE_MIN}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_MIN}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -1510,7 +1510,7 @@ func TestGRPCRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection:       classname,
 				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_FUSION_TYPE_MIN}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_MIN}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -1528,7 +1528,7 @@ func TestGRPCRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection:       classname,
 				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_FUSION_TYPE_AVERAGE}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_AVERAGE}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,

@@ -20,6 +20,8 @@ import (
 	"math"
 	"net/http"
 
+	"github.com/weaviate/weaviate/usecases/byteops"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -41,6 +43,8 @@ type indicesPayloads struct {
 	VersionedObjectList       versionedObjectListPayload
 	SearchResults             searchResultsPayload
 	SearchParams              searchParamsPayload
+	VectorDistanceParams      vectorDistanceParamsPayload
+	VectorDistanceResults     vectorDistanceResultsPayload
 	ReferenceList             referenceListPayload
 	AggregationParams         aggregationParamsPayload
 	AggregationResult         aggregationResultPayload
@@ -339,6 +343,94 @@ func (p mergeDocPayload) Unmarshal(in []byte) (objects.MergeDocument, error) {
 	var mergeDoc objects.MergeDocument
 	err := json.Unmarshal(in, &mergeDoc)
 	return mergeDoc, err
+}
+
+type vectorDistanceParamsPayload struct{}
+
+func (p vectorDistanceParamsPayload) Marshal(id strfmt.UUID, docId uint64, targets []string, searchVectors [][]float32, tenant string,
+) ([]byte, error) {
+	type params struct {
+		Id            strfmt.UUID `json:"id"`
+		DocId         uint64      `json:"docId"`
+		Targets       []string    `json:"targets"`
+		SearchVectors [][]float32 `json:"searchVectors"`
+		Tenant        string      `json:"tenant"`
+	}
+
+	par := params{id, docId, targets, searchVectors, tenant}
+	return json.Marshal(par)
+}
+
+func (p vectorDistanceParamsPayload) Unmarshal(in []byte) (strfmt.UUID, uint64, []string, [][]float32, string, error,
+) {
+	type params struct {
+		Id            strfmt.UUID `json:"id"`
+		DocId         uint64      `json:"docId"`
+		Targets       []string    `json:"targets"`
+		SearchVectors [][]float32 `json:"searchVectors"`
+		Tenant        string      `json:"tenant"`
+	}
+	var par params
+	err := json.Unmarshal(in, &par)
+	return par.Id, par.DocId, par.Targets, par.SearchVectors, par.Tenant, err
+}
+
+func (p vectorDistanceParamsPayload) MIME() string {
+	return "vnd.weaviate.vectordistanceparams+json"
+}
+
+func (p vectorDistanceParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p vectorDistanceParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type vectorDistanceResultsPayload struct{}
+
+func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
+	read := uint64(0)
+
+	distsLength := binary.LittleEndian.Uint64(in[read : read+8])
+	read += 8
+
+	dists := make([]float32, distsLength)
+	for i := range dists {
+		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
+		read += 4
+	}
+
+	if read != uint64(len(in)) {
+		return nil, errors.Errorf("corrupt read: %d != %d", read, len(in))
+	}
+
+	return dists, nil
+}
+
+func (p vectorDistanceResultsPayload) Marshal(dists []float32) ([]byte, error) {
+	buf := byteops.NewReadWriter(make([]byte, 8+len(dists)*4))
+	buf.WriteUint64(uint64(len(dists)))
+
+	for _, dist := range dists {
+		buf.WriteUint32(math.Float32bits(dist))
+	}
+
+	return buf.Buffer, nil
+}
+
+func (p vectorDistanceResultsPayload) MIME() string {
+	return "application/vnd.weaviate.vectordistanceresults+octet-stream"
+}
+
+func (p vectorDistanceResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p vectorDistanceResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
 }
 
 type searchParamsPayload struct{}
