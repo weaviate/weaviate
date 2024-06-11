@@ -34,14 +34,15 @@ type ResultContainerHybrid struct {
 	allIDs      map[uint64]*search.Result
 }
 
-func (r ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
+func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	newResult := *(r.allIDs[id])
 	newResult.Dist = distances[0]
+	newResult.SecondarySortValue = distances[0]
 	r.ResultsIn = append(r.ResultsIn, &newResult)
 }
 
-func (r ResultContainerHybrid) RemoveIdFromResult(id uint64) {
+func (r *ResultContainerHybrid) RemoveIdFromResult(id uint64) {
 	r.IDsToRemove[id] = struct{}{}
 }
 
@@ -49,7 +50,7 @@ type ResultContainerStandard struct {
 	ResultsIn map[uint64]search.Result
 }
 
-func (r ResultContainerStandard) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
+func (r *ResultContainerStandard) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	tmp := r.ResultsIn[id]
 	for i := 0; i < len(targets); i++ {
@@ -58,7 +59,7 @@ func (r ResultContainerStandard) AddScores(id uint64, targets []string, distance
 	r.ResultsIn[id] = tmp
 }
 
-func (r ResultContainerStandard) RemoveIdFromResult(id uint64) {
+func (r *ResultContainerStandard) RemoveIdFromResult(id uint64) {
 	delete(r.ResultsIn, id)
 }
 
@@ -77,9 +78,9 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 	}
 
 	allIDs := make(map[uint64]*search.Result)
-	for _, res := range results {
-		for _, r := range res {
-			allIDs[*(r.DocID)] = &r
+	for i := range results {
+		for j := range results[i] {
+			allIDs[*(results[i][j].DocID)] = &results[i][j]
 		}
 	}
 	missingIDs := make(map[uint64]targetVectorData)
@@ -109,22 +110,22 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 			}
 			e.collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 			resultContainer := ResultContainerHybrid{ResultsIn: ress[i], allIDs: allIDs, IDsToRemove: make(map[uint64]struct{})}
-
-			if err := e.getScoresOfMissingResults(ctx, missingIDs, resultContainer, params, weightsMap); err != nil {
+			if err := e.getScoresOfMissingResults(ctx, missingIDs, &resultContainer, params, weightsMap); err != nil {
 				return nil, err
 			}
 			for key := range resultContainer.IDsToRemove {
 				scoresToRemove[key] = struct{}{}
 			}
+			ress[i] = resultContainer.ResultsIn
 			clear(missingIDs) // each target vector is handles separately for hybrid
 		}
 
 		// remove objects that have missing target vectors
 		if len(scoresToRemove) > 0 {
-			for i, res := range ress {
-				for j := range res {
-					if _, ok := scoresToRemove[*(res[j].DocID)]; ok {
-						results[i] = append(results[i][:j], results[i][j+1:]...)
+			for i := range ress {
+				for j := range ress[i] {
+					if _, ok := scoresToRemove[*(ress[i][j].DocID)]; ok {
+						ress[i] = append(ress[i][:j], ress[i][j+1:]...)
 					}
 				}
 			}
@@ -135,6 +136,9 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 		for i := range joined {
 			joinedResults[i] = *joined[i]
 			joinedResults[i].Dist = joined[i].Score
+		}
+		if len(joinedResults) > params.Pagination.Limit {
+			joinedResults = joinedResults[:params.Pagination.Limit]
 		}
 		return joinedResults, nil
 	}
@@ -179,7 +183,7 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 		e.collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 	}
 	if !params.TargetVectorJoin.Min {
-		if err := e.getScoresOfMissingResults(ctx, missingIDs, ResultContainerStandard{combinedResults}, params, params.TargetVectorJoin.Weights); err != nil {
+		if err := e.getScoresOfMissingResults(ctx, missingIDs, &ResultContainerStandard{combinedResults}, params, params.TargetVectorJoin.Weights); err != nil {
 			return nil, err
 		}
 	}

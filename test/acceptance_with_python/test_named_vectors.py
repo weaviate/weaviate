@@ -289,21 +289,17 @@ def test_score_fusion(named_collection: NamedCollection) -> None:
 
 
 @pytest.mark.parametrize(
-    "multi_target_fusion_method,distance",
+    "multi_target_fusion_method",
     [
-        ("Sum", CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE),
-        # ("Average", (CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE) / 3),
-        # ("Minimum", APPLE_DISTANCE),
-        # (
-        #     {"title1": 0.4, "title2": 1.2, "title3": 0.752},
-        #     APPLE_DISTANCE * 0.4 + CAR_DISTANCE * 1.2 + KALE_DISTANCE * 0.752,
-        # ),
+        "Sum",
+        "Average",
+        {"colour": 0.4, "weather": 1.2, "material": 0.752},
+        "Score_Fusion",
     ],
 )
 def test_more_results_than_limit(
     named_collection: NamedCollection,
     multi_target_fusion_method: TargetVectorJoinType,
-    distance: float,
 ) -> None:
     collection = named_collection(props=["colour", "weather", "material"])
 
@@ -347,9 +343,15 @@ def test_more_results_than_limit(
     )
 
     assert nt3.objects[0].uuid == uuid1
-    assert nt3.objects[0].metadata.distance == nt.objects[0].metadata.distance
     assert nt3.objects[1].uuid == uuid2
-    assert nt3.objects[1].metadata.distance == nt.objects[1].metadata.distance
+    # fusion score depend on all the input scores and are expected to be different with more objects that are found
+    if multi_target_fusion_method != "Score_Fusion":
+        assert math.isclose(
+            nt3.objects[0].metadata.distance, nt.objects[0].metadata.distance, rel_tol=0.001
+        )
+        assert math.isclose(
+            nt3.objects[1].metadata.distance, nt.objects[1].metadata.distance, rel_tol=0.001
+        )
 
 
 @pytest.mark.parametrize(
