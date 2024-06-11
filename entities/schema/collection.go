@@ -122,7 +122,7 @@ type Property struct {
 	IndexSearchable bool `json:"indexSearchable,omitempty"`
 
 	// TODO roaring-set-range
-	IndexRangeable bool `json:"indexSearchable,omitempty"`
+	IndexRangeable bool `json:"indexRangeable,omitempty"`
 
 	// Configuration specific to modules this Weaviate instance has installed
 	ModuleConfig map[string]interface{} `json:"moduleConfig,omitempty"`
