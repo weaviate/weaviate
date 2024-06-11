@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/filters"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -109,6 +110,42 @@ func (f *Finder) GetOne(ctx context.Context,
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
 	}
 	return result.Value, err
+}
+
+func (f *Finder) FindUUIDs(ctx context.Context,
+	className, shard string, filters *filters.LocalFilter, l ConsistencyLevel,
+) (uuids []strfmt.UUID, err error) {
+	c := newReadCoordinator[[]strfmt.UUID](f, shard)
+
+	op := func(ctx context.Context, host string, _ bool) ([]strfmt.UUID, error) {
+		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
+	}
+
+	replyCh, _, err := c.Pull(ctx, l, op, "")
+	if err != nil {
+		f.log.WithField("op", "pull.one").Error(err)
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+	}
+
+	res := make(map[strfmt.UUID]struct{})
+
+	for r := range replyCh {
+		if r.Err != nil {
+			continue
+		}
+
+		for _, uuid := range r.Value {
+			res[uuid] = struct{}{}
+		}
+	}
+
+	uuids = make([]strfmt.UUID, 0, len(res))
+
+	for uuid := range res {
+		uuids = append(uuids, uuid)
+	}
+
+	return uuids, err
 }
 
 type ShardDesc struct {
