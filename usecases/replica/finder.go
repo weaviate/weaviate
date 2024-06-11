@@ -127,13 +127,22 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 
+	res := make(map[strfmt.UUID]struct{})
+
 	for r := range replyCh {
 		if r.Err != nil {
 			continue
 		}
 
-		// TODO: remove duplicates
-		uuids = append(uuids, r.Value...)
+		for _, uuid := range r.Value {
+			res[uuid] = struct{}{}
+		}
+	}
+
+	uuids = make([]strfmt.UUID, 0, len(res))
+
+	for uuid := range res {
+		uuids = append(uuids, uuid)
 	}
 
 	return uuids, err
