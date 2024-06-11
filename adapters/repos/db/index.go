@@ -1548,7 +1548,7 @@ func (i *Index) vectorDistanceForQuery(ctx context.Context, docId uint64, target
 	}
 
 	distances := make([]float32, len(targets))
-	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "tenant:", tenant)
+	eg, _ := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx, "tenant:", tenant)
 	eg.SetLimit(_NUMCPU * 2)
 
 	if len(shardNames) == 1 {
