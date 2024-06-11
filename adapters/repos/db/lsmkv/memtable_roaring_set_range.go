@@ -54,6 +54,25 @@ func (m *Memtable) roaringSetRangeRemove(key uint64, values ...uint64) error {
 	return nil
 }
 
+func (m *Memtable) roaringSetRangeAddRemove(key uint64, additions []uint64, deletions []uint64) error {
+	if err := CheckStrategyRoaringSetRange(m.strategy); err != nil {
+		return err
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.roaringSetRangeAddCommitLog(key, additions, deletions); err != nil {
+		return err
+	}
+
+	m.roaringSetRange.Delete(key, deletions)
+	m.roaringSetRange.Insert(key, additions)
+
+	m.roaringSetRangeAdjustMeta(len(additions) + len(deletions))
+	return nil
+}
+
 func (m *Memtable) roaringSetRangeAdjustMeta(entriesChanged int) {
 	// TODO roaring-set-range new estimations
 
@@ -69,7 +88,7 @@ func (m *Memtable) roaringSetRangeAddCommitLog(key uint64, additions []uint64, d
 	// TODO roaring-set-range improved commit log
 
 	keyBuf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(keyBuf, key)
+	binary.BigEndian.PutUint64(keyBuf, key)
 	bmAdditions := roaringset.NewBitmap(additions...)
 	bmDeletions := roaringset.NewBitmap(deletions...)
 
