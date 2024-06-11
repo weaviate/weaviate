@@ -492,7 +492,13 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	maxLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
+	var compressorDistancer compressionhelpers.CompressorDistancer
+	if h.compressed.Load() {
+		var returnFn compressionhelpers.ReturnDistancerFn
+		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
+		defer returnFn()
+	}
+	entryPointDistance, ok, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
@@ -502,12 +508,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
-	var compressorDistancer compressionhelpers.CompressorDistancer
-	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
-		defer returnFn()
-	}
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin[any](10)

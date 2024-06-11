@@ -45,7 +45,7 @@ type VectorCompressor interface {
 	PrefillCache()
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
-	DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, x uint64, y []float32) (float32, error)
+	//DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, x uint64, y []float32) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
 	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
@@ -102,10 +102,6 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 	return compressor.quantizer.DistanceBetweenCompressedVectors(x, y)
 }
 
-func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUncompressedVectors(x []T, y []float32) (float32, error) {
-	return compressor.quantizer.DistanceBetweenCompressedAndUncompressedVectors(y, x)
-}
-
 func (compressor *quantizedVectorsCompressor[T]) compressedVectorFromID(ctx context.Context, id uint64) ([]T, error) {
 	compressedVector, err := compressor.cache.Get(ctx, id)
 	if err != nil {
@@ -132,7 +128,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 	return dist, err
 }
 
-func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, id uint64, vector []float32) (float32, error) {
+/*func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, id uint64, vector []float32) (float32, error) {
 	compressedVector, err := compressor.compressedVectorFromID(ctx, id)
 	if err != nil {
 		return 0, err
@@ -140,7 +136,7 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUnc
 
 	dist, err := compressor.DistanceBetweenCompressedAndUncompressedVectors(compressedVector, vector)
 	return dist, err
-}
+}*/
 
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)

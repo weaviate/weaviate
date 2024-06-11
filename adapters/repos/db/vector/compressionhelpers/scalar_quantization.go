@@ -101,10 +101,6 @@ func (sq *ScalarQuantizer) DistanceBetweenCompressedAndUncompressedVectors2(x []
 	return 0, errors.Errorf("Distance not supported yet %s", sq.distancer)
 }
 
-func (sq *ScalarQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) (float32, error) {
-	return 0, errors.Errorf("Distance not supported yet %s", sq.distancer)
-}
-
 func NewScalarQuantizer(data [][]float32, distance distancer.Provider) *ScalarQuantizer {
 	if len(data) == 0 {
 		return nil

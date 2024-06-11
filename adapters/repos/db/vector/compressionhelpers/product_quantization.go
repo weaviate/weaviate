@@ -310,7 +310,7 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float
 	return pq.distance.Wrap(dist), nil
 }
 
-func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) (float32, error) {
+func (pq *ProductQuantizer) distanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) (float32, error) {
 	dist := float32(0)
 	for i := 0; i < pq.m; i++ {
 		cY := pq.kms[i].Centroid(ExtractCode8(encoded, i))

@@ -424,7 +424,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 				continue
 			}
 		} else {
-			dist, ok, err = h.distBetweenNodeAndVec(entryPointID, nodeVec)
+			dist, ok, err = h.distToNode(distancer, entryPointID, nodeVec)
 		}
 		if err != nil {
 			return 0, errors.Wrapf(err,
@@ -519,9 +519,9 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
-func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
+func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node uint64, vecB []float32) (float32, bool, error) {
 	if h.compressed.Load() {
-		dist, err := h.compressor.DistanceBetweenCompressedAndUncompressedVectorsFromID(context.Background(), node, vecB)
+		dist, _, err := distancer.DistanceToNode(node)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
