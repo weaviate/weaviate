@@ -59,8 +59,12 @@ func (m *Manager) DeleteObject(ctx context.Context,
 
 	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant)
 	if err != nil {
-		var e ErrMultiTenancy
-		if errors.As(err, &e) {
+		var e1 ErrMultiTenancy
+		if errors.As(err, &e1) {
+			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
+		}
+		var e2 ErrInvalidUserInput
+		if errors.As(err, &e2) {
 			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
 		}
 		return NewErrInternal("could not delete object from vector repo: %v", err)
