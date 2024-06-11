@@ -260,7 +260,7 @@ func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVecto
 		return nil, nil, err
 	}
 
-	res, err := e.combineResults(ctx, ress, params, targetVectors, searchVectorsReturn)
+	res, err := CombineMultiTargetResults(ctx, e.searcher, e.logger, ress, params, targetVectors, searchVectorsReturn)
 	if err != nil {
 		return nil, nil, err
 	}

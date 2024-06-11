@@ -85,6 +85,7 @@ type fakeVectorSearcher struct {
 	calledWithVector []float32
 	calledWithLimit  int
 	calledWithOffset int
+	missingElements  map[uint64][]string
 	results          []search.Result
 }
 
@@ -112,8 +113,24 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) VectorDistanceForQuery(ctx context.Context, className string, docId uint64, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
-	args := f.Called(docId, targetVectors)
-	return args.Get(0).([]float32), args.Error(1)
+	returns := make([]float32, 0, len(targetVectors))
+	for range targetVectors {
+		returns = append(returns, 2)
+	}
+
+	missingTargets, ok := f.missingElements[docId]
+	if !ok {
+		return returns, nil
+	}
+
+	for _, missingTarget := range missingTargets {
+		for _, target := range targetVectors {
+			if target == missingTarget {
+				return nil, errors.Errorf("missing target %s", missingTarget)
+			}
+		}
+	}
+	return returns, nil
 }
 
 func (f *fakeVectorSearcher) Search(ctx context.Context,

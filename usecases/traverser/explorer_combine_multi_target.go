@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -68,7 +70,7 @@ type targetVectorData struct {
 	searchVector [][]float32
 }
 
-func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result, params dto.GetParams, targetVectors []string, searchVectors [][]float32) ([]search.Result, error) {
+func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, logger logrus.FieldLogger, results [][]search.Result, params dto.GetParams, targetVectors []string, searchVectors [][]float32) ([]search.Result, error) {
 	if len(results) == 0 {
 		return []search.Result{}, nil
 	}
@@ -108,9 +110,9 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 				ress[i][j] = &res[j]
 				ress[i][j].SecondarySortValue = res[j].Dist
 			}
-			e.collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
+			collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 			resultContainer := ResultContainerHybrid{ResultsIn: ress[i], allIDs: allIDs, IDsToRemove: make(map[uint64]struct{})}
-			if err := e.getScoresOfMissingResults(ctx, missingIDs, &resultContainer, params, weightsMap); err != nil {
+			if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &resultContainer, params, weightsMap); err != nil {
 				return nil, err
 			}
 			for key := range resultContainer.IDsToRemove {
@@ -136,6 +138,7 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 		for i := range joined {
 			joinedResults[i] = *joined[i]
 			joinedResults[i].Dist = joined[i].Score
+			joinedResults[i].SecondarySortValue = 0 // not needed after joining
 		}
 		if len(joinedResults) > params.Pagination.Limit {
 			joinedResults = joinedResults[:params.Pagination.Limit]
@@ -180,10 +183,10 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 				combinedResults[id] = r
 			}
 		}
-		e.collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
+		collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 	}
 	if !params.TargetVectorJoin.Min {
-		if err := e.getScoresOfMissingResults(ctx, missingIDs, &ResultContainerStandard{combinedResults}, params, params.TargetVectorJoin.Weights); err != nil {
+		if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &ResultContainerStandard{combinedResults}, params, params.TargetVectorJoin.Weights); err != nil {
 			return nil, err
 		}
 	}
@@ -207,7 +210,7 @@ func (e *Explorer) combineResults(ctx context.Context, results [][]search.Result
 	return returnResults, nil
 }
 
-func (e *Explorer) collectMissingIds(localIDs map[uint64]*search.Result, missingIDs map[uint64]targetVectorData, targetVectors []string, searchVectors [][]float32, i int) {
+func collectMissingIds(localIDs map[uint64]*search.Result, missingIDs map[uint64]targetVectorData, targetVectors []string, searchVectors [][]float32, i int) {
 	for id := range localIDs {
 		val, ok := missingIDs[id]
 		if !ok {
@@ -220,16 +223,16 @@ func (e *Explorer) collectMissingIds(localIDs map[uint64]*search.Result, missing
 	}
 }
 
-func (e *Explorer) getScoresOfMissingResults(ctx context.Context, missingIDs map[uint64]targetVectorData, combinedResults ResultContainer, params dto.GetParams, weights map[string]float32) error {
+func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, logger logrus.FieldLogger, missingIDs map[uint64]targetVectorData, combinedResults ResultContainer, params dto.GetParams, weights map[string]float32) error {
 	if len(missingIDs) == 0 {
 		return nil
 	}
 
-	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(_NUMCPU * 2)
 	lock := sync.Mutex{}
 	for id, targets := range missingIDs {
-		distances, err := e.searcher.VectorDistanceForQuery(ctx, params.ClassName, id, targets.target, targets.searchVector, params.Tenant)
+		distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, id, targets.target, targets.searchVector, params.Tenant)
 		lock.Lock()
 		if err != nil {
 			combinedResults.RemoveIdFromResult(id)
