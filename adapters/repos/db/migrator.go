@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -35,13 +36,35 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// offloadProvider is an interface has to be implemented by modules
+// to get the backend (s3, azure blob storage, google cloud storage) module
+type offloadProvider interface {
+	// OffloadBackend returns the backend module for (s3, azure blob storage, google cloud storage)
+	OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool)
+}
+
 type Migrator struct {
 	db     *DB
+	cloud  modulecapabilities.OffloadCloud
 	logger logrus.FieldLogger
+	nodeId string
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
+}
+
+func (m *Migrator) SetNode(nodeID string) {
+	m.nodeId = nodeID
+}
+
+func (m *Migrator) SetOffloadProvider(provider offloadProvider, moduleName string) {
+	cloud, enabled := provider.OffloadBackend(moduleName)
+	if !enabled {
+		m.logger.Debug(fmt.Sprintf("module %s is not enabled", moduleName))
+	}
+	m.cloud = cloud
+	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
