@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -169,6 +170,39 @@ func Test_UploadS3Journey(t *testing.T) {
 					}
 				}
 			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+		})
+
+		t.Run("add objects to frozen tenant shall fail", func(t *testing.T) {
+			t.Run("add frozen tenant objects", func(t *testing.T) {
+				for _, obj := range tenantObjects {
+					obj.Tenant = tenantNames[0]
+					params := objects.NewObjectsCreateParams().WithBody(obj)
+					_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
+					require.NotNil(t, err)
+				}
+			})
+
+			tenantRefs := []*models.Object{
+				{
+					ID:    "169b62a7-ef1c-481d-8fb0-27f11716bde7",
+					Class: className,
+					Properties: map[string]interface{}{
+						"name":        tenantNames[0],
+						"mutableProp": "ref#0",
+					},
+					Tenant: tenantNames[0],
+				},
+			}
+
+			t.Run("add frozen tenant object references", func(t *testing.T) {
+				for i, obj := range tenantObjects {
+					ref := &models.SingleRef{Beacon: helper.NewBeacon(className, tenantRefs[0].ID)}
+					params := objects.NewObjectsClassReferencesCreateParams().
+						WithClassName(className).WithID(obj.ID).WithBody(ref).WithPropertyName("refProp").WithTenant(&tenantNames[i])
+					_, err := helper.Client(t).Objects.ObjectsClassReferencesCreate(params, nil)
+					require.NotNil(t, err)
+				}
+			})
 		})
 	})
 
@@ -963,7 +997,6 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 				assert.Equal(t, obj.Properties, resp.Properties)
 			}
 		})
-		// time.Sleep(time.Minute * 10)
 
 		t.Run("updating tenant status", func(t *testing.T) {
 			helper.UpdateTenants(t, className, []*models.Tenant{
@@ -987,7 +1020,7 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 
 		t.Run("verify tenant does not exists", func(t *testing.T) {
 			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
-			require.Nil(t, err)
+			require.NotNil(t, err)
 		})
 	})
 }

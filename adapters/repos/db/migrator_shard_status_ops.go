@@ -181,8 +181,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				err := m.cloud.Download(ctx, class, name, nodeName)
 				if err != nil {
 					ec.Add(fmt.Errorf("downloading error: %w", err))
-					// TODO-offload : we need to handle the case were one of the
-					// replicas errored to tolerate that
+					// one success will be sufficient for changing the status
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
 							Name:   name,

@@ -281,7 +281,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 		copy.Status = req.Process.Tenant.Status
 
 		for _, sProcess := range m.ShardProcesses[req.Process.Tenant.Name] {
-			if sProcess.Op == command.TenantsProcess_OP_ABORT {
+			if sProcess.Op == command.TenantsProcess_OP_ABORT && req.Process.Tenant.Status != types.TenantActivityStatusUNFROZEN {
 				// force tenant status to be old status in memory and in db
 				req.Process.Tenant.Status = sProcess.Tenant.Status
 				copy.Status = sProcess.Tenant.Status
@@ -292,7 +292,12 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	} else {
 		found := false
 		for _, sProcess := range m.ShardProcesses[req.Process.Tenant.Name] {
-			if sProcess.Op == command.TenantsProcess_OP_ABORT {
+			if sProcess.Op == command.TenantsProcess_OP_DONE && req.Process.Tenant.Status == types.TenantActivityStatusUNFROZEN {
+				copy.Status = req.Process.Tenant.Status
+				continue
+			}
+
+			if sProcess.Op == command.TenantsProcess_OP_ABORT && req.Process.Tenant.Status != types.TenantActivityStatusUNFROZEN {
 				found = true
 				// force tenant status to be old status in memory and in db
 				req.Process.Tenant.Status = sProcess.Tenant.Status
@@ -307,14 +312,12 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 		}
 	}
 
+	m.ShardVersion = v
 	m.Sharding.Physical[copy.Name] = copy
-
 	if !slices.Contains(copy.BelongsToNodes, nodeID) {
 		req.Process = nil
 		return nil
 	}
-
-	m.ShardVersion = v
 	return nil
 }
 
