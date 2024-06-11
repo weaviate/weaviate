@@ -165,7 +165,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 	eg.SetLimit(_NUMCPU * 2)
 
 	for _, name := range unfreeze {
-		split := strings.Split(name, "-")
+		split := strings.Split(name, "#")
 		if len(split) < 2 {
 			ec.Add(fmt.Errorf("can't detect the old node name"))
 			continue
@@ -182,7 +182,14 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				if err != nil {
 					ec.Add(fmt.Errorf("downloading error: %w", err))
 					// TODO-offload : we need to handle the case were one of the
-					// replicas errored
+					// replicas errored to tolerate that
+					cmd.Process = &command.TenantsProcess{
+						Tenant: &command.Tenant{
+							Name:   name,
+							Status: types.TenantActivityStatusUNFROZEN,
+						},
+						Op: command.TenantsProcess_OP_ABORT,
+					}
 				} else {
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{

@@ -248,6 +248,10 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	m.Lock()
 	defer m.Unlock()
 
+	if len(m.ShardProcesses) == 0 {
+		m.ShardProcesses = make(map[string]NodesCloudStatus)
+	}
+
 	tn, ok := m.ShardProcesses[req.Process.Tenant.Name]
 	if !ok {
 		tn = make(NodesCloudStatus)
@@ -284,10 +288,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 				break
 			}
 		}
-		// if req.Process.Tenant.Status != types.TenantActivityStatusUNFROZEN {
 		delete(m.ShardProcesses, req.Process.Tenant.Name)
-		// }
-
 	} else {
 		found := false
 		for _, sProcess := range m.ShardProcesses[req.Process.Tenant.Name] {
@@ -306,7 +307,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 		}
 	}
 
-	m.Sharding.Physical[req.Process.Tenant.Name] = copy
+	m.Sharding.Physical[copy.Name] = copy
 
 	if !slices.Contains(copy.BelongsToNodes, nodeID) {
 		req.Process = nil
@@ -402,7 +403,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 				continue
 			}
 			m.ShardProcesses[u.Name] = process
-			req.Tenants[i].Name = fmt.Sprintf("%s-%s", req.Tenants[i].Name, newToOld[nodeID])
+			req.Tenants[i].Name = fmt.Sprintf("%s#%s", req.Tenants[i].Name, newToOld[nodeID])
 			req.Tenants[i].Status = p.Status
 
 		}
@@ -431,7 +432,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 
 		copy := p.DeepCopy()
 		copy.Status = u.Status
-		ps[u.Name] = copy
+		ps[copy.Name] = copy
 		if !slices.Contains(copy.BelongsToNodes, nodeID) {
 			req.Tenants[i] = nil
 		}
