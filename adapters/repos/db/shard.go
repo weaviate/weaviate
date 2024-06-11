@@ -109,7 +109,7 @@ type ShardLike interface {
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
 	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
-	BeginBackup(ctx context.Context) error
+	HaltForTransfer(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error

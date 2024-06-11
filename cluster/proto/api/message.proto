@@ -102,16 +102,9 @@ message TenantsProcess {
     OP_ABORT = 3;    
   }
 
-  enum Action {
-    ACTION_UNSPECIFIED = 0;
-    ACTION_FREEZING = 1;
-    ACTION_UNFROZEN = 2;    
-  }
 
-
-  Op op = 1;
-  Action action = 2;
-  Tenant tenant =3;  
+  Op op = 1;  
+  Tenant tenant =2;  
 }
 
 message TenantProcessRequest {
