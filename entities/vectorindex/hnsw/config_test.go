@@ -492,6 +492,48 @@ func Test_UserConfig(t *testing.T) {
 			},
 		},
 		{
+			name: "with sq",
+			input: map[string]interface{}{
+				"cleanupIntervalSeconds": float64(11),
+				"maxConnections":         float64(12),
+				"efConstruction":         float64(13),
+				"vectorCacheMaxObjects":  float64(14),
+				"ef":                     float64(15),
+				"flatSearchCutoff":       float64(16),
+				"dynamicEfMin":           float64(17),
+				"dynamicEfMax":           float64(18),
+				"dynamicEfFactor":        float64(19),
+				"sq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expected: UserConfig{
+				CleanupIntervalSeconds: 11,
+				MaxConnections:         12,
+				EFConstruction:         13,
+				VectorCacheMaxObjects:  14,
+				EF:                     15,
+				FlatSearchCutoff:       16,
+				DynamicEFMin:           17,
+				DynamicEFMax:           18,
+				DynamicEFFactor:        19,
+				Distance:               common.DefaultDistanceMetric,
+				PQ: PQConfig{
+					Enabled:       false,
+					Segments:      0,
+					Centroids:     DefaultPQCentroids,
+					TrainingLimit: DefaultPQTrainingLimit,
+					Encoder: PQEncoder{
+						Type:         DefaultPQEncoderType,
+						Distribution: DefaultPQEncoderDistribution,
+					},
+				},
+				SQ: SQConfig{
+					Enabled: true,
+				},
+			},
+		},
+		{
 			name: "with invalid compression",
 			input: map[string]interface{}{
 				"pq": map[string]interface{}{

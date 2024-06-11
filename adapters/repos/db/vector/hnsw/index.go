@@ -277,6 +277,8 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
+
+		doNotRescore: true,
 	}
 
 	if uc.BQ.Enabled {

@@ -36,7 +36,7 @@ func (h *hnsw) calculateOptimalSegments(dims int) int {
 }
 
 func (h *hnsw) compress(cfg ent.UserConfig) error {
-	if !cfg.PQ.Enabled && !cfg.BQ.Enabled {
+	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled {
 		return nil
 	}
 
@@ -87,6 +87,44 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			return fmt.Errorf("Compressing vectors: %w", err)
 		}
 		h.commitLog.AddPQ(h.compressor.ExposeFields())
+	} else if cfg.SQ.Enabled {
+		if h.isEmpty() {
+			return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
+		}
+
+		cleanData := make([][]float32, 0, len(data))
+		for i := range data {
+			// Rather than just taking the cache dump at face value, let's explicitly
+			// request the vectors. Otherwise we would miss any vector that's currently
+			// not in the cache, for example because the cache is not hot yet after a
+			// restart.
+			p, err := h.cache.Get(context.Background(), uint64(i))
+			if err != nil {
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					// already deleted, ignore
+					continue
+				} else {
+					return fmt.Errorf("unexpected error obtaining vectors for fitting: %w", err)
+				}
+			}
+
+			if p == nil {
+				// already deleted, ignore
+				continue
+			}
+
+			cleanData = append(cleanData, p)
+		}
+
+		var err error
+		h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
+			h.distancerProvider, 1e12, h.logger, cleanData, h.store,
+			h.allocChecker)
+		if err != nil {
+			return fmt.Errorf("Compressing vectors: %w", err)
+		}
+		//h.commitLog.AddPQ(h.compressor.ExposeFields())
 	} else {
 		var err error
 		h.compressor, err = compressionhelpers.NewBQCompressor(

@@ -51,6 +51,7 @@ type UserConfig struct {
 	Distance               string   `json:"distance"`
 	PQ                     PQConfig `json:"pq"`
 	BQ                     BQConfig `json:"bq"`
+	SQ                     SQConfig `json:"sq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -178,6 +179,10 @@ func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error)
 	}
 
 	if err := parseBQMap(asMap, &uc.BQ); err != nil {
+		return uc, err
+	}
+
+	if err := parseSQMap(asMap, &uc.SQ); err != nil {
 		return uc, err
 	}
 
