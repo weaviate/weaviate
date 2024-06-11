@@ -2012,6 +2012,10 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var res []strfmt.UUID
 
 		if i.replicationEnabled() {
+			if repl == nil {
+				repl = defaultConsistency()
+			}
+
 			res, err = i.replicator.FindUUIDs(ctx, className, shardName, filters, replica.ConsistencyLevel(repl.ConsistencyLevel))
 		} else if shard := i.localShard(shardName); shard != nil {
 			res, err = shard.FindUUIDs(ctx, filters)
