@@ -166,6 +166,10 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 
 	for _, name := range unfreeze {
 		split := strings.Split(name, "-")
+		if len(split) < 2 {
+			ec.Add(fmt.Errorf("can't detect the old node name"))
+			continue
+		}
 		name := split[0]
 		nodeName := split[1]
 		eg.Go(func() error {
@@ -179,7 +183,6 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					ec.Add(fmt.Errorf("downloading error: %w", err))
 					// TODO-offload : we need to handle the case were one of the
 					// replicas errored
-
 				} else {
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
