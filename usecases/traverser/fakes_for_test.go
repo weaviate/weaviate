@@ -111,6 +111,11 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
+func (f *fakeVectorSearcher) VectorDistanceForQuery(ctx context.Context, className string, docId uint64, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+	args := f.Called(docId, targetVectors)
+	return args.Get(0).([]float32), args.Error(1)
+}
+
 func (f *fakeVectorSearcher) Search(ctx context.Context,
 	params dto.GetParams,
 ) ([]search.Result, error) {

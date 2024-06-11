@@ -1562,7 +1562,11 @@ func (i *Index) vectorDistanceForQuery(ctx context.Context, docId uint64, target
 			indexes := shard.VectorIndexes()
 			for j, target := range targets {
 				j := j
-				distancer := indexes[target].NewQueryVectorDistancer(searchVectors[j])
+				index, ok := indexes[target]
+				if !ok {
+					return nil, fmt.Errorf("index %s not found", target)
+				}
+				distancer := index.NewQueryVectorDistancer(searchVectors[j])
 				eg.Go(
 					func() error {
 						dist, err := distancer.DistanceToNode(docId)

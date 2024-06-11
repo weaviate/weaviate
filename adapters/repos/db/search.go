@@ -140,6 +140,13 @@ func (db *DB) VectorSearch(ctx context.Context,
 
 func (db *DB) VectorDistanceForQuery(ctx context.Context, className string, docId uint64, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
 	idx := db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, fmt.Errorf("tried to browse non-existing index for %s", className)
+	}
+
+	if len(targetVectors) != len(searchVectors) || len(targetVectors) == 0 {
+		return nil, fmt.Errorf("target vectors and search vectors must have the same non-zero length")
+	}
 
 	return idx.vectorDistanceForQuery(ctx, docId, targetVectors, searchVectors, tenant)
 }
