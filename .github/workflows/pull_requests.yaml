@@ -39,12 +39,20 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v4
-      - name: Scan for Vulnerabilities in Code
-        uses: Templum/govulncheck-action@v1.0.0
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          package: ./...
-          fail-on-vuln: true
+          cache: true
+      - name: Run locally Docker build
+        run: docker build -t weaviate:${{ github.sha }} .
+      - name: Run Trivy vulnerability scanner for the built image
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: 'weaviate:${{ github.sha }}'
+          exit-code: '1'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
