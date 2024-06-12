@@ -189,11 +189,6 @@ func (d *Compose) WithOffloadS3(bucket string) *Compose {
 	return d
 }
 
-func (d *Compose) WithEnvVars(key, value string) *Compose {
-	d.weaviateEnvs[key] = value
-	return d
-}
-
 func (d *Compose) WithBackendGCS(bucket string) *Compose {
 	d.withBackendGCS = true
 	d.withBackendGCSBucket = bucket

@@ -357,7 +357,7 @@ func Test_UploadS3Journey(t *testing.T) {
 
 		compose, err := docker.New().
 			WithOffloadS3("offloading").
-			WithEnvVars("OFFLOAD_TIMEOUT", "2").
+			WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
