@@ -281,8 +281,6 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
-
-		doNotRescore: true,
 	}
 
 	if uc.BQ.Enabled {
@@ -704,6 +702,9 @@ func (h *hnsw) DistancerProvider() distancer.Provider {
 }
 
 func (h *hnsw) ShouldUpgrade() (bool, int) {
+	if h.sqConfig.Enabled {
+		return h.sqConfig.Enabled, h.pqConfig.TrainingLimit
+	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
 
