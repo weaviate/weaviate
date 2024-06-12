@@ -19,9 +19,9 @@ import (
 func init() {
 	if cpu.ARM64.HasASIMD {
 		if cpu.ARM64.HasSVE {
-			l2SquaredImpl = asm.Dot_SVE
+			dotProductImplementation = asm.Dot_SVE
 		} else {
-			l2SquaredImpl = asm.Dot_Neon
+			dotProductImplementation = asm.Dot_Neon
 		}
 	}
 }
