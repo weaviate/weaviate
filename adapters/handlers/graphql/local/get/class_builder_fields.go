@@ -440,6 +440,9 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		tenant = tk.(string)
 	}
 
+	targetVectorJoinMethod := &dto.TargetVectorJoin{Min: true}
+	// add extraction later
+
 	params := dto.GetParams{
 		Filters:               filters,
 		ClassName:             className,
@@ -457,6 +460,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		ReplicationProperties: replProps,
 		GroupBy:               groupByParams,
 		Tenant:                tenant,
+		TargetVectorJoin:      targetVectorJoinMethod,
 	}
 
 	// need to perform vector search by distance
