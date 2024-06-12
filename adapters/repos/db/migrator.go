@@ -414,8 +414,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 	if len(cold) > 0 {
 		m.logger.WithField("action", "tenants_to_cold").Debug(cold)
-		idx.backupMutex.RLock()
-		defer idx.backupMutex.RUnlock()
+		idx.shardTransferMutex.RLock()
+		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)

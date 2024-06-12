@@ -109,8 +109,8 @@ func (db *DB) ShardsBackup(
 	}
 
 	// prevent writing into the index during collection of metadata
-	idx.backupMutex.Lock()
-	defer idx.backupMutex.Unlock()
+	idx.shardTransferMutex.Lock()
+	defer idx.shardTransferMutex.Unlock()
 	for shardName, shard := range sm {
 		if err := shard.HaltForTransfer(ctx); err != nil {
 			return cd, fmt.Errorf("class %q: shard %q: begin backup: %w", class, shardName, err)
@@ -211,8 +211,8 @@ func (i *Index) descriptor(ctx context.Context, backupID string, desc *backup.Cl
 		}
 	}()
 	// prevent writing into the index during collection of metadata
-	i.backupMutex.Lock()
-	defer i.backupMutex.Unlock()
+	i.shardTransferMutex.Lock()
+	defer i.shardTransferMutex.Unlock()
 
 	if err = i.ForEachShard(func(name string, s ShardLike) error {
 		if err = s.HaltForTransfer(ctx); err != nil {
@@ -308,8 +308,8 @@ const (
 	mutexNotifyDuration = 20 * time.Second
 )
 
-// backupMutex is an adapter built around rwmutex that facilitates cooperative blocking between write and read locks
-type backupMutex struct {
+// shardTransfer is an adapter built around rwmutex that facilitates cooperative blocking between write and read locks
+type shardTransfer struct {
 	sync.RWMutex
 	log            logrus.FieldLogger
 	retryDuration  time.Duration
@@ -318,11 +318,11 @@ type backupMutex struct {
 
 // LockWithContext attempts to acquire a write lock while respecting the provided context.
 // It reports whether the lock acquisition was successful or if the context has been cancelled.
-func (m *backupMutex) LockWithContext(ctx context.Context) error {
+func (m *shardTransfer) LockWithContext(ctx context.Context) error {
 	return m.lock(ctx, m.TryLock)
 }
 
-func (m *backupMutex) lock(ctx context.Context, tryLock func() bool) error {
+func (m *shardTransfer) lock(ctx context.Context, tryLock func() bool) error {
 	if tryLock() {
 		return nil
 	}
@@ -345,7 +345,7 @@ func (m *backupMutex) lock(ctx context.Context, tryLock func() bool) error {
 	}
 }
 
-func (s *backupMutex) RLockGuard(reader func() error) error {
+func (s *shardTransfer) RLockGuard(reader func() error) error {
 	s.RLock()
 	defer s.RUnlock()
 	return reader()
