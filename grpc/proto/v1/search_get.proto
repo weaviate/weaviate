@@ -117,7 +117,7 @@ message TargetVectorJoin {
     float value = 2;
   }
   message ManualWeightsArrays {
-    repeated ManualWeights val = 1;
+    repeated ManualWeights vals = 1;
   }
   oneof target_join {
     TargetVectorJoinMethod join = 1;

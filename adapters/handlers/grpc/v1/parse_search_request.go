@@ -1042,7 +1042,7 @@ func extractTargetVectorJoin(join *pb.TargetVectorJoin, targetVectors *[]string)
 		return &dto.TargetVectorJoin{Min: false, Weights: weights}, nil
 	case *pb.TargetVectorJoin_ManualWeights_:
 		manual := join.GetManualWeights()
-		if len(manual.Val) != len(targets) {
+		if len(manual.Vals) != len(targets) {
 			return nil, fmt.Errorf("manual weights must have the same number of weights %v as target vectors: %v", manual, *targetVectors)
 		}
 		targetSet := make(map[string]struct{})
@@ -1050,7 +1050,7 @@ func extractTargetVectorJoin(join *pb.TargetVectorJoin, targetVectors *[]string)
 			targetSet[target] = struct{}{}
 		}
 
-		for _, val := range manual.Val {
+		for _, val := range manual.Vals {
 			// make sure that weights and given target vectors are compatible
 			_, ok := targetSet[val.Key]
 			if !ok {
