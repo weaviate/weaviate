@@ -39,6 +39,7 @@ import (
 const (
 	compressionBQ   = "bq"
 	compressionPQ   = "pq"
+	compressionSQ   = "sq"
 	compressionNone = "none"
 )
 
@@ -108,9 +109,6 @@ func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) 
 }
 
 func extractCompression(uc flatent.UserConfig) string {
-	if uc.BQ.Enabled && uc.PQ.Enabled {
-		return compressionNone
-	}
 
 	if uc.BQ.Enabled {
 		return compressionBQ
@@ -118,6 +116,10 @@ func extractCompression(uc flatent.UserConfig) string {
 
 	if uc.PQ.Enabled {
 		return compressionPQ
+	}
+
+	if uc.SQ.Enabled {
+		return compressionSQ
 	}
 
 	return compressionNone
@@ -130,6 +132,8 @@ func extractCompressionRescore(uc flatent.UserConfig) int64 {
 		return int64(uc.PQ.RescoreLimit)
 	case compressionBQ:
 		return int64(uc.BQ.RescoreLimit)
+	case compressionSQ:
+		return int64(uc.SQ.RescoreLimit)
 	default:
 		return 0
 	}
