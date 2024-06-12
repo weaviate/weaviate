@@ -403,6 +403,8 @@ func (m *metaClass) updateShardProcess(name string, req *command.TenantProcessRe
 				return true
 			}
 		}
+	default:
+		return false
 	}
 
 	return false
@@ -437,6 +439,9 @@ func (m *metaClass) applyShardProcess(name string, req *command.TenantProcessReq
 			copy.Status = onAbortStatus
 			req.Process.Tenant.Status = onAbortStatus
 		}
+	default:
+		// do nothing
+		return
 	}
 	delete(m.ShardProcesses, shardProcessID(name, req.Action))
 }
