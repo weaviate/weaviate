@@ -261,8 +261,8 @@ function run_module_only_backup_tests() {
 }
 
 function run_module_only_offload_tests() {
-  for pkg in $(go list ./... | grep 'test/modules' | grep 'test/modules/offload'); do
-    if ! go test -count 1 -race "$pkg"; then
+  for pkg in $(go list ./... |grep 'test/modules/offload'); do
+    if ! go test -count 1 -race -v "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi

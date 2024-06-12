@@ -99,17 +99,22 @@ message TenantsProcess {
     OP_UNSPECIFIED = 0;
     OP_START = 1;
     OP_DONE = 2;
-    OP_ABORT = 3;    
+    OP_ABORT = 3;
   }
 
-
   Op op = 1;  
-  Tenant tenant =2;  
+  Tenant tenant =3;
 }
 
 message TenantProcessRequest {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACTION_FREEZING = 1;
+    ACTION_UNFREEZING = 2;
+  }
   string node = 1;
-  TenantsProcess process = 2;
+  Action action =2;
+  TenantsProcess process = 3;
 }
 
 message DeleteTenantsRequest {
