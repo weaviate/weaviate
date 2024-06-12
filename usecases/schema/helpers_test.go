@@ -332,6 +332,11 @@ func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
+	args := f.Called(ctx)
+	return args.Error(0)
+}
+
 func (f *fakeMigrator) Shutdown(ctx context.Context) error {
 	args := f.Called(ctx)
 	return args.Error(0)

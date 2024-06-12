@@ -179,7 +179,7 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 
 	current := make(activityByCollection)
 	for _, index := range o.db.indices {
-		if !index.partitioningEnabled {
+		if !index.partitioningEnabled() {
 			continue
 		}
 		cn := index.Config.ClassName.String()

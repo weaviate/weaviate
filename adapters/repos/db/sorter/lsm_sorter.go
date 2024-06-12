@@ -110,7 +110,7 @@ func (h *lsmSorterHelper) getSorted(ctx context.Context) ([]uint64, error) {
 	sorter := newInsertSorter(h.comparator, h.limit)
 
 	for k, objData := cursor.First(); k != nil; k, objData = cursor.Next() {
-		docID, err := storobj.DocIDFromBinary(objData)
+		docID, _, err := storobj.DocIDFromBinary(objData)
 		if err != nil {
 			return nil, errors.Wrapf(err, "lsm sorter - could not get doc id")
 		}
