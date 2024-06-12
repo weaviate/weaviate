@@ -390,7 +390,6 @@ func (m *metaClass) updateShardProcess(name string, req *command.TenantProcessRe
 		for _, sp := range processes {
 			if sp.Op == command.TenantsProcess_OP_DONE {
 				copy.Status = sp.Tenant.Status
-				req.Process.Tenant.Status = sp.Tenant.Status
 				break
 			}
 		}
