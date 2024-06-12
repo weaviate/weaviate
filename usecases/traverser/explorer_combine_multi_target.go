@@ -232,6 +232,8 @@ func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, lo
 	eg.SetLimit(_NUMCPU * 2)
 	mutex := sync.Mutex{}
 	for id, targets := range missingIDs {
+		id := id
+		targets := targets
 		f := func() error {
 			distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, allIDs[id].ID, id, targets.target, targets.searchVector, params.Tenant)
 			mutex.Lock()
