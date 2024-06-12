@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -23,6 +22,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -155,6 +156,20 @@ func class() *models.Class {
 				DataType: schema.DataTypePhoneNumber.PropString(),
 			},
 		},
+	}
+}
+
+func multiVectorClass() *models.Class {
+	return &models.Class{
+		Class:               "Test",
+		InvertedIndexConfig: invertedConfig(),
+		VectorConfig: map[string]models.VectorConfig{
+			"custom1": {VectorIndexConfig: enthnsw.UserConfig{}},
+			"custom2": {VectorIndexType: "hnsw", VectorIndexConfig: enthnsw.UserConfig{}},
+			"custom3": {VectorIndexType: "flat", VectorIndexConfig: flatent.UserConfig{}},
+			//"custom4": {VectorIndexType: "dynamic", VectorIndexConfig: dynamicent.UserConfig{}},  // async only
+		},
+		Properties: []*models.Property{},
 	}
 }
 

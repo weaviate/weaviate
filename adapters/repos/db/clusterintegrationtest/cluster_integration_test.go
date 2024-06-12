@@ -24,6 +24,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -669,4 +672,89 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node.repo.Shutdown(context.Background())
 		}
 	})
+}
+
+func TestDistributedVectorDistance(t *testing.T) {
+	dirName := t.TempDir()
+	rnd := getRandomSeed()
+	ctx := context.Background()
+	collection := multiVectorClass()
+
+	overallShardState := multiShardState(numberOfNodes)
+	shardStateSerialized, err := json.Marshal(overallShardState)
+	require.Nil(t, err)
+
+	var nodes []*node
+	for i := 0; i < numberOfNodes; i++ {
+		node := &node{
+			name: fmt.Sprintf("node-%d", i),
+		}
+
+		node.init(dirName, shardStateSerialized, &nodes)
+		nodes = append(nodes, node)
+	}
+
+	for i := range nodes {
+		require.Nil(t, nodes[i].migrator.AddClass(context.Background(), collection,
+			nodes[i].schemaManager.shardState))
+		nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
+			collection)
+	}
+
+	uid := strfmt.UUID(uuid.New().String())
+
+	vectors := [][]float32{
+		{1, 0, 0, 0},
+		{0, 1, 0, 0},
+		{0, 0, 1, 0},
+		{0, 0, 0, 1},
+	}
+
+	t.Run("get all targets", func(t *testing.T) {
+		obj := &models.Object{
+			ID:      uid,
+			Class:   collection.Class,
+			Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
+		}
+		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+
+		distances, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, 0, []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]}, "")
+		require.Nil(t, err)
+		for i := range distances {
+			require.Equal(t, distances[i], float32(1))
+		}
+		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+	})
+
+	t.Run("get some targets", func(t *testing.T) {
+		obj := &models.Object{
+			ID:      uid,
+			Class:   collection.Class,
+			Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
+		}
+		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+
+		distances, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, 0, []string{"custom1", "custom2"}, [][]float32{vectors[1], vectors[1]}, "")
+		require.Nil(t, err)
+		require.Equal(t, distances[0], float32(1))
+		require.Equal(t, distances[1], float32(0))
+		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+	})
+
+	t.Run("get non-existing target", func(t *testing.T) {
+		obj := &models.Object{
+			ID:      uid,
+			Class:   collection.Class,
+			Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
+		}
+		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+
+		_, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, 0, []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[1]}, "")
+		require.NotNil(t, err)
+		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+	})
+
+	for _, node := range nodes {
+		node.repo.Shutdown(context.Background())
+	}
 }
