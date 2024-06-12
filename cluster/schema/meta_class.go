@@ -308,12 +308,12 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		case types.TenantActivityStatusFREEZING:
 			if u.Status != models.TenantActivityStatusFROZEN {
 				req.Tenants[i] = nil
-				return n, fmt.Errorf("freezing is in progress")
+				return n, fmt.Errorf("freezing is in progress, requested status: %s for tenant: %s", u.Status, u.Name)
 			}
 		case types.TenantActivityStatusUNFREEZING:
 			if u.Status != models.TenantActivityStatusFROZEN {
 				req.Tenants[i] = nil
-				return n, fmt.Errorf("unfreezing is in progress")
+				return n, fmt.Errorf("unfreezing is in progress, requested status: %s for tenant: %s", u.Status, u.Name)
 			}
 		}
 

@@ -168,6 +168,10 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 	eg.SetLimit(_NUMCPU * 2)
 
 	for _, name := range unfreeze {
+		// # is a delineator shall come from RAFT and it's away e.g. tenant1-node1
+		// to identify which node path in the cloud shall we get the data from.
+		// it's made because nodeID could be changed on download based on new candidates
+		// when the tenant unfrozed
 		split := strings.Split(name, "#")
 		if len(split) < 2 {
 			ec.Add(fmt.Errorf("can't detect the old node name"))
@@ -196,10 +200,6 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 						Op: command.TenantsProcess_OP_ABORT,
 					}
 				} else {
-					if err := m.cloud.Delete(ctx, class, name, nodeName); err != nil {
-						// we just logging in case of we are not able to delete the cloud
-						m.logger.Error("deleting error: %w", err)
-					}
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
 							Name:   name,
@@ -209,8 +209,18 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					}
 				}
 
-				if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
+				if _, err = m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
 					ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
+					return
+				}
+
+				if cmd.Process.Op != command.TenantsProcess_OP_DONE {
+					return
+				}
+				// delete when it's done
+				if err := m.cloud.Delete(ctx, class, name, nodeName); err != nil {
+					// we just logging in case of we are not able to delete the cloud
+					m.logger.Error("deleting error: %w", err)
 				}
 			}, idx.logger)
 
