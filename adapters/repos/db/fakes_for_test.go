@@ -362,3 +362,9 @@ func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
 ) ([]replica.RepairResponse, error) {
 	return nil, nil
 }
+
+func (*fakeReplicationClient) FindUUIDs(ctx context.Context,
+	hostName, indexName, shardName string, filters *filters.LocalFilter,
+) (result []strfmt.UUID, err error) {
+	return nil, nil
+}

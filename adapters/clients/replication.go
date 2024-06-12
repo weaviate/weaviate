@@ -24,8 +24,10 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -218,6 +220,54 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
 	err = c.do(c.timeoutUnit*20, req, body, &resp)
 	return resp, err
+}
+
+func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
+	shardName string, filters *filters.LocalFilter,
+) ([]strfmt.UUID, error) {
+	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal request payload")
+	}
+
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName)
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(paramsBytes))
+	if err != nil {
+		return nil, errors.Wrap(err, "open http request")
+	}
+
+	clusterapi.IndicesPayloads.FindUUIDsParams.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read body")
+	}
+
+	ct, ok := clusterapi.IndicesPayloads.FindUUIDsResults.CheckContentTypeHeader(res)
+	if !ok {
+		return nil, errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	uuids, err := clusterapi.IndicesPayloads.FindUUIDsResults.Unmarshal(resBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal body")
+	}
+	return uuids, nil
 }
 
 // Commit asks a host to commit and stores the response in the value pointed to by resp
