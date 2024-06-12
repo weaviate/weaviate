@@ -533,7 +533,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  second--offload-s3)
+  second-offload-s3)
       GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -563,7 +563,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  third-offload-s2)
+  third-offload-s3)
         GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
