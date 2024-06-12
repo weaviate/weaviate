@@ -328,8 +328,8 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 func (s *Shard) initTargetQueues() error {
 	s.queues = make(map[string]*IndexQueue)
 	for targetVector, vectorIndex := range s.vectorIndexes {
-		queue, err := NewIndexQueue(s.ID(), targetVector, s, vectorIndex, s.centralJobQueue,
-			s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
+		queue, err := NewIndexQueue(s.index.Config.ClassName.String(), s.ID(), targetVector, s, vectorIndex, s.centralJobQueue,
+			s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger}, s.promMetrics)
 		if err != nil {
 			return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 		}
@@ -348,8 +348,8 @@ func (s *Shard) initLegacyVector(ctx context.Context) error {
 }
 
 func (s *Shard) initLegacyQueue() error {
-	queue, err := NewIndexQueue(s.ID(), "", s, s.vectorIndex, s.centralJobQueue,
-		s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
+	queue, err := NewIndexQueue(s.index.Config.ClassName.String(), s.ID(), "", s, s.vectorIndex, s.centralJobQueue,
+		s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger}, s.promMetrics)
 	if err != nil {
 		return err
 	}

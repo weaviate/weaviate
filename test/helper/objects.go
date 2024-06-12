@@ -122,8 +122,17 @@ func DeleteObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
-	params := batch.NewBatchObjectsDeleteParams().WithBody(body)
+func DeleteObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsDeleteParams().WithBody(body).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
@@ -133,6 +142,19 @@ func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
 ) (*models.BatchDeleteResponse, error) {
 	params := batch.NewBatchObjectsDeleteParams().
 		WithBody(body).WithTenant(&tenant)
+	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func DeleteTenantObjectsBatchCL(t *testing.T, body *models.BatchDelete,
+	tenant string, cl replica.ConsistencyLevel,
+) (*models.BatchDeleteResponse, error) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsDeleteParams().
+		WithBody(body).WithTenant(&tenant).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	if err != nil {
 		return nil, err

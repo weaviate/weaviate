@@ -25,6 +25,7 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/configbase"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -42,6 +43,7 @@ import (
 type IndexQueue struct {
 	Shard        shardStatusUpdater
 	Index        batchIndexer
+	className    string
 	shardID      string
 	targetVector string
 
@@ -66,6 +68,8 @@ type IndexQueue struct {
 	checkpoints *indexcheckpoint.Checkpoints
 
 	paused atomic.Bool
+
+	metrics *IndexQueueMetrics
 
 	// tracks the jobs that are currently being processed
 	jobWg sync.WaitGroup
@@ -129,9 +133,11 @@ type compressedIndexer interface {
 
 type shardStatusUpdater interface {
 	compareAndSwapStatus(old, new string) (storagestate.Status, error)
+	Name() string
 }
 
 func NewIndexQueue(
+	className string,
 	shardID string,
 	targetVector string,
 	shard shardStatusUpdater,
@@ -139,6 +145,7 @@ func NewIndexQueue(
 	centralJobQueue chan job,
 	checkpoints *indexcheckpoint.Checkpoints,
 	opts IndexQueueOptions,
+	promMetrics *monitoring.PrometheusMetrics,
 ) (*IndexQueue, error) {
 	if opts.Logger == nil {
 		opts.Logger = logrus.New()
@@ -180,6 +187,7 @@ func NewIndexQueue(
 	}
 
 	q := IndexQueue{
+		className:         className,
 		shardID:           shardID,
 		targetVector:      targetVector,
 		IndexQueueOptions: opts,
@@ -188,6 +196,7 @@ func NewIndexQueue(
 		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
 		checkpoints:       checkpoints,
+		metrics:           NewIndexQueueMetrics(opts.Logger, promMetrics, className, shard.Name(), targetVector),
 	}
 
 	q.queue = newVectorQueue(&q)
@@ -246,6 +255,8 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	}
 
 	now := time.Now()
+	defer q.metrics.Push(now, len(vectors))
+
 	q.lastPushed.Store(&now)
 
 	// ensure the vector length is the same
@@ -294,6 +305,7 @@ func (q *IndexQueue) Size() int64 {
 	}
 	q.queue.curBatch.Unlock()
 
+	q.metrics.Size(count)
 	return count
 }
 
@@ -303,6 +315,8 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 	if !asyncEnabled() {
 		return q.Index.Delete(ids...)
 	}
+	start := time.Now()
+	defer q.metrics.Delete(start, len(ids))
 
 	remaining := make([]uint64, 0, len(ids))
 	indexed := make([]uint64, 0, len(ids))
@@ -353,6 +367,10 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	maxDocID := shard.Counter().Get()
 
 	var counter int
+
+	defer func() {
+		q.metrics.Preload(start, counter)
+	}()
 
 	ctx := context.Background()
 
@@ -470,18 +488,18 @@ func (q *IndexQueue) indexer() {
 			}
 
 			lastPushed := q.lastPushed.Load()
-			var chunksSent int
+			var vectorsSent int64
 			if !q.Throttle || lastPushed == nil || time.Since(*lastPushed) > time.Second {
 				// send at most maxPerTick chunks at a time, without waiting for them to be indexed
-				chunksSent = q.pushToWorkers(maxPerTick, false)
+				vectorsSent = q.pushToWorkers(maxPerTick, false)
 			} else {
 				// send only one batch at a time and wait for it to be indexed
 				// to avoid competing for resources with the inverted index.
 				// This ensures the resources are used for storing / queueing vectors in priority.
-				chunksSent = q.pushToWorkers(1, true)
+				vectorsSent = q.pushToWorkers(1, true)
 			}
 
-			q.logStats(chunksSent)
+			q.logStats(vectorsSent)
 		case <-q.ctx.Done():
 			// stop the ticker
 			t.Stop()
@@ -490,13 +508,14 @@ func (q *IndexQueue) indexer() {
 	}
 }
 
-func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
+func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 	chunks := q.queue.dequeue(max)
 	if len(chunks) == 0 {
 		return 0
 	}
 
 	var minID uint64
+	var count int64
 
 	for i := range chunks {
 		c := chunks[i]
@@ -524,10 +543,12 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
 
 		q.jobWg.Add(1)
 
+		count += int64(len(ids))
+
 		select {
 		case <-q.ctx.Done():
 			q.jobWg.Done()
-			return i
+			return count
 		case q.indexCh <- job{
 			indexer: q.Index,
 			ctx:     q.ctx,
@@ -545,24 +566,16 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int {
 		q.jobWg.Wait()
 	}
 
-	return len(chunks)
+	return count
 }
 
-func (q *IndexQueue) logStats(chunksSent int) {
-	var ready int
-	q.queue.fullChunks.Lock()
-	e := q.queue.fullChunks.list.Front()
-	for e != nil {
-		ready++
-		e = e.Next()
-	}
-	q.queue.fullChunks.Unlock()
+func (q *IndexQueue) logStats(vectorsSent int64) {
+	q.metrics.VectorsDequeued(vectorsSent)
 
 	qSize := q.Size()
 	q.Logger.
 		WithField("queue_size", qSize).
-		WithField("chunks_sent", chunksSent).
-		WithField("chunks_ready", ready).
+		WithField("vectors_sent", vectorsSent).
 		Debug("queue stats")
 }
 
@@ -579,6 +592,9 @@ func (q *IndexQueue) SearchByVectorDistance(vector []float32, dist float32, maxL
 }
 
 func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	start := time.Now()
+	defer q.metrics.Search(start)
+
 	var indexedResults []uint64
 	var distances []float32
 	var err error
@@ -671,12 +687,14 @@ func (q *IndexQueue) pauseIndexing() {
 	q.paused.Store(true)
 	q.jobWg.Wait()
 	q.Logger.Debug("indexing paused")
+	q.metrics.Paused()
 }
 
 // resume indexing
 func (q *IndexQueue) resumeIndexing() {
 	q.paused.Store(false)
 	q.Logger.Debug("indexing resumed")
+	q.metrics.Resumed()
 }
 
 func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k int,
@@ -868,6 +886,7 @@ func (q *vectorQueue) dequeue(max int) []*chunk {
 	if count < max {
 		q.curBatch.Lock()
 		if q.curBatch.c != nil && time.Since(*q.curBatch.c.createdAt) > q.IndexQueue.StaleTimeout && q.curBatch.c.cursor > 0 {
+			q.IndexQueue.metrics.Stale()
 			chunks = append(chunks, q.curBatch.c)
 			q.curBatch.c = nil
 		}

@@ -1990,7 +1990,7 @@ func (i *Index) notifyReady() {
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
-	filters *filters.LocalFilter, tenant string,
+	filters *filters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
 ) (map[string][]strfmt.UUID, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
@@ -1998,6 +1998,8 @@ func (i *Index) findUUIDs(ctx context.Context,
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, err
 	}
+
+	className := i.Config.ClassName.String()
 
 	shardNames, err := i.targetShardNames(tenant)
 	if err != nil {
@@ -2008,7 +2010,14 @@ func (i *Index) findUUIDs(ctx context.Context,
 	for _, shardName := range shardNames {
 		var err error
 		var res []strfmt.UUID
-		if shard := i.localShard(shardName); shard != nil {
+
+		if i.replicationEnabled() {
+			if repl == nil {
+				repl = defaultConsistency()
+			}
+
+			res, err = i.replicator.FindUUIDs(ctx, className, shardName, filters, replica.ConsistencyLevel(repl.ConsistencyLevel))
+		} else if shard := i.localShard(shardName); shard != nil {
 			res, err = shard.FindUUIDs(ctx, filters)
 		} else {
 			res, err = i.remote.FindUUIDs(ctx, shardName, filters)

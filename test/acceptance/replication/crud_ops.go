@@ -126,27 +126,27 @@ func addTenantReferences(t *testing.T, host string, refs []*models.BatchReferenc
 	helper.CheckReferencesBatchResponse(t, resp, err)
 }
 
-func deleteObject(t *testing.T, host, class string, id strfmt.UUID) {
+func deleteObject(t *testing.T, host, class string, id strfmt.UUID, cl replica.ConsistencyLevel) {
 	helper.SetupClient(host)
 
 	toDelete, err := helper.GetObject(t, class, id)
 	require.Nil(t, err)
 
-	helper.DeleteObject(t, toDelete)
+	helper.DeleteObjectCL(t, toDelete, cl)
 
 	_, err = helper.GetObject(t, class, id)
 	assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
-func deleteTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string) {
+func deleteTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string, cl replica.ConsistencyLevel) {
 	helper.SetupClient(host)
-	helper.DeleteTenantObject(t, class, id, tenant)
+	helper.DeleteTenantObject(t, class, id, tenant, cl)
 
 	_, err := helper.TenantObject(t, class, id, tenant)
 	assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
-func deleteObjects(t *testing.T, host, class string, path []string, valueText string) {
+func deleteObjects(t *testing.T, host, class string, path []string, valueText string, cl replica.ConsistencyLevel) {
 	helper.SetupClient(host)
 
 	batchDelete := &models.BatchDelete{
@@ -159,13 +159,13 @@ func deleteObjects(t *testing.T, host, class string, path []string, valueText st
 			},
 		},
 	}
-	helper.DeleteObjectsBatch(t, batchDelete)
+	helper.DeleteObjectsBatch(t, batchDelete, cl)
 
 	resp := gqlGet(t, host, class, replica.All)
 	assert.Empty(t, resp)
 }
 
-func deleteTenantObjects(t *testing.T, host, class string, path []string, valueText, tenant string) {
+func deleteTenantObjects(t *testing.T, host, class string, path []string, valueText, tenant string, cl replica.ConsistencyLevel) {
 	helper.SetupClient(host)
 
 	batchDelete := &models.BatchDelete{
@@ -178,7 +178,7 @@ func deleteTenantObjects(t *testing.T, host, class string, path []string, valueT
 			},
 		},
 	}
-	resp, err := helper.DeleteTenantObjectsBatch(t, batchDelete, tenant)
+	resp, err := helper.DeleteTenantObjectsBatchCL(t, batchDelete, tenant, cl)
 	helper.AssertRequestOk(t, resp, err, nil)
 
 	deleted := gqlTenantGet(t, host, class, replica.All, tenant)
