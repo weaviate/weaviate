@@ -531,7 +531,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 }
 
 func (i *Index) IncomingVectorDistanceForQuery(ctx context.Context, shardName string,
-	id strfmt.UUID, targets []string, searchVectors [][]float32, tenant string,
+	id strfmt.UUID, targets []string, searchVectors [][]float32,
 ) ([]float32, error) {
 	shard, release, err := i.getLocalShardNoShutdown(shardName)
 	if err != nil {

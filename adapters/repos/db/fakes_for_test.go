@@ -182,7 +182,6 @@ func (f *fakeRemoteClient) VectorDistanceForQuery(ctx context.Context, hostname,
 	id strfmt.UUID,
 	targetVectors []string,
 	searchVectors [][]float32,
-	tenant string,
 ) ([]float32, error) {
 	return nil, nil
 }

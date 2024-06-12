@@ -85,7 +85,6 @@ type RemoteIndexClient interface {
 		id strfmt.UUID,
 		targetVectors []string,
 		searchVectors [][]float32,
-		tenant string,
 	) ([]float32, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
@@ -281,12 +280,11 @@ func (ri *RemoteIndex) VectorDistanceForQuery(ctx context.Context, shard string,
 	id strfmt.UUID,
 	targetVectors []string,
 	searchVectors [][]float32,
-	tenant string,
 	replEnabled bool,
 ) ([]float32, string, error) {
 	f := func(node, host string) (interface{}, error) {
 		scores, err := ri.client.VectorDistanceForQuery(ctx, host, ri.class, shard,
-			id, targetVectors, searchVectors, tenant)
+			id, targetVectors, searchVectors)
 		if err != nil {
 			return nil, err
 		}

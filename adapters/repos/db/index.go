@@ -1585,7 +1585,7 @@ func (i *Index) vectorDistanceForQuery(ctx context.Context, id strfmt.UUID, targ
 				}
 
 				distances, _, err := i.remote.VectorDistanceForQuery(ctx,
-					shardName, id, targets, searchVectors, tenant, i.replicationEnabled())
+					shardName, id, targets, searchVectors, i.replicationEnabled())
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}

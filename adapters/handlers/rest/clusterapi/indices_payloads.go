@@ -347,30 +347,28 @@ func (p mergeDocPayload) Unmarshal(in []byte) (objects.MergeDocument, error) {
 
 type vectorDistanceParamsPayload struct{}
 
-func (p vectorDistanceParamsPayload) Marshal(id strfmt.UUID, targets []string, searchVectors [][]float32, tenant string,
+func (p vectorDistanceParamsPayload) Marshal(id strfmt.UUID, targets []string, searchVectors [][]float32,
 ) ([]byte, error) {
 	type params struct {
 		Id            strfmt.UUID `json:"id"`
 		Targets       []string    `json:"targets"`
 		SearchVectors [][]float32 `json:"searchVectors"`
-		Tenant        string      `json:"tenant"`
 	}
 
-	par := params{id, targets, searchVectors, tenant}
+	par := params{id, targets, searchVectors}
 	return json.Marshal(par)
 }
 
-func (p vectorDistanceParamsPayload) Unmarshal(in []byte) (strfmt.UUID, []string, [][]float32, string, error,
+func (p vectorDistanceParamsPayload) Unmarshal(in []byte) (strfmt.UUID, []string, [][]float32, error,
 ) {
 	type params struct {
 		Id            strfmt.UUID `json:"id"`
 		Targets       []string    `json:"targets"`
 		SearchVectors [][]float32 `json:"searchVectors"`
-		Tenant        string      `json:"tenant"`
 	}
 	var par params
 	err := json.Unmarshal(in, &par)
-	return par.Id, par.Targets, par.SearchVectors, par.Tenant, err
+	return par.Id, par.Targets, par.SearchVectors, err
 }
 
 func (p vectorDistanceParamsPayload) MIME() string {

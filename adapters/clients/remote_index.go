@@ -441,11 +441,10 @@ func (c *RemoteIndex) VectorDistanceForQuery(ctx context.Context, host, index, s
 	id strfmt.UUID,
 	targetVectors []string,
 	searchVectors [][]float32,
-	tenant string,
 ) ([]float32, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.VectorDistanceParams.
-		Marshal(id, targetVectors, searchVectors, tenant)
+		Marshal(id, targetVectors, searchVectors)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request payload: %w", err)
 	}
