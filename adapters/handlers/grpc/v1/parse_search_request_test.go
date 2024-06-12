@@ -1546,7 +1546,7 @@ func TestGRPCRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection:       classname,
 				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Val: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "second", Value: 0.8}}}}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Vals: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "second", Value: 0.8}}}}},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -1564,7 +1564,7 @@ func TestGRPCRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection:       classname,
 				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Val: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "first", Value: 0.8}}}}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Vals: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "first", Value: 0.8}}}}},
 			},
 			out:   dto.GetParams{},
 			error: true,
@@ -1574,7 +1574,7 @@ func TestGRPCRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection:       classname,
 				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Val: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}}}}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Vals: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}}}}},
 			},
 			out:   dto.GetParams{},
 			error: true,
@@ -1584,7 +1584,7 @@ func TestGRPCRequest(t *testing.T) {
 			req: &pb.SearchRequest{
 				Collection:       classname,
 				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Val: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "other", Value: 0.5}}}}},
+				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Vals: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "other", Value: 0.5}}}}},
 			},
 			out:   dto.GetParams{},
 			error: true,
