@@ -365,10 +365,9 @@ func shardProcessID(name string, action command.TenantProcessRequest_Action) str
 }
 
 func (m *metaClass) findRequestedStatus(nodeID, name string, action command.TenantProcessRequest_Action) string {
-	name = shardProcessID(name, action)
-	_, pExists := m.ShardProcesses[name]
-	if _, tExists := m.ShardProcesses[name][nodeID]; pExists && tExists {
-		return m.ShardProcesses[name][nodeID].Tenant.Status
+	processes, pExists := m.ShardProcesses[shardProcessID(name, action)]
+	if _, tExists := processes[nodeID]; pExists && tExists {
+		return processes[nodeID].Tenant.Status
 	}
 	return ""
 }
@@ -387,28 +386,28 @@ func (m *metaClass) allShardProcessExecuted(name string, action command.TenantPr
 
 func (m *metaClass) updateShardProcess(name string, req *command.TenantProcessRequest, copy *sharding.Physical) bool {
 	processes := m.ShardProcesses[shardProcessID(name, req.Action)]
-	hasAbort := false
 	if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
 		for _, sp := range processes {
 			if sp.Op == command.TenantsProcess_OP_DONE {
 				copy.Status = sp.Tenant.Status
+				req.Process.Tenant.Status = sp.Tenant.Status
 				break
 			}
 		}
+		return false
 	}
 
 	if req.Action == command.TenantProcessRequest_ACTION_FREEZING {
 		for _, sp := range processes {
 			if sp.Op == command.TenantsProcess_OP_ABORT {
-				hasAbort = true
 				copy.Status = req.Process.Tenant.Status
 				req.Process.Tenant.Status = sp.Tenant.Status
-				break
+				return true
 			}
 		}
 	}
 
-	return hasAbort
+	return false
 }
 
 func (m *metaClass) applyShardProcess(name string, req *command.TenantProcessRequest, copy *sharding.Physical) {
@@ -441,7 +440,6 @@ func (m *metaClass) applyShardProcess(name string, req *command.TenantProcessReq
 			req.Process.Tenant.Status = onAbortStatus
 		}
 	}
-
 	delete(m.ShardProcesses, shardProcessID(name, req.Action))
 }
 
@@ -507,7 +505,7 @@ func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsReq
 		process[node] = &api.TenantsProcess{
 			Op: command.TenantsProcess_OP_START,
 			Tenant: &command.Tenant{
-				Status: req.Tenants[i].Status,
+				Status: req.Tenants[i].Status, // requested status HOT, COLD
 			},
 		}
 	}
