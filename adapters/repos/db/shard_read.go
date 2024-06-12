@@ -331,6 +331,9 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, sear
 	}
 
 	docIdBytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
+	if err != nil {
+		return nil, err
+	}
 	docId, err := storobj.DocIDFromBinary(docIdBytes)
 	if err != nil {
 		return nil, err
