@@ -115,7 +115,10 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			}
 
 			enterrors.GoWrapper(func() {
-				cmd := command.TenantProcessRequest{Node: m.nodeId}
+				cmd := command.TenantProcessRequest{
+					Node:   m.nodeId,
+					Action: command.TenantProcessRequest_ACTION_FREEZING,
+				}
 				err := m.cloud.Upload(ctx, class, name, m.nodeId)
 				if err != nil {
 					ec.Add(fmt.Errorf("uploading error: %w", err))
@@ -177,7 +180,10 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			defer idx.shardCreateLocks.Unlock(name)
 
 			enterrors.GoWrapper(func() {
-				cmd := command.TenantProcessRequest{Node: m.nodeId}
+				cmd := command.TenantProcessRequest{
+					Node:   m.nodeId,
+					Action: command.TenantProcessRequest_ACTION_UNFREEZING,
+				}
 				err := m.cloud.Download(ctx, class, name, nodeName)
 				if err != nil {
 					ec.Add(fmt.Errorf("downloading error: %w", err))

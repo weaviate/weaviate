@@ -160,16 +160,16 @@ func Test_UploadS3Journey(t *testing.T) {
 		// sleep to give time for actual upload to happen
 
 		t.Run("verify tenant status", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(xt *assert.CollectT) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
-						require.Equal(t, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 		})
 
 		t.Run("add objects to frozen tenant shall fail", func(t *testing.T) {
@@ -334,16 +334,16 @@ func Test_UploadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(xt *assert.CollectT) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
-						require.Equal(t, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 		})
 	})
 
@@ -478,7 +478,7 @@ func Test_UploadS3Journey(t *testing.T) {
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
 		})
 	})
 }
@@ -607,16 +607,16 @@ func Test_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(xt *assert.CollectT) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
-						require.Equal(t, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 		})
 
 		t.Run("updating tenant status to HOT", func(t *testing.T) {
@@ -629,16 +629,16 @@ func Test_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status HOT", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(xt *assert.CollectT) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
-						require.Equal(t, models.TenantActivityStatusHOT, tn.ActivityStatus)
+						assert.Equal(at, models.TenantActivityStatusHOT, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
 		})
 
 		t.Run("verify object creation", func(t *testing.T) {
@@ -795,16 +795,16 @@ func Test_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(xt *assert.CollectT) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
-						require.Equal(t, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 		})
 
 		t.Run("updating tenant status to COLD", func(t *testing.T) {
@@ -817,16 +817,16 @@ func Test_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status COLD", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(xt *assert.CollectT) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
-						require.Equal(t, models.TenantActivityStatusCOLD, tn.ActivityStatus)
+						assert.Equal(at, models.TenantActivityStatusCOLD, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusCOLD))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusCOLD))
 		})
 	})
 }
@@ -955,16 +955,16 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(xt *assert.CollectT) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
-						require.Equal(t, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 		})
 
 		t.Run("updating tenant status to HOT", func(t *testing.T) {
@@ -977,16 +977,16 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status HOT", func(t *testing.T) {
-			assert.EventuallyWithT(t, func(xt *assert.CollectT) {
+			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
 					if tn.Name == tenantNames[0] {
-						require.Equal(t, models.TenantActivityStatusHOT, tn.ActivityStatus)
+						assert.Equal(at, models.TenantActivityStatusHOT, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 4*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
 		})
 
 		t.Run("verify object creation", func(t *testing.T) {
