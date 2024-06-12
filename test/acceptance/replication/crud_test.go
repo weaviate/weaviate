@@ -244,7 +244,7 @@ func immediateReplicaCRUD(t *testing.T) {
 
 	t.Run("DeleteObject", func(t *testing.T) {
 		t.Run("OnNode-3", func(t *testing.T) {
-			deleteObject(t, compose.ContainerURI(3), "Article", articleIDs[0])
+			deleteObject(t, compose.ContainerURI(3), "Article", articleIDs[0], replica.All)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -268,7 +268,7 @@ func immediateReplicaCRUD(t *testing.T) {
 	t.Run("BatchAllObjects", func(t *testing.T) {
 		t.Run("OnNode-3", func(t *testing.T) {
 			deleteObjects(t, compose.ContainerURI(3),
-				"Article", []string{"title"}, "Article#*")
+				"Article", []string{"title"}, "Article#*", replica.All)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -425,7 +425,7 @@ func eventualReplicaCRUD(t *testing.T) {
 
 		t.Run("DeleteObject", func(t *testing.T) {
 			t.Run("OnNode-2", func(t *testing.T) {
-				deleteObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0])
+				deleteObject(t, compose.GetWeaviateNode2().URI(), "Article", articleIDs[0], replica.All)
 			})
 
 			t.Run("OnNode-1", func(t *testing.T) {
@@ -439,7 +439,7 @@ func eventualReplicaCRUD(t *testing.T) {
 		t.Run("BatchDeleteAllObjects", func(t *testing.T) {
 			t.Run("OnNode-2", func(t *testing.T) {
 				deleteObjects(t, compose.GetWeaviateNode2().URI(),
-					"Article", []string{"title"}, "Article#*")
+					"Article", []string{"title"}, "Article#*", replica.All)
 			})
 
 			t.Run("OnNode-1", func(t *testing.T) {
