@@ -30,8 +30,8 @@ func (m *Migrator) frozen(idx *Index, frozen []string, ec *errorcompounder.Error
 		return
 	}
 
-	idx.backupMutex.RLock()
-	defer idx.backupMutex.RUnlock()
+	idx.shardTransferMutex.RLock()
+	defer idx.shardTransferMutex.RUnlock()
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
@@ -82,8 +82,8 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 		return
 	}
 
-	idx.backupMutex.RLock()
-	defer idx.backupMutex.RUnlock()
+	idx.shardTransferMutex.RLock()
+	defer idx.shardTransferMutex.RUnlock()
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
@@ -161,8 +161,8 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 		return
 	}
 
-	idx.backupMutex.RLock()
-	defer idx.backupMutex.RUnlock()
+	idx.shardTransferMutex.RLock()
+	defer idx.shardTransferMutex.RUnlock()
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
