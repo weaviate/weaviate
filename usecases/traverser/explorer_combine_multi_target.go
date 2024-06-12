@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -26,17 +28,17 @@ import (
 )
 
 type ResultContainer interface {
-	AddScores(id uint64, targets []string, distances []float32, weights map[string]float32)
-	RemoveIdFromResult(id uint64)
+	AddScores(id strfmt.UUID, targets []string, distances []float32, weights map[string]float32)
+	RemoveIdFromResult(id strfmt.UUID)
 }
 
 type ResultContainerHybrid struct {
 	ResultsIn   []*search.Result
-	IDsToRemove map[uint64]struct{}
-	allIDs      map[uint64]*search.Result
+	IDsToRemove map[strfmt.UUID]struct{}
+	allIDs      map[strfmt.UUID]*search.Result
 }
 
-func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
+func (r *ResultContainerHybrid) AddScores(id strfmt.UUID, targets []string, distances []float32, weights map[string]float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	newResult := *(r.allIDs[id])
 	newResult.Dist = distances[0]
@@ -44,15 +46,15 @@ func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances
 	r.ResultsIn = append(r.ResultsIn, &newResult)
 }
 
-func (r *ResultContainerHybrid) RemoveIdFromResult(id uint64) {
+func (r *ResultContainerHybrid) RemoveIdFromResult(id strfmt.UUID) {
 	r.IDsToRemove[id] = struct{}{}
 }
 
 type ResultContainerStandard struct {
-	ResultsIn map[uint64]search.Result
+	ResultsIn map[strfmt.UUID]search.Result
 }
 
-func (r *ResultContainerStandard) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
+func (r *ResultContainerStandard) AddScores(id strfmt.UUID, targets []string, distances []float32, weights map[string]float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	tmp := r.ResultsIn[id]
 	for i := 0; i < len(targets); i++ {
@@ -61,7 +63,7 @@ func (r *ResultContainerStandard) AddScores(id uint64, targets []string, distanc
 	r.ResultsIn[id] = tmp
 }
 
-func (r *ResultContainerStandard) RemoveIdFromResult(id uint64) {
+func (r *ResultContainerStandard) RemoveIdFromResult(id strfmt.UUID) {
 	delete(r.ResultsIn, id)
 }
 
@@ -79,13 +81,13 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 		return results[0], nil
 	}
 
-	allIDs := make(map[uint64]*search.Result)
+	allIDs := make(map[strfmt.UUID]*search.Result)
 	for i := range results {
 		for j := range results[i] {
-			allIDs[*(results[i][j].DocID)] = &results[i][j]
+			allIDs[results[i][j].ID] = &results[i][j]
 		}
 	}
-	missingIDs := make(map[uint64]targetVectorData)
+	missingIDs := make(map[strfmt.UUID]targetVectorData)
 
 	if params.TargetVectorJoin.ScoreFusion {
 		weights := make([]float64, len(results))
@@ -95,23 +97,23 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 			weightsMap[target] = float32(weights[i])
 		}
 
-		scoresToRemove := make(map[uint64]struct{})
+		scoresToRemove := make(map[strfmt.UUID]struct{})
 
 		ress := make([][]*search.Result, len(results))
 		for i, res := range results {
-			localIDs := make(map[uint64]*search.Result, len(allIDs))
+			localIDs := make(map[strfmt.UUID]*search.Result, len(allIDs))
 			for key, result := range allIDs {
 				localIDs[key] = result
 			}
 			ress[i] = make([]*search.Result, len(res))
 			for j := range res {
-				delete(localIDs, *(res[j].DocID))
+				delete(localIDs, res[j].ID)
 
 				ress[i][j] = &res[j]
 				ress[i][j].SecondarySortValue = res[j].Dist
 			}
 			collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
-			resultContainer := ResultContainerHybrid{ResultsIn: ress[i], allIDs: allIDs, IDsToRemove: make(map[uint64]struct{})}
+			resultContainer := ResultContainerHybrid{ResultsIn: ress[i], allIDs: allIDs, IDsToRemove: make(map[strfmt.UUID]struct{})}
 			if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &resultContainer, params, weightsMap, allIDs); err != nil {
 				return nil, err
 			}
@@ -126,7 +128,7 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 		if len(scoresToRemove) > 0 {
 			for i := range ress {
 				for j := range ress[i] {
-					if _, ok := scoresToRemove[*(ress[i][j].DocID)]; ok {
+					if _, ok := scoresToRemove[ress[i][j].ID]; ok {
 						ress[i] = append(ress[i][:j], ress[i][j+1:]...)
 					}
 				}
@@ -146,30 +148,30 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 		return joinedResults, nil
 	}
 
-	combinedResults := make(map[uint64]search.Result, len(results[0]))
+	combinedResults := make(map[strfmt.UUID]search.Result, len(results[0]))
 	for i, res := range results {
-		var localIDs map[uint64]*search.Result
+		var localIDs map[strfmt.UUID]*search.Result
 		for _, r := range res {
-			id := *(r.DocID)
+			uid := r.ID
 
 			if params.TargetVectorJoin.Min {
 				tmp := r
-				if _, ok := combinedResults[id]; ok {
-					tmp = combinedResults[id]
+				if _, ok := combinedResults[uid]; ok {
+					tmp = combinedResults[uid]
 				}
 
 				tmp.Dist = min(r.Dist, tmp.Dist)
 				tmp.Certainty = min(r.Certainty, tmp.Certainty)
-				combinedResults[id] = tmp
+				combinedResults[uid] = tmp
 			} else {
 				if len(localIDs) == 0 { // this is only needed if the join method is not Min
-					localIDs = make(map[uint64]*search.Result, len(allIDs))
+					localIDs = make(map[strfmt.UUID]*search.Result, len(allIDs))
 					for val := range allIDs {
 						localIDs[val] = &search.Result{} // content does not matter here - the entry is only needed to combine hybrid search
 					}
 
 				}
-				delete(localIDs, id)
+				delete(localIDs, uid)
 				if len(params.TargetVectorJoin.Weights) != len(results) {
 					return nil, fmt.Errorf("number of weights in join does not match number of results")
 				}
@@ -177,10 +179,10 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 				r.Score *= weight
 				r.SecondarySortValue *= weight
 				r.Dist *= weight
-				if _, ok := combinedResults[id]; ok {
-					r.Dist += combinedResults[id].Dist
+				if _, ok := combinedResults[uid]; ok {
+					r.Dist += combinedResults[uid].Dist
 				}
-				combinedResults[id] = r
+				combinedResults[uid] = r
 			}
 		}
 		collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
@@ -197,20 +199,23 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 	}
 
 	queue := priorityqueue.NewMin[float32](limit)
-
+	uuidCounter := make([]strfmt.UUID, len(combinedResults))
+	count := uint64(0)
 	for id, res := range combinedResults {
-		queue.Insert(id, res.Dist)
+		uuidCounter[count] = id
+		queue.Insert(count, res.Dist)
+		count++
 	}
 	returnResults := make([]search.Result, 0, queue.Len())
 	for i := 0; i < limit; i++ {
 		item := queue.Pop()
-		returnResults = append(returnResults, combinedResults[item.ID])
+		returnResults = append(returnResults, combinedResults[uuidCounter[item.ID]])
 	}
 
 	return returnResults, nil
 }
 
-func collectMissingIds(localIDs map[uint64]*search.Result, missingIDs map[uint64]targetVectorData, targetVectors []string, searchVectors [][]float32, i int) {
+func collectMissingIds(localIDs map[strfmt.UUID]*search.Result, missingIDs map[strfmt.UUID]targetVectorData, targetVectors []string, searchVectors [][]float32, i int) {
 	for id := range localIDs {
 		val, ok := missingIDs[id]
 		if !ok {
@@ -223,7 +228,7 @@ func collectMissingIds(localIDs map[uint64]*search.Result, missingIDs map[uint64
 	}
 }
 
-func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, logger logrus.FieldLogger, missingIDs map[uint64]targetVectorData, combinedResults ResultContainer, params dto.GetParams, weights map[string]float32, allIDs map[uint64]*search.Result) error {
+func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, logger logrus.FieldLogger, missingIDs map[strfmt.UUID]targetVectorData, combinedResults ResultContainer, params dto.GetParams, weights map[string]float32, allIDs map[strfmt.UUID]*search.Result) error {
 	if len(missingIDs) == 0 {
 		return nil
 	}
@@ -235,7 +240,7 @@ func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, lo
 		id := id
 		targets := targets
 		f := func() error {
-			distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, allIDs[id].ID, id, targets.target, targets.searchVector, params.Tenant)
+			distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, allIDs[id].ID, *allIDs[id].DocID, targets.target, targets.searchVector, params.Tenant)
 			mutex.Lock()
 			if err != nil {
 				// when we cannot look up missing distances for an object, it will be removed from the result list
