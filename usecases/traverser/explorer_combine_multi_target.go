@@ -230,16 +230,21 @@ func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, lo
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(_NUMCPU * 2)
-	lock := sync.Mutex{}
+	mutex := sync.Mutex{}
 	for id, targets := range missingIDs {
-		distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, allIDs[id].ID, id, targets.target, targets.searchVector, params.Tenant)
-		lock.Lock()
-		if err != nil {
-			combinedResults.RemoveIdFromResult(id)
-		} else {
-			combinedResults.AddScores(id, targets.target, distances, weights)
+		f := func() error {
+			distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, allIDs[id].ID, id, targets.target, targets.searchVector, params.Tenant)
+			mutex.Lock()
+			if err != nil {
+				// when we cannot look up missing distances for an object, it will be removed from the result list
+				combinedResults.RemoveIdFromResult(id)
+			} else {
+				combinedResults.AddScores(id, targets.target, distances, weights)
+			}
+			mutex.Unlock()
+			return nil
 		}
-		lock.Unlock()
+		eg.Go(f)
 	}
 	if err := eg.Wait(); err != nil {
 		return err
