@@ -386,7 +386,8 @@ func (m *metaClass) allShardProcessExecuted(name string, action command.TenantPr
 
 func (m *metaClass) updateShardProcess(name string, req *command.TenantProcessRequest, copy *sharding.Physical) bool {
 	processes := m.ShardProcesses[shardProcessID(name, req.Action)]
-	if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
+	switch req.Action {
+	case command.TenantProcessRequest_ACTION_UNFREEZING:
 		for _, sp := range processes {
 			if sp.Op == command.TenantsProcess_OP_DONE {
 				copy.Status = sp.Tenant.Status
@@ -394,9 +395,7 @@ func (m *metaClass) updateShardProcess(name string, req *command.TenantProcessRe
 			}
 		}
 		return false
-	}
-
-	if req.Action == command.TenantProcessRequest_ACTION_FREEZING {
+	case command.TenantProcessRequest_ACTION_FREEZING:
 		for _, sp := range processes {
 			if sp.Op == command.TenantsProcess_OP_ABORT {
 				copy.Status = req.Process.Tenant.Status
@@ -411,16 +410,16 @@ func (m *metaClass) updateShardProcess(name string, req *command.TenantProcessRe
 
 func (m *metaClass) applyShardProcess(name string, req *command.TenantProcessRequest, copy *sharding.Physical) {
 	processes := m.ShardProcesses[shardProcessID(name, req.Action)]
-	if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
+
+	switch req.Action {
+	case command.TenantProcessRequest_ACTION_UNFREEZING:
 		for _, sp := range processes {
 			if sp.Op == command.TenantsProcess_OP_DONE {
 				copy.Status = sp.Tenant.Status
 				break
 			}
 		}
-	}
-
-	if req.Action == command.TenantProcessRequest_ACTION_FREEZING {
+	case command.TenantProcessRequest_ACTION_FREEZING:
 		count := 0
 		onAbortStatus := copy.Status
 		for _, sp := range processes {
