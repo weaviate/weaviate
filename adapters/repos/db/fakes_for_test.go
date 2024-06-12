@@ -180,7 +180,6 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 
 func (f *fakeRemoteClient) VectorDistanceForQuery(ctx context.Context, hostname, indexName, shardName string,
 	id strfmt.UUID,
-	docId uint64,
 	targetVectors []string,
 	searchVectors [][]float32,
 	tenant string,

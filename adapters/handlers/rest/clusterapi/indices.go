@@ -137,7 +137,7 @@ type shards interface {
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string, schemaVersion uint64) error
-	VectorDistanceForQuery(ctx context.Context, indexName string, id strfmt.UUID, docId uint64, targets []string, searchVectors [][]float32, tenant string) ([]float32, error)
+	VectorDistanceForQuery(ctx context.Context, indexName, shardName string, id strfmt.UUID, targets []string, searchVectors [][]float32, tenant string) ([]float32, error)
 
 	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
@@ -755,7 +755,7 @@ func (i *indices) postVectorDistance() http.Handler {
 			return
 		}
 
-		id, docId, targetVectors, searchVectors, tenant, err := IndicesPayloads.VectorDistanceParams.
+		id, targetVectors, searchVectors, tenant, err := IndicesPayloads.VectorDistanceParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal search params from json: "+err.Error(),
@@ -767,7 +767,7 @@ func (i *indices) postVectorDistance() http.Handler {
 			"shard":  shard,
 			"action": "Search",
 		}).Debug("searching ...")
-		dists, err := i.shards.VectorDistanceForQuery(r.Context(), ind, id, docId, targetVectors, searchVectors, tenant)
+		dists, err := i.shards.VectorDistanceForQuery(r.Context(), ind, shard, id, targetVectors, searchVectors, tenant)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return

@@ -48,7 +48,7 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, updateTime, err := storobj.DocIDFromBinary(existing)
+	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
 		return fmt.Errorf("get existing doc id from object binary: %w", err)
 	}
@@ -111,7 +111,7 @@ func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, updateTime, err = storobj.DocIDFromBinary(existing)
+	docID, updateTime, err = storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
 		return bucket, nil, uid, 0, 0, fmt.Errorf("get existing doc id from object binary: %w", err)
 	}

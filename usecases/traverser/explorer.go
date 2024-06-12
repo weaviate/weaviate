@@ -86,7 +86,7 @@ type objectsSearcher interface {
 	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 	VectorSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
 
-	VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, docId uint64, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error)
+	VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error)
 
 	// GraphQL Explore{} queries
 	CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,

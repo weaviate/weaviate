@@ -95,7 +95,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err := repo.VectorDistanceForQuery(
 			context.Background(),
 			"does not exist",
-			ids[0], 0,
+			ids[0],
 			[]string{"custom1", "custom2", "custom3"},
 			[][]float32{vectors[1], vectors[2], vectors[3]},
 			"")
@@ -104,7 +104,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
 			class.Class, ids[0],
-			0,
+
 			[]string{"custom1", "custom2"},
 			[][]float32{vectors[1], vectors[2], vectors[3]},
 			"")
@@ -113,7 +113,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
 			class.Class, ids[0],
-			0,
+
 			[]string{},
 			[][]float32{},
 			"")
@@ -122,7 +122,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
 			class.Class, ids[0],
-			0,
+
 			[]string{"custom1", "doesNotExist"},
 			[][]float32{vectors[1], vectors[2]},
 			"")
@@ -131,7 +131,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
 			class.Class, ids[0],
-			0,
+
 			[]string{"custom1", "custom2"},
 			[][]float32{vectors[1], {1, 0}},
 			"")
@@ -151,7 +151,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		distances, err := repo.VectorDistanceForQuery(
 			context.Background(),
 			class.Class, ids[1],
-			1,
+
 			[]string{"custom1", "custom2", "custom3"},
 			[][]float32{vectors[1], vectors[2], vectors[3]},
 			"")
@@ -176,7 +176,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		distances, err := repo.VectorDistanceForQuery(
 			context.Background(),
 			class.Class, ids[2],
-			2,
+
 			[]string{"custom1", "custom2"},
 			[][]float32{vectors[1], vectors[2]},
 			"")
@@ -189,7 +189,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		_, err = repo.VectorDistanceForQuery(
 			context.Background(),
 			class.Class, ids[2],
-			2,
+
 			[]string{"custom1", "custom3"},
 			[][]float32{vectors[1], vectors[2]},
 			"")

@@ -1538,7 +1538,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
-func (i *Index) vectorDistanceForQuery(ctx context.Context, id strfmt.UUID, docId uint64, targets []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+func (i *Index) vectorDistanceForQuery(ctx context.Context, id strfmt.UUID, targets []string, searchVectors [][]float32, tenant string) ([]float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, err
 	}
@@ -1569,21 +1569,9 @@ func (i *Index) vectorDistanceForQuery(ctx context.Context, id strfmt.UUID, docI
 				if !exists {
 					return nil
 				}
-
-				distances := make([]float32, len(targets))
-
-				indexes := shard.VectorIndexes()
-				for j, target := range targets {
-					index, ok := indexes[target]
-					if !ok {
-						return fmt.Errorf("index %s not found", target)
-					}
-					distancer := index.NewQueryVectorDistancer(searchVectors[j])
-					dist, err := distancer.DistanceToNode(docId)
-					if err != nil {
-						return err
-					}
-					distances[j] = dist
+				distances, err := shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
+				if err != nil {
+					return err
 				}
 				distancesReturn = distances
 				return nil
@@ -1597,7 +1585,7 @@ func (i *Index) vectorDistanceForQuery(ctx context.Context, id strfmt.UUID, docI
 				}
 
 				distances, _, err := i.remote.VectorDistanceForQuery(ctx,
-					shardName, id, docId, targets, searchVectors, tenant, i.replicationEnabled())
+					shardName, id, targets, searchVectors, tenant, i.replicationEnabled())
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}

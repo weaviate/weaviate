@@ -83,7 +83,6 @@ type RemoteIndexClient interface {
 	) ([]*storobj.Object, []float32, error)
 	VectorDistanceForQuery(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID,
-		docId uint64,
 		targetVectors []string,
 		searchVectors [][]float32,
 		tenant string,
@@ -280,7 +279,6 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 
 func (ri *RemoteIndex) VectorDistanceForQuery(ctx context.Context, shard string,
 	id strfmt.UUID,
-	docId uint64,
 	targetVectors []string,
 	searchVectors [][]float32,
 	tenant string,
@@ -288,7 +286,7 @@ func (ri *RemoteIndex) VectorDistanceForQuery(ctx context.Context, shard string,
 ) ([]float32, string, error) {
 	f := func(node, host string) (interface{}, error) {
 		scores, err := ri.client.VectorDistanceForQuery(ctx, host, ri.class, shard,
-			id, docId, targetVectors, searchVectors, tenant)
+			id, targetVectors, searchVectors, tenant)
 		if err != nil {
 			return nil, err
 		}

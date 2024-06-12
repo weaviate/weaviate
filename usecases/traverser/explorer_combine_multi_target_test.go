@@ -25,9 +25,12 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 )
 
+func uid(id uint64) strfmt.UUID {
+	return strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("%d", id))).String())
+}
+
 func res(id uint64, distance float32) search.Result {
-	uid := strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("%d", id))).String())
-	return search.Result{DocID: &id, Dist: distance, ID: uid}
+	return search.Result{DocID: &id, Dist: distance, ID: uid(id)}
 }
 
 func TestCombiner(t *testing.T) {
@@ -40,7 +43,7 @@ func TestCombiner(t *testing.T) {
 		in              [][]search.Result
 		out             []search.Result
 		joinMethod      *dto.TargetVectorJoin
-		missingElements map[uint64][]string
+		missingElements map[strfmt.UUID][]string
 	}{
 		{
 			name:       "no results (nil)",
@@ -97,7 +100,7 @@ func TestCombiner(t *testing.T) {
 			joinMethod:      &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1)},
-			missingElements: map[uint64][]string{1: {"target2"}},
+			missingElements: map[strfmt.UUID][]string{uid(1): {"target2"}},
 		},
 		{
 			name:            "missing document without target vector that is not searched (weights)",
@@ -105,7 +108,7 @@ func TestCombiner(t *testing.T) {
 			joinMethod:      &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1), res(1, 2.6)},
-			missingElements: map[uint64][]string{1: {"target3"}},
+			missingElements: map[strfmt.UUID][]string{uid(1): {"target3"}},
 		},
 		{
 			name:            "missing document without target vector (score fusion)",
@@ -113,7 +116,7 @@ func TestCombiner(t *testing.T) {
 			joinMethod:      &dto.TargetVectorJoin{ScoreFusion: true},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1)},
-			missingElements: map[uint64][]string{1: {"target2"}},
+			missingElements: map[strfmt.UUID][]string{uid(1): {"target2"}},
 		},
 		{
 			name:       "many documents (weights)",
@@ -138,7 +141,7 @@ func TestCombiner(t *testing.T) {
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
 			out:             []search.Result{res(1, 0.95), res(2, 1.27)},
-			missingElements: map[uint64][]string{0: {"target3"}},
+			missingElements: map[strfmt.UUID][]string{uid(0): {"target3"}},
 		},
 		{
 			name:       "many documents (score fusion)",

@@ -439,14 +439,13 @@ func (r *searchShardResp) decode(data []byte) (err error) {
 
 func (c *RemoteIndex) VectorDistanceForQuery(ctx context.Context, host, index, shard string,
 	id strfmt.UUID,
-	docId uint64,
 	targetVectors []string,
 	searchVectors [][]float32,
 	tenant string,
 ) ([]float32, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.VectorDistanceParams.
-		Marshal(id, docId, targetVectors, searchVectors, tenant)
+		Marshal(id, targetVectors, searchVectors, tenant)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request payload: %w", err)
 	}

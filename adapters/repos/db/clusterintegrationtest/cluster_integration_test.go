@@ -718,7 +718,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 		}
 		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
-		distances, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, 0, []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]}, "")
+		distances, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]}, "")
 		require.Nil(t, err)
 		for i := range distances {
 			require.Equal(t, distances[i], float32(1))
@@ -734,7 +734,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 		}
 		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
-		distances, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, 0, []string{"custom1", "custom2"}, [][]float32{vectors[1], vectors[1]}, "")
+		distances, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, []string{"custom1", "custom2"}, [][]float32{vectors[1], vectors[1]}, "")
 		require.Nil(t, err)
 		require.Equal(t, distances[0], float32(1))
 		require.Equal(t, distances[1], float32(0))
@@ -749,9 +749,30 @@ func TestDistributedVectorDistance(t *testing.T) {
 		}
 		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
 
-		_, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, 0, []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[1]}, "")
+		_, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[1]}, "")
 		require.NotNil(t, err)
 		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+	})
+
+	t.Run("Multiple objects", func(t *testing.T) {
+		ids := make([]strfmt.UUID, 50)
+		for i := range ids {
+			obj := &models.Object{
+				ID:      strfmt.UUID(uuid.New().String()),
+				Class:   collection.Class,
+				Vectors: map[string]models.Vector{"custom1": vectors[i%len(vectors)], "custom2": vectors[(i+1)%len(vectors)], "custom3": vectors[(i+2)%len(vectors)]},
+			}
+			ids[i] = obj.ID
+			require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+		}
+
+		for i := range ids {
+			distances, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, ids[i], []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[(i+1)%len(vectors)], vectors[(i+2)%len(vectors)], vectors[(i+3)%len(vectors)]}, "")
+			require.Nil(t, err)
+			require.Equal(t, distances[0], float32(1))
+			require.Equal(t, distances[1], float32(1))
+			require.Equal(t, distances[2], float32(1))
+		}
 	})
 
 	for _, node := range nodes {

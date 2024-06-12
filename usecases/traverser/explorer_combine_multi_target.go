@@ -240,7 +240,7 @@ func getScoresOfMissingResults(ctx context.Context, searcher objectsSearcher, lo
 		id := id
 		targets := targets
 		f := func() error {
-			distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, allIDs[id].ID, *allIDs[id].DocID, targets.target, targets.searchVector, params.Tenant)
+			distances, err := searcher.VectorDistanceForQuery(ctx, params.ClassName, allIDs[id].ID, targets.target, targets.searchVector, params.Tenant)
 			mutex.Lock()
 			if err != nil {
 				// when we cannot look up missing distances for an object, it will be removed from the result list
