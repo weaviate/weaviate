@@ -24,7 +24,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -277,6 +276,7 @@ const (
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 	AddPQ
+	AddSQ
 )
 
 func (t HnswCommitType) String() string {
@@ -305,6 +305,8 @@ func (t HnswCommitType) String() string {
 		return "ClearLinksAtLevel"
 	case AddPQ:
 		return "AddProductQuantizer"
+	case AddSQ:
+		return "AddScalarQuantizer"
 	}
 	return "unknown commit type"
 }
@@ -313,11 +315,11 @@ func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
-func (l *hnswCommitLogger) AddPQ(data compressionhelpers.PQData) error {
+func (l *hnswCommitLogger) AddCompression(data any) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddPQ(data)
+	return l.commitLogger.AddCompression(data)
 }
 
 // AddNode adds an empty node

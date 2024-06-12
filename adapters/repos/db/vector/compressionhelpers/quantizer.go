@@ -26,10 +26,10 @@ type quantizer[T byte | uint64] interface {
 	ReturnQuantizerDistancer(distancer quantizerDistancer[T])
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
-	ExposeFields() PQData
+	ExposeFields() any
 }
 
-func (bq *BinaryQuantizer) ExposeFields() PQData {
+func (bq *BinaryQuantizer) ExposeFields() any {
 	return PQData{}
 }
 

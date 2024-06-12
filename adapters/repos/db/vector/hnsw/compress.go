@@ -86,7 +86,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if err != nil {
 			return fmt.Errorf("Compressing vectors: %w", err)
 		}
-		h.commitLog.AddPQ(h.compressor.ExposeFields())
+		h.commitLog.AddCompression(h.compressor.ExposeFields())
 	} else if cfg.SQ.Enabled {
 		if h.isEmpty() {
 			return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
@@ -124,7 +124,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if err != nil {
 			return fmt.Errorf("Compressing vectors: %w", err)
 		}
-		//h.commitLog.AddPQ(h.compressor.ExposeFields())
+		h.commitLog.AddCompression(h.compressor.ExposeFields())
 	} else {
 		var err error
 		h.compressor, err = compressionhelpers.NewBQCompressor(

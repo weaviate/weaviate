@@ -227,7 +227,7 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 		)
 		assert.NoError(t, err)
 		pq.Fit(vectors)
-		pqdata := pq.ExposeFields()
+		pqdata := pq.ExposeFields().(compressionhelpers.PQData)
 		assert.Equal(t, pqdata.TrainingLimit, 260)
 	})
 }

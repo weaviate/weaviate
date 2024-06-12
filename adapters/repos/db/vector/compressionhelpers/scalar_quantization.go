@@ -25,12 +25,19 @@ const (
 )
 
 type ScalarQuantizer struct {
-	a         float32
-	b         float32
-	a2        float32
-	ab        float32
-	ib2       float32
-	distancer distancer.Provider
+	a          float32
+	b          float32
+	a2         float32
+	ab         float32
+	ib2        float32
+	distancer  distancer.Provider
+	dimensions int
+}
+
+type SQData struct {
+	A          float32
+	B          float32
+	Dimensions uint16
 }
 
 func (sq *ScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
@@ -76,7 +83,8 @@ func NewScalarQuantizer(data [][]float32, distance distancer.Provider) *ScalarQu
 	}
 
 	sq := &ScalarQuantizer{
-		distancer: distance,
+		distancer:  distance,
+		dimensions: len(data[0]),
 	}
 	sq.b = data[0][0]
 	for i := 1; i < len(data); i++ {
@@ -92,8 +100,25 @@ func NewScalarQuantizer(data [][]float32, distance distancer.Provider) *ScalarQu
 	}
 	sq.a2 = sq.a * sq.a / codes2
 	sq.ab = sq.a * sq.b / codes
-	sq.ib2 = sq.b * sq.b * float32(len(data[0]))
+	sq.ib2 = sq.b * sq.b * float32(sq.dimensions)
 	return sq
+}
+
+func RestoreScalarQuantizer(a, b float32, dimensions uint16, distance distancer.Provider) (*ScalarQuantizer, error) {
+	if a == 0 {
+		return nil, errors.New("invalid range value while restoring SQ settings")
+	}
+
+	sq := &ScalarQuantizer{
+		distancer:  distance,
+		a:          a,
+		b:          b,
+		a2:         a * a / codes2,
+		ab:         a * b / codes,
+		ib2:        b * b * float32(dimensions),
+		dimensions: int(dimensions),
+	}
+	return sq, nil
 }
 
 func codeFor(x, a, b, codes float32) byte {
@@ -183,8 +208,12 @@ func (sq *ScalarQuantizer) FromCompressedBytes(compressed []byte) []byte {
 	return compressed
 }
 
-func (sq *ScalarQuantizer) ExposeFields() PQData {
-	return PQData{}
+func (sq *ScalarQuantizer) ExposeFields() any {
+	return SQData{
+		A:          sq.a,
+		B:          sq.b,
+		Dimensions: uint16(sq.dimensions),
+	}
 }
 
 func (sq *ScalarQuantizer) norm(code []byte) uint32 {

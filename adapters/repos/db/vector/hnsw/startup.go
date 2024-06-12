@@ -132,28 +132,47 @@ func (h *hnsw) restoreFromDisk() error {
 
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
-		h.dims = int32(state.PQData.Dimensions)
 		h.cache.Drop()
+		if data, ok := state.CompressionData.(compressionhelpers.PQData); ok {
+			h.dims = int32(data.Dimensions)
 
-		if len(state.PQData.Encoders) > 0 {
-			// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
-			if h.pqConfig.Segments == 0 {
-				h.pqConfig.Segments = int(state.PQData.Dimensions)
+			if len(data.Encoders) > 0 {
+				// 0 means it was created using the default value. The user did not set the value, we calculated for him/her
+				if h.pqConfig.Segments == 0 {
+					h.pqConfig.Segments = int(data.Dimensions)
+				}
+				h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
+					h.pqConfig,
+					h.distancerProvider,
+					int(data.Dimensions),
+					// ToDo: we need to read this value from somewhere
+					1e12,
+					h.logger,
+					data.Encoders,
+					h.store,
+					h.allocChecker,
+				)
+				if err != nil {
+					return errors.Wrap(err, "Restoring compressed data.")
+				}
 			}
-			h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
-				h.pqConfig,
+		} else if data, ok := state.CompressionData.(compressionhelpers.SQData); ok {
+			h.dims = int32(data.Dimensions)
+			h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 				h.distancerProvider,
-				int(state.PQData.Dimensions),
-				// ToDo: we need to read this value from somewhere
 				1e12,
 				h.logger,
-				state.PQData.Encoders,
+				data.A,
+				data.B,
+				data.Dimensions,
 				h.store,
 				h.allocChecker,
 			)
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
+		} else {
+			return errors.New("unsopported type while loading compression data")
 		}
 		// make sure the compressed cache fits the current size
 		h.compressor.GrowCache(uint64(len(h.nodes)))

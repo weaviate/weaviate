@@ -189,7 +189,7 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	AddPQ(compressionhelpers.PQData) error
+	AddCompression(any) error
 }
 
 type BufferedLinksLogger interface {

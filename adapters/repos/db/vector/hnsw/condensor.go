@@ -57,7 +57,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 
 	if res.Compressed {
-		if err := c.AddPQ(res.PQData); err != nil {
+		if err := c.AddCompression(res.CompressionData); err != nil {
 			return fmt.Errorf("write pq data: %w", err)
 		}
 	}
@@ -263,25 +263,36 @@ func (c *MemoryCondensor) RemoveTombstone(nodeid uint64) error {
 	return ec.ToError()
 }
 
-func (c *MemoryCondensor) AddPQ(data compressionhelpers.PQData) error {
-	toWrite := make([]byte, 10)
-	toWrite[0] = byte(AddPQ)
-	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
-	toWrite[3] = byte(data.EncoderType)
-	binary.LittleEndian.PutUint16(toWrite[4:6], data.Ks)
-	binary.LittleEndian.PutUint16(toWrite[6:8], data.M)
-	toWrite[8] = data.EncoderDistribution
-	if data.UseBitsEncoding {
-		toWrite[9] = 1
-	} else {
-		toWrite[9] = 0
-	}
+func (c *MemoryCondensor) AddCompression(genericData any) error {
+	if data, ok := genericData.(compressionhelpers.PQData); ok {
+		toWrite := make([]byte, 10)
+		toWrite[0] = byte(AddPQ)
+		binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
+		toWrite[3] = byte(data.EncoderType)
+		binary.LittleEndian.PutUint16(toWrite[4:6], data.Ks)
+		binary.LittleEndian.PutUint16(toWrite[6:8], data.M)
+		toWrite[8] = data.EncoderDistribution
+		if data.UseBitsEncoding {
+			toWrite[9] = 1
+		} else {
+			toWrite[9] = 0
+		}
 
-	for _, encoder := range data.Encoders {
-		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
+		for _, encoder := range data.Encoders {
+			toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
+		}
+		_, err := c.newLog.Write(toWrite)
+		return err
+	} else if data, ok := genericData.(compressionhelpers.SQData); ok {
+		toWrite := make([]byte, 11)
+		toWrite[0] = byte(AddSQ)
+		binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
+		binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
+		binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
+		_, err := c.newLog.Write(toWrite)
+		return err
 	}
-	_, err := c.newLog.Write(toWrite)
-	return err
+	return errors.New("unsupported data type provided to AddCompression method")
 }
 
 func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {

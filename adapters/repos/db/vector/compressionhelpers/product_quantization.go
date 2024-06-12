@@ -282,7 +282,7 @@ func PutCode8(code byte, buffer []byte, index int) {
 	buffer[index] = code
 }
 
-func (pq *ProductQuantizer) ExposeFields() PQData {
+func (pq *ProductQuantizer) ExposeFields() any {
 	return PQData{
 		Dimensions:          uint16(pq.dimensions),
 		EncoderType:         pq.encoderType,

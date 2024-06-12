@@ -13,8 +13,6 @@ package hnsw
 
 import (
 	"context"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 // NoopCommitLogger implements the CommitLogger interface, but does not
@@ -25,7 +23,7 @@ func (n *NoopCommitLogger) ID() string {
 	return ""
 }
 
-func (n *NoopCommitLogger) AddPQ(data compressionhelpers.PQData) error {
+func (n *NoopCommitLogger) AddCompression(data any) error {
 	return nil
 }
 
