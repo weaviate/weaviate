@@ -161,6 +161,8 @@ type hnsw struct {
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
+	bqConfig   ent.BQConfig
+	sqConfig   ent.SQConfig
 
 	compressActionLock *sync.RWMutex
 	className          string
@@ -271,12 +273,16 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
+		bqConfig:             uc.BQ,
+		sqConfig:             uc.SQ,
 		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
+
+		doNotRescore: true,
 	}
 
 	if uc.BQ.Enabled {
