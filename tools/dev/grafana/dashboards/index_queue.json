@@ -252,7 +252,7 @@
             "fullMetaSearch": false,
             "includeNullMetadata": true,
             "instant": false,
-            "legendFormat": "__auto",
+            "legendFormat": "{{class_name}} - {{shard_name}}",
             "range": true,
             "refId": "A",
             "useBackend": false
@@ -353,7 +353,7 @@
             "fullMetaSearch": false,
             "includeNullMetadata": true,
             "instant": false,
-            "legendFormat": "__auto",
+            "legendFormat": "{{class_name}} - {{shard_name}}",
             "range": true,
             "refId": "A",
             "useBackend": false
