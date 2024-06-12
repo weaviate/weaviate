@@ -379,7 +379,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 	ec := &errorcompounder.ErrorCompounder{}
 	if len(hot) > 0 {
-		m.logger.WithField("tenants", hot).Debug("updating to HOT")
+		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
 	}
 
 	for _, name := range hot {
@@ -413,7 +413,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	}
 
 	if len(cold) > 0 {
-		m.logger.WithField("tenants", cold).Debug("updating to COLD")
+		m.logger.WithField("action", "tenants_to_cold").Debug(cold)
 		idx.backupMutex.RLock()
 		defer idx.backupMutex.RUnlock()
 
@@ -454,17 +454,17 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	}
 
 	if len(frozen) > 0 {
-		m.logger.WithField("tenants", frozen).Debug("updating to FROZEN")
+		m.logger.WithField("action", "tenants_to_frozen").Debug(frozen)
 		m.frozen(idx, frozen, ec)
 	}
 
 	if len(freezing) > 0 {
-		m.logger.WithField("tenants", freezing).Debug("updating to FREEZING")
+		m.logger.WithField("action", "tenants_to_freezing").Debug(freezing)
 		m.freeze(ctx, idx, class.Class, freezing, ec)
 	}
 
 	if len(unfreezing) > 0 {
-		m.logger.WithField("tenants", unfreezing).Debug("updating to UNFREEZING")
+		m.logger.WithField("action", "tenants_to_unfreezing").Debug(unfreezing)
 		m.unfreeze(ctx, idx, class.Class, unfreezing, ec)
 	}
 
