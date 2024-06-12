@@ -270,7 +270,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 		m.applyShardProcess(name, req, &copy)
 	} else {
 		// ignore aborts in download, given 1 successful download is enough
-		// but id upload has 1 abort will not freeze
+		// but if upload has 1 abort will not continue freezing
 		if hasAbort := m.updateShardProcess(name, req, &copy); !hasAbort {
 			req.Process = nil
 			return nil
