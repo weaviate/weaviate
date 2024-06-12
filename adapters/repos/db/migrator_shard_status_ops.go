@@ -196,6 +196,11 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 						Op: command.TenantsProcess_OP_ABORT,
 					}
 				} else {
+
+					if err := m.cloud.Delete(ctx, class, name, nodeName); err != nil {
+						// we just logging in case of we are not able to delete the cloud
+						m.logger.Error("deleting error: %w", err)
+					}
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
 							Name:   name,
