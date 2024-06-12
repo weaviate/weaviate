@@ -440,8 +440,11 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		tenant = tk.(string)
 	}
 
-	targetVectorJoinMethod := &dto.TargetVectorJoin{Min: true}
-	// add extraction later
+	// add extraction and handling of different searches later
+	var targetVectorJoinMethod *dto.TargetVectorJoin
+	if hybridParams != nil && len(hybridParams.TargetVectors) > 0 {
+		targetVectorJoinMethod = &dto.TargetVectorJoin{Min: true}
+	}
 
 	params := dto.GetParams{
 		Filters:               filters,
