@@ -307,7 +307,7 @@ def test_more_results_than_limit(
         properties={"colour": "bright", "weather": "summer", "material": "cotton"},
     )
     uuid2 = collection.data.insert(
-        properties={"colour": "beige", "weather": "warm", "material": "breezy"},
+        properties={"colour": "snow", "weather": "warm", "material": "breezy"},
     )
     uuid3 = collection.data.insert(
         properties={"colour": "white", "weather": "cold", "material": "heavy fur"},
