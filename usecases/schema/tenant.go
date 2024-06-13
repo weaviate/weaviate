@@ -144,7 +144,9 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		Tenants:      make([]*api.Tenant, len(tenants)),
 		ClusterNodes: h.clusterState.Candidates(),
 	}
+	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
+		tNames[i] = tenant.Name
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
@@ -154,18 +156,11 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 
 	// we get the new state to return correct status
 	// specially in FREEZING and UNFREEZING
-	updatedShardState := h.metaReader.CopyShardingState(class)
-	updatedTenants := make([]*models.Tenant, len(tenants))
-	for idx, old := range tenants {
-		if new, ok := updatedShardState.Physical[old.Name]; ok {
-			updatedTenants[idx] = &models.Tenant{
-				Name:           new.Name,
-				ActivityStatus: new.Status,
-			}
-		}
+	uTenants, _, err := h.metaWriter.QueryTenants(class, tNames)
+	if err != nil {
+		return nil, err
 	}
-
-	return updatedTenants, err
+	return uTenants, err
 }
 
 // DeleteTenants is used to delete tenants of a class.

@@ -200,7 +200,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
-
+	// no error here because that means the process shouldn't be applied to db
 	if req.Process == nil {
 		return nil
 	}

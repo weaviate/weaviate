@@ -103,7 +103,7 @@ message TenantsProcess {
   }
 
   Op op = 1;  
-  Tenant tenant =3;
+  Tenant tenant =2;
 }
 
 message TenantProcessRequest {
@@ -113,7 +113,7 @@ message TenantProcessRequest {
     ACTION_UNFREEZING = 2;
   }
   string node = 1;
-  Action action =2;
+  Action action = 2;
   TenantsProcess process = 3;
 }
 
