@@ -679,7 +679,7 @@ func (q *IndexQueue) checkCompressionSettings() bool {
 		return false
 	}
 
-	if q.Index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+	if q.Index.AlreadyIndexed() >= uint64(shouldUpgradeAt) {
 		q.pauseIndexing()
 		err := ci.Upgrade(q.resumeIndexing)
 		if err != nil {
