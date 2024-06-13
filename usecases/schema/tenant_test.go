@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestAddTenants(t *testing.T) {
@@ -216,10 +215,10 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("CopyShardingState", mock.Anything).Return(&sharding.State{Physical: map[string]sharding.Physical{
-					tenants[0].Name: {Name: tenants[0].Name, Status: models.TenantActivityStatusCOLD},
-					tenants[1].Name: {Name: tenants[1].Name, Status: models.TenantActivityStatusHOT},
-				}})
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -230,10 +229,10 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("CopyShardingState", mock.Anything).Return(&sharding.State{Physical: map[string]sharding.Physical{
-					tenants[0].Name: {Name: tenants[0].Name, Status: models.TenantActivityStatusCOLD},
-					tenants[1].Name: {Name: tenants[1].Name, Status: models.TenantActivityStatusHOT},
-				}})
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -244,10 +243,10 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("CopyShardingState", mock.Anything).Return(&sharding.State{Physical: map[string]sharding.Physical{
-					tenants[0].Name: {Name: tenants[0].Name, Status: models.TenantActivityStatusCOLD},
-					tenants[1].Name: {Name: tenants[1].Name, Status: models.TenantActivityStatusHOT},
-				}})
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -300,10 +299,10 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeMetaHandler.On("CopyShardingState", mock.Anything).Return(&sharding.State{Physical: map[string]sharding.Physical{
-					tenants[0].Name: {Name: tenants[0].Name, Status: models.TenantActivityStatusCOLD},
-					tenants[1].Name: {Name: tenants[1].Name, Status: models.TenantActivityStatusHOT},
-				}})
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 	}
