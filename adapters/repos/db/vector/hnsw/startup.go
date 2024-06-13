@@ -172,7 +172,7 @@ func (h *hnsw) restoreFromDisk() error {
 				return errors.Wrap(err, "Restoring compressed data.")
 			}
 		} else {
-			return errors.New("unsopported type while loading compression data")
+			return errors.New("unsupported type while loading compression data")
 		}
 		// make sure the compressed cache fits the current size
 		h.compressor.GrowCache(uint64(len(h.nodes)))
