@@ -55,6 +55,7 @@ void l2_neon_byte_256(unsigned char *a, unsigned char *b, unsigned int *res, lon
         int32x4_t sq_3_high = vmull_s16(vget_low_s16(diff_3_high), vget_low_s16(diff_3_high));
         sq_3_high += vmull_s16(vget_high_s16(diff_3_high), vget_high_s16(diff_3_high));
 
+        // convert to unsigned 32-bit ints (square is garantueed to be positive)
         res_vec0 += vreinterpretq_u32_s32(sq_0_low);
         res_vec0 += vreinterpretq_u32_s32(sq_0_high);
 
@@ -104,7 +105,6 @@ void l2_neon_byte_256(unsigned char *a, unsigned char *b, unsigned int *res, lon
     {
         int32_t diff = (int32_t)(a[j]) - (int32_t)(b[j]);
         sum += (uint32_t)(diff * diff);
-        // sum += (uint32_t)(a[j]) * (uint32_t)(b[j]);
         j++;
     }
 
