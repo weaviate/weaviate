@@ -21,7 +21,7 @@ import (
 
 //go:generate goat ../c/l2_neon_arm64.c -O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 //go:generate goat ../c/l2_sve_arm64.c -O3 -e="-mcpu=neoverse-v1" -e="--target=arm64" -e="-march=armv8-a+sve"
-//go:generate goat ../c/l2_neon_byte_arm64.c -O1 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//go:generate goat ../c/l2_neon_byte_arm64.c -O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
 // L2 calculates the L2 distance between two vectors
 // using SIMD instructions when possible.
