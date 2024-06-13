@@ -20,6 +20,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
@@ -79,7 +80,8 @@ func compactionRoaringSetRangeStrategy_Random(ctx context.Context, t *testing.T,
 }
 
 func verifyBucketRangeAgainstControl(t *testing.T, b *Bucket, control []*sroar.Bitmap) {
-	reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange)
+	logger, _ := test.NewNullLogger()
+	reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange, logger)
 
 	for i, controlBM := range control {
 		actual, err := reader.Read(context.Background(), uint64(i), filters.OperatorEqual)
@@ -142,6 +144,8 @@ func controlFromRangeInstructions(instr []roaringSetRangeInstruction, maxID uint
 func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts []BucketOption,
 	expectedMinSize, expectedMaxSize int64,
 ) {
+	logger, _ := test.NewNullLogger()
+
 	maxKey := uint64(100)
 
 	type kv struct {
@@ -392,7 +396,7 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange, logger)
 		for k := uint64(0); k < maxKey; k++ {
 			bm, err := reader.Read(context.Background(), k, filters.OperatorEqual)
 			require.NoError(t, err)
@@ -427,7 +431,7 @@ func compactionRoaringSetRangeStrategy(ctx context.Context, t *testing.T, opts [
 	t.Run("verify control after compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange, logger)
 		for k := uint64(0); k < maxKey; k++ {
 			bm, err := reader.Read(context.Background(), k, filters.OperatorEqual)
 			require.NoError(t, err)
@@ -483,7 +487,7 @@ func compactionRoaringSetRangeStrategy_RemoveUnnecessary(ctx context.Context, t 
 	})
 
 	t.Run("verify control before compaction", func(t *testing.T) {
-		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange, logger)
 		bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 		require.NoError(t, err)
 
@@ -559,7 +563,7 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 			})
 
 			t.Run("verify that objects exist before compaction", func(t *testing.T) {
-				reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+				reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange, logger)
 				bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 				require.NoError(t, err)
 
@@ -581,7 +585,7 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 			})
 
 			t.Run("verify that objects exist after compaction", func(t *testing.T) {
-				reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange)
+				reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange, logger)
 				bm, err := reader.Read(context.Background(), key, filters.OperatorEqual)
 				require.NoError(t, err)
 

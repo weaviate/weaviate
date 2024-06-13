@@ -12,21 +12,27 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"math"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 type BucketReaderRoaringSetRange struct {
 	cursorFn func() CursorRoaringSetRange
+	logger   logrus.FieldLogger
 }
 
-func NewBucketReaderRoaringSetRange(cursorFn func() CursorRoaringSetRange) *BucketReaderRoaringSetRange {
+func NewBucketReaderRoaringSetRange(cursorFn func() CursorRoaringSetRange, logger logrus.FieldLogger,
+) *BucketReaderRoaringSetRange {
 	return &BucketReaderRoaringSetRange{
 		cursorFn: cursorFn,
+		logger:   logger,
 	}
 }
 
@@ -58,6 +64,7 @@ func (r *BucketReaderRoaringSetRange) Read(ctx context.Context, value uint64,
 
 func (r *BucketReaderRoaringSetRange) greaterThanEqual(ctx context.Context, value uint64) (*sroar.Bitmap, error) {
 	resultBM, cursor, ok, err := r.nonNullBMWithCursor(ctx)
+	// fmt.Printf("  ==> nn card %d\n", resultBM.GetCardinality())
 	if !ok {
 		return resultBM, err
 	}
@@ -174,7 +181,8 @@ func (r *BucketReaderRoaringSetRange) nonNullBMWithCursor(ctx context.Context) (
 		return nil, nil, false, ctx.Err()
 	}
 
-	return nonNullBM.Clone(), cursor, true, nil
+	return nonNullBM, cursor, true, nil
+	// return nonNullBM.Clone(), cursor, true, nil
 }
 
 func (r *BucketReaderRoaringSetRange) mergeGreaterThanEqual(ctx context.Context, resBM *sroar.Bitmap,
@@ -182,18 +190,50 @@ func (r *BucketReaderRoaringSetRange) mergeGreaterThanEqual(ctx context.Context,
 ) (*sroar.Bitmap, error) {
 	defer cursor.close()
 
+	mergeCh := make(chan func(), 16)
+	doneCh := make(chan struct{})
+	errors.GoWrapper(func() {
+		for merge := range mergeCh {
+			merge()
+		}
+		doneCh <- struct{}{}
+	}, r.logger)
+
+	// if first AND-merge occurred. Before that all OR-merges can be skipped
+	// as non-null BM contains all of values, therefore OR with smaller sets
+	// of values will not change result BM
+	ANDed := true
+	prevOR := true  // merge operation of previous loop: OR (true) / AND (false)
+	prevBM := resBM // bitBM of previous loop
+
 	for bit, bitBM, ok := cursor.next(); ok; bit, bitBM, ok = cursor.next() {
 		if ctx.Err() != nil {
+			close(mergeCh)
 			return nil, ctx.Err()
 		}
 
-		// And/Or handle properly nil bitmaps, so bitBM == nil is fine
+		localPrevBM, localCurrBM := prevBM, bitBM
+		prevBM = bitBM
+
 		if value&(1<<(bit-1)) != 0 {
-			resBM.And(bitBM)
-		} else {
-			resBM.Or(bitBM)
+			ANDed = true
+			if !prevOR && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
+				// skip merge if same BM was AND-merged step before
+				continue
+			}
+			prevOR = false
+			mergeCh <- func() { resBM.And(localCurrBM) }
+		} else if ANDed {
+			if prevOR && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
+				// skip merge if same BM was OR-merged step before
+				continue
+			}
+			prevOR = true
+			mergeCh <- func() { resBM.Or(localCurrBM) }
 		}
 	}
+	close(mergeCh)
+	<-doneCh
 
 	return resBM, nil
 }
@@ -203,27 +243,75 @@ func (r *BucketReaderRoaringSetRange) mergeEqual(ctx context.Context, resBM *sro
 ) (*sroar.Bitmap, error) {
 	defer cursor.close()
 
+	mergeCh := make(chan func(), 16)
+	doneCh := make(chan struct{})
+	errors.GoWrapper(func() {
+		for merge := range mergeCh {
+			merge()
+		}
+		doneCh <- struct{}{}
+	}, r.logger)
+
+	// if first AND-merge occurred. Before that all OR-merges can be skipped
+	// as non-null BM contains all of values, therefore OR with smaller sets
+	// of values will not change result BM
+	ANDed := false
+	ANDed1 := false
+	prevOR := true // merge operation of previous loop: OR (true) / AND (false)
+	prevOR1 := true
+	prevBM := resBM // bitBM of previous loop
+
 	resBM1 := resBM.Clone()
 	value1 := value + 1
+
 	for bit, bitBM, ok := cursor.next(); ok; bit, bitBM, ok = cursor.next() {
 		if ctx.Err() != nil {
+			close(mergeCh)
 			return nil, ctx.Err()
 		}
 
+		localPrevBM, localCurrBM := prevBM, bitBM
+		prevBM = bitBM
 		var b uint64 = 1 << (bit - 1)
+
 		if value&b != 0 {
-			resBM.And(bitBM)
-		} else {
-			resBM.Or(bitBM)
+			ANDed = true
+			if !prevOR && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
+				// skip merge if same BM was AND-merged step before
+				continue
+			}
+			prevOR = false
+			mergeCh <- func() { resBM.And(localCurrBM) }
+		} else if ANDed {
+			if prevOR && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
+				// skip merge if same BM was OR-merged step before
+				continue
+			}
+			prevOR = true
+			mergeCh <- func() { resBM.Or(localCurrBM) }
 		}
+
 		if value1&b != 0 {
-			resBM1.And(bitBM)
-		} else {
-			resBM1.Or(bitBM)
+			ANDed1 = true
+			if !prevOR1 && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
+				// skip merge if same BM was AND-merged step before
+				continue
+			}
+			prevOR1 = false
+			mergeCh <- func() { resBM1.And(localCurrBM) }
+		} else if ANDed1 {
+			if prevOR1 && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
+				// skip merge if same BM was OR-merged step before
+				continue
+			}
+			prevOR1 = true
+			mergeCh <- func() { resBM1.Or(localCurrBM) }
 		}
 	}
+	mergeCh <- func() { resBM.AndNot(resBM1) }
+	close(mergeCh)
+	<-doneCh
 
-	resBM.AndNot(resBM1)
 	return resBM, nil
 }
 

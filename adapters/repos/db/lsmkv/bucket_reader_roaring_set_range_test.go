@@ -18,6 +18,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/sroar"
@@ -25,6 +26,8 @@ import (
 )
 
 func TestReaderRoaringSetRange(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
 	t.Run("with empty CursorRoaringSetRange", func(t *testing.T) {
 		values := []uint64{0, 1, 4, 5, 6, 12, 13, 14, 12345678901234567890, math.MaxUint64}
 		operators := []filters.Operator{
@@ -38,7 +41,7 @@ func TestReaderRoaringSetRange(t *testing.T) {
 
 		reader := NewBucketReaderRoaringSetRange(func() CursorRoaringSetRange {
 			return newFakeCursorRoaringSetRange(map[uint64]uint64{})
-		})
+		}, logger)
 
 		for _, operator := range operators {
 			t.Run(operator.Name(), func(t *testing.T) {
@@ -379,7 +382,7 @@ func TestReaderRoaringSetRange(t *testing.T) {
 				10:  0,  // 0000
 				20:  0,  // 0000
 			})
-		})
+		}, logger)
 
 		for _, tc := range testCases {
 			t.Run(tc.operator.Name(), func(t *testing.T) {
@@ -719,7 +722,7 @@ func TestReaderRoaringSetRange(t *testing.T) {
 				10:  math.MaxUint64,      // 1111..1111
 				20:  math.MaxUint64,      // 1111..1111
 			})
-		})
+		}, logger)
 
 		for _, tc := range testCases {
 			t.Run(tc.operator.Name(), func(t *testing.T) {
