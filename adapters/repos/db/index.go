@@ -2277,7 +2277,7 @@ func (i *Index) notifyReady() {
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
-	filters *filters.LocalFilter, tenant string,
+	filters *filters.LocalFilter, tenant string, repl *additional.ReplicationProperties,
 ) (map[string][]strfmt.UUID, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
@@ -2285,6 +2285,8 @@ func (i *Index) findUUIDs(ctx context.Context,
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, err
 	}
+
+	className := i.Config.ClassName.String()
 
 	shardNames, err := i.targetShardNames(tenant)
 	if err != nil {
@@ -2295,16 +2297,25 @@ func (i *Index) findUUIDs(ctx context.Context,
 	for _, shardName := range shardNames {
 		var shard ShardLike
 		var release func()
+		var err error
 
-		shard, release, err = i.getLocalShardNoShutdown(shardName)
-		if err == nil {
-			if shard != nil {
-				func() {
-					defer release()
-					results[shardName], err = shard.FindUUIDs(ctx, filters)
-				}()
-			} else {
-				results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
+		if i.replicationEnabled() {
+			if repl == nil {
+				repl = defaultConsistency()
+			}
+
+			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, replica.ConsistencyLevel(repl.ConsistencyLevel))
+		} else {
+			shard, release, err = i.getLocalShardNoShutdown(shardName)
+			if err == nil {
+				if shard != nil {
+					func() {
+						defer release()
+						results[shardName], err = shard.FindUUIDs(ctx, filters)
+					}()
+				} else {
+					results[shardName], err = i.remote.FindUUIDs(ctx, shardName, filters)
+				}
 			}
 		}
 

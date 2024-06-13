@@ -606,6 +606,12 @@ func (c *fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	return nil, nil
 }
 
+func (c *fakeReplicationClient) FindUUIDs(ctx context.Context, host, index, shard string,
+	filters *filters.LocalFilter,
+) ([]strfmt.UUID, error) {
+	return nil, nil
+}
+
 func (c *fakeReplicationClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
 	initialToken, finalToken uint64, limit int,
 ) ([]replica.RepairResponse, uint64, error) {

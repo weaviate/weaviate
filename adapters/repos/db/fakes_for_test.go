@@ -378,6 +378,12 @@ func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	return nil, nil
 }
 
+func (*fakeReplicationClient) FindUUIDs(ctx context.Context,
+	hostName, indexName, shardName string, filters *filters.LocalFilter,
+) (result []strfmt.UUID, err error) {
+	return nil, nil
+}
+
 func (c *fakeReplicationClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
 	initialToken, finalToken uint64, limit int,
 ) ([]replica.RepairResponse, uint64, error) {
