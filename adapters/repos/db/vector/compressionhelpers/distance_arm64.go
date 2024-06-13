@@ -18,6 +18,7 @@ import (
 
 func init() {
 	if cpu.ARM64.HasASIMD {
+		l2SquaredByteImpl = asm.L2ByteARM64
 		dotByteImpl = asm.DotByteARM64
 		dotFloatByteImpl = asm.DotFloatByte_Neon
 	}
