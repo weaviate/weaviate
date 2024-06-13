@@ -89,12 +89,10 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 	}
 	missingIDs := make(map[strfmt.UUID]targetVectorData)
 
-	if params.TargetVectorJoin.ScoreFusion {
+	if params.TargetVectorCombination.Type == dto.RelativeScore {
 		weights := make([]float64, len(results))
-		weightsMap := make(map[string]float32, len(results))
 		for i, target := range targetVectors {
-			weights[i] = 1. / float64(len(results))
-			weightsMap[target] = float32(weights[i])
+			weights[i] = float64(params.TargetVectorCombination.Weights[target])
 		}
 
 		scoresToRemove := make(map[strfmt.UUID]struct{})
@@ -114,7 +112,7 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 			}
 			collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 			resultContainer := ResultContainerHybrid{ResultsIn: ress[i], allIDs: allIDs, IDsToRemove: make(map[strfmt.UUID]struct{})}
-			if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &resultContainer, params, weightsMap, allIDs); err != nil {
+			if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &resultContainer, params, params.TargetVectorCombination.Weights, allIDs); err != nil {
 				return nil, err
 			}
 			for key := range resultContainer.IDsToRemove {
@@ -154,7 +152,7 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 		for _, r := range res {
 			uid := r.ID
 
-			if params.TargetVectorJoin.Min {
+			if params.TargetVectorCombination.Type == dto.Minimum {
 				tmp := r
 				if _, ok := combinedResults[uid]; ok {
 					tmp = combinedResults[uid]
@@ -172,10 +170,10 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 
 				}
 				delete(localIDs, uid)
-				if len(params.TargetVectorJoin.Weights) != len(results) {
+				if len(params.TargetVectorCombination.Weights) != len(results) {
 					return nil, fmt.Errorf("number of weights in join does not match number of results")
 				}
-				weight := params.TargetVectorJoin.Weights[targetVectors[i]]
+				weight := params.TargetVectorCombination.Weights[targetVectors[i]]
 				r.Score *= weight
 				r.SecondarySortValue *= weight
 				r.Dist *= weight
@@ -187,8 +185,8 @@ func CombineMultiTargetResults(ctx context.Context, searcher objectsSearcher, lo
 		}
 		collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 	}
-	if !params.TargetVectorJoin.Min {
-		if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &ResultContainerStandard{combinedResults}, params, params.TargetVectorJoin.Weights, allIDs); err != nil {
+	if params.TargetVectorCombination.Type != dto.Minimum {
+		if err := getScoresOfMissingResults(ctx, searcher, logger, missingIDs, &ResultContainerStandard{combinedResults}, params, params.TargetVectorCombination.Weights, allIDs); err != nil {
 			return nil, err
 		}
 	}

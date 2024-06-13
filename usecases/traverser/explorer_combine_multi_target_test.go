@@ -42,62 +42,69 @@ func TestCombiner(t *testing.T) {
 		targets         []string
 		in              [][]search.Result
 		out             []search.Result
-		joinMethod      *dto.TargetVectorJoin
+		joinMethod      *dto.TargetCombination
 		missingElements map[strfmt.UUID][]string
 	}{
 		{
 			name:       "no results (nil)",
 			targets:    []string{"target1", "target2"},
-			joinMethod: &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 1}},
+			joinMethod: &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:         nil,
 			out:        []search.Result{},
 		},
 		{
 			name:       "no results (empty)",
 			targets:    []string{"target1", "target2"},
-			joinMethod: &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 1}},
+			joinMethod: &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:         [][]search.Result{},
 			out:        []search.Result{},
 		},
 		{
 			name:       "single result",
 			targets:    []string{"target1", "target2"},
-			joinMethod: &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 1}},
+			joinMethod: &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}},
 			out:        []search.Result{res(0, 0.5), res(1, 0.6)},
 		},
 		{
 			name:       "simple join",
 			targets:    []string{"target1", "target2"},
-			joinMethod: &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 1}},
+			joinMethod: &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5), res(1, 0.6)}},
 			out:        []search.Result{res(0, 1), res(1, 1.2)},
 		},
 		{
 			name:       "minimum",
 			targets:    []string{"target1", "target2"},
-			joinMethod: &dto.TargetVectorJoin{Min: true},
+			joinMethod: &dto.TargetCombination{Type: dto.Minimum},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5), res(1, 0.6)}},
 			out:        []search.Result{res(0, 0.5), res(1, 0.6)},
 		},
 		{
 			name:       "score fusion",
 			targets:    []string{"target1", "target2"},
-			joinMethod: &dto.TargetVectorJoin{ScoreFusion: true},
+			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: map[string]float32{"target1": 0.5, "target2": 0.5}},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5), res(1, 0.6)}},
 			out:        []search.Result{res(0, 0), res(1, 1)},
 		},
 		{
+			name:       "score fusion with custom weights",
+			targets:    []string{"target1", "target2"},
+			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: map[string]float32{"target1": 1, "target2": 2}},
+			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5), res(1, 0.6)}},
+			out:        []search.Result{res(0, 0), res(1, 3)},
+		},
+		{
 			name:       "missing document without target vector (min)",
 			targets:    []string{"target1", "target2"},
-			joinMethod: &dto.TargetVectorJoin{Min: true},
+			joinMethod: &dto.TargetCombination{Type: dto.Minimum},
 			in:         [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:        []search.Result{res(0, 0.5), res(1, 0.6)},
 		},
 		{
 			name:            "missing document without target vector (weights)",
 			targets:         []string{"target1", "target2"},
-			joinMethod:      &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 1}},
+			joinMethod:      &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1)},
 			missingElements: map[strfmt.UUID][]string{uid(1): {"target2"}},
@@ -105,7 +112,7 @@ func TestCombiner(t *testing.T) {
 		{
 			name:            "missing document without target vector that is not searched (weights)",
 			targets:         []string{"target1", "target2"},
-			joinMethod:      &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 1}},
+			joinMethod:      &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1), res(1, 2.6)},
 			missingElements: map[strfmt.UUID][]string{uid(1): {"target3"}},
@@ -113,7 +120,7 @@ func TestCombiner(t *testing.T) {
 		{
 			name:            "missing document without target vector (score fusion)",
 			targets:         []string{"target1", "target2"},
-			joinMethod:      &dto.TargetVectorJoin{ScoreFusion: true},
+			joinMethod:      &dto.TargetCombination{Type: dto.RelativeScore, Weights: map[string]float32{"target1": 0.5, "target2": 0.5}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1)},
 			missingElements: map[strfmt.UUID][]string{uid(1): {"target2"}},
@@ -121,7 +128,7 @@ func TestCombiner(t *testing.T) {
 		{
 			name:       "many documents (weights)",
 			targets:    []string{"target1", "target2", "target3", "target4"},
-			joinMethod: &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 0.5, "target3": 0.25, "target4": 0.1}},
+			joinMethod: &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 0.5, "target3": 0.25, "target4": 0.1}},
 			in: [][]search.Result{
 				{res(0, 0.5), res(1, 0.6), res(2, 0.8), res(3, 0.9)},
 				{res(1, 0.2), res(0, 0.4), res(2, 0.6), res(5, 0.8)},
@@ -133,7 +140,7 @@ func TestCombiner(t *testing.T) {
 		{
 			name:       "many documents missing entry (weights)",
 			targets:    []string{"target1", "target2", "target3", "target4"},
-			joinMethod: &dto.TargetVectorJoin{Weights: map[string]float32{"target1": 1, "target2": 0.5, "target3": 0.25, "target4": 0.1}},
+			joinMethod: &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 0.5, "target3": 0.25, "target4": 0.1}},
 			in: [][]search.Result{
 				{res(0, 0.5), res(1, 0.6), res(2, 0.8), res(3, 0.9)},
 				{res(1, 0.2), res(0, 0.4), res(2, 0.6), res(5, 0.8)},
@@ -146,7 +153,7 @@ func TestCombiner(t *testing.T) {
 		{
 			name:       "many documents (score fusion)",
 			targets:    []string{"target1", "target2", "target3", "target4"},
-			joinMethod: &dto.TargetVectorJoin{ScoreFusion: true},
+			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: map[string]float32{"target1": 0.25, "target2": 0.25, "target3": 0.25, "target4": 0.25}},
 			in: [][]search.Result{
 				// 0:0, 1:0.2 2:0.6, 3:1.0
 				{res(0, 0.5), res(1, 0.6), res(2, 0.8), res(3, 1.0)},
@@ -164,7 +171,7 @@ func TestCombiner(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			searcher := &fakeVectorSearcher{missingElements: tt.missingElements}
 
-			params := dto.GetParams{TargetVectorJoin: tt.joinMethod, Pagination: &filters.Pagination{Limit: len(tt.out)}}
+			params := dto.GetParams{TargetVectorCombination: tt.joinMethod, Pagination: &filters.Pagination{Limit: len(tt.out)}}
 
 			results, err := CombineMultiTargetResults(context.Background(), searcher, logger, tt.in, params, tt.targets, searchesVectors[:len(tt.targets)])
 			require.Nil(t, err)

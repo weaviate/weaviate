@@ -221,10 +221,11 @@ func TestGRPCRequest(t *testing.T) {
 					Query:           "nearvecquery",
 					FusionAlgorithm: 1,
 					NearVectorParams: &searchparams.NearVector{
-						Vector:       []float32{1, 2, 3},
-						Certainty:    1.0,
-						Distance:     1.0,
-						WithDistance: true,
+						Vector:        []float32{1, 2, 3},
+						Certainty:     1.0,
+						Distance:      1.0,
+						WithDistance:  true,
+						TargetVectors: []string{"custom"},
 					},
 					TargetVectors: []string{"custom"},
 				},
@@ -389,7 +390,7 @@ func TestGRPCRequest(t *testing.T) {
 					Vector:        []float32{1, 2, 3},
 					TargetVectors: []string{"custom", "first"},
 				},
-				TargetVectorJoin: &dto.TargetVectorJoin{Min: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
 			}, error: false,
 		},
 		{
@@ -1487,12 +1488,15 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
+
 		{
 			name: "Target vector join min",
 			req: &pb.SearchRequest{
-				Collection:       classname,
-				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_MIN}},
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN},
+				},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -1500,35 +1504,19 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				TargetVectorJoin: &dto.TargetVectorJoin{Min: true},
-				NearVector:       &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
-			},
-			error: false,
-		},
-		{
-			name: "Target vector join min",
-			req: &pb.SearchRequest{
-				Collection:       classname,
-				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_MIN}},
-			},
-			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
-				AdditionalProperties: additional.Properties{
-					NoProps: false,
-				},
-				TargetVectorJoin: &dto.TargetVectorJoin{Min: true},
-				NearVector:       &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: make(map[string]float32)},
+				NearVector:              &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
 		{
 			name: "Target vector join avg",
 			req: &pb.SearchRequest{
-				Collection:       classname,
-				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_Join{Join: pb.TargetVectorJoinMethod_TARGET_VECTOR_JOIN_METHOD_TYPE_AVERAGE}},
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE},
+				},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -1536,17 +1524,19 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				TargetVectorJoin: &dto.TargetVectorJoin{Min: false, Weights: map[string]float32{"first": 0.5, "second": 0.5}},
-				NearVector:       &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Average, Weights: map[string]float32{"first": 0.5, "second": 0.5}},
+				NearVector:              &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
 		{
 			name: "Target vector join manual weights",
 			req: &pb.SearchRequest{
-				Collection:       classname,
-				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Vals: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "second", Value: 0.8}}}}},
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
+				},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -1554,27 +1544,19 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				TargetVectorJoin: &dto.TargetVectorJoin{Min: false, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
-				NearVector:       &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
+				NearVector:              &searchparams.NearVector{Vector: []float32{1, 2, 3}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},
 		{
-			name: "Target vector join manual weights duplicate",
-			req: &pb.SearchRequest{
-				Collection:       classname,
-				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Vals: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "first", Value: 0.8}}}}},
-			},
-			out:   dto.GetParams{},
-			error: true,
-		},
-		{
 			name: "Target vector join manual weights missing",
 			req: &pb.SearchRequest{
-				Collection:       classname,
-				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Vals: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}}}}},
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1}},
+				},
 			},
 			out:   dto.GetParams{},
 			error: true,
@@ -1582,9 +1564,11 @@ func TestGRPCRequest(t *testing.T) {
 		{
 			name: "Target vector join manual weights non-existing",
 			req: &pb.SearchRequest{
-				Collection:       classname,
-				NearVector:       &pb.NearVector{VectorBytes: byteVector([]float32{1, 2, 3}), TargetVectors: []string{"first", "second"}},
-				TargetVectorJoin: &pb.TargetVectorJoin{TargetJoin: &pb.TargetVectorJoin_ManualWeights_{ManualWeights: &pb.TargetVectorJoin_ManualWeightsArrays{Vals: []*pb.TargetVectorJoin_ManualWeights{{Key: "first", Value: 0.1}, {Key: "other", Value: 0.5}}}}},
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"nonExistant": 0.1}},
+				},
 			},
 			out:   dto.GetParams{},
 			error: true,

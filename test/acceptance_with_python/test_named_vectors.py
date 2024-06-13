@@ -1,8 +1,11 @@
 import pytest
 import weaviate.classes as wvc
 import math
-from typing_extensions import Union
-from weaviate.collections.classes.internal import TargetVectorJoinType
+from weaviate.collections.classes.grpc import (
+    _MultiTargetVectorJoin,
+    TargetVectors,
+    _MultiTargetVectorJoinEnum,
+)
 
 from .conftest import CollectionFactory, NamedCollection
 
@@ -126,8 +129,7 @@ def test_near_object(named_collection: NamedCollection) -> None:
     # finds both objects, but the second target vector has a larger distance
     near_obj2 = collection.query.near_object(
         uuid1,
-        target_vector=["title1", "title2"],
-        multi_target_fusion_method="Sum",
+        target_vector=TargetVectors.sum(["title1", "title2"]),
         distance=0.9,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
@@ -161,8 +163,7 @@ def test_near_text(named_collection: NamedCollection) -> None:
     # finds both objects, but the second target vector has a larger distance
     near_text2 = collection.query.near_text(
         "apple",
-        target_vector=["title1", "title2"],
-        multi_target_fusion_method="Sum",
+        target_vector=TargetVectors.sum(["title1", "title2"]),
         distance=0.9,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
@@ -198,8 +199,7 @@ def test_near_vector(named_collection: NamedCollection) -> None:
     # finds both objects, but the second target vector has a larger distance
     near_vector2 = collection.query.near_vector(
         obj1.vector["title1"],
-        target_vector=["title1", "title2"],
-        multi_target_fusion_method="Sum",
+        target_vector=TargetVectors.sum(["title1", "title2"]),
         distance=0.9,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
@@ -216,18 +216,24 @@ KALE_DISTANCE = 0.5732871294021606
 @pytest.mark.parametrize(
     "multi_target_fusion_method,distance",
     [
-        ("Sum", CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE),
-        ("Average", (CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE) / 3),
-        ("Minimum", APPLE_DISTANCE),
         (
-            {"title1": 0.4, "title2": 1.2, "title3": 0.752},
+            TargetVectors.sum(["title1", "title2", "title3"]),
+            CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE,
+        ),
+        (
+            TargetVectors.average(["title1", "title2", "title3"]),
+            (CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE) / 3,
+        ),
+        (TargetVectors.minimum(["title1", "title2", "title3"]), APPLE_DISTANCE),
+        (
+            TargetVectors.manual_weights({"title1": 0.4, "title2": 1.2, "title3": 0.752}),
             APPLE_DISTANCE * 0.4 + CAR_DISTANCE * 1.2 + KALE_DISTANCE * 0.752,
         ),
     ],
 )
 def test_different_target_fusion_methods(
     named_collection: NamedCollection,
-    multi_target_fusion_method: TargetVectorJoinType,
+    multi_target_fusion_method: _MultiTargetVectorJoin,
     distance: float,
 ) -> None:
     collection = named_collection()
@@ -236,8 +242,7 @@ def test_different_target_fusion_methods(
 
     nt = collection.query.near_text(
         "fruit",
-        target_vector=["title1", "title2", "title3"],
-        multi_target_fusion_method=multi_target_fusion_method,
+        target_vector=multi_target_fusion_method,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
     assert len(nt.objects) == 1
@@ -274,32 +279,31 @@ def test_score_fusion(named_collection: NamedCollection) -> None:
 
     nt = collection.query.near_vector(
         [1.0, 0.0, 0.0],
-        target_vector=["title1", "title2", "title3"],
-        multi_target_fusion_method="Score_Fusion",
+        target_vector=TargetVectors.relative_score({"title1": 1, "title2": 1, "title3": 1}),
         return_metadata=wvc.query.MetadataQuery.full(),
     )
     assert len(nt.objects) == 3
 
-    assert math.isclose(nt.objects[0].metadata.distance, 1 / 3, rel_tol=1e-5)
+    assert math.isclose(nt.objects[0].metadata.distance, 1, rel_tol=1e-5)
     assert nt.objects[0].uuid == uuid0
-    assert math.isclose(nt.objects[1].metadata.distance, 2 / 3, rel_tol=1e-5)
+    assert math.isclose(nt.objects[1].metadata.distance, 2, rel_tol=1e-5)
     assert nt.objects[1].uuid == uuid1
-    assert math.isclose(nt.objects[2].metadata.distance, 1, rel_tol=1e-5)
+    assert math.isclose(nt.objects[2].metadata.distance, 3, rel_tol=1e-5)
     assert nt.objects[2].uuid == uuid2
 
 
 @pytest.mark.parametrize(
     "multi_target_fusion_method",
     [
-        "Sum",
-        "Average",
-        {"colour": 0.4, "weather": 1.2, "material": 0.752},
-        "Score_Fusion",
+        TargetVectors.sum(["colour", "weather", "material"]),
+        TargetVectors.average(["colour", "weather", "material"]),
+        TargetVectors.manual_weights({"colour": 0.4, "weather": 1.2, "material": 0.752}),
+        TargetVectors.relative_score({"colour": 1, "weather": 1.0, "material": 1.0}),
     ],
 )
 def test_more_results_than_limit(
     named_collection: NamedCollection,
-    multi_target_fusion_method: TargetVectorJoinType,
+    multi_target_fusion_method: _MultiTargetVectorJoin,
 ) -> None:
     collection = named_collection(props=["colour", "weather", "material"])
 
@@ -323,8 +327,7 @@ def test_more_results_than_limit(
     # computed correctly
     nt = collection.query.near_text(
         "white summer clothing with breezy material",
-        target_vector=["colour", "weather", "material"],
-        multi_target_fusion_method=multi_target_fusion_method,
+        target_vector=multi_target_fusion_method,
         return_metadata=wvc.query.MetadataQuery.full(),
         limit=2,
     )
@@ -336,8 +339,7 @@ def test_more_results_than_limit(
     # get all results to check if the distances are correct
     nt3 = collection.query.near_text(
         "white summer clothing with breezy material",
-        target_vector=["colour", "weather", "material"],
-        multi_target_fusion_method=multi_target_fusion_method,
+        target_vector=multi_target_fusion_method,
         return_metadata=wvc.query.MetadataQuery.full(),
         limit=5,
     )
@@ -345,7 +347,10 @@ def test_more_results_than_limit(
     assert nt3.objects[0].uuid == uuid1
     assert nt3.objects[1].uuid == uuid2
     # fusion score depend on all the input scores and are expected to be different with more objects that are found
-    if multi_target_fusion_method != "Score_Fusion":
+    if (
+        multi_target_fusion_method.combination.value
+        != _MultiTargetVectorJoinEnum.RELATIVE_SCORE.value
+    ):
         assert math.isclose(
             nt3.objects[0].metadata.distance, nt.objects[0].metadata.distance, rel_tol=0.001
         )
@@ -357,19 +362,19 @@ def test_more_results_than_limit(
 @pytest.mark.parametrize(
     "multi_target_fusion_method,number_objects",
     [
-        ("Sum", 1),
-        ("Average", 1),
-        ("Minimum", 2),
+        (TargetVectors.sum(["first", "second", "third"]), 1),
+        (TargetVectors.average(["first", "second", "third"]), 1),
+        (TargetVectors.minimum(["first", "second", "third"]), 2),
         (
-            {"first": 0.4, "second": 1.2, "third": 0.752},
+            TargetVectors.manual_weights({"first": 0.4, "second": 1.2, "third": 0.752}),
             1,
         ),
-        ("Score_Fusion", 1),
+        (TargetVectors.relative_score({"first": 1, "second": 1, "third": 1}), 1),
     ],
 )
 def test_named_vectors_missing_entries(
     collection_factory: CollectionFactory,
-    multi_target_fusion_method: TargetVectorJoinType,
+    multi_target_fusion_method: _MultiTargetVectorJoin,
     number_objects: int,
 ) -> None:
     collection = collection_factory(
@@ -392,8 +397,7 @@ def test_named_vectors_missing_entries(
 
     nt = collection.query.near_vector(
         [1, 0, 0],
-        target_vector=["first", "second", "third"],
-        multi_target_fusion_method=multi_target_fusion_method,
+        target_vector=multi_target_fusion_method,
         return_metadata=wvc.query.MetadataQuery.full(),
     )
 
