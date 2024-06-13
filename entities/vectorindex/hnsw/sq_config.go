@@ -14,11 +14,15 @@ package hnsw
 import "github.com/weaviate/weaviate/entities/vectorindex/common"
 
 const (
-	DefaultSQEnabled = false
+	DefaultSQEnabled       = false
+	DefaultSQTrainingLimit = 100000
+	DefaultSQRescoreLimit  = 20
 )
 
 type SQConfig struct {
-	Enabled bool `json:"enabled"`
+	Enabled       bool `json:"enabled"`
+	TrainingLimit int  `json:"trainingLimit"`
+	RescoreLimit  int  `json:"rescoreLimit"`
 }
 
 func parseSQMap(in map[string]interface{}, sq *SQConfig) error {
@@ -34,6 +38,18 @@ func parseSQMap(in map[string]interface{}, sq *SQConfig) error {
 
 	if err := common.OptionalBoolFromMap(sqConfigMap, "enabled", func(v bool) {
 		sq.Enabled = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(sqConfigMap, "trainingLimit", func(v int) {
+		sq.TrainingLimit = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(sqConfigMap, "rescoreLimit", func(v int) {
+		sq.RescoreLimit = v
 	}); err != nil {
 		return err
 	}

@@ -91,6 +91,11 @@ func (u *UserConfig) SetDefaults() {
 	u.BQ = BQConfig{
 		Enabled: DefaultBQEnabled,
 	}
+	u.SQ = SQConfig{
+		Enabled:       DefaultSQEnabled,
+		TrainingLimit: DefaultSQTrainingLimit,
+		RescoreLimit:  DefaultSQRescoreLimit,
+	}
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
