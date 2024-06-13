@@ -733,10 +733,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 10 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
