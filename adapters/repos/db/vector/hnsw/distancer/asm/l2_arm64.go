@@ -19,9 +19,9 @@ import (
 //   go install github.com/gorse-io/goat@v0.1.0
 //   go generate
 
-//go:generate goat ../c/l2_neon_arm64.c-O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//go:generate goat ../c/l2_neon_arm64.c -O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 //go:generate goat ../c/l2_sve_arm64.c -O3 -e="-mcpu=neoverse-v1" -e="--target=arm64" -e="-march=armv8-a+sve"
-//go:generate goat ../c/l2_neon_byte_arm64.c-O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//go:generate goat ../c/l2_neon_byte_arm64.c -O1 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
 // L2 calculates the L2 distance between two vectors
 // using SIMD instructions when possible.
@@ -190,8 +190,8 @@ func L2ByteARM64(x []uint8, y []uint8) uint32 {
 		var sum uint32
 
 		for i := range x {
-			diff := x[i] - y[i]
-			sum += uint32(diff) * uint32(diff)
+			diff := int32(x[i]) - int32(y[i])
+			sum += uint32(diff * diff)
 		}
 
 		return sum
@@ -201,7 +201,7 @@ func L2ByteARM64(x []uint8, y []uint8) uint32 {
 
 	l := len(x)
 
-	l2_byte_256(
+	l2_neon_byte_256(
 		// The slice header contains the address of the underlying array.
 		// We only need to cast it to a pointer.
 		unsafe.Pointer(unsafe.SliceData(x)),
