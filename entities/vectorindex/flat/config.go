@@ -123,7 +123,6 @@ func parseCompressionMap(in interface{}, cuc *CompressionUserConfig) error {
 }
 
 func parseCompression(in map[string]interface{}, uc *UserConfig) error {
-
 	pqConfigValue, pqOk := in["pq"]
 	bqConfigValue, bqOk := in["bq"]
 	sqConfigValue, sqOk := in["sq"]

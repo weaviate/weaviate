@@ -109,7 +109,6 @@ func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) 
 }
 
 func extractCompression(uc flatent.UserConfig) string {
-
 	if uc.BQ.Enabled {
 		return compressionBQ
 	}
