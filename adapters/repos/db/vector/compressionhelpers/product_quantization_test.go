@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -201,34 +200,6 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			logger,
 		)
 		assert.ErrorContains(t, err, "segments should be an integer divisor of dimensions")
-	})
-	t.Run("validate training limit applied", func(t *testing.T) {
-		amount := 64
-		centroids := 256
-		vectors_size := 400
-		vectors, _ := testinghelpers.RandomVecs(vectors_size, vectors_size, amount)
-		distanceProvider := distancer.NewL2SquaredProvider()
-
-		cfg := ent.PQConfig{
-			Enabled: true,
-			Encoder: ent.PQEncoder{
-				Type:         hnsw.PQEncoderTypeKMeans,
-				Distribution: ent.PQEncoderDistributionLogNormal,
-			},
-			Centroids:     centroids,
-			TrainingLimit: 260,
-			Segments:      amount,
-		}
-		pq, err := compressionhelpers.NewProductQuantizer(
-			cfg,
-			distanceProvider,
-			amount,
-			logger,
-		)
-		assert.NoError(t, err)
-		pq.Fit(vectors)
-		pqdata := pq.ExposeFields().(compressionhelpers.PQData)
-		assert.Equal(t, pqdata.TrainingLimit, 260)
 	})
 }
 

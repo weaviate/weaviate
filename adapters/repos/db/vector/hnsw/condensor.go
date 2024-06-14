@@ -66,7 +66,7 @@ func (c *MemoryCondensor) Do(fileName string) error {
 				return fmt.Errorf("write sq data: %w", err)
 			}
 		} else {
-			return fmt.Errorf("unavailable compression data", err)
+			return errors.Wrap(err, "unavailable compression data")
 		}
 	}
 
