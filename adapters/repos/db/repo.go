@@ -170,14 +170,13 @@ func New(logger logrus.FieldLogger, config Config,
 		logger.Info("async indexing enabled")
 		w := runtime.GOMAXPROCS(0) - 1
 		db.shutDownWg.Add(w)
-		db.jobQueueCh = make(chan job, w)
+		db.jobQueueCh = make(chan job)
 		for i := 0; i < w; i++ {
 			f := func() {
 				defer db.shutDownWg.Done()
 				asyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
 			}
 			enterrors.GoWrapper(f, db.logger)
-
 		}
 	}
 
@@ -356,37 +355,43 @@ type job struct {
 	indexer batchIndexer
 	ids     []uint64
 	vectors [][]float32
-	done    chan struct{}
+	done    func()
 }
 
 func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
 	for job := range ch {
-	LOOP:
-		for {
-			err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
-			if err == nil {
-				break LOOP
-			}
+		stop := func() bool {
+			defer job.done()
 
-			if errors.Is(err, context.Canceled) {
-				logger.WithError(err).Info("skipping indexing batch due to context cancellation")
-				break LOOP
-			}
-
-			logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
-
-			t := time.NewTimer(retryInterval)
-			select {
-			case <-job.ctx.Done():
-				// drain the timer
-				if !t.Stop() {
-					<-t.C
+			for {
+				err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
+				if err == nil {
+					return false
 				}
-				return
-			case <-t.C:
-			}
-		}
 
-		close(job.done)
+				if errors.Is(err, context.Canceled) {
+					logger.WithError(err).Debug("skipping indexing batch due to context cancellation")
+					return true
+				}
+
+				logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
+
+				t := time.NewTimer(retryInterval)
+				select {
+				case <-job.ctx.Done():
+					// drain the timer
+					if !t.Stop() {
+						<-t.C
+					}
+
+					return true
+				case <-t.C:
+				}
+			}
+		}()
+
+		if stop {
+			return
+		}
 	}
 }
