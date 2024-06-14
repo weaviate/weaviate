@@ -57,6 +57,11 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
 			},
 		},
 
@@ -86,6 +91,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 			},
 		},
@@ -128,6 +138,11 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
 			},
 		},
 
@@ -168,6 +183,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 			},
 		},
@@ -210,6 +230,11 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: DefaultPQEncoderDistribution,
 					},
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
 			},
 		},
 
@@ -248,6 +273,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 			},
 		},
@@ -297,6 +327,11 @@ func Test_UserConfig(t *testing.T) {
 						Distribution: "normal",
 					},
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
 			},
 		},
 
@@ -343,6 +378,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 			},
 		},
@@ -410,6 +450,11 @@ func Test_UserConfig(t *testing.T) {
 						Type:         DefaultPQEncoderType,
 						Distribution: DefaultPQEncoderDistribution,
 					},
+				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 			},
 		},
@@ -489,6 +534,11 @@ func Test_UserConfig(t *testing.T) {
 				BQ: BQConfig{
 					Enabled: true,
 				},
+				SQ: SQConfig{
+					Enabled:       DefaultSQEnabled,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
+				},
 			},
 		},
 		{
@@ -529,7 +579,9 @@ func Test_UserConfig(t *testing.T) {
 					},
 				},
 				SQ: SQConfig{
-					Enabled: true,
+					Enabled:       true,
+					TrainingLimit: DefaultSQTrainingLimit,
+					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 			},
 		},
@@ -547,7 +599,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 			},
 			expectErr:    true,
-			expectErrMsg: "invalid hnsw config: two compression methods enabled: PQ and BQ",
+			expectErrMsg: "invalid hnsw config: more than a single compression methods enabled",
 		},
 	}
 
