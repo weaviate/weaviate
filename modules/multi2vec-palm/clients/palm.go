@@ -161,10 +161,13 @@ func (v *palm) getPayload(text, img, vid string, config ent.VectorizationConfig)
 			VideoSegmentConfig: videoSegmentConfig{IntervalSec: &config.VideoIntervalSeconds},
 		}
 	}
-	return embeddingsRequest{
-		Instances:  []instance{inst},
-		Parameters: parameters{Dimension: config.Dimensions},
+	req := embeddingsRequest{
+		Instances: []instance{inst},
 	}
+	if inst.Video == nil {
+		req.Parameters = parameters{Dimension: config.Dimensions}
+	}
+	return req
 }
 
 func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {

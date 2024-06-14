@@ -322,6 +322,10 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
+	return b.get(key)
+}
+
+func (b *Bucket) get(key []byte) ([]byte, error) {
 	v, err := b.active.get(key)
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
@@ -476,7 +480,20 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		}
 	}
 
-	return b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	k, v, buffer, err := b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// additional validation to ensure the primary key has not been marked as deleted
+	pkv, err := b.get(k)
+	if err != nil {
+		return nil, nil, err
+	} else if pkv == nil {
+		return nil, buffer, nil
+	}
+
+	return v, buffer, nil
 }
 
 // SetList returns all Set entries for a given key.
