@@ -43,17 +43,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	h.compressActionLock.Lock()
 	defer h.compressActionLock.Unlock()
 	data := h.cache.All()
-	if cfg.PQ.Enabled {
+	if cfg.PQ.Enabled || cfg.SQ.Enabled {
 		if h.isEmpty() {
-			return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
+			return errors.New("compress command cannot be executed before inserting some data")
 		}
-		dims := int(h.dims)
-
-		if cfg.PQ.Segments <= 0 {
-			cfg.PQ.Segments = h.calculateOptimalSegments(dims)
-			h.pqConfig.Segments = cfg.PQ.Segments
-		}
-
 		cleanData := make([][]float32, 0, len(data))
 		for i := range data {
 			// Rather than just taking the cache dump at face value, let's explicitly
@@ -77,52 +70,33 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 
 			cleanData = append(cleanData, p)
+			if len(cleanData) >= cfg.PQ.TrainingLimit {
+				break
+			}
 		}
+		if cfg.PQ.Enabled {
+			dims := int(h.dims)
 
-		var err error
-		h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
-			cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
-			h.allocChecker)
-		if err != nil {
-			return fmt.Errorf("Compressing vectors: %w", err)
-		}
-		h.compressor.PersistCompression(h.commitLog)
-	} else if cfg.SQ.Enabled {
-		if h.isEmpty() {
-			return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
-		}
+			if cfg.PQ.Segments <= 0 {
+				cfg.PQ.Segments = h.calculateOptimalSegments(dims)
+				h.pqConfig.Segments = cfg.PQ.Segments
+			}
 
-		cleanData := make([][]float32, 0, len(data))
-		for i := range data {
-			// Rather than just taking the cache dump at face value, let's explicitly
-			// request the vectors. Otherwise we would miss any vector that's currently
-			// not in the cache, for example because the cache is not hot yet after a
-			// restart.
-			p, err := h.cache.Get(context.Background(), uint64(i))
+			var err error
+			h.compressor, err = compressionhelpers.NewHNSWPQCompressor(
+				cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
+				h.allocChecker)
 			if err != nil {
-				var e storobj.ErrNotFound
-				if errors.As(err, &e) {
-					// already deleted, ignore
-					continue
-				} else {
-					return fmt.Errorf("unexpected error obtaining vectors for fitting: %w", err)
-				}
+				return fmt.Errorf("compressing vectors: %w", err)
 			}
-
-			if p == nil {
-				// already deleted, ignore
-				continue
+		} else if cfg.SQ.Enabled {
+			var err error
+			h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
+				h.distancerProvider, 1e12, h.logger, cleanData, h.store,
+				h.allocChecker)
+			if err != nil {
+				return fmt.Errorf("compressing vectors: %w", err)
 			}
-
-			cleanData = append(cleanData, p)
-		}
-
-		var err error
-		h.compressor, err = compressionhelpers.NewHNSWSQCompressor(
-			h.distancerProvider, 1e12, h.logger, cleanData, h.store,
-			h.allocChecker)
-		if err != nil {
-			return fmt.Errorf("Compressing vectors: %w", err)
 		}
 		h.compressor.PersistCompression(h.commitLog)
 	} else {
