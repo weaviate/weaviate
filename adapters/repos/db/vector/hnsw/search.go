@@ -561,7 +561,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
 
-	h.sqConfig.RescoreLimit = 15
 	if h.shouldRescore() && h.sqConfig.RescoreLimit >= k {
 		for res.Len() > h.sqConfig.RescoreLimit {
 			res.Pop()
