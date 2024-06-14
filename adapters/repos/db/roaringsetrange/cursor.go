@@ -12,16 +12,24 @@
 package roaringsetrange
 
 import (
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/errors"
 )
 
 type CombinedCursor struct {
 	cursors []InnerCursor
+	logger  logrus.FieldLogger
 
-	inited    bool
-	states    []innerCursorState
-	deletions []*sroar.Bitmap
+	inited     bool
+	states     []innerCursorState
+	deletions  []*sroar.Bitmap
+	nextKey    uint8
+	nextLayers roaringset.BitmapLayers
+	nextCh     chan struct{}
+	doneCh     chan struct{}
+	closeCh    chan struct{}
 }
 
 type InnerCursor interface {
@@ -35,72 +43,126 @@ type innerCursorState struct {
 	ok        bool
 }
 
-func NewCombinedCursor(innerCursors []InnerCursor) *CombinedCursor {
-	return &CombinedCursor{
-		cursors:   innerCursors,
-		inited:    false,
-		states:    make([]innerCursorState, len(innerCursors)),
-		deletions: make([]*sroar.Bitmap, len(innerCursors)),
+func NewCombinedCursor(innerCursors []InnerCursor, logger logrus.FieldLogger) *CombinedCursor {
+	c := &CombinedCursor{
+		cursors: innerCursors,
+		logger:  logger,
+
+		inited:     false,
+		states:     make([]innerCursorState, len(innerCursors)),
+		deletions:  make([]*sroar.Bitmap, len(innerCursors)),
+		nextKey:    0,
+		nextLayers: make(roaringset.BitmapLayers, len(innerCursors)),
+		nextCh:     make(chan struct{}),
+		doneCh:     make(chan struct{}),
+		closeCh:    make(chan struct{}, 1),
 	}
+
+	errors.GoWrapper(func() {
+		for {
+			select {
+			case <-c.nextCh:
+				c.nextKey, c.nextLayers = c.createNext()
+				c.doneCh <- struct{}{}
+			case <-c.closeCh:
+				return
+			}
+		}
+	}, logger)
+
+	return c
 }
 
 func (c *CombinedCursor) First() (uint8, *sroar.Bitmap, bool) {
 	c.inited = true
-	for i, cursor := range c.cursors {
+	for id, cursor := range c.cursors {
 		key, layer, ok := cursor.First()
 		if ok && key == 0 {
-			c.deletions[i] = layer.Deletions
+			c.deletions[id] = layer.Deletions
 		} else {
-			c.deletions[i] = sroar.NewBitmap()
+			c.deletions[id] = sroar.NewBitmap()
 		}
 
-		c.states[i] = innerCursorState{
+		c.states[id] = innerCursorState{
 			key:       key,
 			additions: layer.Additions,
 			ok:        ok,
 		}
 	}
 
-	return c.combine()
+	// init next layers
+	c.nextCh <- struct{}{}
+	<-c.doneCh
+
+	return c.next()
 }
 
 func (c *CombinedCursor) Next() (uint8, *sroar.Bitmap, bool) {
 	if !c.inited {
 		return c.First()
 	}
-	return c.combine()
+
+	return c.next()
 }
 
-func (c *CombinedCursor) combine() (uint8, *sroar.Bitmap, bool) {
-	key, ids := c.getCursorIdsWithLowestKey()
-	if len(ids) == 0 {
+func (c *CombinedCursor) Close() {
+	c.closeCh <- struct{}{}
+}
+
+func (c *CombinedCursor) next() (uint8, *sroar.Bitmap, bool) {
+	if c.nextLayers == nil {
 		return 0, nil, false
 	}
 
-	layers := roaringset.BitmapLayers{}
-	for i := range c.cursors {
-		var additions *sroar.Bitmap
-		if _, ok := ids[i]; ok {
-			additions = c.states[i].additions
+	key := c.nextKey
+	layers := c.nextLayers
+	c.nextCh <- struct{}{}
+	flat := layers.FlattenMutate()
+	<-c.doneCh
+
+	return key, flat, true
+}
+
+func (c *CombinedCursor) createNext() (uint8, roaringset.BitmapLayers) {
+	key, ids := c.getCursorIdsWithLowestKey()
+	if len(ids) == 0 {
+		return 0, nil
+	}
+
+	layers := make(roaringset.BitmapLayers, len(c.cursors))
+	empty := sroar.NewBitmap()
+
+	for id := range c.cursors {
+		additions := empty
+		deletions := c.deletions[id]
+
+		if _, ok := ids[id]; ok {
+			additions = c.states[id].additions
 
 			// move forward used cursors
-			key, layer, ok := c.cursors[i].Next()
-			c.states[i] = innerCursorState{
+			key, layer, ok := c.cursors[id].Next()
+			c.states[id] = innerCursorState{
 				key:       key,
 				additions: layer.Additions,
 				ok:        ok,
 			}
-		} else {
-			additions = sroar.NewBitmap()
 		}
 
-		layers = append(layers, roaringset.BitmapLayer{
+		// 1st addition and non 1st deletion bitmaps are mutated while flattening
+		// therefore they are cloned upfront in goroutine
+		if id == 0 {
+			additions = additions.Clone()
+		} else {
+			deletions = deletions.Clone()
+		}
+
+		layers[id] = roaringset.BitmapLayer{
 			Additions: additions,
-			Deletions: c.deletions[i],
-		})
+			Deletions: deletions,
+		}
 	}
 
-	return key, layers.Flatten(), true
+	return key, layers
 }
 
 func (c *CombinedCursor) getCursorIdsWithLowestKey() (uint8, map[int]struct{}) {

@@ -14,11 +14,14 @@ package roaringsetrange
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func TestCombinedCursor(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
 	t.Run("single inner cursor", func(t *testing.T) {
 		createCursor := func() *CombinedCursor {
 			innerCursor := newFixedInnerCursor().
@@ -26,7 +29,7 @@ func TestCombinedCursor(t *testing.T) {
 				withEntry(1, []uint64{11, 22, 33}, []uint64{44}).
 				withEntry(2, []uint64{111, 222, 333}, []uint64{0})
 
-			return NewCombinedCursor([]InnerCursor{innerCursor})
+			return NewCombinedCursor([]InnerCursor{innerCursor}, logger)
 		}
 
 		t.Run("first and nexts", func(t *testing.T) {
@@ -142,7 +145,7 @@ func TestCombinedCursor(t *testing.T) {
 				withEntry(3, []uint64{77, 88, 99}, []uint64{44}).
 				withEntry(4, []uint64{777, 888, 999}, []uint64{0})
 
-			return NewCombinedCursor([]InnerCursor{innerCursor1, innerCursor2, innerCursor3})
+			return NewCombinedCursor([]InnerCursor{innerCursor1, innerCursor2, innerCursor3}, logger)
 		}
 
 		t.Run("first and nexts", func(t *testing.T) {

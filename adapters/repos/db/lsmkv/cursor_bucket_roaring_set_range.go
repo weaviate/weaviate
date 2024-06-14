@@ -36,6 +36,7 @@ func (c *cursorRoaringSetRange) Next() (uint8, *sroar.Bitmap, bool) {
 }
 
 func (c *cursorRoaringSetRange) Close() {
+	c.combinedCursor.Close()
 	c.unlock()
 }
 
@@ -57,7 +58,7 @@ func (b *Bucket) CursorRoaringSetRange() CursorRoaringSetRange {
 	// cursors are in order from oldest to newest, with the memtable cursor
 	// being at the very top
 	return &cursorRoaringSetRange{
-		combinedCursor: roaringsetrange.NewCombinedCursor(innerCursors),
+		combinedCursor: roaringsetrange.NewCombinedCursor(innerCursors, b.logger),
 		unlock: func() {
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
