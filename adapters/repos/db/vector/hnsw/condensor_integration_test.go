@@ -657,7 +657,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 			UseBitsEncoding:     false,
 		}
 
-		assert.Equal(t, expected, res.CompressionPQData)
+		assert.Equal(t, expected, *res.CompressionPQData)
 	})
 }
 
