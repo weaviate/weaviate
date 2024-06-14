@@ -34,6 +34,11 @@ type CompressorDistancer interface {
 
 type ReturnDistancerFn func()
 
+type CommitLogger interface {
+	AddPQCompression(PQData) error
+	AddSQCompression(SQData) error
+}
+
 type VectorCompressor interface {
 	Drop() error
 	GrowCache(size uint64)
@@ -45,12 +50,11 @@ type VectorCompressor interface {
 	PrefillCache()
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
-	//DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, x uint64, y []float32) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
 	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
 
-	ExposeFields() any
+	PersistCompression(CommitLogger)
 }
 
 type quantizedVectorsCompressor[T byte | uint64] struct {
@@ -215,8 +219,8 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 	cursor.Close()
 }
 
-func (compressor *quantizedVectorsCompressor[T]) ExposeFields() any {
-	return compressor.quantizer.ExposeFields()
+func (compressor *quantizedVectorsCompressor[T]) PersistCompression(logger CommitLogger) {
+	compressor.quantizer.PersistCompression(logger)
 }
 
 func NewHNSWPQCompressor(

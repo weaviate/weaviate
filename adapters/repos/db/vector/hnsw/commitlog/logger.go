@@ -76,36 +76,35 @@ func (l *Logger) AddNode(id uint64, level int) error {
 	return err
 }
 
-func (l *Logger) AddCompression(genericData any) error {
-	if data, ok := genericData.(compressionhelpers.PQData); ok {
-		toWrite := make([]byte, 10)
-		toWrite[0] = byte(AddPQ)
-		binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
-		toWrite[3] = byte(data.EncoderType)
-		binary.LittleEndian.PutUint16(toWrite[4:6], data.Ks)
-		binary.LittleEndian.PutUint16(toWrite[6:8], data.M)
-		toWrite[8] = data.EncoderDistribution
-		if data.UseBitsEncoding {
-			toWrite[9] = 1
-		} else {
-			toWrite[9] = 0
-		}
-
-		for _, encoder := range data.Encoders {
-			toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
-		}
-		_, err := l.bufw.Write(toWrite)
-		return err
-	} else if data, ok := genericData.(compressionhelpers.SQData); ok {
-		toWrite := make([]byte, 11)
-		toWrite[0] = byte(AddSQ)
-		binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
-		binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
-		binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
-		_, err := l.bufw.Write(toWrite)
-		return err
+func (l *Logger) AddPQCompression(data compressionhelpers.PQData) error {
+	toWrite := make([]byte, 10)
+	toWrite[0] = byte(AddPQ)
+	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
+	toWrite[3] = byte(data.EncoderType)
+	binary.LittleEndian.PutUint16(toWrite[4:6], data.Ks)
+	binary.LittleEndian.PutUint16(toWrite[6:8], data.M)
+	toWrite[8] = data.EncoderDistribution
+	if data.UseBitsEncoding {
+		toWrite[9] = 1
+	} else {
+		toWrite[9] = 0
 	}
-	return errors.New("unsupported data type provided to AddCompression method")
+
+	for _, encoder := range data.Encoders {
+		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
+	}
+	_, err := l.bufw.Write(toWrite)
+	return err
+}
+
+func (l *Logger) AddSQCompression(data compressionhelpers.SQData) error {
+	toWrite := make([]byte, 11)
+	toWrite[0] = byte(AddSQ)
+	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
+	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
+	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
+	_, err := l.bufw.Write(toWrite)
+	return err
 }
 
 func (l *Logger) AddLinkAtLevel(id uint64, level int, target uint64) error {

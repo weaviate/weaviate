@@ -133,7 +133,8 @@ func (h *hnsw) restoreFromDisk() error {
 	if state.Compressed {
 		h.compressed.Store(state.Compressed)
 		h.cache.Drop()
-		if data, ok := state.CompressionData.(compressionhelpers.PQData); ok {
+		if state.CompressionPQData != nil {
+			data := state.CompressionPQData
 			h.dims = int32(data.Dimensions)
 
 			if len(data.Encoders) > 0 {
@@ -156,7 +157,8 @@ func (h *hnsw) restoreFromDisk() error {
 					return errors.Wrap(err, "Restoring compressed data.")
 				}
 			}
-		} else if data, ok := state.CompressionData.(compressionhelpers.SQData); ok {
+		} else if state.CompressionSQData != nil {
+			data := state.CompressionSQData
 			h.dims = int32(data.Dimensions)
 			h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 				h.distancerProvider,

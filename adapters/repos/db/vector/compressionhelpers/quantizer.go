@@ -26,11 +26,10 @@ type quantizer[T byte | uint64] interface {
 	ReturnQuantizerDistancer(distancer quantizerDistancer[T])
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
-	ExposeFields() any
+	PersistCompression(logger CommitLogger)
 }
 
-func (bq *BinaryQuantizer) ExposeFields() any {
-	return PQData{}
+func (bq *BinaryQuantizer) PersistCompression(logger CommitLogger) {
 }
 
 func (pq *ProductQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[byte] {

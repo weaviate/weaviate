@@ -36,7 +36,8 @@ type DeserializationResult struct {
 	Tombstones        map[uint64]struct{}
 	TombstonesDeleted map[uint64]struct{}
 	EntrypointChanged bool
-	CompressionData   any
+	CompressionPQData *compressionhelpers.PQData
+	CompressionSQData *compressionhelpers.SQData
 	Compressed        bool
 
 	// If there is no entry for the links at a level to be replaced, we must
@@ -584,7 +585,7 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 	}
 	res.Compressed = true
 
-	res.CompressionData = pqData
+	res.CompressionPQData = &pqData
 
 	return nil
 }
@@ -602,7 +603,7 @@ func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
 	if err != nil {
 		return err
 	}
-	res.CompressionData = compressionhelpers.SQData{
+	res.CompressionSQData = &compressionhelpers.SQData{
 		A:          a,
 		B:          b,
 		Dimensions: dims,

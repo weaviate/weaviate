@@ -191,7 +191,8 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	AddCompression(any) error
+	AddPQCompression(compressionhelpers.PQData) error
+	AddSQCompression(compressionhelpers.SQData) error
 }
 
 type BufferedLinksLogger interface {
@@ -703,7 +704,7 @@ func (h *hnsw) DistancerProvider() distancer.Provider {
 
 func (h *hnsw) ShouldUpgrade() (bool, int) {
 	if h.sqConfig.Enabled {
-		return h.sqConfig.Enabled, h.pqConfig.TrainingLimit
+		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
@@ -711,7 +712,7 @@ func (h *hnsw) ShouldUpgrade() (bool, int) {
 func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, int) {
 	hnswConfig := config.(ent.UserConfig)
 	if hnswConfig.SQ.Enabled {
-		return hnswConfig.SQ.Enabled, hnswConfig.PQ.TrainingLimit
+		return hnswConfig.SQ.Enabled, hnswConfig.SQ.TrainingLimit
 	}
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }

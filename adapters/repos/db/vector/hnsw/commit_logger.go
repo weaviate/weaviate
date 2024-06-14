@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -315,11 +316,18 @@ func (l *hnswCommitLogger) ID() string {
 	return l.id
 }
 
-func (l *hnswCommitLogger) AddCompression(data any) error {
+func (l *hnswCommitLogger) AddPQCompression(data compressionhelpers.PQData) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddCompression(data)
+	return l.commitLogger.AddPQCompression(data)
+}
+
+func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddSQCompression(data)
 }
 
 // AddNode adds an empty node

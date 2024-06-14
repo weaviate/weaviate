@@ -208,12 +208,12 @@ func (sq *ScalarQuantizer) FromCompressedBytes(compressed []byte) []byte {
 	return compressed
 }
 
-func (sq *ScalarQuantizer) ExposeFields() any {
-	return SQData{
+func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
+	logger.AddSQCompression(SQData{
 		A:          sq.a,
 		B:          sq.b,
 		Dimensions: uint16(sq.dimensions),
-	}
+	})
 }
 
 func (sq *ScalarQuantizer) norm(code []byte) uint32 {

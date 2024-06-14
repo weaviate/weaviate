@@ -282,8 +282,8 @@ func PutCode8(code byte, buffer []byte, index int) {
 	buffer[index] = code
 }
 
-func (pq *ProductQuantizer) ExposeFields() any {
-	return PQData{
+func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) {
+	logger.AddPQCompression(PQData{
 		Dimensions:          uint16(pq.dimensions),
 		EncoderType:         pq.encoderType,
 		Ks:                  uint16(pq.ks),
@@ -291,7 +291,7 @@ func (pq *ProductQuantizer) ExposeFields() any {
 		EncoderDistribution: byte(pq.encoderDistribution),
 		Encoders:            pq.kms,
 		TrainingLimit:       pq.trainingLimit,
-	}
+	})
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
