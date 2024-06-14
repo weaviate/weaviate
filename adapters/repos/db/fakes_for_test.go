@@ -209,6 +209,10 @@ func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
+func (f *fakeRemoteClient) BatchMergeObjects(ctx context.Context, hostName, indexName, shardName string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) []error {
+	return nil
+}
+
 func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexName,
 	shardName string, ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
@@ -319,6 +323,10 @@ func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, sh
 	return replica.SimpleResponse{}, nil
 }
 
+func (f *fakeReplicationClient) MergeObjects(ctx context.Context, host, index, shard, requestID string, mergeDocs []*objects.BatchMergeDocument, schemaVersion uint64) (replica.SimpleResponse, error) {
+	return replica.SimpleResponse{}, nil
+}
+
 func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
 	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
@@ -339,7 +347,7 @@ func (f *fakeReplicationClient) Abort(ctx context.Context, host, index, shard, r
 	return replica.SimpleResponse{}, nil
 }
 
-func (fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
+func (f *fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
 	return false, nil

@@ -58,7 +58,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	return class, 0, nil
 }
 
-func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
+func (h *Handler) GetCachedClassMap(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
@@ -89,6 +89,29 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 
 		return vclasses, nil
 	}, names...)
+}
+
+func (h *Handler) GetCachedClass(ctxWithClassCache context.Context, principal *models.Principal, name string,
+) (versioned.Class, error) {
+	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+		return versioned.Class{}, err
+	}
+
+	vclasses, err := h.GetCachedClassMap(ctxWithClassCache, principal, name)
+	if err != nil {
+		return versioned.Class{}, err
+	}
+
+	if len(vclasses) == 0 {
+		return versioned.Class{}, fmt.Errorf("class %q not found", name)
+	}
+
+	vclass, ok := vclasses[name]
+	if !ok {
+		return versioned.Class{}, fmt.Errorf("class %q not found", name)
+	}
+
+	return vclass, nil
 }
 
 // AddClass to the schema

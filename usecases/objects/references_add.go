@@ -166,7 +166,7 @@ func (req *AddReferenceInput) validate(
 		return nil, nil, 0, err
 	}
 
-	vclasses, err := sm.GetCachedClass(ctx, principal, req.Class)
+	vclasses, err := sm.GetCachedClassMap(ctx, principal, req.Class)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -179,5 +179,5 @@ func (req *AddReferenceInput) validateExistence(
 	ctx context.Context,
 	v *validation.Validator, tenant string, ref *crossref.Ref,
 ) error {
-	return v.ValidateExistence(ctx, ref, "validate reference", tenant)
+	return v.ValidateCrossRefExistence(ctx, ref, "validate reference", tenant)
 }

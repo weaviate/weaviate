@@ -33,6 +33,10 @@ func Test_Batch(t *testing.T) {
 					DataType:     schema.DataTypeText.PropString(),
 					Tokenization: models.PropertyTokenizationWhitespace,
 				},
+				{
+					Name:     "index",
+					DataType: schema.DataTypeInt.PropString(),
+				},
 			},
 		})
 		createObjectClass(t, &models.Class{
@@ -69,6 +73,7 @@ func Test_Batch(t *testing.T) {
 	t.Run("gql results order", batchJourney)
 	t.Run("gql results order", gqlResultsOrder)
 	t.Run("gql malformed request", gqlMalformedRequest)
+	t.Run("batch patch", batchPatchJourney)
 	t.Run("batch delete", batchDeleteJourney)
 
 	deleteObjectClass(t, "BulkTest")

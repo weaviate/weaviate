@@ -88,6 +88,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		BatchBatchObjectsDeleteHandler: batch.BatchObjectsDeleteHandlerFunc(func(params batch.BatchObjectsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation batch.BatchObjectsDelete has not yet been implemented")
 		}),
+		BatchBatchObjectsMergeHandler: batch.BatchObjectsMergeHandlerFunc(func(params batch.BatchObjectsMergeParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation batch.BatchObjectsMerge has not yet been implemented")
+		}),
 		BatchBatchReferencesCreateHandler: batch.BatchReferencesCreateHandlerFunc(func(params batch.BatchReferencesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation batch.BatchReferencesCreate has not yet been implemented")
 		}),
@@ -286,6 +289,8 @@ type WeaviateAPI struct {
 	BatchBatchObjectsCreateHandler batch.BatchObjectsCreateHandler
 	// BatchBatchObjectsDeleteHandler sets the operation handler for the batch objects delete operation
 	BatchBatchObjectsDeleteHandler batch.BatchObjectsDeleteHandler
+	// BatchBatchObjectsMergeHandler sets the operation handler for the batch objects merge operation
+	BatchBatchObjectsMergeHandler batch.BatchObjectsMergeHandler
 	// BatchBatchReferencesCreateHandler sets the operation handler for the batch references create operation
 	BatchBatchReferencesCreateHandler batch.BatchReferencesCreateHandler
 	// ClassificationsClassificationsGetHandler sets the operation handler for the classifications get operation
@@ -478,6 +483,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.BatchBatchObjectsDeleteHandler == nil {
 		unregistered = append(unregistered, "batch.BatchObjectsDeleteHandler")
+	}
+	if o.BatchBatchObjectsMergeHandler == nil {
+		unregistered = append(unregistered, "batch.BatchObjectsMergeHandler")
 	}
 	if o.BatchBatchReferencesCreateHandler == nil {
 		unregistered = append(unregistered, "batch.BatchReferencesCreateHandler")
@@ -739,6 +747,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/batch/objects"] = batch.NewBatchObjectsDelete(o.context, o.BatchBatchObjectsDeleteHandler)
+	if o.handlers["PATCH"] == nil {
+		o.handlers["PATCH"] = make(map[string]http.Handler)
+	}
+	o.handlers["PATCH"]["/batch/objects"] = batch.NewBatchObjectsMerge(o.context, o.BatchBatchObjectsMergeHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

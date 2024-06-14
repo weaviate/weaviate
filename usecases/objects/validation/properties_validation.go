@@ -593,7 +593,7 @@ func (v *Validator) parseAndValidateSingleRef(ctx context.Context, propertyName 
 		return nil, err
 	}
 
-	if err = v.ValidateExistence(ctx, ref, errVal, tenant); err != nil {
+	if err = v.ValidateCrossRefExistence(ctx, ref, errVal, tenant); err != nil {
 		return nil, err
 	}
 

@@ -150,6 +150,23 @@ func (s *Shard) preparePutObjects(ctx context.Context, requestID string, objects
 	return replica.SimpleResponse{}
 }
 
+func (s *Shard) prepareMergeObjects(ctx context.Context, requestID string,
+	docs []*objects.BatchMergeDocument,
+) replica.SimpleResponse {
+	task := func(ctx context.Context) interface{} {
+		rawErrs := s.mergeBatch(ctx, docs)
+		resp := replica.SimpleResponse{Errors: make([]replica.Error, len(rawErrs))}
+		for i, err := range rawErrs {
+			if err != nil {
+				resp.Errors[i] = replica.Error{Code: replica.StatusConflict, Msg: err.Error()}
+			}
+		}
+		return resp
+	}
+	s.replicationMap.set(requestID, task)
+	return replica.SimpleResponse{}
+}
+
 func (s *Shard) prepareDeleteObjects(ctx context.Context, requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
 	task := func(ctx context.Context) interface{} {
 		result := newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)

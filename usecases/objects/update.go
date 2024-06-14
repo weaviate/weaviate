@@ -82,12 +82,12 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("id", id).
 		Debug("received update kind request")
 
-	prevObj := obj.Object()
-	err = m.validateObjectAndNormalizeNames(
-		ctx, principal, repl, updates, prevObj)
-	if err != nil {
-		return nil, NewErrInvalidUserInput("invalid object: %v", err)
-	}
+	//prevObj := obj.Object()
+	//err = m.validateObject(
+	//	ctx, principal, repl, updates, prevObj)
+	//if err != nil {
+	//	return nil, NewErrInvalidUserInput("invalid object: %v", err)
+	//}
 
 	// Set the original creation timestamp before call to put,
 	// otherwise it is lost. This is because `class` is unmarshalled
@@ -96,7 +96,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	updates.CreationTimeUnix = obj.Created
 	updates.LastUpdateTimeUnix = m.timeSource.Now()
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
+	vclasses, err := m.schemaManager.GetCachedClassMap(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}

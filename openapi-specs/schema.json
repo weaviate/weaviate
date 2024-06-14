@@ -3711,6 +3711,79 @@
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       },
+      "patch": {
+        "description": "Updates a batch of Objects. This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "operationId": "batch.objects.merge",
+        "x-serviceIds": [
+          "weaviate.local.manipulate"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "objects": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/Object"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "$ref": "#/parameters/CommonConsistencyLevelParameterQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Request succeeded, see response body to get detailed information about each batched item.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/ObjectsGetResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "summary": "Updates existing objects by merging the provided properties",
+        "tags": [
+          "batch",
+          "objects"
+        ],
+        "x-available-in-mqtt": false,
+        "x-available-in-websocket": false
+      },
       "delete": {
         "description": "Delete Objects in bulk that match a certain filter.",
         "operationId": "batch.objects.delete",

@@ -72,7 +72,7 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		classes = append(classes, schema.UppercaseClassName(object.Class))
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
+	vclasses, err := m.schemaManager.GetCachedClassMap(ctx, principal, classes...)
 	if err != nil {
 		return 0, err
 	}
@@ -498,7 +498,7 @@ func (m *autoSchemaManager) autoTenants(ctx context.Context,
 		classes = append(classes, schema.UppercaseClassName(className))
 	}
 
-	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, classes...)
+	vclasses, err := m.schemaManager.GetCachedClassMap(ctx, principal, classes...)
 	if err != nil {
 		return 0, err
 	}

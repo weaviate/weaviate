@@ -98,7 +98,7 @@ func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *m
 	return cls, 0, err
 }
 
-func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
+func (f *fakeSchemaManager) GetCachedClassMap(ctx context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
 	res := map[string]versioned.Class{}
@@ -110,6 +110,16 @@ func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
 		res[name] = versioned.Class{Class: cls}
 	}
 	return res, nil
+}
+
+func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
+	principal *models.Principal, name string,
+) (versioned.Class, error) {
+	classes, err := f.GetCachedClassMap(ctx, principal, name)
+	if err != nil {
+		return versioned.Class{}, err
+	}
+	return classes[name], nil
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
@@ -257,6 +267,13 @@ func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, 
 func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchObjects, error) {
+	args := f.Called(batch)
+	return batch, args.Error(0)
+}
+
+func (f *fakeVectorRepo) BatchMergeObjects(ctx context.Context, batch BatchMergeDocuments,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
+) (BatchMergeDocuments, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }

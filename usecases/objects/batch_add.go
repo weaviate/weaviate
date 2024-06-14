@@ -127,7 +127,7 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			continue
 		}
 
-		vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, obj.Class)
+		vclasses, err := b.schemaManager.GetCachedClassMap(ctx, principal, obj.Class)
 		if err != nil {
 			batchObjects[i].Err = err
 			continue
