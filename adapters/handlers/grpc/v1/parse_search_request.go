@@ -93,7 +93,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		}
 		out.NearVector = &searchparams.NearVector{
 			Vector:        vector,
-			TargetVectors: *targetVectors,
+			TargetVectors: targetVectors,
 		}
 
 		// The following business logic should not sit in the API. However, it is
@@ -119,7 +119,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		}
 		out.NearObject = &searchparams.NearObject{
 			ID:            no.Id,
-			TargetVectors: *targetVectors,
+			TargetVectors: targetVectors,
 		}
 
 		// The following business logic should not sit in the API. However, it is
@@ -140,7 +140,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if ni := req.NearImage; ni != nil {
-		nearImageOut, err := parseNearImage(ni, *targetVectors)
+		nearImageOut, err := parseNearImage(ni, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -152,7 +152,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if na := req.NearAudio; na != nil {
-		nearAudioOut, err := parseNearAudio(na, *targetVectors)
+		nearAudioOut, err := parseNearAudio(na, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -164,7 +164,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if nv := req.NearVideo; nv != nil {
-		nearVideoOut, err := parseNearVideo(nv, *targetVectors)
+		nearVideoOut, err := parseNearVideo(nv, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -176,7 +176,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if nd := req.NearDepth; nd != nil {
-		nearDepthOut, err := parseNearDepth(nd, *targetVectors)
+		nearDepthOut, err := parseNearDepth(nd, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -188,7 +188,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if nt := req.NearThermal; nt != nil {
-		nearThermalOut, err := parseNearThermal(nt, *targetVectors)
+		nearThermalOut, err := parseNearThermal(nt, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -200,7 +200,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if ni := req.NearImu; ni != nil {
-		nearIMUOut, err := parseNearIMU(ni, *targetVectors)
+		nearIMUOut, err := parseNearIMU(ni, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -234,7 +234,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			vector = hs.Vector
 		}
 
-		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, *targetVectors)
+		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -246,13 +246,13 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			Vector:          vector,
 			Alpha:           float64(hs.Alpha),
 			FusionAlgorithm: fusionType,
-			TargetVectors:   *targetVectors,
+			TargetVectors:   targetVectors,
 		}
 
 		if nearVec != nil {
 			out.HybridSearch.NearVectorParams = &searchparams.NearVector{
 				Vector:        byteops.Float32FromByteVector(nearVec.VectorBytes),
-				TargetVectors: *targetVectors,
+				TargetVectors: targetVectors,
 			}
 			if nearVec.Distance != nil {
 				out.HybridSearch.NearVectorParams.Distance = *nearVec.Distance
@@ -269,14 +269,14 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 				Limit:         nearTxt.Limit,
 				MoveAwayFrom:  searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values},
 				MoveTo:        searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values},
-				TargetVectors: *targetVectors,
+				TargetVectors: targetVectors,
 			}
 		}
 	}
 
 	var nearText *nearText2.NearTextParams
 	if req.NearText != nil {
-		nearText, err = extractNearText(out.ClassName, out.Pagination.Limit, req.NearText, *targetVectors)
+		nearText, err = extractNearText(out.ClassName, out.Pagination.Limit, req.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -365,15 +365,15 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 	return groupOut, nil
 }
 
-func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string, *dto.TargetCombination, error) {
-	var targetVectors *[]string
+func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string, *dto.TargetCombination, error) {
+	var targetVectors []string
 	var targets *pb.Targets
 
-	extract := func(targets *pb.Targets, targetVectors *[]string) (*[]string, *pb.Targets) {
+	extract := func(targets *pb.Targets, targetVectors *[]string) ([]string, *pb.Targets) {
 		if targets != nil {
-			return &targets.Targets, targets
+			return targets.Targets, targets
 		} else {
-			return targetVectors, nil
+			return *targetVectors, nil
 		}
 	}
 	if hs := req.HybridSearch; hs != nil {
@@ -413,12 +413,12 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string
 		if combination, err = extractTargets(targets); err != nil {
 			return nil, nil, err
 		}
-	} else if targetVectors != nil && len(*targetVectors) > 1 {
+	} else if len(targetVectors) > 1 {
 		// here weights need to be added if the default combination requires it
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if targetVectors != nil && len(*targetVectors) == 0 && len(class.VectorConfig) > 1 {
+	if len(targetVectors) == 0 && len(class.VectorConfig) > 1 {
 		return nil, nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 	}
 	return targetVectors, combination, nil
@@ -557,7 +557,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors *[]string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors []string) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
@@ -669,7 +669,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 	return props, nil
 }
 
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors *[]string) ([]search.SelectProperty, error) {
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors []string) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
@@ -783,7 +783,7 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 	return selectProps
 }
 
-func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest, targetVectors *[]string) (additional.Properties, error) {
+func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest, targetVectors []string) (additional.Properties, error) {
 	props := additional.Properties{
 		Vector:             prop.Vector,
 		ID:                 prop.Uuid,
@@ -806,7 +806,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 	}
 
 	if targetVectors != nil {
-		vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, *targetVectors)
+		vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
 		if err != nil {
 			return props, errors.Wrap(err, "get vector index config from class")
 		}
