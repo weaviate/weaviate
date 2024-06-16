@@ -782,12 +782,12 @@ func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
 	if class == nil {
 		return errors.Errorf("failed to get class: %s", params.ClassName)
 	}
-	targetVector := e.targetParamHelper.GetTargetVectorsFromParams(params)
-	vectorConfig, err := schemaConfig.TypeAssertVectorIndex(class, targetVector)
+	targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
+	vectorConfigs, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
 	if err != nil {
 		return err
 	}
-	if dn := vectorConfig[0].DistanceName(); dn != common.DistanceCosine {
+	if dn := vectorConfigs[0].DistanceName(); dn != common.DistanceCosine {
 		return certaintyUnsupportedError(dn)
 	}
 
