@@ -44,12 +44,8 @@ func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]Vecto
 		}
 		return []VectorIndexConfig{vectorIndexConfig}, nil
 	} else {
-		if len(targetVectors) < 1 {
-			return nil, errors.Errorf("multiple vector configs found for class '%s', but no target vector specified", class.Class)
-		}
-
 		configs := make([]VectorIndexConfig, 0, len(targetVectors))
-		for _, targetVector := range targetVectors {
+		for i, targetVector := range targetVectors {
 			vectorConfig, ok := class.VectorConfig[targetVector]
 			if !ok {
 				return nil, errors.Errorf("vector config not found for target vector: %s", targetVector)
@@ -59,7 +55,7 @@ func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]Vecto
 				return nil, fmt.Errorf("targetVector '%s' vector index: config is not schema.VectorIndexConfig: %T",
 					targetVector, class.VectorIndexConfig)
 			}
-			configs = append(configs, vectorIndexConfig)
+			configs[i] = vectorIndexConfig
 		}
 		return configs, nil
 	}

@@ -64,6 +64,10 @@ func (t *Traverser) validateCrossClassDistanceCompatibility(targetVectors []stri
 			return
 		}
 
+		if len(vectorConfig) == 0 {
+			err = fmt.Errorf("empty vectorConfig fot %v, %v", class, targetVectors)
+		}
+
 		distancerTypes[vectorConfig[0].DistanceName()] = struct{}{}
 		classDistanceConfigs[class.Class] = vectorConfig[0].DistanceName()
 	}

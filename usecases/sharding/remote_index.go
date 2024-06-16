@@ -294,6 +294,10 @@ func (ri *RemoteIndex) VectorDistanceForQuery(ctx context.Context, shard string,
 	if err != nil {
 		return nil, node, err
 	}
+	dist, ok := rr.([]float32)
+	if !ok {
+		return nil, "", fmt.Errorf("expected []float, got %v", dist)
+	}
 	return rr.([]float32), node, err
 }
 
