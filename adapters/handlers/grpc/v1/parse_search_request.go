@@ -431,19 +431,20 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 
 	var combinationType dto.TargetCombinationType
 	weights := make(map[string]float32, len(in.Weights))
-	if in.Combination == pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE {
+	switch in.Combination {
+	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE:
 		combinationType = dto.Average
 		for _, target := range in.TargetsVectors {
 			weights[target] = 1.0 / float32(len(in.TargetsVectors))
 		}
-	} else if in.Combination == pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM {
+	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM:
 		combinationType = dto.Sum
 		for _, target := range in.TargetsVectors {
 			weights[target] = 1.0
 		}
-	} else if in.Combination == pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN {
+	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
-	} else if in.Combination == pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL {
+	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
 		if len(in.Weights) != len(in.TargetsVectors) {
 			return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetsVectors))
 		}
@@ -451,17 +452,16 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 		for k, v := range in.Weights {
 			weights[k] = v
 		}
-	} else if in.Combination == pb.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE {
+	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE:
 		combinationType = dto.RelativeScore
 		for k, v := range in.Weights {
 			weights[k] = v
 		}
-	} else if in.Combination == pb.CombinationMethod_COMBINATION_METHOD_UNSPECIFIED {
+	case pb.CombinationMethod_COMBINATION_METHOD_UNSPECIFIED:
 		combinationType = dto.DefaultTargetCombinationType
-	} else {
+	default:
 		return nil, fmt.Errorf("unknown combination method %v", in.Combination)
 	}
-
 	return &dto.TargetCombination{Weights: weights, Type: combinationType}, nil
 }
 
