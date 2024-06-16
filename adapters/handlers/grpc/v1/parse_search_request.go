@@ -368,43 +368,44 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string, *dto.TargetCombination, error) {
 	var targetVectors []string
 	var targets *pb.Targets
+	vectorSearch := false
 
-	extract := func(targets *pb.Targets, targetVectors *[]string) ([]string, *pb.Targets) {
+	extract := func(targets *pb.Targets, targetVectors *[]string) ([]string, *pb.Targets, bool) {
 		if targets != nil {
-			return targets.TargetsVectors, targets
+			return targets.TargetsVectors, targets, true
 		} else {
-			return *targetVectors, nil
+			return *targetVectors, nil, true
 		}
 	}
 	if hs := req.HybridSearch; hs != nil {
-		targetVectors, targets = extract(hs.Targets, &hs.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(hs.Targets, &hs.TargetVectors)
 	}
 	if na := req.NearAudio; na != nil {
-		targetVectors, targets = extract(na.Targets, &na.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(na.Targets, &na.TargetVectors)
 	}
 	if nd := req.NearDepth; nd != nil {
-		targetVectors, targets = extract(nd.Targets, &nd.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(nd.Targets, &nd.TargetVectors)
 	}
 	if ni := req.NearImage; ni != nil {
-		targetVectors, targets = extract(ni.Targets, &ni.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(ni.Targets, &ni.TargetVectors)
 	}
 	if ni := req.NearImu; ni != nil {
-		targetVectors, targets = extract(ni.Targets, &ni.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(ni.Targets, &ni.TargetVectors)
 	}
 	if no := req.NearObject; no != nil {
-		targetVectors, targets = extract(no.Targets, &no.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(no.Targets, &no.TargetVectors)
 	}
 	if nt := req.NearText; nt != nil {
-		targetVectors, targets = extract(nt.Targets, &nt.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(nt.Targets, &nt.TargetVectors)
 	}
 	if nt := req.NearThermal; nt != nil {
-		targetVectors, targets = extract(nt.Targets, &nt.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(nt.Targets, &nt.TargetVectors)
 	}
 	if nv := req.NearVector; nv != nil {
-		targetVectors, targets = extract(nv.Targets, &nv.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(nv.Targets, &nv.TargetVectors)
 	}
 	if nv := req.NearVideo; nv != nil {
-		targetVectors, targets = extract(nv.Targets, &nv.TargetVectors)
+		targetVectors, targets, vectorSearch = extract(nv.Targets, &nv.TargetVectors)
 	}
 
 	var combination *dto.TargetCombination
@@ -418,7 +419,7 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if len(targetVectors) == 0 && len(class.VectorConfig) > 1 {
+	if vectorSearch && len(targetVectors) == 0 && len(class.VectorConfig) > 1 {
 		return nil, nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 	}
 	return targetVectors, combination, nil
