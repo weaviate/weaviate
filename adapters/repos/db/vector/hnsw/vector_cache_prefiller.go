@@ -56,9 +56,6 @@ func (pf *vectorCachePrefiller[T]) Prefill(ctx context.Context, limit int) error
 func (pf *vectorCachePrefiller[T]) prefillLevel(ctx context.Context,
 	level, limit int,
 ) (bool, error) {
-	// TODO: this makes zero sense, just copy the lists, don't actually block
-	//  !!!!
-
 	before := time.Now()
 	layerCount := 0
 

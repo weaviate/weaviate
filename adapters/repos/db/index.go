@@ -543,6 +543,7 @@ type IndexConfig struct {
 	MemtablesMaxActiveSeconds int
 	MaxSegmentSize            int64
 	HNSWMaxLogSize            int64
+	HNSWWaitForCachePrefill   bool
 	ReplicationFactor         int64
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
