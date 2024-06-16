@@ -773,7 +773,7 @@ func (p *Provider) getTargetVector(class *models.Class, params interface{}) ([]s
 	}
 	if class != nil {
 		if len(class.VectorConfig) > 1 {
-			return []string{}, fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
+			return nil, fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
 		}
 
 		if len(class.VectorConfig) == 1 {
