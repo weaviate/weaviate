@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -59,6 +60,7 @@ type quantizedVectorsCompressor[T byte | uint64] struct {
 	quantizer       quantizer[T]
 	storeId         func([]byte, uint64)
 	loadId          func([]byte) uint64
+	logger          logrus.FieldLogger
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Drop() error {
@@ -207,16 +209,54 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 }
 
 func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
+	before := time.Now()
+	count := 0
+
+	// The idea here is to first read everything from disk in one go, then grow
+	// the cache just once before inserting all vectors. A previous iteration
+	// would grow the cache as part of the cursor loop and this ended up making
+	// up 75% of the CPU time needed. This new implementation with two loops is
+	// much more efficient and only ever-so-slightly more memory-consuming (about
+	// one additional struct per vector while loading. Should be negligible)
+	type vec struct {
+		id  uint64
+		vec []T
+	}
+
+	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
+	// this slice dynamically should be quite cheap compared to other operations
+	// involved here, e.g. disk reads.
+	vecs := make([]vec, 0, 10_000)
+	maxID := uint64(0)
+
 	cursor := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		id := compressor.loadId(k)
-		compressor.cache.Grow(id)
+		count++
 
+		id := compressor.loadId(k)
 		vc := make([]byte, len(v))
 		copy(vc, v)
-		compressor.cache.Preload(id, compressor.quantizer.FromCompressedBytes(vc))
+
+		vecs = append(vecs, vec{id: id, vec: compressor.quantizer.FromCompressedBytes(vc)})
+		if id > maxID {
+			maxID = id
+		}
+
 	}
 	cursor.Close()
+
+	compressor.cache.Grow(maxID)
+
+	for _, vec := range vecs {
+		compressor.cache.Preload(vec.id, vec.vec)
+	}
+
+	took := time.Since(before)
+	compressor.logger.WithFields(logrus.Fields{
+		"action": "hnsw_compressed_vector_cache_prefill",
+		"count":  count,
+		"took":   took,
+	}).Info("prefilled compressed vector cache")
 }
 
 func (compressor *quantizedVectorsCompressor[T]) ExposeFields() PQData {
@@ -242,6 +282,7 @@ func NewHNSWPQCompressor(
 		compressedStore: store,
 		storeId:         binary.LittleEndian.PutUint64,
 		loadId:          binary.LittleEndian.Uint64,
+		logger:          logger,
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -274,6 +315,7 @@ func RestoreHNSWPQCompressor(
 		compressedStore: store,
 		storeId:         binary.LittleEndian.PutUint64,
 		loadId:          binary.LittleEndian.Uint64,
+		logger:          logger,
 	}
 	pqVectorsCompressor.initCompressedStore()
 	pqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -295,6 +337,7 @@ func NewBQCompressor(
 		compressedStore: store,
 		storeId:         binary.BigEndian.PutUint64,
 		loadId:          binary.BigEndian.Uint64,
+		logger:          logger,
 	}
 	bqVectorsCompressor.initCompressedStore()
 	bqVectorsCompressor.cache = cache.NewShardedUInt64LockCache(
