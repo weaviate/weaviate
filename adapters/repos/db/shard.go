@@ -922,6 +922,12 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
 func (s *Shard) Shutdown(ctx context.Context) error {
+	// immediately put the status to loading, so the replication logic will not
+	// send traffic to this shard. From the perspective of the replication logic,
+	// loading or shutting down is excactly the same thing: The shard is not
+	// ready to serve traffic, don't send it traffic.
+	s.UpdateStatus(storagestate.StatusLoading.String())
+
 	var err error
 	if err = s.GetPropertyLengthTracker().Close(); err != nil {
 		return errors.Wrap(err, "close prop length tracker")
