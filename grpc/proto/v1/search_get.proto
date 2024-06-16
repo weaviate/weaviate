@@ -112,7 +112,7 @@ enum CombinationMethod {
 }
 
 message Targets {
-  repeated string targets = 1;
+  repeated string targets_vectors = 1;
   CombinationMethod combination = 2;
   map<string,float> weights = 3;
 }

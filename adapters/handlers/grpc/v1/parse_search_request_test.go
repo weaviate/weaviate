@@ -1495,7 +1495,7 @@ func TestGRPCRequest(t *testing.T) {
 				Collection: classname,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteVector([]float32{1, 2, 3}),
-					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN},
+					Targets:     &pb.Targets{TargetsVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN},
 				},
 			},
 			out: dto.GetParams{
@@ -1515,7 +1515,7 @@ func TestGRPCRequest(t *testing.T) {
 				Collection: classname,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteVector([]float32{1, 2, 3}),
-					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE},
+					Targets:     &pb.Targets{TargetsVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE},
 				},
 			},
 			out: dto.GetParams{
@@ -1535,7 +1535,7 @@ func TestGRPCRequest(t *testing.T) {
 				Collection: classname,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteVector([]float32{1, 2, 3}),
-					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
+					Targets:     &pb.Targets{TargetsVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
 				},
 			},
 			out: dto.GetParams{
@@ -1555,7 +1555,7 @@ func TestGRPCRequest(t *testing.T) {
 				Collection: classname,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteVector([]float32{1, 2, 3}),
-					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1}},
+					Targets:     &pb.Targets{TargetsVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1}},
 				},
 			},
 			out:   dto.GetParams{},
@@ -1567,7 +1567,7 @@ func TestGRPCRequest(t *testing.T) {
 				Collection: classname,
 				NearVector: &pb.NearVector{
 					VectorBytes: byteVector([]float32{1, 2, 3}),
-					Targets:     &pb.Targets{Targets: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"nonExistant": 0.1}},
+					Targets:     &pb.Targets{TargetsVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"nonExistant": 0.1}},
 				},
 			},
 			out:   dto.GetParams{},
