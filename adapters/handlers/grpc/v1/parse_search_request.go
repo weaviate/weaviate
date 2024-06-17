@@ -422,6 +422,15 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	if vectorSearch && len(targetVectors) == 0 && len(class.VectorConfig) > 1 {
 		return nil, nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 	}
+
+	if vectorSearch {
+		for _, target := range targetVectors {
+			if _, ok := class.VectorConfig[target]; !ok {
+				return nil, nil, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
+			}
+		}
+	}
+
 	return targetVectors, combination, nil
 }
 
