@@ -197,6 +197,7 @@ type Config struct {
 	MemtablesMaxActiveSeconds int
 	MaxSegmentSize            int64
 	HNSWMaxLogSize            int64
+	HNSWWaitForCachePrefill   bool
 	TrackVectorDimensions     bool
 	ServerVersion             string
 	GitHash                   string
