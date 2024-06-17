@@ -178,6 +178,14 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 	return nil
 }
 
+func (f *fakeRemoteClient) VectorDistanceForQuery(ctx context.Context, hostname, indexName, shardName string,
+	id strfmt.UUID,
+	targetVectors []string,
+	searchVectors [][]float32,
+) ([]float32, error) {
+	return nil, nil
+}
+
 func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {

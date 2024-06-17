@@ -862,6 +862,10 @@ func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams) ([]sea
 	return nil, nil
 }
 
+func (f *fakeObjectSearcher) VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+	return nil, nil
+}
+
 func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil
 }

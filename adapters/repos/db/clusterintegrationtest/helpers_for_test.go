@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -23,6 +22,10 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -155,6 +158,25 @@ func class() *models.Class {
 				DataType: schema.DataTypePhoneNumber.PropString(),
 			},
 		},
+	}
+}
+
+func multiVectorClass(asyncIndexing bool) *models.Class {
+	namedVectors := map[string]models.VectorConfig{
+		"custom1": {VectorIndexConfig: enthnsw.UserConfig{}},
+		"custom2": {VectorIndexType: "hnsw", VectorIndexConfig: enthnsw.UserConfig{}},
+		"custom3": {VectorIndexType: "flat", VectorIndexConfig: flatent.UserConfig{}},
+	}
+
+	if asyncIndexing {
+		namedVectors["custom4"] = models.VectorConfig{VectorIndexType: "dynamic", VectorIndexConfig: dynamicent.UserConfig{}}
+	}
+
+	return &models.Class{
+		Class:               "Test",
+		InvertedIndexConfig: invertedConfig(),
+		VectorConfig:        namedVectors,
+		Properties:          []*models.Property{},
 	}
 }
 

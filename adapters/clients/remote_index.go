@@ -437,6 +437,43 @@ func (r *searchShardResp) decode(data []byte) (err error) {
 	return
 }
 
+func (c *RemoteIndex) VectorDistanceForQuery(ctx context.Context, host, index, shard string,
+	id strfmt.UUID,
+	targetVectors []string,
+	searchVectors [][]float32,
+) ([]float32, error) {
+	// new request
+	body, err := clusterapi.IndicesPayloads.VectorDistanceParams.
+		Marshal(id, targetVectors, searchVectors)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request payload: %w", err)
+	}
+	url := url.URL{
+		Scheme: "http",
+		Host:   host,
+		Path:   fmt.Sprintf("/indices/%s/shards/%s/objects/_vectorDistance", index, shard),
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("create http request: %w", err)
+	}
+	clusterapi.IndicesPayloads.VectorDistanceParams.SetContentTypeHeaderReq(req)
+
+	// send request
+	resp := &vectorDistResp{}
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode)
+	return resp.Distances, err
+}
+
+type vectorDistResp struct {
+	Distances []float32
+}
+
+func (r *vectorDistResp) decode(data []byte) (err error) {
+	r.Distances, err = clusterapi.IndicesPayloads.VectorDistanceResults.Unmarshal(data)
+	return
+}
+
 type aggregateResp struct {
 	Result *aggregation.Result
 }

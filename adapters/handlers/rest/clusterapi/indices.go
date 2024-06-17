@@ -21,6 +21,8 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -49,6 +51,7 @@ type indices struct {
 	regexObjectsHashTreeLevel       *regexp.Regexp
 	regexpObjectsSearch             *regexp.Regexp
 	regexpObjectsFind               *regexp.Regexp
+	regexpVectorDistance            *regexp.Regexp
 
 	regexpObjectsAggregations *regexp.Regexp
 	regexpObject              *regexp.Regexp
@@ -80,6 +83,8 @@ const (
 		`\/shards\/(` + sh + `)\/objects\/hashtree\/(` + l + `)`
 	urlPatternObjectsSearch = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/_search`
+	urlPatternVectorDistance = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/objects\/_vectorDistance`
 	urlPatternObjectsFind = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects\/_find`
 	urlPatternObjectsAggregations = `\/indices\/(` + cl + `)` +
@@ -134,6 +139,7 @@ type shards interface {
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
 		targetStatus string, schemaVersion uint64) error
+	VectorDistanceForQuery(ctx context.Context, indexName, shardName string, id strfmt.UUID, targets []string, searchVectors [][]float32) ([]float32, error)
 
 	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
@@ -164,6 +170,7 @@ func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *ind
 		regexObjectsDigestsInTokenRange: regexp.MustCompile(urlPatternObjectsDigestsInTokenRange),
 		regexObjectsHashTreeLevel:       regexp.MustCompile(urlPatternHashTreeLevel),
 		regexpObjectsSearch:             regexp.MustCompile(urlPatternObjectsSearch),
+		regexpVectorDistance:            regexp.MustCompile(urlPatternVectorDistance),
 		regexpObjectsFind:               regexp.MustCompile(urlPatternObjectsFind),
 
 		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
@@ -204,6 +211,14 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 			}
 
 			i.postFindUUIDs().ServeHTTP(w, r)
+			return
+		case i.regexpVectorDistance.MatchString(path):
+			if r.Method != http.MethodPost {
+				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
+			}
+
+			i.postVectorDistance().ServeHTTP(w, r)
 			return
 		case i.regexpObjectsAggregations.MatchString(path):
 			if r.Method != http.MethodPost {
@@ -708,6 +723,68 @@ func (i *indices) postSearchObjects() http.Handler {
 		}
 
 		resBytes, err := IndicesPayloads.SearchResults.Marshal(results, dists)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		IndicesPayloads.SearchResults.SetContentTypeHeader(w)
+		w.Write(resBytes)
+	})
+}
+
+func (i *indices) postVectorDistance() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpVectorDistance.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		ind, shard := args[1], args[2]
+
+		defer r.Body.Close()
+		reqPayload, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "read request body: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		ct, ok := IndicesPayloads.VectorDistanceParams.CheckContentTypeHeaderReq(r)
+		if !ok {
+			http.Error(w, errors.Errorf("unexpected content type: %s", ct).Error(),
+				http.StatusUnsupportedMediaType)
+			return
+		}
+
+		id, targetVectors, searchVectors, err := IndicesPayloads.VectorDistanceParams.
+			Unmarshal(reqPayload)
+		if err != nil {
+			http.Error(w, "unmarshal search params from json: "+err.Error(),
+				http.StatusBadRequest)
+			return
+		}
+
+		i.logger.WithFields(logrus.Fields{
+			"shard":  shard,
+			"action": "Search",
+		}).Debug("searching ...")
+		dists, err := i.shards.VectorDistanceForQuery(r.Context(), ind, shard, id, targetVectors, searchVectors)
+		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		// If the error is due to a vector length mismatch, return a 404 so that ths request is not retried.
+		if err != nil && errors.Is(err, distancer.ErrVectorLength) {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		resBytes, err := IndicesPayloads.VectorDistanceResults.Marshal(dists)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

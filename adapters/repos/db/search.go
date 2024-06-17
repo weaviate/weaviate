@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -136,6 +138,19 @@ func (db *DB) VectorSearch(ctx context.Context,
 		storobj.SearchResultsWithDists(db.getStoreObjects(res, params.Pagination),
 			params.AdditionalProperties, db.getDists(dists, params.Pagination)),
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
+}
+
+func (db *DB) VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+	idx := db.GetIndex(schema.ClassName(className))
+	if idx == nil {
+		return nil, fmt.Errorf("tried to browse non-existing index for %s", className)
+	}
+
+	if len(targetVectors) != len(searchVectors) || len(targetVectors) == 0 {
+		return nil, fmt.Errorf("target vectors and search vectors must have the same non-zero length")
+	}
+
+	return idx.vectorDistanceForQuery(ctx, id, targetVectors, searchVectors, tenant)
 }
 
 func extractDistanceFromParams(params dto.GetParams) float32 {

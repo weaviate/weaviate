@@ -36,6 +36,7 @@ type Config struct {
 	DistanceProvider      distancer.Provider
 	PrometheusMetrics     *monitoring.PrometheusMetrics
 	AllocChecker          memwatch.AllocChecker
+	WaitForCachePrefill   bool
 
 	// metadata for monitoring
 	ShardName string
