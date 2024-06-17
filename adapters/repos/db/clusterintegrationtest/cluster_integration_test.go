@@ -742,6 +742,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 	})
 
 	t.Run("get non-existing target", func(t *testing.T) {
+		start := time.Now()
 		obj := &models.Object{
 			ID:      uid,
 			Class:   collection.Class,
@@ -752,6 +753,7 @@ func TestDistributedVectorDistance(t *testing.T) {
 		_, err := nodes[rnd.Intn(len(nodes))].repo.VectorDistanceForQuery(ctx, collection.Class, obj.ID, []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[1]}, "")
 		require.NotNil(t, err)
 		require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+		require.True(t, time.Since(start) < 19*time.Second) // this will fail if the remote call is retried
 	})
 
 	t.Run("Multiple objects", func(t *testing.T) {

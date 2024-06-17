@@ -21,6 +21,8 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -770,6 +772,11 @@ func (i *indices) postVectorDistance() http.Handler {
 		dists, err := i.shards.VectorDistanceForQuery(r.Context(), ind, shard, id, targetVectors, searchVectors)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		// If the error is due to a vector length mismatch, return a 404 so that ths request is not retried.
+		if err != nil && errors.Is(err, distancer.ErrVectorLength) {
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
 		if err != nil {
