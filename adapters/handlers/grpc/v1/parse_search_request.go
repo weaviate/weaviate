@@ -372,7 +372,7 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 
 	extract := func(targets *pb.Targets, targetVectors *[]string) ([]string, *pb.Targets, bool) {
 		if targets != nil {
-			return targets.TargetsVectors, targets, true
+			return targets.TargetVectors, targets, true
 		} else {
 			return *targetVectors, nil, true
 		}
@@ -444,19 +444,19 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 	switch in.Combination {
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE:
 		combinationType = dto.Average
-		for _, target := range in.TargetsVectors {
-			weights[target] = 1.0 / float32(len(in.TargetsVectors))
+		for _, target := range in.TargetVectors {
+			weights[target] = 1.0 / float32(len(in.TargetVectors))
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM:
 		combinationType = dto.Sum
-		for _, target := range in.TargetsVectors {
+		for _, target := range in.TargetVectors {
 			weights[target] = 1.0
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
-		if len(in.Weights) != len(in.TargetsVectors) {
-			return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetsVectors))
+		if len(in.Weights) != len(in.TargetVectors) {
+			return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
 		}
 		combinationType = dto.ManualWeights
 		for k, v := range in.Weights {
