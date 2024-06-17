@@ -67,7 +67,7 @@ jobs:
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
       - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@0.22.0
         with:
           image-ref: 'weaviate:${{ github.sha }}'
           exit-code: '1'
@@ -187,11 +187,11 @@ jobs:
           COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           commit_message=$(git log -1 --format=%B $COMMIT_SHA)
-          if [[ "$commit_message" == "[gcp]"* || "$commit_message" == "prepare release"* ]]; then
+          if [[ "$commit_message" == *"[gcp]"* || "$commit_message" == "prepare release"* ]]; then
             echo "Run pipeline"
             echo "run_pipeline=true" >> $GITHUB_ENV
           else
-            echo "Skip pipeline. In order to run the pipeline commit title must start with: [gcp]"
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [gcp]"
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
       - name: configure
@@ -205,6 +205,55 @@ jobs:
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
         if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         run: PALM_APIKEY=$(gcloud auth print-access-token) ./test/run.sh ${{ matrix.test }}
+  Modules-Acceptance-Tests-aws:
+    name: modules-acceptance-tests-aws
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ["--only-module-text2vec-aws", "--only-module-generative-aws"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+      - name: check
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
+          if [[ "$commit_message" == *"[aws]"* || "$commit_message" == "prepare release"* ]]; then
+            echo "Run pipeline"
+            echo "run_pipeline=true" >> $GITHUB_ENV
+          else
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [aws]"
+            echo "run_pipeline=false" >> $GITHUB_ENV
+          fi
+      - name: configure
+        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        id: creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-external-id: ${{ secrets.AWS_ROLE_EXTERNAL_ID }}
+          role-skip-session-tagging: true
+          output-credentials: true
+      - name: Acceptance tests (modules)
+        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ steps.creds.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.creds.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.creds.outputs.aws-session-token }}
+        run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests
     runs-on: ubuntu-latest
