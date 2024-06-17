@@ -324,6 +324,39 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return objs, nil, err
 }
 
+func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targets []string) ([]float32, error) {
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return nil, err
+	}
+
+	docIdBytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
+	if err != nil {
+		return nil, err
+	}
+	docId, err := storobj.DocIDFromBinary(docIdBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	distances := make([]float32, len(targets))
+
+	indexes := s.VectorIndexes()
+	for j, target := range targets {
+		index, ok := indexes[target]
+		if !ok {
+			return nil, fmt.Errorf("index %s not found", target)
+		}
+		distancer := index.QueryVectorDistancer(searchVectors[j])
+		dist, err := distancer.DistanceToNode(docId)
+		if err != nil {
+			return nil, err
+		}
+		distances[j] = dist
+	}
+	return distances, nil
+}
+
 func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 	if s.hasTargetVectors() {
 		if targetVector == "" {
@@ -557,7 +590,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object
-	docID, updateTime, err := storobj.DocIDFromBinary(existing)
+	docID, updateTime, err := storobj.DocIDAndTimeFromBinary(existing)
 	if err != nil {
 		return errors.Wrap(err, "get existing doc id from object binary")
 	}

@@ -23,24 +23,44 @@ type GroupParams struct {
 	Force    float32
 }
 
+type TargetCombinationType int
+
+const (
+	Sum TargetCombinationType = iota
+	Average
+	Minimum
+	ManualWeights
+	RelativeScore
+)
+
+// no weights are set for default, needs to be added if this is changed to something else
+const DefaultTargetCombinationType = Minimum
+
+type TargetCombination struct {
+	// just one of these can be set, precedence in order
+	Type    TargetCombinationType
+	Weights map[string]float32
+}
+
 type GetParams struct {
-	Filters               *filters.LocalFilter
-	ClassName             string
-	Pagination            *filters.Pagination
-	Cursor                *filters.Cursor
-	Sort                  []filters.Sort
-	Properties            search.SelectProperties
-	NearVector            *searchparams.NearVector
-	NearObject            *searchparams.NearObject
-	KeywordRanking        *searchparams.KeywordRanking
-	HybridSearch          *searchparams.HybridSearch
-	GroupBy               *searchparams.GroupBy
-	SearchVector          []float32
-	TargetVector          string
-	Group                 *GroupParams
-	ModuleParams          map[string]interface{}
-	AdditionalProperties  additional.Properties
-	ReplicationProperties *additional.ReplicationProperties
-	Tenant                string
-	IsRefOrigin           bool // is created by ref filter
+	Filters                 *filters.LocalFilter
+	ClassName               string
+	Pagination              *filters.Pagination
+	Cursor                  *filters.Cursor
+	Sort                    []filters.Sort
+	Properties              search.SelectProperties
+	NearVector              *searchparams.NearVector
+	NearObject              *searchparams.NearObject
+	KeywordRanking          *searchparams.KeywordRanking
+	HybridSearch            *searchparams.HybridSearch
+	GroupBy                 *searchparams.GroupBy
+	SearchVector            []float32
+	TargetVector            string
+	TargetVectorCombination *TargetCombination
+	Group                   *GroupParams
+	ModuleParams            map[string]interface{}
+	AdditionalProperties    additional.Properties
+	ReplicationProperties   *additional.ReplicationProperties
+	Tenant                  string
+	IsRefOrigin             bool // is created by ref filter
 }

@@ -793,3 +793,34 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 func (index *flat) AlreadyIndexed() uint64 {
 	return atomic.LoadUint64(&index.count)
 }
+
+func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	var distFunc func(nodeID uint64) (float32, error)
+	switch index.compression {
+	case compressionBQ:
+		queryVecEncode := index.bq.Encode(queryVector)
+		distFunc = func(nodeID uint64) (float32, error) {
+			vec, err := index.bqCache.Get(context.Background(), nodeID)
+			if err != nil {
+				return 0, err
+			}
+			return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
+		}
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		distFunc = func(nodeID uint64) (float32, error) {
+			vec, err := index.vectorById(nodeID)
+			if err != nil {
+				return 0, err
+			}
+			dist, _, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+			if err != nil {
+				return 0, err
+			}
+			return dist, nil
+		}
+	}
+	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}

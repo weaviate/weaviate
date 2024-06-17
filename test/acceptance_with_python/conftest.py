@@ -1,4 +1,3 @@
-import os
 from typing import Any, Optional, List, Generator, Protocol, Type, Dict, Tuple, Union, Callable
 
 import pytest
@@ -21,6 +20,7 @@ from weaviate.collections.classes.types import Properties
 from weaviate.config import AdditionalConfig
 
 from weaviate.collections.classes.config_named_vectors import _NamedVectorConfigCreate
+import weaviate.classes as wvc
 
 
 class CollectionFactory(Protocol):
@@ -49,14 +49,16 @@ class CollectionFactory(Protocol):
         """Typing for fixture."""
         ...
 
+
 @pytest.fixture
 def weaviate_client() -> Callable[[int, int], weaviate.WeaviateClient]:
-    def connect(http_port : int = 8080, grpc_port : int = 50051) -> weaviate.WeaviateClient:
+    def connect(http_port: int = 8080, grpc_port: int = 50051) -> weaviate.WeaviateClient:
         return weaviate.connect_to_local(
             port=http_port,
             grpc_port=grpc_port,
             additional_config=AdditionalConfig(timeout=(60, 120)),  # for image tests
         )
+
     return connect
 
 
@@ -117,6 +119,43 @@ def collection_factory(request: SubRequest) -> Generator[CollectionFactory, None
         if client_fixture is not None and name_fixture is not None:
             client_fixture.collections.delete(name_fixture)
             client_fixture.close()
+
+
+class NamedCollection(Protocol):
+    """Typing for fixture."""
+
+    def __call__(self, name: str = "", props: Optional[List[str]] = None) -> Collection:
+        """Typing for fixture."""
+        ...
+
+
+@pytest.fixture
+def named_collection(
+    collection_factory: CollectionFactory,
+) -> Generator[NamedCollection, None, None]:
+    def _factory(name: str = "", props: Optional[List[str]] = None) -> Collection:
+        if props is None:
+            props = ["title1", "title2", "title3"]
+
+        properties = [Property(name=prop, data_type=wvc.config.DataType.TEXT) for prop in props]
+        named_vectors = [
+            wvc.config.Configure.NamedVectors.text2vec_contextionary(
+                name=prop.name,
+                source_properties=[prop.name],
+                vectorize_collection_name=False,
+            )
+            for prop in properties
+        ]
+
+        collection = collection_factory(
+            name,
+            properties=properties,
+            vectorizer_config=named_vectors,
+        )
+
+        return collection
+
+    yield _factory
 
 
 def _sanitize_collection_name(name: str) -> str:
