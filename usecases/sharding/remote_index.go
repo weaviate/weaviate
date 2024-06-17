@@ -81,6 +81,12 @@ type RemoteIndexClient interface {
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties,
 	) ([]*storobj.Object, []float32, error)
+	VectorDistanceForQuery(ctx context.Context, hostname, indexName, shardName string,
+		id strfmt.UUID,
+		targetVectors []string,
+		searchVectors [][]float32,
+	) ([]float32, error)
+
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
@@ -268,6 +274,31 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	}
 	r := rr.(pair)
 	return r.first, r.second, node, err
+}
+
+func (ri *RemoteIndex) VectorDistanceForQuery(ctx context.Context, shard string,
+	id strfmt.UUID,
+	targetVectors []string,
+	searchVectors [][]float32,
+	replEnabled bool,
+) ([]float32, string, error) {
+	f := func(node, host string) (interface{}, error) {
+		scores, err := ri.client.VectorDistanceForQuery(ctx, host, ri.class, shard,
+			id, targetVectors, searchVectors)
+		if err != nil {
+			return nil, err
+		}
+		return scores, err
+	}
+	rr, node, err := ri.queryReplicas(ctx, shard, f)
+	if err != nil {
+		return nil, node, err
+	}
+	dist, ok := rr.([]float32)
+	if !ok {
+		return nil, "", fmt.Errorf("expected []float, got %v", dist)
+	}
+	return rr.([]float32), node, err
 }
 
 func (ri *RemoteIndex) Aggregate(

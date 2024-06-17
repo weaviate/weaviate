@@ -119,6 +119,7 @@ type ShardLike interface {
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
+	VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targets []string) ([]float32, error)
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
@@ -477,7 +478,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
 					)
 				},
-				AllocChecker: s.index.allocChecker,
+				AllocChecker:        s.index.allocChecker,
+				WaitForCachePrefill: s.index.Config.HNSWWaitForCachePrefill,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
 			if err != nil {

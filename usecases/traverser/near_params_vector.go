@@ -43,41 +43,73 @@ func newNearParamsVector(modulesProvider ModulesProvider, search nearParamsSearc
 	return &nearParamsVector{modulesProvider, search}
 }
 
-func (v *nearParamsVector) vectorFromParams(ctx context.Context,
+func (v *nearParamsVector) targetFromParams(ctx context.Context,
 	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
 	moduleParams map[string]interface{}, className, tenant string,
-) ([]float32, string, error) {
+) ([]string, error) {
 	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	if len(moduleParams) == 1 {
-		for name, value := range moduleParams {
-			return v.vectorFromModules(ctx, className, name, value, tenant)
+		for _, value := range moduleParams {
+			return v.targetFromModules(className, value)
 		}
 	}
 
 	if nearVector != nil {
-		targetVector := ""
-		if len(nearVector.TargetVectors) == 1 {
-			targetVector = nearVector.TargetVectors[0]
+		var targetVector []string
+		if len(nearVector.TargetVectors) > 0 {
+			targetVector = nearVector.TargetVectors
 		}
-		return nearVector.Vector, targetVector, nil
+		return targetVector, nil
 	}
 
 	if nearObject != nil {
-		vector, targetVector, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant)
-		if err != nil {
-			return nil, "", errors.Errorf("nearObject params: %v", err)
+		var targetVector []string
+		if len(nearObject.TargetVectors) > 0 {
+			targetVector = nearObject.TargetVectors
 		}
-
-		return vector, targetVector, nil
+		return targetVector, nil
 	}
 
 	// either nearObject or nearVector or module search param has to be set,
 	// so if we land here, something has gone very wrong
-	return []float32{}, "", errors.Errorf("vectorFromParams was called without any known params present")
+	return nil, errors.Errorf("targetFromParams was called without any known params present")
+}
+
+func (v *nearParamsVector) vectorFromParams(ctx context.Context,
+	nearVector *searchparams.NearVector, nearObject *searchparams.NearObject,
+	moduleParams map[string]interface{}, className, tenant, targetVector string,
+) ([]float32, error) {
+	err := v.validateNearParams(nearVector, nearObject, moduleParams, className)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(moduleParams) == 1 {
+		for name, value := range moduleParams {
+			return v.vectorFromModules(ctx, className, name, value, tenant, targetVector)
+		}
+	}
+
+	if nearVector != nil {
+		return nearVector.Vector, nil
+	}
+
+	if nearObject != nil {
+		vector, _, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant)
+		if err != nil {
+			return nil, errors.Errorf("nearObject params: %v", err)
+		}
+
+		return vector, nil
+	}
+
+	// either nearObject or nearVector or module search param has to be set,
+	// so if we land here, something has gone very wrong
+	return []float32{}, errors.Errorf("targetFromParams was called without any known params present")
 }
 
 func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,
@@ -146,19 +178,30 @@ func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 	return nil
 }
 
-func (v *nearParamsVector) vectorFromModules(ctx context.Context,
-	className, paramName string, paramValue interface{}, tenant string,
-) ([]float32, string, error) {
+func (v *nearParamsVector) targetFromModules(className string, paramValue interface{}) ([]string, error) {
 	if v.modulesProvider != nil {
-		vector, targetVector, err := v.modulesProvider.VectorFromSearchParam(ctx,
-			className, paramName, paramValue, v.findVector, tenant,
+		targetVector, err := v.modulesProvider.TargetsFromSearchParam(className, paramValue)
+		if err != nil {
+			return nil, errors.Errorf("vectorize params: %v", err)
+		}
+		return targetVector, nil
+	}
+	return nil, errors.New("no modules defined")
+}
+
+func (v *nearParamsVector) vectorFromModules(ctx context.Context,
+	className, paramName string, paramValue interface{}, tenant string, targetVector string,
+) ([]float32, error) {
+	if v.modulesProvider != nil {
+		vector, err := v.modulesProvider.VectorFromSearchParam(ctx,
+			className, targetVector, tenant, paramName, paramValue, v.findVector,
 		)
 		if err != nil {
-			return nil, "", errors.Errorf("vectorize params: %v", err)
+			return nil, errors.Errorf("vectorize params: %v", err)
 		}
-		return vector, targetVector, nil
+		return vector, nil
 	}
-	return nil, "", errors.New("no modules defined")
+	return nil, errors.New("no modules defined")
 }
 
 func (v *nearParamsVector) findVector(ctx context.Context, className string, id strfmt.UUID, tenant, targetVector string) ([]float32, string, error) {
@@ -278,7 +321,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 	}
 
 	targetVector := ""
-	if len(params.TargetVectors) == 1 {
+	if len(params.TargetVectors) >= 1 {
 		targetVector = params.TargetVectors[0]
 	}
 
