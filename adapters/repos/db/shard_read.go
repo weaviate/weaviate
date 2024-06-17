@@ -347,7 +347,7 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, sear
 		if !ok {
 			return nil, fmt.Errorf("index %s not found", target)
 		}
-		distancer := index.NewQueryVectorDistancer(searchVectors[j])
+		distancer := index.QueryVectorDistancer(searchVectors[j])
 		dist, err := distancer.DistanceToNode(docId)
 		if err != nil {
 			return nil, err

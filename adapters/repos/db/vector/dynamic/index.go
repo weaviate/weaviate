@@ -67,7 +67,7 @@ type VectorIndex interface {
 	ContainsNode(id uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
-	NewQueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
+	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 }
 
 type upgradableIndexer interface {
@@ -346,10 +346,10 @@ func (dynamic *dynamic) DistancerProvider() distancer.Provider {
 	return dynamic.index.DistancerProvider()
 }
 
-func (dynamic *dynamic) NewQueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
-	return dynamic.index.NewQueryVectorDistancer(queryVector)
+	return dynamic.index.QueryVectorDistancer(queryVector)
 }
 
 func (dynamic *dynamic) ShouldUpgrade() (bool, int) {

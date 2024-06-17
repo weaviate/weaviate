@@ -794,7 +794,7 @@ func (index *flat) AlreadyIndexed() uint64 {
 	return atomic.LoadUint64(&index.count)
 }
 
-func (index *flat) NewQueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var distFunc func(nodeID uint64) (float32, error)
 	switch index.compression {
 	case compressionBQ:

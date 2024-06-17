@@ -134,6 +134,6 @@ func (i *Index) TurnOnCompression(callback func()) error {
 	return nil
 }
 
-func (i *Index) NewQueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+func (i *Index) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	return common.QueryVectorDistancer{}
 }

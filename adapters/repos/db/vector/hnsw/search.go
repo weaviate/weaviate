@@ -602,7 +602,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	return ids, dists, nil
 }
 
-func (h *hnsw) NewQueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	queryVector = h.normalizeVec(queryVector)
 	if h.compressed.Load() {
 		dist, returnFn := h.compressor.NewDistancer(queryVector)

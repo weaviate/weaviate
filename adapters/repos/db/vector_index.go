@@ -43,5 +43,5 @@ type VectorIndex interface {
 	ContainsNode(id uint64) bool
 	AlreadyIndexed() uint64
 	DistancerProvider() distancer.Provider
-	NewQueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
+	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 }
