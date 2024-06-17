@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -67,8 +69,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 }
 
 // Do a nearvector search.  The results will be used in the hybrid algorithm
-func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e *Explorer, params dto.GetParams, searchname string) ([]*search.Result, string, error) {
-	params.NearVector = nearVecParams
+func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector []*searchparams.NearVector) ([]*search.Result, string, error) {
 	params.Pagination.Offset = 0
 	if params.Pagination.Limit < hybrid.DefaultLimit {
 		params.Pagination.Limit = hybrid.DefaultLimit
@@ -76,29 +77,16 @@ func denseSearch(ctx context.Context, nearVecParams *searchparams.NearVector, e 
 	params.Group = nil
 	params.GroupBy = nil
 
-	targetVector := ""
-	if len(params.HybridSearch.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.TargetVectors[0]
-	}
-	// Subsearch takes precedence over the top level
-	if len(nearVecParams.TargetVectors) > 0 {
-		targetVector = nearVecParams.TargetVectors[0]
-	}
-
-	targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
+	partialResults, searchVectors, err := e.concurrentTargetVectorSearch(ctx, targetVectors, params, searchVector)
 	if err != nil {
 		return nil, "", err
 	}
-
-	params.NearVector.TargetVectors = []string{targetVector}
-
-	// TODO confirm that targetVectos is being passed through as part of the params
-	partial_results, vector, err := e.getClassVectorSearch(ctx, params)
-	if err != nil {
-		return nil, "", err
+	var vector []float32
+	if len(searchVectors) > 0 {
+		vector = searchVectors[0]
 	}
 
-	results, err := e.searchResultsToGetResponseWithType(ctx, partial_results, vector, params)
+	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
 	if err != nil {
 		return nil, "", err
 	}
@@ -128,7 +116,7 @@ type NearTextParams struct {
 }
 */
 // Do a nearText search.  The results will be used in the hybrid algorithm
-func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*search.Result, string, error) {
+func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, targetVectors []string) ([]*search.Result, string, error) {
 	var subSearchParams nearText2.NearTextParams
 
 	subSearchParams.Values = params.HybridSearch.NearTextParams.Values
@@ -150,21 +138,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 
 	subSearchParams.WithDistance = params.HybridSearch.NearTextParams.WithDistance
 
-	targetVector := ""
-	if len(params.HybridSearch.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.TargetVectors[0]
-	}
-	// Subsearch takes precedence over the top level
-	if len(params.HybridSearch.NearTextParams.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.NearTextParams.TargetVectors[0]
-	}
-
-	targetVector, err := e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
-	if err != nil {
-		return nil, "", err
-	}
-
-	subSearchParams.TargetVectors = []string{targetVector} // TODO support multiple target vectors
+	subSearchParams.TargetVectors = targetVectors // TODO support multiple target vectors
 
 	subsearchWrap := params
 	if subsearchWrap.ModuleParams == nil {
@@ -176,11 +150,17 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams) (
 	subsearchWrap.HybridSearch = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
-	partial_results, vector, err := e.getClassVectorSearch(ctx, subsearchWrap)
+	partialResults, vectors, err := e.concurrentTargetVectorSearch(ctx, targetVectors, subsearchWrap, nil)
 	if err != nil {
 		return nil, "", err
 	}
-	results, err := e.searchResultsToGetResponseWithType(ctx, partial_results, vector, params)
+
+	var vector []float32
+	if len(vectors) > 0 {
+		vector = vectors[0]
+	}
+
+	results, err := e.searchResultsToGetResponseWithType(ctx, partialResults, vector, params)
 	if err != nil {
 		return nil, "", err
 	}
@@ -201,14 +181,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var results [][]*search.Result
 	var weights []float64
 	var names []string
-	var targetVector string
+	var targetVectors []string
 
 	if params.HybridSearch.NearTextParams != nil && params.HybridSearch.NearVectorParams != nil {
 		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
-	}
-
-	if len(params.HybridSearch.TargetVectors) > 0 {
-		targetVector = params.HybridSearch.TargetVectors[0]
 	}
 
 	origParams := params
@@ -218,6 +194,11 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
+	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, params.HybridSearch.TargetVectors)
+	if err != nil {
+		return nil, err
+	}
+
 	// If the user has given any weight to the vector search, choose 1 of three possible vector searches
 	//
 	// 1. If the user hase provided nearText parameters, use them in a nearText search
@@ -225,7 +206,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// 3. (Default) Do a vector search with the default parameters (the old hybrid search)
 	if (params.HybridSearch.Alpha) > 0 {
 		if params.HybridSearch.NearTextParams != nil {
-			res, name, err := nearTextSubSearch(ctx, e, params)
+			res, name, err := nearTextSubSearch(ctx, e, params, targetVectors)
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
 				return nil, err
@@ -235,7 +216,12 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				names = append(names, name)
 			}
 		} else if params.HybridSearch.NearVectorParams != nil {
-			res, name, err := denseSearch(ctx, params.HybridSearch.NearVectorParams, e, params, "nearVector")
+			searchVectors := make([]*searchparams.NearVector, len(targetVectors))
+			for i, targetVector := range targetVectors {
+				searchVectors[i] = params.HybridSearch.NearVectorParams
+				searchVectors[i].TargetVectors = []string{targetVector}
+			}
+			res, name, err := denseSearch(ctx, e, params, "nearVector", targetVectors, searchVectors)
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 				return nil, err
@@ -244,32 +230,37 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			results = append(results, res)
 			names = append(names, name)
 		} else {
-			targetVector, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, targetVector)
-			if err != nil {
-				return nil, err
-			}
 			sch := e.schemaGetter.GetSchemaSkipAuth()
 			class := sch.FindClassByName(schema.ClassName(params.ClassName))
 			if class == nil {
 				return nil, fmt.Errorf("class %q not found", params.ClassName)
 			}
-			if len(params.HybridSearch.Vector) == 0 {
-				var err error
-				params.SearchVector, err = e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
+
+			searchVectors := make([]*searchparams.NearVector, len(targetVectors))
+			if len(params.HybridSearch.Vector) > 0 {
+				for i, targetVector := range targetVectors {
+					searchVectors[i] = &searchparams.NearVector{Vector: params.HybridSearch.Vector, TargetVectors: []string{targetVector}}
+				}
+			} else {
+				eg := enterrors.NewErrorGroupWrapper(e.logger)
+				eg.SetLimit(_NUMCPU)
+				for i, targetVector := range targetVectors {
+					i := i
+					targetVector := targetVector
+					eg.Go(func() error {
+						searchVector, err := e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
+						searchVectors[i] = &searchparams.NearVector{Vector: searchVector, TargetVectors: []string{targetVector}}
+						return err
+					})
+				}
+				err := eg.Wait()
 				if err != nil {
 					return nil, err
 				}
-			} else {
-				params.SearchVector = params.HybridSearch.Vector
+
 			}
 
-			// Build a new vearvec search
-			nearVecParams := &searchparams.NearVector{
-				Vector:        params.SearchVector,
-				TargetVectors: params.HybridSearch.TargetVectors,
-			}
-
-			res, name, err := denseSearch(ctx, nearVecParams, e, params, "hybridVector")
+			res, name, err := denseSearch(ctx, e, params, "hybridVector", targetVectors, searchVectors)
 			if err != nil {
 				e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
 				return nil, err

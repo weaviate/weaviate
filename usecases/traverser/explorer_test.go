@@ -138,7 +138,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			t.Run("vector search must be called with right params", func(t *testing.T) {
 				assert.NotNil(t, err)
 				assert.Nil(t, res)
-				assert.Contains(t, err.Error(), "explorer: get class: vectorize params: nearObject params: empty id and beacon")
+				assert.Contains(t, err.Error(), "explorer: get class: get search vector: nearObject params: empty id and beacon")
 			})
 		})
 
@@ -169,7 +169,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			t.Run("vector search must be called with right params", func(t *testing.T) {
 				assert.NotNil(t, err)
 				assert.Nil(t, res)
-				assert.Contains(t, err.Error(), "explorer: get class: vectorize params: nearObject params: empty id and beacon")
+				assert.Contains(t, err.Error(), "explorer: get class: get search vector: nearObject params: empty id and beacon")
 			})
 		})
 	})
@@ -2759,15 +2759,18 @@ func (p *fakeModulesProvider) VectorFromInput(ctx context.Context, className, in
 	panic("not implemented")
 }
 
-func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className,
-	param string, params interface{},
-	findVectorFn modulecapabilities.FindVectorFn, tenant string,
-) ([]float32, string, error) {
+func (p *fakeModulesProvider) VectorFromSearchParam(ctx context.Context, className, targetVector, tenant, param string, params interface{},
+	findVectorFn modulecapabilities.FindVectorFn,
+) ([]float32, error) {
 	txt2vec := p.getFakeT2Vec()
 	vectorForParams := txt2vec.VectorSearches()["nearCustomText"]
-	targetVector := ""
 	vec, err := vectorForParams(ctx, params, "", findVectorFn, nil)
-	return vec, targetVector, err
+	return vec, err
+}
+
+func (p *fakeModulesProvider) TargetsFromSearchParam(className string, params interface{}) ([]string, error) {
+	targetVector := ""
+	return []string{targetVector}, nil
 }
 
 func (p *fakeModulesProvider) CrossClassVectorFromSearchParam(ctx context.Context,

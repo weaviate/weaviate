@@ -494,7 +494,15 @@ func SearchResultsWithDists(in []*Object, addl additional.Properties,
 	return out
 }
 
-func DocIDFromBinary(in []byte) (docID uint64, updateTime int64, err error) {
+func DocIDFromBinary(in []byte) (uint64, error) {
+	if len(in) < 9 {
+		return 0, errors.Errorf("binary data too short")
+	}
+	// first by is kind, then 8 bytes for the docID
+	return binary.LittleEndian.Uint64(in[1:9]), nil
+}
+
+func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err error) {
 	r := bytes.NewReader(in)
 
 	var version uint8

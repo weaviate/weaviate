@@ -271,15 +271,14 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 				modulesProvider: &fakeModulesProvider{},
 				search:          &fakeNearParamsSearcher{},
 			}
-			got, targetVector, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "")
+			got, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "", "")
 			if (err != nil) != tt.wantErr {
-				t.Errorf("nearParamsVector.vectorFromParams() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("nearParamsVector.targetFromParams() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("nearParamsVector.vectorFromParams() = %v, want %v", got, tt.want)
+				t.Errorf("nearParamsVector.targetFromParams() = %v, want %v", got, tt.want)
 			}
-			assert.Equal(t, "", targetVector)
 		})
 	}
 }
@@ -309,7 +308,7 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 			},
 			want:             []float32{2.0, 2.0, 2.0},
 			wantErr:          false,
-			wantTargetVector: "Vector",
+			wantTargetVector: "",
 		},
 		{
 			name: "Should get vector from nearObject with single multi vector and target vector",
@@ -344,7 +343,15 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 				modulesProvider: &fakeModulesProvider{},
 				search:          &fakeNearParamsSearcher{},
 			}
-			got, targetVector, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "")
+			targetVector, err := e.targetFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "")
+			assert.Nil(t, err)
+			if tt.wantTargetVector != "" {
+				assert.Equal(t, tt.wantTargetVector, targetVector[0])
+			} else {
+				assert.Empty(t, targetVector)
+			}
+
+			got, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "", tt.wantTargetVector)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("nearParamsVector.vectorFromParams() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -352,7 +359,6 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("nearParamsVector.vectorFromParams() = %v, want %v", got, tt.want)
 			}
-			assert.Equal(t, tt.wantTargetVector, targetVector)
 		})
 	}
 }

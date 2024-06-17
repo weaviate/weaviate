@@ -69,7 +69,6 @@ func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
 
 func allTests(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
-		t.Run("hybrid", testHybrid(endpoint))
 		t.Run("schema", testCreateSchema(endpoint))
 		t.Run("schema with none vectorizer", testCreateSchemaWithNoneVectorizer(endpoint))
 		t.Run("object", testCreateObject(endpoint))

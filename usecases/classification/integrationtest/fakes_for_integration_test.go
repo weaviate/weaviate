@@ -393,6 +393,10 @@ func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
+func (f *fakeRemoteClient) VectorDistanceForQuery(ctx context.Context, hostname string, indexName string, shardName string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32) ([]float32, error) {
+	return nil, nil
+}
+
 func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName,
 	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {

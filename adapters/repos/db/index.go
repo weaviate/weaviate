@@ -1538,6 +1538,75 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
+func (i *Index) vectorDistanceForQuery(ctx context.Context, id strfmt.UUID, targets []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+	if err := i.validateMultiTenancy(tenant); err != nil {
+		return nil, err
+	}
+	shardNames, err := i.targetShardNames(tenant)
+	if err != nil || len(shardNames) == 0 {
+		return nil, err
+	}
+
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU * 2)
+
+	var distancesReturn []float32
+
+	for _, shardName := range shardNames {
+		shardName := shardName
+		shard, release, err := i.getLocalShardNoShutdown(shardName)
+		if err != nil {
+			return nil, err
+		}
+
+		f := func() error {
+			if shard != nil {
+				defer release()
+				exists, err := shard.Exists(ctx, id)
+				if err != nil {
+					return err
+				}
+				if !exists {
+					return nil
+				}
+				distances, err := shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
+				if err != nil {
+					return err
+				}
+				distancesReturn = distances
+				return nil
+			} else {
+				exists, err := i.remote.Exists(ctx, shardName, id)
+				if err != nil {
+					return err
+				}
+				if !exists {
+					return nil
+				}
+
+				distances, _, err := i.remote.VectorDistanceForQuery(ctx,
+					shardName, id, targets, searchVectors, i.replicationEnabled())
+				if err != nil {
+					return errors.Wrapf(err, "remote shard %s", shardName)
+				}
+				distancesReturn = distances
+				return nil
+			}
+		}
+		eg.Go(f, "shard", shardName)
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	if distancesReturn == nil {
+		return nil, fmt.Errorf("object %s not found", id)
+	}
+
+	return distancesReturn, nil
+}
+
 func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	targetVector string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additional additional.Properties,

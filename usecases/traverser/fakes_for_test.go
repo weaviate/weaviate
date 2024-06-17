@@ -85,6 +85,7 @@ type fakeVectorSearcher struct {
 	calledWithVector []float32
 	calledWithLimit  int
 	calledWithOffset int
+	missingElements  map[strfmt.UUID][]string
 	results          []search.Result
 }
 
@@ -109,6 +110,27 @@ func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
 ) ([]search.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).([]search.Result), args.Error(1)
+}
+
+func (f *fakeVectorSearcher) VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
+	returns := make([]float32, 0, len(targetVectors))
+	for range targetVectors {
+		returns = append(returns, 2)
+	}
+
+	missingTargets, ok := f.missingElements[id]
+	if !ok {
+		return returns, nil
+	}
+
+	for _, missingTarget := range missingTargets {
+		for _, target := range targetVectors {
+			if target == missingTarget {
+				return nil, errors.Errorf("missing target %s", missingTarget)
+			}
+		}
+	}
+	return returns, nil
 }
 
 func (f *fakeVectorSearcher) Search(ctx context.Context,
@@ -455,6 +477,10 @@ func (p nearCustomTextParams) GetDistance() float64 {
 
 func (p nearCustomTextParams) SimilarityMetricProvided() bool {
 	return p.Certainty != 0 || p.WithDistance
+}
+
+func (n nearCustomTextParams) SupportMultiTargetVector() bool {
+	return false
 }
 
 func (p nearCustomTextParams) GetTargetVectors() []string {

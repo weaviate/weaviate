@@ -440,23 +440,30 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		tenant = tk.(string)
 	}
 
+	// add extraction and handling of different searches later
+	var targetVectorJoinMethod *dto.TargetCombination
+	if hybridParams != nil && len(hybridParams.TargetVectors) > 0 {
+		targetVectorJoinMethod = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
+	}
+
 	params := dto.GetParams{
-		Filters:               filters,
-		ClassName:             className,
-		Pagination:            pagination,
-		Cursor:                cursor,
-		Properties:            properties,
-		Sort:                  sort,
-		NearVector:            nearVectorParams,
-		NearObject:            nearObjectParams,
-		Group:                 group,
-		ModuleParams:          moduleParams,
-		AdditionalProperties:  addlProps,
-		KeywordRanking:        keywordRankingParams,
-		HybridSearch:          hybridParams,
-		ReplicationProperties: replProps,
-		GroupBy:               groupByParams,
-		Tenant:                tenant,
+		Filters:                 filters,
+		ClassName:               className,
+		Pagination:              pagination,
+		Cursor:                  cursor,
+		Properties:              properties,
+		Sort:                    sort,
+		NearVector:              nearVectorParams,
+		NearObject:              nearObjectParams,
+		Group:                   group,
+		ModuleParams:            moduleParams,
+		AdditionalProperties:    addlProps,
+		KeywordRanking:          keywordRankingParams,
+		HybridSearch:            hybridParams,
+		ReplicationProperties:   replProps,
+		GroupBy:                 groupByParams,
+		Tenant:                  tenant,
+		TargetVectorCombination: targetVectorJoinMethod,
 	}
 
 	// need to perform vector search by distance
