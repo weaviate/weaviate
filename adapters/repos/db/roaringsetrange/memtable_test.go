@@ -12,8 +12,13 @@
 package roaringsetrange
 
 import (
+	"bytes"
+	"encoding/binary"
+	"math/rand"
 	"testing"
+	"time"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -193,4 +198,58 @@ func TestMemtable(t *testing.T) {
 		assert.True(t, nodeNN.Additions.IsEmpty())
 		assert.ElementsMatch(t, []uint64{11, 22, 33, 44}, nodeNN.Deletions.ToArray())
 	})
+}
+
+func BenchmarkMemtableInsert(b *testing.B) {
+	count := uint64(10_000)
+	keys := make([]uint64, count)
+
+	// generate
+	for i := range keys {
+		bytes, err := lexicographicallySortableFloat64(float64(i))
+		require.NoError(b, err)
+		value := binary.BigEndian.Uint64(bytes)
+		keys[i] = value
+	}
+
+	// shuffle
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := range keys {
+		j := r.Intn(i + 1)
+		keys[i], keys[j] = keys[j], keys[i]
+	}
+
+	val := make([]uint64, 1)
+	for i := 0; i < b.N; i++ {
+		m := NewMemtable()
+		for value := uint64(0); value < count; value++ {
+			val[0] = value
+			m.Insert(keys[value], val)
+		}
+	}
+}
+
+func lexicographicallySortableFloat64(in float64) ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+
+	err := binary.Write(buf, binary.BigEndian, in)
+	if err != nil {
+		return nil, errors.Wrap(err, "serialize float64 value as big endian")
+	}
+
+	var out []byte
+	if in >= 0 {
+		// on positive numbers only flip the sign
+		out = buf.Bytes()
+		firstByte := out[0] ^ 0x80
+		out = append([]byte{firstByte}, out[1:]...)
+	} else {
+		// on negative numbers flip every bit
+		out = make([]byte, 8)
+		for i, b := range buf.Bytes() {
+			out[i] = b ^ 0xFF
+		}
+	}
+
+	return out, nil
 }
