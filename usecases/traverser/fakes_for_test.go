@@ -106,9 +106,9 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	params dto.GetParams,
+	params dto.GetParams, targetVector string, searchVector []float32,
 ) ([]search.Result, error) {
-	args := f.Called(params)
+	args := f.Called(params, searchVector)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 

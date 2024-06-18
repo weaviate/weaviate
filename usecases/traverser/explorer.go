@@ -84,7 +84,7 @@ type objectsSearcher interface {
 
 	// GraphQL Get{} queries
 	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
-	VectorSearch(ctx context.Context, params dto.GetParams) ([]search.Result, error)
+	VectorSearch(ctx context.Context, params dto.GetParams, targetVector string, searchVector []float32) ([]search.Result, error)
 
 	VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error)
 
@@ -251,7 +251,7 @@ func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVecto
 			if searchVectors != nil && len(searchVectors) == len(targetVectors) {
 				searchVector = searchVectors[index]
 			}
-			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectorsReturn, searchVector, len(targetVectors) > 1)
+			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectorsReturn, searchVector)
 		}
 		eg.Go(f)
 	}
@@ -267,37 +267,25 @@ func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVecto
 	return res, searchVectorsReturn, nil
 }
 
-func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParam *searchparams.NearVector, oversearch bool) error {
-	// params need to be copied, because the searchvector is unique per target
-	paramsForTarget := params
-	paramsForTarget.TargetVector = targetVector
-	paramsForTarget.AdditionalProperties = params.AdditionalProperties
-	paramsForTarget.ModuleParams = params.ModuleParams
-	paginationCopy := *params.Pagination
-	paramsForTarget.Pagination = &paginationCopy
-	paramsForTarget.Pagination.Limit = params.Pagination.Limit
-
+func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParam *searchparams.NearVector) error {
 	if params.NearVector != nil {
-		paramsForTarget.NearVector = params.NearVector
-	} else {
-		paramsForTarget.NearVector = searchVectorParam
+		searchVectorParam = params.NearVector
 	}
-
 	var err error
-	paramsForTarget.SearchVector, err = e.vectorFromParamsForTaget(ctx, paramsForTarget.NearVector, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVector)
+	searchVector, err := e.vectorFromParamsForTaget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVector)
 	if err != nil {
 		return errors.Errorf("explorer: get class: get search vector: %v", err)
 	}
 
-	if len(paramsForTarget.AdditionalProperties.ModuleParams) > 0 || paramsForTarget.Group != nil {
+	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
 		// if a module-specific additional prop is set, assume it needs the vector
 		// present for backward-compatibility. This could be improved by actually
 		// asking the module based on specific conditions
 		// if a group is set, vectors are needed
-		paramsForTarget.AdditionalProperties.Vector = true
+		params.AdditionalProperties.Vector = true
 	}
 
-	res, err := e.searcher.VectorSearch(ctx, paramsForTarget)
+	res, err := e.searcher.VectorSearch(ctx, params, targetVector, searchVector)
 	if err != nil {
 		return errors.Errorf("explorer: get class: vector search: %v", err)
 	}
@@ -307,12 +295,12 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 		for i := range res {
 			scores[i] = res[i].Dist
 		}
-		cutOff := autocut.Autocut(scores, paramsForTarget.Pagination.Autocut)
+		cutOff := autocut.Autocut(scores, params.Pagination.Autocut)
 		res = res[:cutOff]
 	}
 
 	if params.Group != nil {
-		grouped, err := grouper.New(e.logger).Group(res, paramsForTarget.Group.Strategy, paramsForTarget.Group.Force)
+		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
 			return errors.Errorf("grouper: %v", err)
 		}
@@ -322,7 +310,7 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, paramsForTarget.SearchVector, params.ModuleParams)
+			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
 		if err != nil {
 			return errors.Errorf("explorer: get class: extend: %v", err)
 		}
@@ -330,7 +318,7 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 	e.trackUsageGet(res, params)
 
 	results[index] = res
-	searchVectorsReturn[index] = paramsForTarget.SearchVector
+	searchVectorsReturn[index] = searchVector
 	return nil
 }
 

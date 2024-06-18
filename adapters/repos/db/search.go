@@ -106,9 +106,9 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
-	params dto.GetParams,
+	params dto.GetParams, targetVector string, searchVector []float32,
 ) ([]search.Result, error) {
-	if params.SearchVector == nil {
+	if searchVector == nil {
 		return db.Search(ctx, params)
 	}
 
@@ -123,7 +123,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	}
 
 	targetDist := extractDistanceFromParams(params)
-	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, params.TargetVector,
+	res, dists, err := idx.objectVectorSearch(ctx, searchVector, targetVector,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
 		params.AdditionalProperties, params.ReplicationProperties, params.Tenant)
 	if err != nil {
