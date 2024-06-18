@@ -858,7 +858,7 @@ func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Re
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams) ([]search.Result, error) {
+func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, string, []float32) ([]search.Result, error) {
 	return nil, nil
 }
 

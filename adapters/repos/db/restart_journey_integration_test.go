@@ -148,12 +148,11 @@ func TestRestartJourney(t *testing.T) {
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(),
 				dto.GetParams{
-					ClassName:    "Class",
-					SearchVector: []float32{0.05, 0.1, 0.15},
+					ClassName: "Class",
 					Pagination: &filters.Pagination{
 						Limit: 1,
 					},
-				})
+				}, "", []float32{0.05, 0.1, 0.15})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -231,12 +230,11 @@ func TestRestartJourney(t *testing.T) {
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := newRepo.VectorSearch(context.Background(),
 				dto.GetParams{
-					ClassName:    "Class",
-					SearchVector: []float32{0.05, 0.1, 0.15},
+					ClassName: "Class",
 					Pagination: &filters.Pagination{
 						Limit: 1,
 					},
-				})
+				}, "", []float32{0.05, 0.1, 0.15})
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",

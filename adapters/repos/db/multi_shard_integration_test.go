@@ -410,12 +410,11 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 		t.Run("retrieve through class-level vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
 				res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-					SearchVector: queryVec,
 					Pagination: &filters.Pagination{
 						Limit: limit,
 					},
 					ClassName: "TestClass",
-				})
+				}, "", queryVec)
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {

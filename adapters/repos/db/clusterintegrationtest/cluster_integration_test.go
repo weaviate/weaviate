@@ -197,12 +197,11 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 			node := nodes[rnd.Intn(len(nodes))]
 			res, err := node.repo.VectorSearch(context.Background(), dto.GetParams{
-				SearchVector: query,
 				Pagination: &filters.Pagination{
 					Limit: 25,
 				},
 				ClassName: distributedClass,
-			})
+			}, "", query)
 			assert.Nil(t, err)
 			for i, obj := range res {
 				assert.Equal(t, groundTruth[i].ID, obj.ID, fmt.Sprintf("at pos %d", i))
