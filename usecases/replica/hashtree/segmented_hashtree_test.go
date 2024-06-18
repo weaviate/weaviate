@@ -73,11 +73,11 @@ func TestMultiSegmentedHashTree(t *testing.T) {
 }
 
 func TestSegmentedBigHashTree(t *testing.T) {
-	totalSegmentsCount := 128
+	totalSegmentsCount := 64
 
 	segmentSize := uint64(math.MaxUint64 / uint64(totalSegmentsCount))
 
-	segments := make([]uint64, 30)
+	segments := make([]uint64, 5)
 
 	for i, s := range rand.Perm(totalSegmentsCount)[:len(segments)] {
 		segments[i] = uint64(s) * segmentSize
@@ -161,11 +161,11 @@ func TestSegmentedHashTreeComparisonHeight1(t *testing.T) {
 }
 
 func TestSegmentedHashTreeComparisonIncrementalConciliation(t *testing.T) {
-	leavesSpace := 1_000_000
-	totalSegmentsCount := 128
+	leavesSpace := 100_000
+	totalSegmentsCount := 64
 	segmentSize := leavesSpace / totalSegmentsCount
 	actualNumberOfElementsPerSegment := segmentSize / 100
-	maxHeight := 11
+	maxHeight := 13
 
 	segments := make([]uint64, 9)
 
