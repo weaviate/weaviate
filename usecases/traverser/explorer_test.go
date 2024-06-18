@@ -80,9 +80,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 		search.
-			On("VectorSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch, []float32{0.8, 0.2, 0.7}).
 			Return(searchResults, nil)
 
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
@@ -223,11 +222,12 @@ func Test_Explorer_GetClass(t *testing.T) {
 					}}},
 				})
 				expectedParamsToSearch := params
+				var vector []float32
 				search.
 					On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 					Return(&searchRes, nil)
 				search.
-					On("VectorSearch", expectedParamsToSearch).
+					On("VectorSearch", expectedParamsToSearch, vector).
 					Return(searchResults, nil)
 				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
@@ -299,11 +299,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 				}}},
 			})
 			expectedParamsToSearch := params
+			var vector []float32
+
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
-				On("VectorSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch, vector).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
@@ -376,11 +378,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 				}}},
 			})
 			expectedParamsToSearch := params
+			var vector []float32
+
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
-				On("VectorSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch, vector).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
@@ -451,11 +455,13 @@ func Test_Explorer_GetClass(t *testing.T) {
 				}}},
 			})
 			expectedParamsToSearch := params
+			var vector []float32
+
 			search.
 				On("Object", "BestClass", strfmt.UUID("e9c12c22-766f-4bde-b140-d4cf8fd6e041")).
 				Return(&searchRes, nil)
 			search.
-				On("VectorSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch, vector).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearObject", 128)
 
@@ -517,9 +523,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 					}}},
 				})
 				expectedParamsToSearch := params
-				expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 				search.
-					On("VectorSearch", expectedParamsToSearch).
+					On("VectorSearch", expectedParamsToSearch, []float32{0.8, 0.2, 0.7}).
 					Return(searchResults, nil)
 				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
@@ -569,9 +574,8 @@ func Test_Explorer_GetClass(t *testing.T) {
 					}}},
 				})
 				expectedParamsToSearch := params
-				expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 				search.
-					On("VectorSearch", expectedParamsToSearch).
+					On("VectorSearch", expectedParamsToSearch, []float32{0.8, 0.2, 0.7}).
 					Return(searchResults, nil)
 				metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
@@ -647,7 +651,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -706,10 +709,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{0.8, 0.2, 0.7}
 		expectedParamsToSearch.AdditionalProperties.Vector = true
 		search.
-			On("VectorSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch, []float32{0.8, 0.2, 0.7}).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearVector", 128)
 
@@ -762,7 +764,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -819,7 +820,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -900,7 +900,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -967,7 +966,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1024,7 +1022,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1080,7 +1077,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1176,7 +1172,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		searcher.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1283,7 +1278,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		searcher.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1394,7 +1388,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1553,7 +1546,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1783,7 +1775,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		fakeSearch.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -2040,7 +2031,6 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = nil
 		searcher.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -2152,9 +2142,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		search.
-			On("VectorSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch, []float32{1, 2, 3}).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2215,9 +2204,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				}}},
 			})
 			expectedParamsToSearch := params
-			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 			search.
-				On("VectorSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch, []float32{1, 2, 3}).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2270,9 +2258,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 				}}},
 			})
 			expectedParamsToSearch := params
-			expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 			search.
-				On("VectorSearch", expectedParamsToSearch).
+				On("VectorSearch", expectedParamsToSearch, []float32{1, 2, 3}).
 				Return(searchResults, nil)
 			metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2443,10 +2430,9 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 	t.Run("when the distance prop is set", func(t *testing.T) {
 		params := dto.GetParams{
-			Filters:      nil,
-			ClassName:    "BestClass",
-			Pagination:   &filters.Pagination{Limit: 100},
-			SearchVector: []float32{1.0, 2.0, 3.0},
+			Filters:    nil,
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
 			AdditionalProperties: additional.Properties{
 				Distance: true,
 			},
@@ -2481,10 +2467,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
-		// expectedParamsToSearch.SearchVector = nil
 		search.
-			On("VectorSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch, []float32{1.0, 2.0, 3.0}).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2510,10 +2494,9 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 
 	t.Run("when the certainty prop is set", func(t *testing.T) {
 		params := dto.GetParams{
-			Filters:      nil,
-			ClassName:    "BestClass",
-			Pagination:   &filters.Pagination{Limit: 100},
-			SearchVector: []float32{1.0, 2.0, 3.0},
+			Filters:    nil,
+			ClassName:  "BestClass",
+			Pagination: &filters.Pagination{Limit: 100},
 			AdditionalProperties: additional.Properties{
 				Certainty: true,
 			},
@@ -2551,10 +2534,8 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 		schemaGetter.SetVectorIndexConfig(hnsw.UserConfig{Distance: "cosine"})
 		explorer.schemaGetter = schemaGetter
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{1.0, 2.0, 3.0}
-		// expectedParamsToSearch.SearchVector = nil
 		search.
-			On("VectorSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch, []float32{1.0, 2.0, 3.0}).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
@@ -2679,10 +2660,9 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
-		expectedParamsToSearch.SearchVector = []float32{1, 2, 3}
 		expectedParamsToSearch.AdditionalProperties.Vector = true // any custom additional params will trigger vector
 		searcher.
-			On("VectorSearch", expectedParamsToSearch).
+			On("VectorSearch", expectedParamsToSearch, []float32{1, 2, 3}).
 			Return(searchResults, nil)
 		metrics.On("AddUsageDimensions", "BestClass", "get_graphql", "nearCustomText", 128)
 
