@@ -385,7 +385,8 @@
         },
         "asyncEnabled": {
           "description": "Enable asynchronous replication",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         }
       },
       "type": "object"

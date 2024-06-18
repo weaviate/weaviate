@@ -4711,7 +4711,8 @@ func init() {
       "properties": {
         "asyncEnabled": {
           "description": "Enable asynchronous replication",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         },
         "factor": {
           "description": "Number of times a class is replicated",
@@ -10264,7 +10265,8 @@ func init() {
       "properties": {
         "asyncEnabled": {
           "description": "Enable asynchronous replication",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         },
         "factor": {
           "description": "Number of times a class is replicated",
