@@ -396,11 +396,10 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		if len(extractedParams) > 0 {
 			for _, val := range extractedParams {
 				extractedParamsTyped, ok := val.(modulecapabilities.NearParam)
-				if !ok {
-					return nil, fmt.Errorf("module params must be of type NearParam, got %v", val)
+				if ok {
+					targetCombination := extractedParamsTyped.GetTargetCombination()
+					targetVectorCombination = targetCombination
 				}
-				targetCombination := extractedParamsTyped.GetTargetCombination()
-				targetVectorCombination = targetCombination
 			}
 			moduleParams = extractedParams
 		}
