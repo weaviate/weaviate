@@ -14,6 +14,8 @@ package nearImage
 import (
 	"reflect"
 	"testing"
+
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func Test_extractNearImageFn(t *testing.T) {
@@ -73,9 +75,28 @@ func Test_extractNearImageFn(t *testing.T) {
 				},
 			},
 			want: &NearImageParams{
-				Image:         "base64;encoded",
-				Certainty:     0.9,
-				TargetVectors: []string{"targetVector1"},
+				Image:             "base64;encoded",
+				Certainty:         0.9,
+				TargetVectors:     []string{"targetVector1"},
+				targetCombination: &dto.TargetCombination{Type: dto.Minimum},
+			},
+		},
+		{
+			name: "should extract properly with image and targets set",
+			args: args{
+				source: map[string]interface{}{
+					"image": "base64;encoded",
+					"targets": map[string]interface{}{
+						"targetVectors":     []interface{}{"targetVector1", "targetVector2"},
+						"combinationMethod": dto.ManualWeights,
+						"weights":           map[string]float64{"targetVector1": 0.5, "targetVector2": 0.5},
+					},
+				},
+			},
+			want: &NearImageParams{
+				Image:             "base64;encoded",
+				TargetVectors:     []string{"targetVector1", "targetVector2"},
+				targetCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
 			},
 		},
 	}

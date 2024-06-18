@@ -13,14 +13,21 @@ package nearImu
 
 import (
 	"errors"
+
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type NearIMUParams struct {
-	IMU           string
-	Certainty     float64
-	Distance      float64
-	WithDistance  bool
-	TargetVectors []string
+	IMU               string
+	Certainty         float64
+	Distance          float64
+	WithDistance      bool
+	TargetVectors     []string
+	targetCombination *dto.TargetCombination
+}
+
+func (n NearIMUParams) GetTargetCombination() *dto.TargetCombination {
+	return n.targetCombination
 }
 
 func (n NearIMUParams) GetCertainty() float64 {

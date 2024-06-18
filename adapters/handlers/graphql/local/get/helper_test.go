@@ -164,6 +164,10 @@ func (n nearCustomTextParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }
 
+func (n nearCustomTextParams) GetTargetCombination() *dto.TargetCombination {
+	return nil
+}
+
 type nearExploreMove struct {
 	Values  []string
 	Force   float32

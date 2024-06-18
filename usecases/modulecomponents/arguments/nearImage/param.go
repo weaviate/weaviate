@@ -13,14 +13,20 @@ package nearImage
 
 import (
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type NearImageParams struct {
-	Image         string
-	Certainty     float64
-	Distance      float64
-	WithDistance  bool
-	TargetVectors []string
+	Image             string
+	Certainty         float64
+	Distance          float64
+	WithDistance      bool
+	TargetVectors     []string
+	targetCombination *dto.TargetCombination
+}
+
+func (n NearImageParams) GetTargetCombination() *dto.TargetCombination {
+	return n.targetCombination
 }
 
 func (n NearImageParams) GetCertainty() float64 {
