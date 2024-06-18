@@ -15,12 +15,14 @@ import (
 	"path"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func TestMemtableRoaringSet(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	memPath := func() string {
 		return path.Join(t.TempDir(), "fake")
 	}
@@ -29,7 +31,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		cl, err := newCommitLogger(memPath())
 		require.NoError(t, err)
 
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil, logger)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -61,7 +63,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		cl, err := newCommitLogger(memPath())
 		require.NoError(t, err)
 
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil, logger)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -91,7 +93,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		cl, err := newCommitLogger(memPath())
 		require.NoError(t, err)
 
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil, logger)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -123,7 +125,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		cl, err := newCommitLogger(memPath())
 		require.NoError(t, err)
 
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil, logger)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -149,7 +151,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		cl, err := newCommitLogger(memPath())
 		require.NoError(t, err)
 
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil, logger)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -179,7 +181,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		cl, err := newCommitLogger(memPath())
 		require.NoError(t, err)
 
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil, logger)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")
@@ -209,7 +211,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		cl, err := newCommitLogger(memPath())
 		require.NoError(t, err)
 
-		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil)
+		m, err := newMemtable(memPath(), StrategyRoaringSet, 0, cl, nil, logger)
 		require.Nil(t, err)
 
 		key1, key2 := []byte("key1"), []byte("key2")

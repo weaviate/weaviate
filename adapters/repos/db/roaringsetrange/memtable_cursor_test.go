@@ -14,12 +14,15 @@ package roaringsetrange
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMemtableCursor(t *testing.T) {
-	mem := NewMemtable()
+	logger, _ := test.NewNullLogger()
+
+	mem := NewMemtable(logger)
 	mem.Insert(13, []uint64{113, 213}) // ...1101
 	mem.Insert(5, []uint64{15, 25})    // ...0101
 	mem.Insert(0, []uint64{10, 20})    // ...0000

@@ -12,20 +12,27 @@
 package roaringsetrange
 
 import (
+	"sync"
+
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/errors"
 )
 
+// As docID (acting as value) can have only single value (acting as key) assigned
+// every new value replaces the previous one
+// (therefore array data types are not supported)
 type Memtable struct {
-	bitsAdditions [64]*sroar.Bitmap
-	nnAdditions   *sroar.Bitmap
-	nnDeletions   *sroar.Bitmap
+	logger    logrus.FieldLogger
+	additions map[uint64]uint64
+	deletions map[uint64]struct{}
 }
 
-func NewMemtable() *Memtable {
+func NewMemtable(logger logrus.FieldLogger) *Memtable {
 	return &Memtable{
-		nnAdditions: sroar.NewBitmap(),
-		nnDeletions: sroar.NewBitmap(),
+		logger:    logger,
+		additions: make(map[uint64]uint64),
+		deletions: make(map[uint64]struct{}),
 	}
 }
 
@@ -35,25 +42,7 @@ func (m *Memtable) Insert(key uint64, values []uint64) {
 	}
 
 	for _, v := range values {
-		m.nnAdditions.Set(v)
-		m.nnDeletions.Set(v)
-	}
-
-	for bit := range m.bitsAdditions {
-		if key&(1<<bit) == 0 {
-			if m.bitsAdditions[bit] != nil {
-				for _, v := range values {
-					m.bitsAdditions[bit].Remove(v)
-				}
-			}
-		} else {
-			if m.bitsAdditions[bit] == nil {
-				m.bitsAdditions[bit] = sroar.NewBitmap()
-			}
-			for _, v := range values {
-				m.bitsAdditions[bit].Set(v)
-			}
-		}
+		m.additions[v] = key
 	}
 }
 
@@ -63,39 +52,76 @@ func (m *Memtable) Delete(key uint64, values []uint64) {
 	}
 
 	for _, v := range values {
-		m.nnDeletions.Set(v)
-		m.nnAdditions.Remove(v)
-	}
-
-	for bit := range m.bitsAdditions {
-		if m.bitsAdditions[bit] != nil {
-			for _, v := range values {
-				m.bitsAdditions[bit].Remove(v)
-			}
-		}
+		delete(m.additions, v)
+		m.deletions[v] = struct{}{}
 	}
 }
 
 func (m *Memtable) Nodes() []*MemtableNode {
-	if m.nnAdditions.IsEmpty() && m.nnDeletions.IsEmpty() {
+	if len(m.additions) == 0 && len(m.deletions) == 0 {
 		return []*MemtableNode{}
 	}
+
+	nnDeletions := sroar.NewBitmap()
+	nnAdditions := sroar.NewBitmap()
+	var bitsAdditions [64]*sroar.Bitmap
+
+	for v := range m.deletions {
+		nnDeletions.Set(v)
+	}
+	for v := range m.additions {
+		nnDeletions.Set(v)
+		nnAdditions.Set(v)
+	}
+
+	routines := 8
+	wg := new(sync.WaitGroup)
+	wg.Add(routines - 1)
+
+	for i := 0; i < routines-1; i++ {
+		i := i
+		errors.GoWrapper(func() {
+			for j := 0; j < 64; j += routines {
+				bit := i + j
+				for value, key := range m.additions {
+					if key&(1<<bit) != 0 {
+						if bitsAdditions[bit] == nil {
+							bitsAdditions[bit] = sroar.NewBitmap()
+						}
+						bitsAdditions[bit].Set(value)
+					}
+				}
+			}
+			wg.Done()
+		}, m.logger)
+	}
+
+	for bit := routines - 1; bit < 64; bit += routines {
+		for value, key := range m.additions {
+			if key&(1<<bit) != 0 {
+				if bitsAdditions[bit] == nil {
+					bitsAdditions[bit] = sroar.NewBitmap()
+				}
+				bitsAdditions[bit].Set(value)
+			}
+		}
+	}
+	wg.Wait()
 
 	nodes := make([]*MemtableNode, 1, 65)
 	nodes[0] = &MemtableNode{
 		Key:       0,
-		Additions: roaringset.Condense(m.nnAdditions),
-		Deletions: roaringset.Condense(m.nnDeletions),
+		Additions: nnAdditions,
+		Deletions: nnDeletions,
 	}
 
-	bmEmpty := sroar.NewBitmap()
-
-	for bit := range m.bitsAdditions {
-		if m.bitsAdditions[bit] != nil && !m.bitsAdditions[bit].IsEmpty() {
+	empty := sroar.NewBitmap()
+	for bit := range bitsAdditions {
+		if bitsAdditions[bit] != nil {
 			nodes = append(nodes, &MemtableNode{
 				Key:       uint8(bit) + 1,
-				Additions: roaringset.Condense(m.bitsAdditions[bit]),
-				Deletions: bmEmpty,
+				Additions: bitsAdditions[bit],
+				Deletions: empty,
 			})
 		}
 	}

@@ -12,27 +12,25 @@
 package roaringsetrange
 
 import (
-	"bytes"
-	"encoding/binary"
-	"math/rand"
 	"testing"
-	"time"
 
-	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestMemtable(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
 	t.Run("empty returns no nodes", func(t *testing.T) {
-		m := NewMemtable()
+		m := NewMemtable(logger)
 		nodes := m.Nodes()
 
 		assert.Empty(t, nodes)
 	})
 
 	t.Run("returns only nodes for set bits - unique inserts", func(t *testing.T) {
-		m := NewMemtable()
+		m := NewMemtable(logger)
 		m.Insert(13, []uint64{113, 213}) // ...1101
 		m.Insert(5, []uint64{15, 25})    // ...0101
 		m.Insert(0, []uint64{10, 20})    // ...0000
@@ -62,7 +60,7 @@ func TestMemtable(t *testing.T) {
 	})
 
 	t.Run("returns only nodes for set bits - overwriting inserts", func(t *testing.T) {
-		m := NewMemtable()
+		m := NewMemtable(logger)
 		m.Insert(13, []uint64{11, 22, 33}) // ...1101
 		m.Insert(5, []uint64{11, 22})      // ...0101
 		m.Insert(0, []uint64{11})          // ...0000
@@ -92,7 +90,7 @@ func TestMemtable(t *testing.T) {
 	})
 
 	t.Run("returns only nodes for set bits - overwriting inserts with deletes", func(t *testing.T) {
-		m := NewMemtable()
+		m := NewMemtable(logger)
 		m.Insert(13, []uint64{11, 22, 33}) // ...1101
 		m.Delete(5, []uint64{11, 22})      // ...0101
 		m.Insert(5, []uint64{11, 22})      // ...0101
@@ -124,7 +122,7 @@ func TestMemtable(t *testing.T) {
 	})
 
 	t.Run("delete does not mind key value", func(t *testing.T) {
-		m := NewMemtable()
+		m := NewMemtable(logger)
 		m.Delete(13, []uint64{33}) // ...1101
 		m.Delete(5, []uint64{22})  // ...0101
 		m.Delete(0, []uint64{11})  // ...0000
@@ -139,7 +137,7 @@ func TestMemtable(t *testing.T) {
 	})
 
 	t.Run("deletes all", func(t *testing.T) {
-		m := NewMemtable()
+		m := NewMemtable(logger)
 		m.Insert(13, []uint64{33}) // ...1101
 		m.Delete(13, []uint64{33}) // ...1101
 		m.Insert(5, []uint64{22})  // ...0101
@@ -157,7 +155,7 @@ func TestMemtable(t *testing.T) {
 	})
 
 	t.Run("deletes all but one", func(t *testing.T) {
-		m := NewMemtable()
+		m := NewMemtable(logger)
 		m.Insert(13, []uint64{33}) // ...1101
 		m.Delete(13, []uint64{33}) // ...1101
 		m.Insert(5, []uint64{22})  // ...0101
@@ -184,7 +182,7 @@ func TestMemtable(t *testing.T) {
 	})
 
 	t.Run("delete removes values regardless of key being deleted", func(t *testing.T) {
-		m := NewMemtable()
+		m := NewMemtable(logger)
 		m.Insert(13, []uint64{33})              // ...00001101
 		m.Insert(5, []uint64{22})               // ...00000101
 		m.Insert(0, []uint64{11})               // ...00000000
@@ -198,58 +196,4 @@ func TestMemtable(t *testing.T) {
 		assert.True(t, nodeNN.Additions.IsEmpty())
 		assert.ElementsMatch(t, []uint64{11, 22, 33, 44}, nodeNN.Deletions.ToArray())
 	})
-}
-
-func BenchmarkMemtableInsert(b *testing.B) {
-	count := uint64(10_000)
-	keys := make([]uint64, count)
-
-	// generate
-	for i := range keys {
-		bytes, err := lexicographicallySortableFloat64(float64(i))
-		require.NoError(b, err)
-		value := binary.BigEndian.Uint64(bytes)
-		keys[i] = value
-	}
-
-	// shuffle
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := range keys {
-		j := r.Intn(i + 1)
-		keys[i], keys[j] = keys[j], keys[i]
-	}
-
-	val := make([]uint64, 1)
-	for i := 0; i < b.N; i++ {
-		m := NewMemtable()
-		for value := uint64(0); value < count; value++ {
-			val[0] = value
-			m.Insert(keys[value], val)
-		}
-	}
-}
-
-func lexicographicallySortableFloat64(in float64) ([]byte, error) {
-	buf := bytes.NewBuffer(nil)
-
-	err := binary.Write(buf, binary.BigEndian, in)
-	if err != nil {
-		return nil, errors.Wrap(err, "serialize float64 value as big endian")
-	}
-
-	var out []byte
-	if in >= 0 {
-		// on positive numbers only flip the sign
-		out = buf.Bytes()
-		firstByte := out[0] ^ 0x80
-		out = append([]byte{firstByte}, out[1:]...)
-	} else {
-		// on negative numbers flip every bit
-		out = make([]byte, 8)
-		for i, b := range buf.Bytes() {
-			out[i] = b ^ 0xFF
-		}
-	}
-
-	return out, nil
 }

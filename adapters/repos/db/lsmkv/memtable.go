@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -42,8 +43,8 @@ type Memtable struct {
 	metrics   *memtableMetrics
 }
 
-func newMemtable(path string, strategy string,
-	secondaryIndices uint16, cl *commitLogger, metrics *Metrics,
+func newMemtable(path string, strategy string, secondaryIndices uint16,
+	cl *commitLogger, metrics *Metrics, logger logrus.FieldLogger,
 ) (*Memtable, error) {
 	m := &Memtable{
 		key:              &binarySearchTree{},
@@ -51,7 +52,7 @@ func newMemtable(path string, strategy string,
 		keyMap:           &binarySearchTreeMap{},
 		primaryIndex:     &binarySearchTree{}, // todo, sort upfront
 		roaringSet:       &roaringset.BinarySearchTree{},
-		roaringSetRange:  roaringsetrange.NewMemtable(),
+		roaringSetRange:  roaringsetrange.NewMemtable(logger),
 		commitlog:        cl,
 		path:             path,
 		strategy:         strategy,
