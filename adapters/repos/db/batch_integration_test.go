@@ -661,8 +661,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 							Offset: 0,
 							Limit:  10,
 						},
-						SearchVector: []float32{1, 2, 3},
-					})
+					}, "", []float32{1, 2, 3})
 					require.Nil(t, err)
 					assert.Len(t, res, 2)
 				})

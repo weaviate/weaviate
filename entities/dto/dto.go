@@ -54,7 +54,6 @@ type GetParams struct {
 	KeywordRanking          *searchparams.KeywordRanking
 	HybridSearch            *searchparams.HybridSearch
 	GroupBy                 *searchparams.GroupBy
-	SearchVector            []float32
 	TargetVector            string
 	TargetVectorCombination *TargetCombination
 	Group                   *GroupParams

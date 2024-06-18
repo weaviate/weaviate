@@ -61,8 +61,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
 	res, err := db.VectorSearch(ctx, dto.GetParams{
-		ClassName:    class,
-		SearchVector: vector,
+		ClassName: class,
 		Pagination: &filters.Pagination{
 			Limit: 1,
 		},
@@ -70,7 +69,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 		AdditionalProperties: additional.Properties{
 			Vector: true,
 		},
-	})
+	}, "", vector)
 
 	return res, err
 }
@@ -84,8 +83,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
 	res, err := db.VectorSearch(ctx, dto.GetParams{
-		ClassName:    class,
-		SearchVector: vector,
+		ClassName: class,
 		Pagination: &filters.Pagination{
 			Limit: k,
 		},
@@ -93,7 +91,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 		AdditionalProperties: additional.Properties{
 			Vector: true,
 		},
-	})
+	}, "", vector)
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate neighbors: search neighbors")
 	}

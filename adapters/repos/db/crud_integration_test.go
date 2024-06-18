@@ -446,12 +446,11 @@ func TestCRUD(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
 		params := dto.GetParams{
-			SearchVector: searchVector,
-			ClassName:    "TheBestThingClass",
-			Pagination:   &filters.Pagination{Limit: 10},
-			Filters:      nil,
+			ClassName:  "TheBestThingClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    nil,
 		}
-		res, err := repo.VectorSearch(context.Background(), params)
+		res, err := repo.VectorSearch(context.Background(), params, "", searchVector)
 
 		require.Nil(t, err)
 		require.Len(t, res, 1, "got exactly one result")
@@ -475,10 +474,9 @@ func TestCRUD(t *testing.T) {
 
 	t.Run("searching by class type", func(t *testing.T) {
 		params := dto.GetParams{
-			SearchVector: nil,
-			ClassName:    "TheBestThingClass",
-			Pagination:   &filters.Pagination{Limit: 10},
-			Filters:      nil,
+			ClassName:  "TheBestThingClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    nil,
 		}
 		res, err := repo.Search(context.Background(), params)
 
@@ -1052,13 +1050,12 @@ func TestCRUD(t *testing.T) {
 		func(t *testing.T) {
 			searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 			params := dto.GetParams{
-				SearchVector: searchVector,
-				ClassName:    "TheBestThingClass",
-				Pagination:   &filters.Pagination{Limit: 10},
-				Filters:      nil,
+				ClassName:  "TheBestThingClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    nil,
 			}
 
-			res, err := repo.VectorSearch(context.Background(), params)
+			res, err := repo.VectorSearch(context.Background(), params, "", searchVector)
 
 			require.Nil(t, err)
 			assert.Len(t, res, 0)
@@ -1067,13 +1064,12 @@ func TestCRUD(t *testing.T) {
 	t.Run("searching by vector for a single action class again after deletion", func(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 		params := dto.GetParams{
-			SearchVector: searchVector,
-			ClassName:    "TheBestActionClass",
-			Pagination:   &filters.Pagination{Limit: 10},
-			Filters:      nil,
+			ClassName:  "TheBestActionClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    nil,
 		}
 
-		res, err := repo.VectorSearch(context.Background(), params)
+		res, err := repo.VectorSearch(context.Background(), params, "", searchVector)
 
 		require.Nil(t, err)
 		assert.Len(t, res, 0)
@@ -1636,8 +1632,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(r, 7),
-		})
+		}, "", randomVector(r, 7))
 		require.Nil(t, err)
 		assert.Len(t, res, 0) // we skipped the vector on half the elements, so we should now match half
 	})
@@ -1662,8 +1657,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(r, 7),
-		})
+		}, "", randomVector(r, 7))
 		require.Nil(t, err)
 		assert.Len(t, res, total/2) // we skipped the vector on half the elements, so we should now match half
 	})
@@ -1676,8 +1670,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 				Offset: 0,
 				Limit:  total,
 			},
-			SearchVector: randomVector(r, 7),
-		})
+		}, "", randomVector(r, 7))
 		require.Nil(t, err)
 		// we skipped the vector on half the elements, and cut the list in half with
 		// the filter, so we're only expected a quarter of the total size now
@@ -1777,9 +1770,8 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 			NearVector: &searchparams.NearVector{
 				Distance: 0.1,
 			},
-			SearchVector:         searchVector,
 			AdditionalProperties: additional.Properties{Distance: true},
-		})
+		}, "", searchVector)
 		require.Nil(t, err)
 		require.NotEmpty(t, results)
 		// ensure that we receive more results than
@@ -1804,9 +1796,8 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 				Distance: 0.1,
 				ID:       searchObject.String(),
 			},
-			SearchVector:         searchVector,
 			AdditionalProperties: additional.Properties{Distance: true},
-		})
+		}, "", searchVector)
 		require.Nil(t, err)
 		require.NotEmpty(t, results)
 		// ensure that we receive more results than
@@ -1916,9 +1907,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 			NearVector: &searchparams.NearVector{
 				Certainty: 0.9,
 			},
-			SearchVector:         searchVector,
 			AdditionalProperties: additional.Properties{Certainty: true},
-		})
+		}, "", searchVector)
 		require.Nil(t, err)
 		require.NotEmpty(t, results)
 		// ensure that we receive more results than
@@ -1943,9 +1933,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 				Certainty: 0.9,
 				ID:        searchObject.String(),
 			},
-			SearchVector:         searchVector,
 			AdditionalProperties: additional.Properties{Certainty: true},
-		})
+		}, "", searchVector)
 		require.Nil(t, err)
 		require.NotEmpty(t, results)
 		// ensure that we receive more results than
