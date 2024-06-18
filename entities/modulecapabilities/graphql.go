@@ -13,6 +13,7 @@ package modulecapabilities
 
 import (
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 // GetArgumentsFn generates get graphql config for a given classname
@@ -33,6 +34,7 @@ type NearParam interface {
 	GetDistance() float64
 	GetTargetVectors() []string
 	SimilarityMetricProvided() bool
+	GetTargetCombination() *dto.TargetCombination
 }
 
 // ValidateFn validates a given module param

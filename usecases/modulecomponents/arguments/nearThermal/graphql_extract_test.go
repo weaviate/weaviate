@@ -14,6 +14,8 @@ package nearThermal
 import (
 	"reflect"
 	"testing"
+
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func Test_extractNearThermalFn(t *testing.T) {
@@ -72,8 +74,27 @@ func Test_extractNearThermalFn(t *testing.T) {
 				},
 			},
 			want: &NearThermalParams{
-				Thermal:       "base64;encoded",
-				TargetVectors: []string{"targetVector1", "targetVector2"},
+				Thermal:           "base64;encoded",
+				TargetVectors:     []string{"targetVector1", "targetVector2"},
+				targetCombination: &dto.TargetCombination{Type: dto.Minimum},
+			},
+		},
+		{
+			name: "should extract properly with thermal and targets set",
+			args: args{
+				source: map[string]interface{}{
+					"thermal": "base64;encoded",
+					"targets": map[string]interface{}{
+						"targetVectors":     []interface{}{"targetVector1", "targetVector2"},
+						"combinationMethod": dto.ManualWeights,
+						"weights":           map[string]float64{"targetVector1": 0.5, "targetVector2": 0.5},
+					},
+				},
+			},
+			want: &NearThermalParams{
+				Thermal:           "base64;encoded",
+				TargetVectors:     []string{"targetVector1", "targetVector2"},
+				targetCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
 			},
 		},
 	}

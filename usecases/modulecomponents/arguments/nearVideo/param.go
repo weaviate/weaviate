@@ -13,14 +13,21 @@ package nearVideo
 
 import (
 	"errors"
+
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type NearVideoParams struct {
-	Video         string
-	Certainty     float64
-	Distance      float64
-	WithDistance  bool
-	TargetVectors []string
+	Video             string
+	Certainty         float64
+	Distance          float64
+	WithDistance      bool
+	TargetVectors     []string
+	targetCombination *dto.TargetCombination
+}
+
+func (n NearVideoParams) GetTargetCombination() *dto.TargetCombination {
+	return n.targetCombination
 }
 
 func (n NearVideoParams) GetCertainty() float64 {
