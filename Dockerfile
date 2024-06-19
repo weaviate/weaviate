@@ -41,11 +41,17 @@ RUN GRPC_HEALTH_PROBE_VERSION=v0.4.27 && \
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine AS weaviate
-ENTRYPOINT ["/bin/weaviate"]
+RUN apk add --no-cache --upgrade ca-certificates openssl
+ARG UID=0
+# Add non-root user
+RUN if [ "$UID" != "0" ]; then addgroup weaviate --gid $UID && adduser -D -u $UID -G weaviate weaviate; fi
+# Copy needed binaries
 COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
-RUN apk add --no-cache --upgrade ca-certificates openssl
-RUN mkdir ./modules
+RUN mkdir ./modules && chown -R "$UID:$UID" ./modules
+# Configure image
+USER "$UID:$UID"
+ENTRYPOINT ["/bin/weaviate"]
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]

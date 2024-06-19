@@ -10,6 +10,7 @@ function release() {
   tag_latest="${DOCKER_REPO}:latest"
   tag_exact=
   tag_preview=
+  unprivileged="unprivileged"
 
   git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
 
@@ -28,16 +29,23 @@ function release() {
   fi
 
   args=("--build-arg=GITHASH=$git_hash" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
+  args_unprivileged=("--build-arg=UID=1000" "${args[@]}")
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
     args+=("-t=$tag_latest")
+    # exact tag on main for unpriviledged image
+    args_unprivileged+=("-t=$tag_exact-$unprivileged")
+    args_unprivileged+=("-t=$tag_latest-$unprivileged")
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds
     args+=("-t=$tag_preview")
+    # preview tag on PR builds for unpriviledged image
+    args_unprivileged+=("-t=$tag_preview-$unprivileged")
   fi
 
+  docker buildx build "${args_unprivileged[@]}" .
   docker buildx build "${args[@]}" .
 
   if [ -n "$tag_preview" ]; then
