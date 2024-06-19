@@ -11,11 +11,14 @@
 
 package nearText
 
-import "github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+import (
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/dto"
+)
 
 // ExtractNearText arguments, such as "concepts", "moveTo", "moveAwayFrom",
 // "limit", etc.
-func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface{}) interface{} {
+func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 	var args NearTextParams
 
 	// keywords is a required argument, so we don't need to check for its existing
@@ -76,11 +79,13 @@ func (g *GraphQLArgumentsProvider) extractNearTextFn(source map[string]interface
 		args.MoveAwayFrom = extractMovement(moveAwayFrom)
 	}
 
-	targetVectors, combination, _ := common_filters.ExtractTargets(source)
+	targetVectors, combination, err := common_filters.ExtractTargets(source)
+	if err != nil {
+		return nil, nil, err
+	}
 	args.TargetVectors = targetVectors
-	args.targetCombination = combination
 
-	return &args
+	return &args, combination, nil
 }
 
 func extractMovement(input interface{}) ExploreMove {

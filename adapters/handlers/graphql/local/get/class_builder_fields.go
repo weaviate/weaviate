@@ -392,16 +392,14 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 
 	var moduleParams map[string]interface{}
 	if r.modulesProvider != nil {
-		extractedParams := r.modulesProvider.ExtractSearchParams(p.Args, className)
+		extractedParams, extractedCombinations := r.modulesProvider.ExtractSearchParams(p.Args, className)
 		if len(extractedParams) > 0 {
-			for _, val := range extractedParams {
-				extractedParamsTyped, ok := val.(modulecapabilities.NearParam)
-				if ok {
-					targetCombination := extractedParamsTyped.GetTargetCombination()
-					targetVectorCombination = targetCombination
-				}
-			}
 			moduleParams = extractedParams
+		}
+		if len(extractedCombinations) == 1 {
+			for _, val := range extractedCombinations {
+				targetVectorCombination = val
+			}
 		}
 	}
 

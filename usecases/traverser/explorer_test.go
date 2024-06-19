@@ -2862,7 +2862,8 @@ func (p *fakeModulesProvider) getFakeT2Vec() *fakeText2vecContextionaryModule {
 func extractNearCustomTextParam(param map[string]interface{}) interface{} {
 	txt2vec := &fakeText2vecContextionaryModule{}
 	argument := txt2vec.Arguments()["nearCustomText"]
-	return argument.ExtractFunction(param)
+	params, _, _ := argument.ExtractFunction(param)
+	return params
 }
 
 func getDefaultParam(name string) interface{} {

@@ -13,7 +13,6 @@ package nearText
 
 import (
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type ObjectMove struct {
@@ -29,21 +28,16 @@ type ExploreMove struct {
 }
 
 type NearTextParams struct {
-	Values            []string
-	Limit             int
-	MoveTo            ExploreMove
-	MoveAwayFrom      ExploreMove
-	Certainty         float64
-	Distance          float64
-	WithDistance      bool
-	Network           bool
-	Autocorrect       bool
-	TargetVectors     []string
-	targetCombination *dto.TargetCombination
-}
-
-func (n NearTextParams) GetTargetCombination() *dto.TargetCombination {
-	return n.targetCombination
+	Values        []string
+	Limit         int
+	MoveTo        ExploreMove
+	MoveAwayFrom  ExploreMove
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	Network       bool
+	Autocorrect   bool
+	TargetVectors []string
 }
 
 func (n NearTextParams) GetCertainty() float64 {

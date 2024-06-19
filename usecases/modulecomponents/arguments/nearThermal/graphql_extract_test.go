@@ -23,9 +23,10 @@ func Test_extractNearThermalFn(t *testing.T) {
 		source map[string]interface{}
 	}
 	tests := []struct {
-		name string
-		args args
-		want interface{}
+		name       string
+		args       args
+		want       interface{}
+		wantTarget *dto.TargetCombination
 	}{
 		{
 			name: "should extract properly with distance and thermal params set",
@@ -74,10 +75,10 @@ func Test_extractNearThermalFn(t *testing.T) {
 				},
 			},
 			want: &NearThermalParams{
-				Thermal:           "base64;encoded",
-				TargetVectors:     []string{"targetVector1", "targetVector2"},
-				targetCombination: &dto.TargetCombination{Type: dto.Minimum},
+				Thermal:       "base64;encoded",
+				TargetVectors: []string{"targetVector1", "targetVector2"},
 			},
+			wantTarget: &dto.TargetCombination{Type: dto.Minimum},
 		},
 		{
 			name: "should extract properly with thermal and targets set",
@@ -92,15 +93,16 @@ func Test_extractNearThermalFn(t *testing.T) {
 				},
 			},
 			want: &NearThermalParams{
-				Thermal:           "base64;encoded",
-				TargetVectors:     []string{"targetVector1", "targetVector2"},
-				targetCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
+				Thermal:       "base64;encoded",
+				TargetVectors: []string{"targetVector1", "targetVector2"},
 			},
+			wantTarget: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := extractNearThermalFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
+			got, target, err := extractNearThermalFn(tt.args.source)
+			if !reflect.DeepEqual(got, tt.want) || !reflect.DeepEqual(target, tt.wantTarget) || err != nil {
 				t.Errorf("extractNearThermalFn() = %v, want %v", got, tt.want)
 			}
 		})
