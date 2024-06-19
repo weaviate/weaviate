@@ -90,9 +90,12 @@ func (r *repairer) repairOne(ctx context.Context,
 		}
 		vote := vote
 		gr.Go(func() error {
-			vectors := make(models.Vectors, len(updates.Object.Vectors))
-			for i, v := range updates.Object.Vectors {
-				vectors[i] = v
+			var vectors models.Vectors
+			if updates.Object.Vectors != nil {
+				vectors = make(models.Vectors, len(updates.Object.Vectors))
+				for i, v := range updates.Object.Vectors {
+					vectors[i] = v
+				}
 			}
 
 			ups := []*objects.VObject{{
@@ -160,9 +163,12 @@ func (r *repairer) repairExist(ctx context.Context,
 		}
 		vote := vote
 		gr.Go(func() error {
-			vectors := make(models.Vectors, len(resp.Object.Vectors))
-			for i, v := range resp.Object.Vectors {
-				vectors[i] = v
+			var vectors models.Vectors
+			if resp.Object.Vectors != nil {
+				vectors = make(models.Vectors, len(resp.Object.Vectors))
+				for i, v := range resp.Object.Vectors {
+					vectors[i] = v
+				}
 			}
 			ups := []*objects.VObject{{
 				LatestObject:    &resp.Object.Object,
@@ -289,9 +295,12 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		for j, x := range lastTimes {
 			cTime := vote.UpdateTimeAt(j)
 			if x.T != cTime && !x.Deleted && result[j] != nil && vote.Count[j] == nVotes {
-				vectors := make(models.Vectors, len(result[j].Vectors))
-				for i, v := range result[j].Vectors {
-					vectors[i] = v
+				var vectors models.Vectors
+				if result[j].Vectors != nil {
+					vectors = make(models.Vectors, len(result[j].Vectors))
+					for i, v := range result[j].Vectors {
+						vectors[i] = v
+					}
 				}
 
 				obj := objects.VObject{
