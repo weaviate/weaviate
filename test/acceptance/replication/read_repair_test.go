@@ -190,7 +190,7 @@ func readRepairNamedVectors(t *testing.T) {
 	})
 
 	repairObj := models.Object{
-		ID:    booksObjs[0].ID,
+		ID:    "e5390693-5a22-44b8-997d-2a213aaf5884",
 		Class: bookClass.Class,
 		Properties: map[string]interface{}{
 			"title": "a new title",
