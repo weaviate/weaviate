@@ -216,3 +216,39 @@ func Test_NoRacePQEncodeBytes(t *testing.T) {
 		}
 	})
 }
+
+func BenchmarkDistancer(b *testing.B) {
+	dims := 1536
+	vecs, _ := testinghelpers.RandomVecs(100, 0, dims)
+	d := distancer.NewDotProductProvider().New(vecs[0])
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		d.Distance(vecs[1])
+	}
+}
+
+func BenchmarkDistancer2(b *testing.B) {
+	dims := 1536
+	vecs, _ := testinghelpers.RandomVecs(100, 0, dims)
+	sq := compressionhelpers.NewScalarQuantizer(vecs, distancer.NewDotProductProvider())
+	d := sq.NewDistancer(vecs[0])
+	compressed := sq.Encode(vecs[1])
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		d.Distance(compressed)
+	}
+}
+
+func BenchmarkDistancer3(b *testing.B) {
+	dims := 1536
+	vecs, _ := testinghelpers.RandomVecs(100, 0, dims)
+	sq := compressionhelpers.NewScalarQuantizer(vecs, distancer.NewDotProductProvider())
+	compressed := sq.Encode(vecs[1])
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		sq.DistanceBetweenCompressedVectors(compressed, compressed)
+	}
+}

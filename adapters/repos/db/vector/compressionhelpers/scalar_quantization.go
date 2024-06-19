@@ -147,10 +147,8 @@ func (sq *ScalarQuantizer) Encode(vec []float32) []byte {
 
 type SQDistancer struct {
 	x          []float32
-	normX2     float32
 	sq         *ScalarQuantizer
 	compressed []byte
-	normX      float32
 }
 
 func (sq *ScalarQuantizer) NewDistancer(a []float32) *SQDistancer {
@@ -164,14 +162,12 @@ func (sq *ScalarQuantizer) NewDistancer(a []float32) *SQDistancer {
 		x:          a,
 		sq:         sq,
 		compressed: sq.Encode(a),
-		normX:      sum,
-		normX2:     sum2,
 	}
 }
 
 func (d *SQDistancer) Distance(x []byte) (float32, bool, error) {
 	if len(d.x) > 0 {
-		dist, err := d.sq.DistanceBetweenCompressedAndUncompressedVectors2(d.x, x, d.normX, d.normX2)
+		dist, err := d.sq.DistanceBetweenCompressedVectors(d.compressed, x)
 		return dist, err == nil, err
 	}
 	return d.sq.a2 * float32(l2SquaredByteImpl(d.compressed, x)), true, nil
