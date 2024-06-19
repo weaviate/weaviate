@@ -600,10 +600,15 @@ func HasFilterableIndex(prop *models.Property) bool {
 }
 
 func HasRangeableIndex(prop *models.Property) bool {
-	if prop.IndexRangeable == nil {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeDate:
+		if prop.IndexRangeable == nil {
+			return false
+		}
+		return *prop.IndexRangeable
+	default:
 		return false
 	}
-	return *prop.IndexRangeable
 }
 
 func HasAnyInvertedIndex(prop *models.Property) bool {
