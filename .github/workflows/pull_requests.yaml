@@ -56,6 +56,12 @@ jobs:
   Vulnerability-Scanning:
     name: vulnerability-scanning
     runs-on: ubuntu-latest
+    env:
+      # USE WITH CAUTION, IT IMPLIES RISK
+      # This is a list of vulnerabilities that will be skipped from the check
+      # It is mostly used for vulnerabilities which haven't fixed by the depending projects
+      # The format is space separated string: "CVE-XXXX-XXXX CVE-XXXX-XXXX CVE-XXXX-XXXX"
+      SKIPPED_VULN: ""
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v4
@@ -66,12 +72,17 @@ jobs:
           cache: true
       - name: Run locally Docker build
         run: docker build -t weaviate:${{ github.sha }} .
+      - name: Skip vulnerabilities
+        if: ${{ env.SKIPPED_VULN != '' }}
+        run: |
+          echo "${{ env.SKIPPED_VULN }}" | tr ' ' '\n' > .trivyignore
       - name: Run Trivy vulnerability scanner for the built image
         uses: aquasecurity/trivy-action@0.22.0
         with:
           image-ref: 'weaviate:${{ github.sha }}'
           exit-code: '1'
           format: 'table'
+          ignore-unfixed: true
           severity: 'HIGH,CRITICAL'
   Unit-Tests:
     name: unit-tests
