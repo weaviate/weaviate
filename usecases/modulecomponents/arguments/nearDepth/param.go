@@ -13,21 +13,14 @@ package nearDepth
 
 import (
 	"errors"
-
-	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type NearDepthParams struct {
-	Depth             string
-	Certainty         float64
-	Distance          float64
-	WithDistance      bool
-	TargetVectors     []string
-	targetCombination *dto.TargetCombination
-}
-
-func (n NearDepthParams) GetTargetCombination() *dto.TargetCombination {
-	return n.targetCombination
+	Depth         string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearDepthParams) GetCertainty() float64 {

@@ -123,7 +123,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 
 	var moduleParams map[string]interface{}
 	if modulesProvider != nil {
-		extractedParams := modulesProvider.ExtractSearchParams(p.Args, class.Class)
+		extractedParams, _ := modulesProvider.ExtractSearchParams(p.Args, class.Class)
 		if len(extractedParams) > 0 {
 			moduleParams = extractedParams
 		}

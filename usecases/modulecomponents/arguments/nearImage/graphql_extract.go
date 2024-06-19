@@ -11,10 +11,13 @@
 
 package nearImage
 
-import "github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+import (
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/dto"
+)
 
 // extractNearImageFn arguments, such as "image" and "certainty"
-func extractNearImageFn(source map[string]interface{}) interface{} {
+func extractNearImageFn(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 	var args NearImageParams
 
 	image, ok := source["image"].(string)
@@ -33,9 +36,11 @@ func extractNearImageFn(source map[string]interface{}) interface{} {
 		args.WithDistance = true
 	}
 
-	targetVectors, combination, _ := common_filters.ExtractTargets(source)
+	targetVectors, combination, err := common_filters.ExtractTargets(source)
+	if err != nil {
+		return nil, nil, err
+	}
 	args.TargetVectors = targetVectors
-	args.targetCombination = combination
 
-	return &args
+	return &args, combination, nil
 }

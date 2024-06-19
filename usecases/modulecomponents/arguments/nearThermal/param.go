@@ -13,21 +13,14 @@ package nearThermal
 
 import (
 	"errors"
-
-	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type NearThermalParams struct {
-	Thermal           string
-	Certainty         float64
-	Distance          float64
-	WithDistance      bool
-	TargetVectors     []string
-	targetCombination *dto.TargetCombination
-}
-
-func (n NearThermalParams) GetTargetCombination() *dto.TargetCombination {
-	return n.targetCombination
+	Thermal       string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearThermalParams) GetCertainty() float64 {

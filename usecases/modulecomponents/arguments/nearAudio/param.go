@@ -13,21 +13,14 @@ package nearAudio
 
 import (
 	"errors"
-
-	"github.com/weaviate/weaviate/entities/dto"
 )
 
 type NearAudioParams struct {
-	Audio             string
-	Certainty         float64
-	Distance          float64
-	WithDistance      bool
-	TargetVectors     []string
-	targetCombination *dto.TargetCombination
-}
-
-func (n NearAudioParams) GetTargetCombination() *dto.TargetCombination {
-	return n.targetCombination
+	Audio         string
+	Certainty     float64
+	Distance      float64
+	WithDistance  bool
+	TargetVectors []string
 }
 
 func (n NearAudioParams) GetCertainty() float64 {
