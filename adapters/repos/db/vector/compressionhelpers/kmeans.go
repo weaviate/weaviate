@@ -261,3 +261,7 @@ func (m *KMeans) Center(point []float32) []float32 {
 func (m *KMeans) Centroid(i byte) []float32 {
 	return m.centers[i]
 }
+
+func (m *KMeans) Centroids() [][]float32 {
+	return m.centers
+}

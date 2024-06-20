@@ -202,3 +202,15 @@ func (te *TileEncoder) Centroid(b byte) []float32 {
 	te.centroids[b].Calculated.Store(true)
 	return te.centroids[b].Center
 }
+
+// ToDo: deprecate the tile encoder
+func (te *TileEncoder) Centroids() [][]float32 {
+	return nil
+	/*
+		if te.centroids[b].Calculated.Load() {
+			return te.centroids[b].Center
+		}
+		te.centroids[b].Center = te.centroid(b)
+		te.centroids[b].Calculated.Store(true)
+		return te.centroids[b].Center*/
+}

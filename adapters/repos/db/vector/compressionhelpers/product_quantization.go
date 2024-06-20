@@ -42,6 +42,7 @@ type ProductQuantizer struct {
 	trainingLimit       int
 	globalDistances     []float32
 	logger              logrus.FieldLogger
+	centroids           [][][]float32
 }
 
 type PQData struct {
@@ -58,6 +59,7 @@ type PQData struct {
 type PQEncoder interface {
 	Encode(x []float32) byte
 	Centroid(b byte) []float32
+	Centroids() [][]float32
 	Add(x []float32)
 	Fit(data [][]float32) error
 	ExposeDataForRestore() []byte
@@ -113,7 +115,9 @@ func (pq *ProductQuantizer) buildGlobalDistances() {
 	// This hosts the partial distances between the centroids. This way we do not need
 	// to recalculate all the time when calculating full distances between compressed vecs
 	pq.globalDistances = make([]float32, pq.m*pq.ks*pq.ks)
+	pq.centroids = make([][][]float32, pq.m)
 	for segment := 0; segment < pq.m; segment++ {
+		pq.centroids[segment] = pq.kms[segment].Centroids()
 		for i := 0; i < pq.ks; i++ {
 			cX := pq.kms[segment].Centroid(byte(i))
 			for j := 0; j <= i; j++ {
@@ -216,7 +220,7 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	if len(x) != d.pq.m {
 		return 0, false, fmt.Errorf("inconsistent compressed vector length")
 	}
-	return d.pq.Distance(x, d.x), true, nil
+	return dotPQByteImpl(d.x, x, d.pq.centroids), true, nil
 }
 
 func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
