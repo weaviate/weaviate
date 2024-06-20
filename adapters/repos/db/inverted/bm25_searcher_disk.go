@@ -169,15 +169,17 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 			currentBucket++
 			eg.Go(func() (err error) {
 				allTerms := make([]terms.Term, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+				allIndices := make([]map[uint64]int, 0, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
 				for i, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
 					// pass i to the closure
 					i := i
 					term := term
 					duplicateTextBoost := duplicateBoostsByTokenization[models.PropertyTokenizationWord][i]
 					n := float64(propertySizes[propName][term])
-					singleTerms, _, err := memTable.CreateTerm(N, n, filterDocIds, term, propName, propertyBoosts, duplicateTextBoost, params.AdditionalExplanations)
+					singleTerms, singleIndices, err := memTable.CreateTerm(N, n, filterDocIds, term, propName, propertyBoosts, duplicateTextBoost, params.AdditionalExplanations)
 					if err == nil {
 						allTerms = append(allTerms, singleTerms)
+						allIndices = append(allIndices, singleIndices)
 					}
 				}
 
@@ -188,8 +190,7 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 				copy(resultsOriginalOrder, flatTerms)
 
 				topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength)
-				indices := make([]map[uint64]int, 0)
-				objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
+				objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, allIndices, params.AdditionalExplanations)
 
 				allObjects[myCurrentBucket] = objects
 				allScores[myCurrentBucket] = scores

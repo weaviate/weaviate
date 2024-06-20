@@ -443,6 +443,10 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 			}
 
 			for j, result := range results {
+				// WIP: skip object explanation in BM25 for StrategyInverted
+				if len(indices) == 0 {
+					continue
+				}
 				if termIndex, ok := indices[j][res.ID]; ok {
 					queryTerm := result.QueryTerm()
 					if len(result.Data()) <= termIndex {
