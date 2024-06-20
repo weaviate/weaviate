@@ -260,13 +260,13 @@ func getScoresOfMissingResults(ctx context.Context, shard DistanceForVector, log
 		f := func() error {
 			distances, err := shard.VectorDistanceForQuery(ctx, allIDs[id].ID(), targets.searchVector, targets.target)
 			mutex.Lock()
+			defer mutex.Unlock()
 			if err != nil {
 				// when we cannot look up missing distances for an object, it will be removed from the result list
 				combinedResults.RemoveIdFromResult(id)
 			} else {
 				combinedResults.AddScores(id, targets.target, distances, weights)
 			}
-			mutex.Unlock()
 			return nil
 		}
 		eg.Go(f)
