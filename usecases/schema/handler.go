@@ -30,7 +30,7 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
-type metaWriter interface {
+type SchemaManager interface {
 	// Schema writes operation
 	AddClass(cls *models.Class, ss *sharding.State) (uint64, error)
 	RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error)
@@ -42,6 +42,12 @@ type metaWriter interface {
 	UpdateTenants(class string, req *command.UpdateTenantsRequest) (uint64, error)
 	DeleteTenants(class string, req *command.DeleteTenantsRequest) (uint64, error)
 
+	// Cluster related operations
+	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
+	Remove(_ context.Context, nodeID string) error
+	Stats() map[string]any
+	StoreSchemaV1() error
+
 	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
 	// from an up to date schema.
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
@@ -51,15 +57,9 @@ type metaWriter interface {
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
-
-	// Cluster related operations
-	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
-	Remove(_ context.Context, nodeID string) error
-	Stats() map[string]any
-	StoreSchemaV1() error
 }
 
-type metaReader interface {
+type SchemaReader interface {
 	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 
@@ -100,9 +100,10 @@ type validator interface {
 // By delegating these clear responsibilities to the handler, it maintains
 // a clean separation from the manager, enhancing code modularity and maintainability.
 type Handler struct {
-	metaWriter metaWriter
-	metaReader metaReader
-	validator  validator
+	schemaManager SchemaManager
+	schemaReader  SchemaReader
+
+	validator validator
 
 	logger                  logrus.FieldLogger
 	Authorizer              authorizer
@@ -118,8 +119,8 @@ type Handler struct {
 
 // NewHandler creates a new handler
 func NewHandler(
-	store metaWriter,
-	metaReader metaReader,
+	schemaReader SchemaReader,
+	schemaManager SchemaManager,
 	validator validator,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
@@ -129,8 +130,8 @@ func NewHandler(
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
-		metaWriter:              store,
-		metaReader:              metaReader,
+		schemaReader:            schemaReader,
+		schemaManager:           schemaManager,
 		parser:                  Parser{clusterState: clusterState, configParser: configParser, validator: validator},
 		validator:               validator,
 		logger:                  logger,
@@ -143,7 +144,7 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 	}
 
-	handler.scaleOut.SetSchemaManager(metaReader)
+	handler.scaleOut.SetSchemaReader(schemaReader)
 
 	return handler, nil
 }
@@ -168,7 +169,7 @@ func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 		return h.getSchema(), nil
 	}
 
-	if consistentSchema, err := h.metaWriter.QuerySchema(); err != nil {
+	if consistentSchema, err := h.schemaManager.QuerySchema(); err != nil {
 		return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
 	} else {
 		return schema.Schema{
@@ -183,7 +184,7 @@ func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency b
 func (h *Handler) GetSchemaSkipAuth() schema.Schema { return h.getSchema() }
 
 func (h *Handler) getSchema() schema.Schema {
-	s := h.metaReader.ReadOnlySchema()
+	s := h.schemaReader.ReadOnlySchema()
 	return schema.Schema{
 		Objects: &s,
 	}
@@ -206,7 +207,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 		return 0, err
 	}
 
-	return h.metaWriter.UpdateShardStatus(class, shard, status)
+	return h.schemaManager.UpdateShardStatus(class, shard, status)
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,
@@ -217,7 +218,7 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 		return nil, err
 	}
 
-	return h.metaReader.GetShardsStatus(class, tenant)
+	return h.schemaReader.GetShardsStatus(class, tenant)
 }
 
 // JoinNode adds the given node to the cluster.
@@ -236,7 +237,7 @@ func (h *Handler) JoinNode(ctx context.Context, node string, nodePort string, vo
 		nodePort = fmt.Sprintf("%d", config.DefaultRaftPort)
 	}
 
-	if err := h.metaWriter.Join(ctx, node, nodeAddr+":"+nodePort, voter); err != nil {
+	if err := h.schemaManager.Join(ctx, node, nodeAddr+":"+nodePort, voter); err != nil {
 		return fmt.Errorf("node failed to join cluster: %w", err)
 	}
 	return nil
@@ -244,7 +245,7 @@ func (h *Handler) JoinNode(ctx context.Context, node string, nodePort string, vo
 
 // RemoveNode removes the given node from the cluster.
 func (h *Handler) RemoveNode(ctx context.Context, node string) error {
-	if err := h.metaWriter.Remove(ctx, node); err != nil {
+	if err := h.schemaManager.Remove(ctx, node); err != nil {
 		return fmt.Errorf("node failed to leave cluster: %w", err)
 	}
 	return nil
@@ -252,9 +253,9 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
 func (h *Handler) Statistics() map[string]any {
-	return h.metaWriter.Stats()
+	return h.schemaManager.Stats()
 }
 
 func (h *Handler) StoreSchemaV1() error {
-	return h.metaWriter.StoreSchemaV1()
+	return h.schemaManager.StoreSchemaV1()
 }

@@ -179,9 +179,9 @@ func Test_Schema_Authorization(t *testing.T) {
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
-				handler, fakeMetaHandler := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
-				fakeMetaHandler.On("ReadOnlySchema").Return(models.Schema{})
-				fakeMetaHandler.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
+				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
+				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
 
 				var args []interface{}
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {
