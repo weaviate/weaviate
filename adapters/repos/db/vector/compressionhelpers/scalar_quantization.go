@@ -56,27 +56,6 @@ func (sq *ScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float3
 	return 0, errors.Errorf("Distance not supported yet %s", sq.distancer)
 }
 
-func (sq *ScalarQuantizer) dot(x []float32, encoded []byte, normX float32) (float32, error) {
-	return -(sq.a/codes*float32(dotFloatByteImpl(x, encoded[:len(encoded)-8])) + sq.b*normX), nil
-}
-
-func (sq *ScalarQuantizer) l2(x []float32, encoded []byte, normX, normX2 float32) (float32, error) {
-	return normX2 + float32(sq.norm2(encoded))*sq.a2 + sq.ib2 - 2*sq.a/codes*dotFloatByteImpl(x, encoded[:len(encoded)-8]) - 2*sq.b*normX + 2*sq.a*sq.b/codes*float32(sq.norm(encoded)), nil
-}
-
-func (sq *ScalarQuantizer) DistanceBetweenCompressedAndUncompressedVectors2(x []float32, encoded []byte, normX, normX2 float32) (float32, error) {
-	switch sq.distancer.Type() {
-	case "l2-squared":
-		return sq.l2(x, encoded, normX, normX2)
-	case "cosine-dot":
-		d, err := sq.dot(x, encoded, normX)
-		return 1 + d, err
-	case "dot":
-		return sq.dot(x, encoded, normX)
-	}
-	return 0, errors.Errorf("Distance not supported yet %s", sq.distancer)
-}
-
 func NewScalarQuantizer(data [][]float32, distance distancer.Provider) *ScalarQuantizer {
 	if len(data) == 0 {
 		return nil
