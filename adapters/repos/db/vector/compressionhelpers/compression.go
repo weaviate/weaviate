@@ -32,8 +32,6 @@ type CompressorDistancer interface {
 	DistanceToFloat(vec []float32) (float32, bool, error)
 }
 
-type ReturnDistancerFn func()
-
 type CommitLogger interface {
 	AddPQCompression(PQData) error
 	AddSQCompression(SQData) error
@@ -50,7 +48,7 @@ type VectorCompressor interface {
 	PrefillCache()
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
-	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
+	NewDistancer(vector []float32) CompressorDistancer
 	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
 
@@ -132,16 +130,6 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 	return dist, err
 }
 
-/*func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, id uint64, vector []float32) (float32, error) {
-	compressedVector, err := compressor.compressedVectorFromID(ctx, id)
-	if err != nil {
-		return 0, err
-	}
-
-	dist, err := compressor.DistanceBetweenCompressedAndUncompressedVectors(compressedVector, vector)
-	return dist, err
-}*/
-
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
@@ -156,14 +144,12 @@ func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx co
 	return compressor.quantizer.FromCompressedBytes(compressedVector), nil
 }
 
-func (compressor *quantizedVectorsCompressor[T]) NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn) {
+func (compressor *quantizedVectorsCompressor[T]) NewDistancer(vector []float32) CompressorDistancer {
 	d := &quantizedCompressorDistancer[T]{
 		compressor: compressor,
 		distancer:  compressor.quantizer.NewQuantizerDistancer(vector),
 	}
-	return d, func() {
-		compressor.returnDistancer(d)
-	}
+	return d
 }
 
 func (compressor *quantizedVectorsCompressor[T]) NewDistancerFromID(id uint64) (CompressorDistancer, error) {
@@ -181,14 +167,6 @@ func (compressor *quantizedVectorsCompressor[T]) NewDistancerFromID(id uint64) (
 		distancer:  compressor.quantizer.NewCompressedQuantizerDistancer(compressedVector),
 	}
 	return d, nil
-}
-
-func (compressor *quantizedVectorsCompressor[T]) returnDistancer(distancer CompressorDistancer) {
-	dst := distancer.(*quantizedCompressorDistancer[T]).distancer
-	if dst == nil {
-		return
-	}
-	compressor.quantizer.ReturnQuantizerDistancer(dst)
 }
 
 func (compressor *quantizedVectorsCompressor[T]) NewBag() CompressionDistanceBag {

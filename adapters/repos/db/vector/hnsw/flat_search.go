@@ -28,8 +28,7 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		distancer, returnFn := h.compressor.NewDistancer(queryVector)
-		defer returnFn()
+		distancer := h.compressor.NewDistancer(queryVector)
 		compressorDistancer = distancer
 	}
 

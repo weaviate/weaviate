@@ -23,7 +23,6 @@ type quantizer[T byte | uint64] interface {
 	Encode(vec []float32) []T
 	NewQuantizerDistancer(a []float32) quantizerDistancer[T]
 	NewCompressedQuantizerDistancer(a []T) quantizerDistancer[T]
-	ReturnQuantizerDistancer(distancer quantizerDistancer[T])
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
 	PersistCompression(logger CommitLogger)
@@ -34,14 +33,6 @@ func (bq *BinaryQuantizer) PersistCompression(logger CommitLogger) {
 
 func (pq *ProductQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[byte] {
 	return pq.NewDistancer(vec)
-}
-
-func (pq *ProductQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[byte]) {
-	concreteDistancer := distancer.(*PQDistancer)
-	if concreteDistancer == nil {
-		return
-	}
-	pq.ReturnDistancer(concreteDistancer)
 }
 
 func (bq *BinaryQuantizer) CompressedBytes(compressed []uint64) []byte {

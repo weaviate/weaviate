@@ -169,9 +169,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	var floatDistancer distancer.Distancer
 	if h.compressed.Load() {
 		if compressorDistancer == nil {
-			var returnFn compressionhelpers.ReturnDistancerFn
-			compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
-			defer returnFn()
+			compressorDistancer = h.compressor.NewDistancer(queryVector)
 		}
 	} else {
 		floatDistancer = h.distancerProvider.New(queryVector)
@@ -480,9 +478,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	var compressorDistancer compressionhelpers.CompressorDistancer
 	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
-		defer returnFn()
+		compressorDistancer = h.compressor.NewDistancer(searchVec)
 	}
 	entryPointDistance, ok, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	if err != nil {
