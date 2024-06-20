@@ -96,7 +96,7 @@ func TestUpdateJourney(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
-			}, "", searchVector)
+			}, []string{""}, [][]float32{searchVector})
 
 			expectedInAnyOrder := []interface{}{
 				"element-0", "element-1", "element-2", "element-3",
@@ -175,7 +175,7 @@ func TestUpdateJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		}, "", searchVector)
+		}, []string{""}, [][]float32{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
@@ -237,7 +237,7 @@ func TestUpdateJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		}, "", searchVector)
+		}, []string{""}, [][]float32{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",

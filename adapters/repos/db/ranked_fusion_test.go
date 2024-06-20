@@ -858,8 +858,8 @@ func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Re
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, [][]float32) ([][]search.Result, [][]float32, error) {
-	return nil, nil, nil
+func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, [][]float32) ([]search.Result, error) {
+	return nil, nil
 }
 
 func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
