@@ -24,6 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
 	"github.com/pkg/errors"
@@ -1409,7 +1411,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					ctx, shardName, nil, "", limit, filters, keywordRanking,
+					ctx, shardName, nil, nil, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled())
 				if err != nil {
 					return fmt.Errorf(
@@ -1497,16 +1499,16 @@ func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
 	return newGroupMerger(objects, dists, groupBy).Do()
 }
 
-func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVector []float32,
-	targetVector string, dist float32, limit int, filters *filters.LocalFilter,
+func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVectors [][]float32,
+	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
-	shard ShardLike,
+	shard ShardLike, multiTargetCombination *dto.TargetCombination,
 ) ([]*storobj.Object, []float32, error) {
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
+		ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, multiTargetCombination)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1539,79 +1541,10 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
-func (i *Index) vectorDistanceForQuery(ctx context.Context, id strfmt.UUID, targets []string, searchVectors [][]float32, tenant string) ([]float32, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return nil, err
-	}
-	shardNames, err := i.targetShardNames(tenant)
-	if err != nil || len(shardNames) == 0 {
-		return nil, err
-	}
-
-	eg := enterrors.NewErrorGroupWrapper(i.logger)
-	eg.SetLimit(_NUMCPU * 2)
-
-	var distancesReturn []float32
-
-	for _, shardName := range shardNames {
-		shardName := shardName
-		shard, release, err := i.getLocalShardNoShutdown(shardName)
-		if err != nil {
-			return nil, err
-		}
-
-		f := func() error {
-			if shard != nil {
-				defer release()
-				exists, err := shard.Exists(ctx, id)
-				if err != nil {
-					return err
-				}
-				if !exists {
-					return nil
-				}
-				distances, err := shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
-				if err != nil {
-					return err
-				}
-				distancesReturn = distances
-				return nil
-			} else {
-				exists, err := i.remote.Exists(ctx, shardName, id)
-				if err != nil {
-					return err
-				}
-				if !exists {
-					return nil
-				}
-
-				distances, _, err := i.remote.VectorDistanceForQuery(ctx,
-					shardName, id, targets, searchVectors, i.replicationEnabled())
-				if err != nil {
-					return errors.Wrapf(err, "remote shard %s", shardName)
-				}
-				distancesReturn = distances
-				return nil
-			}
-		}
-		eg.Go(f, "shard", shardName)
-	}
-
-	if err := eg.Wait(); err != nil {
-		return nil, err
-	}
-
-	if distancesReturn == nil {
-		return nil, fmt.Errorf("object %s not found", id)
-	}
-
-	return distancesReturn, nil
-}
-
-func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	targetVector string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
+func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float32,
+	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additional additional.Properties,
-	replProps *additional.ReplicationProperties, tenant string,
+	replProps *additional.ReplicationProperties, tenant string, multiTargetCombination *dto.TargetCombination,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
@@ -1629,8 +1562,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 		if shard != nil {
 			defer release()
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, targetVector, dist, limit, filters,
-				sort, groupBy, additional, shard)
+			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, filters,
+				sort, groupBy, additional, shard, multiTargetCombination)
 		}
 	}
 
@@ -1667,7 +1600,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 			if shard != nil {
 				defer release()
 				res, resDists, err = shard.ObjectVectorSearch(
-					ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
+					ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, multiTargetCombination)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
@@ -1675,7 +1608,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 			} else {
 				res, resDists, nodeName, err = i.remote.SearchShard(ctx,
-					shardName, searchVector, targetVector, limit, filters,
+					shardName, searchVectors, targetVectors, limit, filters,
 					nil, sort, nil, groupBy, additional, i.replicationEnabled())
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
@@ -1683,6 +1616,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 			}
 			if i.replicationEnabled() {
+				// all result lists contain the same objects
 				storobj.AddOwnership(res, nodeName, shardName)
 			}
 
@@ -1733,7 +1667,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
-	searchVector []float32, targetVector string, distance float32, limit int,
+	searchVectors [][]float32, targetVectors []string, distance float32, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties,
@@ -1748,7 +1682,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
-	if searchVector == nil {
+	if searchVectors == nil {
 		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 		if err != nil {
 			return nil, nil, err
@@ -1758,7 +1692,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVector, targetVector, distance, limit, filters, sort, groupBy, additional)
+		ctx, searchVectors, targetVectors, distance, limit, filters, sort, groupBy, additional, nil)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}

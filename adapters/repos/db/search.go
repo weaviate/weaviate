@@ -18,8 +18,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-openapi/strfmt"
-
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -106,10 +104,11 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVector string, searchVector []float32,
+	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
 ) ([]search.Result, error) {
-	if searchVector == nil {
-		return db.Search(ctx, params)
+	if searchVectors == nil {
+		results, err := db.Search(ctx, params)
+		return results, err
 	}
 
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
@@ -123,9 +122,9 @@ func (db *DB) VectorSearch(ctx context.Context,
 	}
 
 	targetDist := extractDistanceFromParams(params)
-	res, dists, err := idx.objectVectorSearch(ctx, searchVector, targetVector,
+	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -140,19 +139,6 @@ func (db *DB) VectorSearch(ctx context.Context,
 		params.Properties, params.GroupBy, params.AdditionalProperties, params.Tenant)
 }
 
-func (db *DB) VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error) {
-	idx := db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return nil, fmt.Errorf("tried to browse non-existing index for %s", className)
-	}
-
-	if len(targetVectors) != len(searchVectors) || len(targetVectors) == 0 {
-		return nil, fmt.Errorf("target vectors and search vectors must have the same non-zero length")
-	}
-
-	return idx.vectorDistanceForQuery(ctx, id, targetVectors, searchVectors, tenant)
-}
-
 func extractDistanceFromParams(params dto.GetParams) float32 {
 	certainty := traverser.ExtractCertaintyFromParams(params)
 	if certainty != 0 {
@@ -161,32 +147,6 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 
 	dist, _ := traverser.ExtractDistanceFromParams(params)
 	return float32(dist)
-}
-
-// DenseObjectSearch is used to perform a vector search on the db
-//
-// Earlier use cases required only []search.Result as a return value from the db, and the
-// Class VectorSearch method fit this need. Later on, other use cases presented the need
-// for the raw storage objects, such as hybrid search.
-func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []float32,
-	targetVector string, offset int, limit int, filters *filters.LocalFilter,
-	addl additional.Properties, tenant string,
-) ([]*storobj.Object, []float32, error) {
-	totalLimit := offset + limit
-
-	index := db.GetIndex(schema.ClassName(class))
-	if index == nil {
-		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", class)
-	}
-
-	// TODO: groupBy think of this
-	objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector, 0,
-		totalLimit, filters, nil, nil, addl, nil, tenant)
-	if err != nil {
-		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
-	}
-
-	return objs, dist, nil
 }
 
 func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
@@ -206,9 +166,9 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 		f := func() {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector,
+			objs, dist, err := index.objectVectorSearch(ctx, [][]float32{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "")
+				additional.Properties{}, nil, "", nil)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))

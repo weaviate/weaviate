@@ -393,10 +393,6 @@ func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
-func (f *fakeRemoteClient) VectorDistanceForQuery(ctx context.Context, hostname string, indexName string, shardName string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32) ([]float32, error) {
-	return nil, nil
-}
-
 func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName,
 	shardName, fileName string, payload io.ReadSeekCloser,
 ) error {
@@ -442,7 +438,7 @@ func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, targetVector string, limit int, filters *filters.LocalFilter,
+	shardName string, vector [][]float32, targetVector []string, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {

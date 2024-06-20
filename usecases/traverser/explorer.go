@@ -17,8 +17,6 @@ import (
 	"runtime"
 	"strings"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -84,9 +82,7 @@ type objectsSearcher interface {
 
 	// GraphQL Get{} queries
 	Search(ctx context.Context, params dto.GetParams) ([]search.Result, error)
-	VectorSearch(ctx context.Context, params dto.GetParams, targetVector string, searchVector []float32) ([]search.Result, error)
-
-	VectorDistanceForQuery(ctx context.Context, className string, id strfmt.UUID, targetVectors []string, searchVectors [][]float32, tenant string) ([]float32, error)
+	VectorSearch(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectors [][]float32) ([]search.Result, error)
 
 	// GraphQL Explore{} queries
 	CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
@@ -101,8 +97,6 @@ type objectsSearcher interface {
 
 type hybridSearcher interface {
 	SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error)
-	DenseObjectSearch(context.Context, string, []float32, string, int, int,
-		*filters.LocalFilter, additional.Properties, string) ([]*storobj.Object, []float32, error)
 	ResolveReferences(ctx context.Context, objs search.Results, props search.SelectProperties,
 		groupBy *searchparams.GroupBy, additional additional.Properties, tenant string) (search.Results, error)
 }
@@ -227,7 +221,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 		return nil, nil, errors.Errorf("explorer: get class: validate target vector: %v", err)
 	}
 
-	res, searchVectors, err := e.concurrentTargetVectorSearch(ctx, targetVectors, params, nil)
+	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
 	}
@@ -238,43 +232,21 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return res, []float32{}, nil
 }
 
-func (e *Explorer) concurrentTargetVectorSearch(ctx context.Context, targetVectors []string, params dto.GetParams, searchVectors []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
-	eg := enterrors.NewErrorGroupWrapper(e.logger)
-	eg.SetLimit(_NUMCPU * 2)
-	ress := make([][]search.Result, len(targetVectors))
-	searchVectorsReturn := make([][]float32, len(targetVectors))
-	for i, targetVector := range targetVectors {
-		index := i
-		targetVector := targetVector
-		f := func() error {
-			var searchVector *searchparams.NearVector
-			if searchVectors != nil && len(searchVectors) == len(targetVectors) {
-				searchVector = searchVectors[index]
-			}
-			return e.searchForTarget(ctx, params, targetVector, index, ress, searchVectorsReturn, searchVector)
-		}
-		eg.Go(f)
-	}
-
-	if err := eg.Wait(); err != nil {
-		return nil, nil, err
-	}
-
-	res, err := CombineMultiTargetResults(ctx, e.searcher, e.logger, ress, params, targetVectors, searchVectorsReturn)
-	if err != nil {
-		return nil, nil, err
-	}
-	return res, searchVectorsReturn, nil
-}
-
-func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, targetVector string, index int, results [][]search.Result, searchVectorsReturn [][]float32, searchVectorParam *searchparams.NearVector) error {
-	if params.NearVector != nil {
-		searchVectorParam = params.NearVector
-	}
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	var err error
-	searchVector, err := e.vectorFromParamsForTaget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVector)
-	if err != nil {
-		return errors.Errorf("explorer: get class: get search vector: %v", err)
+	searchVectors := make([][]float32, len(targetVectors))
+	for i := range targetVectors {
+		var searchVectorParam *searchparams.NearVector
+		if params.NearVector != nil {
+			searchVectorParam = params.NearVector
+		} else if searchVectorParams != nil {
+			searchVectorParam = searchVectorParams[i]
+		}
+
+		searchVectors[i], err = e.vectorFromParamsForTaget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
+		if err != nil {
+			return nil, nil, errors.Errorf("explorer: get class: vectorize search vector: %v", err)
+		}
 	}
 
 	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
@@ -285,9 +257,9 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 		params.AdditionalProperties.Vector = true
 	}
 
-	res, err := e.searcher.VectorSearch(ctx, params, targetVector, searchVector)
+	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
-		return errors.Errorf("explorer: get class: vector search: %v", err)
+		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -302,7 +274,7 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 	if params.Group != nil {
 		grouped, err := grouper.New(e.logger).Group(res, params.Group.Strategy, params.Group.Force)
 		if err != nil {
-			return errors.Errorf("grouper: %v", err)
+			return nil, nil, errors.Errorf("grouper: %v", err)
 		}
 
 		res = grouped
@@ -310,16 +282,14 @@ func (e *Explorer) searchForTarget(ctx context.Context, params dto.GetParams, ta
 
 	if e.modulesProvider != nil {
 		res, err = e.modulesProvider.GetExploreAdditionalExtend(ctx, res,
-			params.AdditionalProperties.ModuleParams, searchVector, params.ModuleParams)
+			params.AdditionalProperties.ModuleParams, searchVectors[0], params.ModuleParams)
 		if err != nil {
-			return errors.Errorf("explorer: get class: extend: %v", err)
+			return nil, nil, errors.Errorf("explorer: get class: extend: %v", err)
 		}
 	}
 	e.trackUsageGet(res, params)
 
-	results[index] = res
-	searchVectorsReturn[index] = searchVector
-	return nil
+	return res, searchVectors, nil
 }
 
 func MinInt(ints ...int) int {
