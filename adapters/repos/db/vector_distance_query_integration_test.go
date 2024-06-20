@@ -80,6 +80,8 @@ func TestVectorDistanceQuery(t *testing.T) {
 		{0, 0, 1, 0},
 		{0, 0, 0, 1},
 	}
+	index := repo.GetIndex(schema.ClassName(class.Class))
+	shards := index.GetShards()
 
 	t.Run("error cases", func(t *testing.T) {
 		require.Nil(t, repo.PutObject(
@@ -92,49 +94,34 @@ func TestVectorDistanceQuery(t *testing.T) {
 		)
 		require.Nil(t, err)
 
-		_, err := repo.VectorDistanceForQuery(
+		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			"does not exist",
 			ids[0],
-			[]string{"custom1", "custom2", "custom3"},
 			[][]float32{vectors[1], vectors[2], vectors[3]},
-			"")
-		require.NotNil(t, err)
-
-		_, err = repo.VectorDistanceForQuery(
-			context.Background(),
-			class.Class, ids[0],
-
 			[]string{"custom1", "custom2"},
-			[][]float32{vectors[1], vectors[2], vectors[3]},
-			"")
+		)
 		require.NotNil(t, err)
 
-		_, err = repo.VectorDistanceForQuery(
+		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			class.Class, ids[0],
-
-			[]string{},
+			ids[0],
 			[][]float32{},
-			"")
+			[]string{},
+		)
 		require.NotNil(t, err)
 
-		_, err = repo.VectorDistanceForQuery(
+		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			class.Class, ids[0],
-
-			[]string{"custom1", "doesNotExist"},
+			ids[0],
 			[][]float32{vectors[1], vectors[2]},
-			"")
+			[]string{"custom1", "doesNotExist"})
 		require.NotNil(t, err)
 
-		_, err = repo.VectorDistanceForQuery(
+		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			class.Class, ids[0],
-
-			[]string{"custom1", "custom2"},
+			ids[0],
 			[][]float32{vectors[1], {1, 0}},
-			"")
+			[]string{"custom1", "custom2"})
 		require.NotNil(t, err)
 	})
 
@@ -148,13 +135,11 @@ func TestVectorDistanceQuery(t *testing.T) {
 			0),
 		)
 
-		distances, err := repo.VectorDistanceForQuery(
+		distances, err := shards[0].VectorDistanceForQuery(
 			context.Background(),
-			class.Class, ids[1],
-
-			[]string{"custom1", "custom2", "custom3"},
+			ids[1],
 			[][]float32{vectors[1], vectors[2], vectors[3]},
-			"")
+			[]string{"custom1", "custom2", "custom3"})
 		require.Nil(t, err)
 		require.Len(t, distances, 3)
 		require.Equal(t, float32(1), distances[0])
@@ -173,26 +158,23 @@ func TestVectorDistanceQuery(t *testing.T) {
 		)
 
 		// querying for existing target vectors works
-		distances, err := repo.VectorDistanceForQuery(
+		distances, err := shards[0].VectorDistanceForQuery(
 			context.Background(),
-			class.Class, ids[2],
-
-			[]string{"custom1", "custom2"},
+			ids[2],
 			[][]float32{vectors[1], vectors[2]},
-			"")
+
+			[]string{"custom1", "custom2"})
 		require.Nil(t, err)
 		require.Len(t, distances, 2)
 		require.Equal(t, float32(1), distances[0])
 		require.Equal(t, float32(1), distances[1])
 
 		// error for non-existing target vector
-		_, err = repo.VectorDistanceForQuery(
+		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			class.Class, ids[2],
-
-			[]string{"custom1", "custom3"},
+			ids[2],
 			[][]float32{vectors[1], vectors[2]},
-			"")
+			[]string{"custom1", "custom3"})
 		require.NotNil(t, err)
 	})
 }

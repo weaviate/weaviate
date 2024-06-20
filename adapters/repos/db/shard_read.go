@@ -327,7 +327,11 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return objs, nil, err
 }
 
-func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targets []string) ([]float32, error) {
+func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targetVectors []string) ([]float32, error) {
+	if len(targetVectors) != len(searchVectors) || len(targetVectors) == 0 {
+		return nil, fmt.Errorf("target vectors and search vectors must have the same non-zero length")
+	}
+
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -342,10 +346,9 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, sear
 		return nil, err
 	}
 
-	distances := make([]float32, len(targets))
-
+	distances := make([]float32, len(targetVectors))
 	indexes := s.VectorIndexes()
-	for j, target := range targets {
+	for j, target := range targetVectors {
 		index, ok := indexes[target]
 		if !ok {
 			return nil, fmt.Errorf("index %s not found", target)
