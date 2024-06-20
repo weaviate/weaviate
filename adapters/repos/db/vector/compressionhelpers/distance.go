@@ -36,7 +36,7 @@ var dotPQByteImpl func(uncompressed []float32, compressed []uint8, codebook [][]
 	var sum float32
 
 	segmenLen := len(uncompressed) / len(compressed)
-	for i := range compressed {
+	for i := range uncompressed {
 		segment := i / segmenLen
 		positionInSegment := i % segmenLen
 		sum += uncompressed[i] * codebook[segment][compressed[segment]][positionInSegment]

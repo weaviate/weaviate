@@ -220,7 +220,7 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	if len(x) != d.pq.m {
 		return 0, false, fmt.Errorf("inconsistent compressed vector length")
 	}
-	return dotPQByteImpl(d.x, x, d.pq.centroids), true, nil
+	return -dotPQByteImpl(d.x, x, d.pq.centroids), true, nil
 }
 
 func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {

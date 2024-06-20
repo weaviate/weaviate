@@ -14,9 +14,11 @@
 package compressionhelpers_test
 
 import (
+	"math"
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -48,8 +50,11 @@ func BenchmarkPQDistancer(b *testing.B) {
 		},
 	}, distancer.NewDotProductProvider(), dims, logrus.New())
 	pq.Fit(vecs)
+	d1, _, _ := distancer.NewDotProductProvider().SingleDist(vecs[0], vecs[1])
 	distancer := pq.NewDistancer(vecs[0])
 	compressed := pq.Encode(vecs[1])
+	d2, _, _ := distancer.Distance(compressed)
+	assert.LessOrEqual(b, 0.01, math.Abs(float64(d1-d2)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		distancer.Distance(compressed)
