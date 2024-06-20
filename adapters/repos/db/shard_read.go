@@ -18,6 +18,9 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -324,7 +327,11 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return objs, nil, err
 }
 
-func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targets []string) ([]float32, error) {
+func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targetVectors []string) ([]float32, error) {
+	if len(targetVectors) != len(searchVectors) || len(targetVectors) == 0 {
+		return nil, fmt.Errorf("target vectors and search vectors must have the same non-zero length")
+	}
+
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -339,10 +346,9 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, sear
 		return nil, err
 	}
 
-	distances := make([]float32, len(targets))
-
+	distances := make([]float32, len(targetVectors))
 	indexes := s.VectorIndexes()
-	for j, target := range targets {
+	for j, target := range targetVectors {
 		index, ok := indexes[target]
 		if !ok {
 			return nil, fmt.Errorf("index %s not found", target)
@@ -371,7 +377,7 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 	return s.queue, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, multiTargetCombination *dto.TargetCombination) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
@@ -384,13 +390,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 	}()
 
 	s.activityTracker.Add(1)
-	var (
-		ids       []uint64
-		dists     []float32
-		err       error
-		allowList helpers.AllowList
-	)
 
+	var allowList helpers.AllowList
 	if filters != nil {
 		beforeFilter := time.Now()
 		list, err := s.buildAllowList(ctx, filters, additional)
@@ -401,61 +402,88 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 		s.metrics.FilteredVectorFilter(time.Since(beforeFilter))
 	}
 
-	queue, err := s.getIndexQueue(targetVector)
-	if err != nil {
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+	eg.SetLimit(_NUMCPU)
+	ress := make([][]*storobj.Object, len(targetVectors))
+	distss := make([][]float32, len(targetVectors))
+	for i, targetVector := range targetVectors {
+		i := i
+		targetVector := targetVector
+		var (
+			ids   []uint64
+			dists []float32
+		)
+		eg.Go(func() error {
+			queue, err := s.getIndexQueue(targetVector)
+			if err != nil {
+				return err
+			}
+
+			beforeVector := time.Now()
+			if limit < 0 {
+				ids, dists, err = queue.SearchByVectorDistance(
+					searchVectors[i], targetDist, s.index.Config.QueryMaximumResults, allowList)
+				if err != nil {
+					return errors.Wrap(err, "vector search by distance")
+				}
+			} else {
+				ids, dists, err = queue.SearchByVector(searchVectors[i], limit, allowList)
+				if err != nil {
+					return errors.Wrap(err, "vector search")
+				}
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+
+			if filters != nil {
+				s.metrics.FilteredVectorVector(time.Since(beforeVector))
+			}
+
+			if groupBy != nil {
+				objs, dists, err := s.groupResults(ctx, ids, dists, groupBy, additional)
+				if err != nil {
+					return err
+				}
+				ress[i] = objs
+				distss[i] = dists
+				return nil
+			}
+
+			if len(sort) > 0 {
+				beforeSort := time.Now()
+				ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort,
+					s.index.Config.ClassName, ids, dists)
+				if err != nil {
+					return errors.Wrap(err, "vector search sort")
+				}
+				if filters != nil {
+					s.metrics.FilteredVectorSort(time.Since(beforeSort))
+				}
+			}
+
+			beforeObjects := time.Now()
+
+			bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+			objs, err := storobj.ObjectsByDocID(bucket, ids, additional)
+			if err != nil {
+				return err
+			}
+
+			if filters != nil {
+				s.metrics.FilteredVectorObjects(time.Since(beforeObjects))
+			}
+			ress[i] = objs
+			distss[i] = dists
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
 
-	beforeVector := time.Now()
-	if limit < 0 {
-		ids, dists, err = queue.SearchByVectorDistance(
-			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "vector search by distance")
-		}
-	} else {
-		ids, dists, err = queue.SearchByVector(searchVector, limit, allowList)
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "vector search")
-		}
-	}
-	if len(ids) == 0 {
-		return nil, nil, nil
-	}
-
-	if filters != nil {
-		s.metrics.FilteredVectorVector(time.Since(beforeVector))
-	}
-
-	if groupBy != nil {
-		return s.groupResults(ctx, ids, dists, groupBy, additional)
-	}
-
-	if len(sort) > 0 {
-		beforeSort := time.Now()
-		ids, dists, err = s.sortDocIDsAndDists(ctx, limit, sort,
-			s.index.Config.ClassName, ids, dists)
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "vector search sort")
-		}
-		if filters != nil {
-			s.metrics.FilteredVectorSort(time.Since(beforeSort))
-		}
-	}
-
-	beforeObjects := time.Now()
-
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, ids, additional)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if filters != nil {
-		s.metrics.FilteredVectorObjects(time.Since(beforeObjects))
-	}
-
-	return objs, dists, nil
+	return CombineMultiTargetResults(ctx, s, s.index.logger, ress, distss, targetVectors, searchVectors, multiTargetCombination, limit, targetDist)
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {

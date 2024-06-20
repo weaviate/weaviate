@@ -9,19 +9,22 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package traverser
+package db
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -44,6 +47,7 @@ func TestCombiner(t *testing.T) {
 		out             []search.Result
 		joinMethod      *dto.TargetCombination
 		missingElements map[strfmt.UUID][]string
+		targetDistance  float32
 	}{
 		{
 			name:       "no results (nil)",
@@ -138,6 +142,19 @@ func TestCombiner(t *testing.T) {
 			out: []search.Result{res(1, 0.95), res(0, 1.23), res(2, 1.27)},
 		},
 		{
+			name:       "many documents (weights) and target Distance",
+			targets:    []string{"target1", "target2", "target3", "target4"},
+			joinMethod: &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 0.5, "target3": 0.25, "target4": 0.1}},
+			in: [][]search.Result{
+				{res(0, 0.5), res(1, 0.6), res(2, 0.8), res(3, 0.9)},
+				{res(1, 0.2), res(0, 0.4), res(2, 0.6), res(5, 0.8)},
+				{res(1, 0.2), res(2, 0.4), res(3, 0.6), res(4, 0.8)},
+				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
+			},
+			targetDistance: 1.25,
+			out:            []search.Result{res(1, 0.95), res(0, 1.23)},
+		},
+		{
 			name:       "many documents missing entry (weights)",
 			targets:    []string{"target1", "target2", "target3", "target4"},
 			joinMethod: &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 0.5, "target3": 0.25, "target4": 0.1}},
@@ -169,18 +186,57 @@ func TestCombiner(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			searcher := &fakeVectorSearcher{missingElements: tt.missingElements}
+			searcher := fakeS{missingElements: tt.missingElements}
 
-			params := dto.GetParams{TargetVectorCombination: tt.joinMethod, Pagination: &filters.Pagination{Limit: len(tt.out)}}
+			objs := make([][]*storobj.Object, len(tt.in))
+			distsIn := make([][]float32, len(tt.in))
+			for i := range tt.in {
+				distsIn[i] = make([]float32, len(tt.in[i]))
+				objs[i] = make([]*storobj.Object, len(tt.in[i]))
+				for j := range tt.in[i] {
+					distsIn[i][j] = tt.in[i][j].Dist
+					objs[i][j] = &storobj.Object{Object: models.Object{ID: tt.in[i][j].ID}}
+				}
+			}
 
-			results, err := CombineMultiTargetResults(context.Background(), searcher, logger, tt.in, params, tt.targets, searchesVectors[:len(tt.targets)])
+			limit := len(tt.out)
+			if tt.targetDistance > 0 {
+				limit = 100
+			}
+
+			results, dists, err := CombineMultiTargetResults(context.Background(), searcher, logger, objs, distsIn, tt.targets, searchesVectors[:len(tt.targets)], tt.joinMethod, limit, tt.targetDistance)
 			require.Nil(t, err)
 			require.Len(t, results, len(tt.out))
 			for i, r := range results {
 				// we do not want to compare ExplainScore etc
-				require.Equal(t, tt.out[i].ID, r.ID)
-				require.InDelta(t, tt.out[i].Dist, r.Dist, 0.0001)
+				require.Equal(t, tt.out[i].ID, r.ID())
+				require.InDelta(t, tt.out[i].Dist, dists[i], 0.0001)
 			}
 		})
 	}
+}
+
+type fakeS struct {
+	missingElements map[strfmt.UUID][]string
+}
+
+func (f fakeS) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targetVectors []string) ([]float32, error) {
+	returns := make([]float32, 0, len(targetVectors))
+	for range targetVectors {
+		returns = append(returns, 2)
+	}
+
+	missingTargets, ok := f.missingElements[id]
+	if !ok {
+		return returns, nil
+	}
+
+	for _, missingTarget := range missingTargets {
+		for _, target := range targetVectors {
+			if target == missingTarget {
+				return nil, errors.Errorf("missing target %s", missingTarget)
+			}
+		}
+	}
+	return returns, nil
 }

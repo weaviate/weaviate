@@ -77,7 +77,7 @@ func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchn
 	params.Group = nil
 	params.GroupBy = nil
 
-	partialResults, searchVectors, err := e.concurrentTargetVectorSearch(ctx, targetVectors, params, searchVector)
+	partialResults, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, searchVector)
 	if err != nil {
 		return nil, "", err
 	}
@@ -150,7 +150,7 @@ func nearTextSubSearch(ctx context.Context, e *Explorer, params dto.GetParams, t
 	subsearchWrap.HybridSearch = nil
 	subsearchWrap.Group = nil
 	subsearchWrap.GroupBy = nil
-	partialResults, vectors, err := e.concurrentTargetVectorSearch(ctx, targetVectors, subsearchWrap, nil)
+	partialResults, vectors, err := e.searchForTargets(ctx, subsearchWrap, targetVectors, nil)
 	if err != nil {
 		return nil, "", err
 	}

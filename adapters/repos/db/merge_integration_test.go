@@ -662,7 +662,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 							Pagination: &filters.Pagination{Limit: 5},
 							Filters:    tc.filter,
 						}
-						res, err := repo.VectorSearch(context.Background(), params, "", nil)
+						res, err := repo.VectorSearch(context.Background(), params, []string{""}, nil)
 						require.Nil(t, err)
 						require.Len(t, res, 1)
 
@@ -913,7 +913,7 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 							Pagination: &filters.Pagination{Limit: 5},
 							Filters:    tc.filter,
 						}
-						res, err := repo.VectorSearch(context.Background(), params, "", nil)
+						res, err := repo.VectorSearch(context.Background(), params, []string{""}, nil)
 						require.Nil(t, err)
 						require.Len(t, res, 1)
 
