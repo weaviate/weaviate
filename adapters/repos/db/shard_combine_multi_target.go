@@ -152,6 +152,10 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 			joinedResults = joinedResults[:limit]
 			joinedDists = joinedDists[:limit]
 		}
+
+		if limit > len(joinedResults) {
+			limit = len(joinedResults)
+		}
 		return joinedResults[:limit], joinedDists[:limit], nil
 	}
 
