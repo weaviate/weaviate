@@ -31,13 +31,3 @@ var dotByteImpl func(a, b []uint8) uint32 = func(a, b []byte) uint32 {
 
 	return sum
 }
-
-var dotFloatByteImpl func(a []float32, b []uint8) float32 = func(a []float32, b []uint8) float32 {
-	var sum float32
-
-	for i := range a {
-		sum += a[i] * float32(b[i])
-	}
-
-	return sum
-}
