@@ -486,15 +486,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 	return CombineMultiTargetResults(ctx, s, s.index.logger, ress, distss, targetVectors, searchVectors, multiTargetCombination, limit, targetDist)
 }
 
-func (s *Shard) getMissingObjects(results [][]search.Result) {
-	allIDs := make(map[strfmt.UUID]*search.Result)
-	for i := range results {
-		for j := range results[i] {
-			allIDs[results[i][j].ID] = &results[i][j]
-		}
-	}
-}
-
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
 	s.activityTracker.Add(1)
 	if len(sort) > 0 {
