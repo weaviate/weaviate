@@ -30,8 +30,13 @@ import (
 
 var ErrNotFound = errors.New("not found")
 
+// SchemaManager is responsible for consistent schema operations.
+// It allows reading and writing the schema while directly talking to the leader, no matter which node it is.
+// It also allows cluster related operations that can only be done on the leader (join/remove/stats/etc...)
+// For details about each endpoint see [github.com/weaviate/weaviate/cluster.Raft].
+// For local schema lookup where eventual consistency is acceptable, see [SchemaReader].
 type SchemaManager interface {
-	// Schema writes operation
+	// Schema writes operation.
 	AddClass(cls *models.Class, ss *sharding.State) (uint64, error)
 	RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error)
 	UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error)
@@ -52,22 +57,23 @@ type SchemaManager interface {
 	// from an up to date schema.
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
-	// QueryTenants returns the tenants for a class. If tenants is empty, all tenants are returned.
 	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
 }
 
+// SchemaReader allows reading the local schema with or without using a schema version.
 type SchemaReader interface {
-	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
-	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
+	// WaitForUpdate ensures that the local schema has caught up to version.
+	WaitForUpdate(ctx context.Context, version uint64) error
 
+	// These schema reads function reads the metadata immediately present in the local schema and can be eventually
+	// consistent.
+	// For details about each endpoint see [github.com/weaviate/weaviate/cluster/schema.SchemaReader].
 	ClassEqual(name string) string
-	// MultiTenancy checks for multi-tenancy support
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci clusterSchema.ClassInfo)
-	// ReadOnlyClass return class model.
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlySchema() models.Schema
 	CopyShardingState(class string) *sharding.State
@@ -77,7 +83,9 @@ type SchemaReader interface {
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 
-	// WithVersion endpoints return the data with the schema version
+	// These schema reads function (...WithVersion) return the metadata once the local schema has caught up to the
+	// version parameter. If version is 0 is behaves exactly the same as eventual consistent reads.
+	// For details about each endpoint see [github.com/weaviate/weaviate/cluster/schema.VersionedSchemaReader].
 	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error)
 	MultiTenancyWithVersion(ctx context.Context, class string, version uint64) (models.MultiTenancyConfig, error)
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
