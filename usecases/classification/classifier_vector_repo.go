@@ -35,7 +35,7 @@ func (r *vectorClassSearchRepo) VectorClassSearch(ctx context.Context,
 		Pagination: params.Pagination,
 		ClassName:  params.ClassName,
 		Properties: r.getProperties(params.Properties),
-	}, "", nil)
+	}, nil, nil)
 }
 
 func (r *vectorClassSearchRepo) getProperties(properties []string) search.SelectProperties {

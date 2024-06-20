@@ -78,7 +78,7 @@ func TestDeleteJourney(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
-			}, "", searchVector)
+			}, []string{""}, [][]float32{searchVector})
 
 			expectedOrder := []interface{}{
 				"element-0", "element-2", "element-3", "element-1",
@@ -142,7 +142,7 @@ func TestDeleteJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		}, "", searchVector)
+		}, []string{""}, [][]float32{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3", "element-1",
@@ -183,7 +183,7 @@ func TestDeleteJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		}, "", searchVector)
+		}, []string{""}, [][]float32{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3",
@@ -213,7 +213,7 @@ func TestDeleteJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		}, "", searchVector)
+		}, []string{""}, [][]float32{searchVector})
 
 		expectedOrder := []interface{}{
 			"element-2", "element-3",

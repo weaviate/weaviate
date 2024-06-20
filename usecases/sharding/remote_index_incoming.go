@@ -59,7 +59,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	IncomingSearch(ctx context.Context, shardName string,
-		vector []float32, targetVector string, distance float32, limit int,
+		vectors [][]float32, targetVectors []string, distance float32, limit int,
 		filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 		sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties,
@@ -82,7 +82,6 @@ type RemoteIndexIncomingRepo interface {
 		initialToken, finalToken uint64, limit int) (result []replica.RepairResponse, lastTokenRead uint64, err error)
 	IncomingHashTreeLevel(ctx context.Context, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
-	IncomingVectorDistanceForQuery(ctx context.Context, shardName string, id strfmt.UUID, targets []string, searchVectors [][]float32) ([]float32, error)
 
 	// Scale-Out Replication POC
 	IncomingFilePutter(ctx context.Context, shardName,
@@ -195,7 +194,7 @@ func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
-	vector []float32, targetVector string, distance float32, limit int, filters *filters.LocalFilter,
+	vectors [][]float32, targetVectors []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
@@ -205,17 +204,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 	}
 
 	return index.IncomingSearch(
-		ctx, shardName, vector, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
-}
-
-func (rii *RemoteIndexIncoming) VectorDistanceForQuery(ctx context.Context, indexName, shardName string, id strfmt.UUID, targets []string, searchVectors [][]float32,
-) ([]float32, error) {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
-	}
-
-	return index.IncomingVectorDistanceForQuery(ctx, shardName, id, targets, searchVectors)
+		ctx, shardName, vectors, targetVectors, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
 }
 
 func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
