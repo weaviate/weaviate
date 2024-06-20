@@ -220,16 +220,22 @@ func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
 	if len(x) != d.pq.m {
 		return 0, false, fmt.Errorf("inconsistent compressed vector length")
 	}
-	return -dotPQByteImpl(d.x, x, d.pq.centroids), true, nil
+	switch d.pq.distance.Type() {
+	case "l2-squared":
+		return l2SquaredPQByteImpl(d.x, x, d.pq.centroids), true, nil
+	case "dot":
+		return -dotPQByteImpl(d.x, x, d.pq.centroids), true, nil
+	case "cosine-dot":
+		return 1 - dotPQByteImpl(d.x, x, d.pq.centroids), true, nil
+	}
+	return 0, false, fmt.Errorf("Distance not supported yet %s", d.pq.distance)
 }
 
 func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
 	if d.x != nil {
 		return d.pq.distance.SingleDist(x, d.x)
 	}
-	xComp := d.pq.Encode(x)
-	dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err == nil, err
+	return d.Distance(d.compressed)
 }
 
 func (pq *ProductQuantizer) Fit(data [][]float32) error {
