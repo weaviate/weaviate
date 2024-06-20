@@ -22,6 +22,7 @@ import (
 
 	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/willf/bloom"
@@ -63,7 +64,7 @@ type segment struct {
 	invertedKeyLength   uint16
 	invertedValueLength uint16
 
-	tombstones map[uint64]struct{}
+	tombstones *sroar.Bitmap
 }
 
 type diskIndex interface {
@@ -310,7 +311,7 @@ func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
 	return bufio.NewReader(r), nil
 }
 
-func (s *segment) GetTombstones() (map[uint64]struct{}, error) {
+func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
 	}
@@ -319,17 +320,16 @@ func (s *segment) GetTombstones() (map[uint64]struct{}, error) {
 		return s.tombstones, nil
 	}
 
-	// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
 	keyLengths := binary.LittleEndian.Uint64(s.contents[s.dataStartPos-8 : s.dataStartPos])
 
-	tombstoneCount := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
+	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
 
-	tombstones := make(map[uint64]struct{}, tombstoneCount)
-	for i := uint64(0); i < tombstoneCount; i++ {
-		tombstones[binary.BigEndian.Uint64(s.contents[s.dataStartPos+keyLengths+8+i*8:s.dataStartPos+keyLengths+8+(i+1)*8])] = struct{}{}
-	}
+	bitmapStart := s.dataStartPos + keyLengths + 8
+	bitmapEnd := bitmapStart + bitmapSize
 
-	s.tombstones = tombstones
+	bitmap := sroar.FromBuffer(s.contents[bitmapStart:bitmapEnd])
 
-	return tombstones, nil
+	s.tombstones = bitmap
+	return s.tombstones, nil
 }

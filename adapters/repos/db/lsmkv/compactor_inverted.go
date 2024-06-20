@@ -18,6 +18,7 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
@@ -47,9 +48,9 @@ type compactorInverted struct {
 
 	offset int
 
-	tombstonesToWrite map[uint64]struct{}
-	tombstonesToClean map[uint64]struct{}
-	tombstonesCleaned map[uint64]struct{}
+	tombstonesToWrite *sroar.Bitmap
+	tombstonesToClean *sroar.Bitmap
+	tombstonesCleaned *sroar.Bitmap
 
 	keysLen uint64
 }
@@ -95,7 +96,7 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "write keys")
 	}
 
-	err = c.writeTombstones(tombstones)
+	tombstoneSize, err := c.writeTombstones(tombstones)
 	if err != nil {
 		return errors.Wrap(err, "write tombstones")
 	}
@@ -109,9 +110,9 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	var dataEnd uint64 = segmentindex.HeaderSize + 2 + 2 + 8 + uint64((len(tombstones)+1)*8)
+	var dataEnd uint64 = segmentindex.HeaderSize + 2 + 2 + 8 + 8 + uint64(tombstoneSize)
 	if len(kis) > 0 {
-		dataEnd = uint64(kis[len(kis)-1].ValueEnd) + uint64((len(tombstones)+1)*8)
+		dataEnd = uint64(kis[len(kis)-1].ValueEnd) + 8 + uint64(tombstoneSize)
 	}
 	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount,
 		dataEnd); err != nil {
@@ -153,24 +154,27 @@ func (c *compactorInverted) writeKeyValueLen() error {
 	return nil
 }
 
-func (c *compactorInverted) writeTombstones(tombstones []uint64) error {
+func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, error) {
+	tombstonesBuffer := make([]byte, 0)
+
+	if tombstones.GetCardinality() > 0 {
+		tombstonesBuffer = tombstones.ToBuffer()
+	}
+
 	buf := make([]byte, 8)
-	binary.LittleEndian.PutUint64(buf, uint64(len(tombstones)))
+	binary.LittleEndian.PutUint64(buf, uint64(len(tombstonesBuffer)))
 	if _, err := c.bufw.Write(buf); err != nil {
-		return err
+		return 0, err
 	}
 
-	for _, docId := range tombstones {
-		binary.BigEndian.PutUint64(buf, docId)
-		if _, err := c.bufw.Write(buf); err != nil {
-			return err
-		}
+	if _, err := c.bufw.Write(tombstonesBuffer); err != nil {
+		return 0, err
 	}
 
-	return nil
+	return len(tombstonesBuffer), nil
 }
 
-func (c *compactorInverted) writeKeys() ([]segmentindex.Key, []uint64, error) {
+func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, error) {
 	// placeholder for the keys length
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, 0)
@@ -195,7 +199,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, []uint64, error) {
 		return nil, nil, errors.Wrap(err, "get tombstones")
 	}
 
-	c.tombstonesCleaned = make(map[uint64]struct{}, len(c.tombstonesToClean))
+	c.tombstonesCleaned = sroar.NewBitmap()
 
 	// the (dummy) header was already written, this is our initial offset
 
@@ -375,7 +379,7 @@ func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bo
 	last := 0
 	for i := 0; i < len(values); i++ {
 		docId := binary.BigEndian.Uint64(values[i].value[0:8])
-		if _, ok := c.tombstonesToClean[docId]; ok {
+		if c.tombstonesToClean.Contains(docId) {
 			// Swap both elements instead overwritting `last` by `i`.
 			// Overwrite would result in `values[last].value` pointing to the same slice
 			// as `values[i].value`.
@@ -383,7 +387,7 @@ func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bo
 			// `segmentInvertedReusable` using `segmentNode` as buffer)
 			// populating slice `values[i].value` would overwrite slice `values[last].value`.
 			// Swaps makes sure `values[i].value` and `values[last].value` point to different slices.
-			c.tombstonesCleaned[docId] = struct{}{}
+			c.tombstonesCleaned.Set(docId)
 		} else {
 			values[last], values[i] = values[i], values[last]
 			last++
@@ -396,19 +400,10 @@ func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bo
 	return values[:last], false
 }
 
-func (c *compactorInverted) computeTombstones() []uint64 {
+func (c *compactorInverted) computeTombstones() *sroar.Bitmap {
 	if c.cleanupTombstones { // no tombstones to write
-		return []uint64{}
-	}
-	tombstones := make([]uint64, 0, len(c.tombstonesToWrite)+len(c.tombstonesToClean)-len(c.tombstonesCleaned))
-
-	for docId := range c.tombstonesToWrite {
-		tombstones = append(tombstones, docId)
+		return sroar.NewBitmap()
 	}
 
-	for docId := range c.tombstonesToClean {
-		tombstones = append(tombstones, docId)
-	}
-
-	return tombstones
+	return sroar.Or(c.tombstonesToWrite, c.tombstonesToClean)
 }

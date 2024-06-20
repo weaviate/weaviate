@@ -25,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
@@ -771,8 +772,7 @@ func (b *Bucket) MapListInverted(ctx context.Context, key []byte, cfgs ...MapLis
 		return nil, err
 	}
 
-	allTombstones := make([]map[uint64]struct{}, len(b.disk.segments))
-
+	allTombstones := make([]*sroar.Bitmap, len(b.disk.segments))
 	for i, segment := range b.disk.segments {
 		tombstones, err := segment.GetTombstones()
 		if err != nil {
@@ -794,7 +794,7 @@ func (b *Bucket) MapListInverted(ctx context.Context, key []byte, cfgs ...MapLis
 			docId := binary.BigEndian.Uint64(segmentDecoded[j].Key[:8])
 			// check if there are any tombstones between the i and len(disk) segments
 			for _, tombstone := range allTombstones[i+1:] {
-				if _, ok := tombstone[docId]; ok {
+				if tombstone.Contains(docId) {
 					segmentDecoded[j].Tombstone = true
 					break
 				}

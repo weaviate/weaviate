@@ -16,10 +16,12 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64, error) {
+func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
 	m.RLock()
 	flatA := m.keyMap.flattenInOrder()
 	m.RUnlock()
@@ -29,8 +31,8 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 	flat := make([]*binarySearchNodeMulti, len(flatA))
 	actuallyWritten := 0
 	actuallyWrittenKeys := make(map[string]struct{})
-	tombstonesMap := make(map[uint64]interface{})
-	tombstones := make([]uint64, 0)
+	tombstones := roaringset.NewBitmap()
+
 	for i, mapNode := range flatA {
 		flat[i] = &binarySearchNodeMulti{
 			key:    mapNode.key,
@@ -51,16 +53,19 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 				actuallyWrittenKeys[string(mapNode.key)] = struct{}{}
 			} else {
 				docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
-				if _, ok := tombstonesMap[docId]; !ok {
-					tombstonesMap[docId] = struct{}{}
-					tombstones = append(tombstones, docId)
-				}
+				tombstones.Set(docId)
 			}
 
 		}
 
 	}
-	totalDataLength := (2 + 2) + 8 + totalValueSizeInverted(actuallyWrittenKeys, actuallyWritten) + 8 + len(tombstonesMap)*8 // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+
+	tombstoneBuffer := make([]byte, 0)
+	if tombstones.GetCardinality() != 0 {
+		tombstoneBuffer = tombstones.ToBuffer()
+	}
+
+	totalDataLength := (2 + 2) + 8 + totalValueSizeInverted(actuallyWrittenKeys, actuallyWritten) + 8 + len(tombstoneBuffer) // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
 	header := segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one
@@ -117,19 +122,16 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, []uint64,
 		}
 	}
 
-	binary.LittleEndian.PutUint64(buf, uint64(len(tombstones)))
+	binary.LittleEndian.PutUint64(buf, uint64(len(tombstoneBuffer)))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
 	}
 
-	for _, docId := range tombstones {
-		binary.BigEndian.PutUint64(buf, docId)
-		if _, err := f.Write(buf); err != nil {
-			return nil, nil, err
-		}
+	if _, err := f.Write(tombstoneBuffer); err != nil {
+		return nil, nil, err
 	}
 
-	totalWritten += len(tombstones)*8 + 8
+	totalWritten += len(tombstoneBuffer)*8 + 8
 
 	return keys[:actuallyWritten], tombstones, nil
 }

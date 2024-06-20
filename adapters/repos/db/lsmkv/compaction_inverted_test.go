@@ -29,19 +29,19 @@ import (
 )
 
 func TestCompactionInvertedStrategy(t *testing.T) {
-	t.Run("compactionMapStrategy", func(t *testing.T) {
+	t.Run("compactionInvertedStrategy", func(t *testing.T) {
 		compactionInverted(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)}, 7076, 7076)
 	})
 
-	t.Run("compactionMapStrategy_KeepTombstones", func(t *testing.T) {
-		compactionInverted(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)}, 7556, 7556)
+	t.Run("compactionInvertedStrategy_KeepTombstones", func(t *testing.T) {
+		compactionInverted(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)}, 7380, 7380)
 	})
 
-	t.Run("compactionMapStrategy_RemoveUnnecessary", func(t *testing.T) {
+	t.Run("compactionInvertedStrategy_RemoveUnnecessary", func(t *testing.T) {
 		compactionInvertedStrategy_RemoveUnnecessary(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
 	})
 
-	t.Run("compactionMapStrategy_FrequentPutDeleteOperations", func(t *testing.T) {
+	t.Run("compactionInvertedStrategy_FrequentPutDeleteOperations", func(t *testing.T) {
 		compactionInvertedStrategy_FrequentPutDeleteOperations(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
 	})
 }
