@@ -437,7 +437,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
-			kvs, err := bucket.MapListInverted(ctx, k)
+			kvs, err := bucket.MapList(ctx, k)
 
 			assert.Nil(t, err)
 
@@ -484,7 +484,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
-			kvs, err := bucket.MapListInverted(ctx, k)
+			kvs, err := bucket.MapList(ctx, k)
 
 			assert.Nil(t, err)
 
@@ -628,7 +628,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
-			kvs, err := bucket.MapListInverted(ctx, k)
+			kvs, err := bucket.MapList(ctx, k)
 
 			assert.Nil(t, err)
 
@@ -664,7 +664,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		defer c.Close()
 
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
-			kvs, err := bucket.MapListInverted(ctx, k)
+			kvs, err := bucket.MapList(ctx, k)
 
 			assert.Nil(t, err)
 
@@ -693,7 +693,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			// _individual_ keys. Corrupting this index is exactly what happened in
 			// https://github.com/weaviate/weaviate/issues/3517
 			for _, pair := range expected {
-				kvs, err := bucket.MapListInverted(ctx, pair.key)
+				kvs, err := bucket.MapList(ctx, pair.key)
 				require.NoError(t, err)
 
 				mkvs := make([]InvertedPair, len(kvs))

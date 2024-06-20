@@ -408,11 +408,12 @@ func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {
 	return out, nil
 }
 
-func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
+func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, []*segment, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
 	out := make([][]value, len(sg.segments))
+	segments := make([]*segment, len(sg.segments))
 
 	i := 0
 	// start with first and do not exit
@@ -420,7 +421,7 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
+				return nil, nil, err
 			}
 			if sg.strategy != StrategyInverted {
 				continue
@@ -428,10 +429,11 @@ func (sg *SegmentGroup) getCollectionBySegments(key []byte) ([][]value, error) {
 		}
 
 		out[i] = v
+		segments[i] = segment
 		i++
 	}
 
-	return out[:i], nil
+	return out[:i], segments[:i], nil
 }
 
 func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
