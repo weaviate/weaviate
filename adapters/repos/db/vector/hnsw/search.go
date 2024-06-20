@@ -548,8 +548,10 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	if h.shouldRescore() && h.sqConfig.RescoreLimit >= k {
-		for res.Len() > h.sqConfig.RescoreLimit {
-			res.Pop()
+		if h.sqConfig.Enabled {
+			for res.Len() > h.sqConfig.RescoreLimit {
+				res.Pop()
+			}
 		}
 		ids := make([]uint64, res.Len())
 		i := len(ids) - 1
