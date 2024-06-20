@@ -1682,7 +1682,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
-	if searchVectors == nil {
+	if len(searchVectors) == 0 {
 		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 		if err != nil {
 			return nil, nil, err
