@@ -431,7 +431,7 @@ func (p vectorDistanceResultsPayload) CheckContentTypeHeader(r *http.Response) (
 
 type searchParamsPayload struct{}
 
-func (p searchParamsPayload) Marshal(vector []float32, targetVector string, limit int,
+func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties,
@@ -446,13 +446,22 @@ func (p searchParamsPayload) Marshal(vector []float32, targetVector string, limi
 		Cursor         *filters.Cursor              `json:"cursor"`
 		GroupBy        *searchparams.GroupBy        `json:"groupBy"`
 		Additional     additional.Properties        `json:"additional"`
+		SearchVectors  [][]float32                  `json:"searchVectors"`
+		TargetVectors  []string                     `json:"targetVectors"`
+	}
+	var vector []float32
+	var targetVector string
+	// BC with pre 1.26
+	if len(vectors) == 1 {
+		vector = vectors[0]
+		targetVector = targetVectors[0]
 	}
 
-	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP}
+	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors}
 	return json.Marshal(par)
 }
 
-func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, string, float32, int,
+func (p searchParamsPayload) Unmarshal(in []byte) ([][]float32, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
 	*filters.Cursor, *searchparams.GroupBy, additional.Properties, error,
 ) {
@@ -467,10 +476,17 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, string, float32, i
 		Cursor         *filters.Cursor              `json:"cursor"`
 		GroupBy        *searchparams.GroupBy        `json:"groupBy"`
 		Additional     additional.Properties        `json:"additional"`
+		SearchVectors  [][]float32                  `json:"searchVectors"`
+		TargetVectors  []string                     `json:"targetVectors"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.SearchVector, par.TargetVector, par.Distance, par.Limit,
+	if len(par.SearchVector) > 0 {
+		par.SearchVectors = [][]float32{par.SearchVector}
+		par.TargetVectors = []string{par.TargetVector}
+	}
+
+	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
 		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, err
 }
 

@@ -178,14 +178,6 @@ func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexN
 	return nil
 }
 
-func (f *fakeRemoteClient) VectorDistanceForQuery(ctx context.Context, hostname, indexName, shardName string,
-	id strfmt.UUID,
-	targetVectors []string,
-	searchVectors [][]float32,
-) ([]float32, error) {
-	return nil, nil
-}
-
 func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
 	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {
@@ -224,7 +216,7 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, targetVector string, limit int,
+	shardName string, vector [][]float32, targetVector []string, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
