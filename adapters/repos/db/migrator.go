@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -124,6 +125,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			ForceFullReplicasSearch:   m.db.config.ForceFullReplicasSearch,
 			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
 			AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
+			PropsToIndexRangeable:     m.db.config.PropsToIndexRangeable,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -778,6 +780,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	var errs errorcompounder.ErrorCompounder
+	errs.Add(m.doInvertedIndexRangeable(ctx, taskNames))
 	errs.Add(m.doInvertedReindex(ctx, taskNames...))
 	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNames...))
 	return errs.ToError()
@@ -985,3 +988,83 @@ func (m *Migrator) Shutdown(ctx context.Context) error {
 	m.logger.Info("closing loaded database ...")
 	return m.db.Shutdown(ctx)
 }
+
+// ======================================================================================
+// RANGEABLE
+// ======================================================================================
+
+func (m *Migrator) doInvertedIndexRangeable(ctx context.Context, taskNames []string) error {
+	taskName := "ShardInvertedReindexTask_Rangeable"
+
+	found := false
+	for _, name := range taskNames {
+		if name == taskName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil
+	}
+
+	// validation
+	for className, propNames := range m.db.config.PropsToIndexRangeable {
+		class := m.db.schemaGetter.ReadOnlyClass(className)
+		if class == nil {
+			return fmt.Errorf("rangeable migration: class %q does not exist", className)
+		}
+
+		propNamesMap := map[string]struct{}{}
+		for _, propName := range propNames {
+			propNamesMap[propName] = struct{}{}
+		}
+
+		ec := &errorcompounder.ErrorCompounder{}
+		for _, property := range class.Properties {
+			if _, ok := propNamesMap[property.Name]; ok {
+				delete(propNamesMap, property.Name)
+				ec.Add(checkEligibleForForcedHasRangeableIndex(property))
+			}
+		}
+		if err := ec.ToError(); err != nil {
+			return err
+		}
+
+		if len(propNamesMap) > 0 {
+			missingPropNames := make([]string, 0, len(propNamesMap))
+			for propName := range propNamesMap {
+				missingPropNames = append(missingPropNames, propName)
+			}
+			return fmt.Errorf("rangeable migration: properties %v of class %q does not exist", missingPropNames, className)
+		}
+	}
+
+	for className, propNames := range m.db.config.PropsToIndexRangeable {
+		idx, ok := m.db.indices[indexID(schema.ClassName(className))]
+		if !ok {
+			return fmt.Errorf("index for class %q not found", className)
+		}
+		err := idx.ForEachShard(func(name string, shard ShardLike) error {
+			// TODO roaring-set-range parallel?
+			for _, propName := range propNames {
+				migrator, err := lsmkv.NewMigratorFilterableToRangeable(shard.Store(), propName, _NUMCPU)
+				if err != nil {
+					return err
+				}
+				if err := migrator.Migrate(ctx); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ======================================================================================
+// RANGEABLE END
+// ======================================================================================

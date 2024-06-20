@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/pkg/errors"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -259,6 +260,155 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		s.memtableDirtyConfig(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+	)
+}
+func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+	for _, prop := range props {
+		if !(inverted.HasAnyInvertedIndex(prop) || s.ForcedHasRangeableIndex(prop)) {
+			continue
+		}
+
+		eg.Go(func() error {
+			if err := s.createPropertyValueIndex(ctx, prop); err != nil {
+				return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
+			}
+
+			if s.index.invertedIndexConfig.IndexNullState {
+				eg.Go(func() error {
+					if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+						return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
+					}
+					return nil
+				})
+			}
+
+			if s.index.invertedIndexConfig.IndexPropertyLength {
+				eg.Go(func() error {
+					if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+						return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
+					}
+					return nil
+				})
+			}
+			return nil
+		})
+
+		if err := eg.Wait(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	forcedHasRangeableIndex := s.ForcedHasRangeableIndex(prop)
+	createOrLoadBucket := s.store.CreateOrLoadBucket
+	if forcedHasRangeableIndex {
+		createOrLoadBucket = s.store.CreateOrLoadBucketNoCompaction
+	}
+
+	bucketOpts := []lsmkv.BucketOption{
+		s.memtableDirtyConfig(),
+		s.dynamicMemtableSizing(),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+	}
+
+	if inverted.HasFilterableIndex(prop) {
+		if dt, _ := schema.AsPrimitive(prop.DataType); dt == schema.DataTypeGeoCoordinates {
+			return s.initGeoProp(prop)
+		}
+
+		if schema.IsRefDataType(prop.DataType) {
+			if err := s.store.CreateOrLoadBucket(ctx,
+				helpers.BucketFromPropNameMetaCountLSM(prop.Name),
+				append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+			); err != nil {
+				return err
+			}
+		}
+
+		if err := createOrLoadBucket(ctx,
+			helpers.BucketFromPropNameLSM(prop.Name),
+			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
+		); err != nil {
+			return err
+		}
+	}
+
+	if inverted.HasSearchableIndex(prop) {
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
+		if s.versioner.Version() < 2 {
+			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+		}
+
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			searchableBucketOpts...,
+		); err != nil {
+			return err
+		}
+	}
+
+	if inverted.HasRangeableIndex(prop) || forcedHasRangeableIndex {
+		opts := append(bucketOpts,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithUseBloomFilter(false),
+			lsmkv.WithCalcCountNetAdditions(false),
+		)
+		if forcedHasRangeableIndex {
+			opts = append(opts, lsmkv.WithKeepTombstones(true))
+		}
+
+		if err := createOrLoadBucket(ctx,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name),
+			opts...,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	// some datatypes are not added to the inverted index, so we can skip them here
+	switch schema.DataType(prop.DataType[0]) {
+	case schema.DataTypeGeoCoordinates, schema.DataTypePhoneNumber, schema.DataTypeBlob, schema.DataTypeInt,
+		schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate:
+		return nil
+	default:
+	}
+
+	return s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameLengthLSM(prop.Name),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithPread(s.index.Config.AvoidMMap),
+		lsmkv.WithAllocChecker(s.index.allocChecker),
+		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+	)
+}
+
+func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
+	if s.isReadOnly() {
+		return storagestate.ErrStatusReadOnly
+	}
+
+	return s.store.CreateOrLoadBucket(ctx,
+		helpers.BucketFromPropNameNullLSM(prop.Name),
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),

@@ -141,6 +141,21 @@ func (s *Store) bucketDir(bucketName string) string {
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) (err error) {
+	return s.createOrLoadBucket(ctx, bucketName, s.cycleCallbacks.compactionCallbacks,
+		s.cycleCallbacks.flushCallbacks, opts...)
+}
+
+func (s *Store) CreateOrLoadBucketNoCompaction(ctx context.Context, bucketName string,
+	opts ...BucketOption,
+) (err error) {
+	return s.createOrLoadBucket(ctx, bucketName, cyclemanager.NewCallbackGroupNoop(),
+		s.cycleCallbacks.flushCallbacks, opts...)
+}
+
+func (s *Store) createOrLoadBucket(ctx context.Context, bucketName string,
+	compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+	opts ...BucketOption,
+) (err error) {
 	defer func() {
 		p := recover()
 		if p == nil {
@@ -183,7 +198,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	// bucket can be concurrently loaded with another buckets but
 	// the same bucket will be loaded only once
 	b, err := s.bcreator.NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
-		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
+		compactionCallbacks, flushCallbacks, opts...)
 	if err != nil {
 		return err
 	}

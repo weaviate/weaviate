@@ -169,6 +169,8 @@ type ShardLike interface {
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
+
+	ForcedHasRangeableIndex(property *models.Property) bool
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -714,4 +716,44 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 
 func (s *Shard) Activity() int32 {
 	return s.activityTracker.Load()
+}
+
+func (s *Shard) ForcedHasRangeableIndex(property *models.Property) bool {
+	return forcedHasRangeableIndex(s.index.Config, property)
+}
+
+func forcedHasRangeableIndex(config IndexConfig, property *models.Property) bool {
+	if !isPropToIndexRangeable(config, property.Name) {
+		return false
+	}
+	return checkEligibleForForcedHasRangeableIndex(property) == nil
+}
+
+func isPropToIndexRangeable(config IndexConfig, propName string) bool {
+	if _, ok := config.PropsToIndexRangeable[config.ClassName.String()]; !ok {
+		return false
+	}
+	for _, prop := range config.PropsToIndexRangeable[config.ClassName.String()] {
+		if prop == propName {
+			return true
+		}
+	}
+	return false
+}
+
+func checkEligibleForForcedHasRangeableIndex(property *models.Property) error {
+	switch dt, _ := schema.AsPrimitive(property.DataType); dt {
+	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeDate:
+		// ok
+	default:
+		return fmt.Errorf("property %q has unsupported data type %q", property.Name, dt.String())
+	}
+
+	if inverted.HasRangeableIndex(property) {
+		return fmt.Errorf("property %q already has rangeable index", property.Name)
+	}
+	if !inverted.HasFilterableIndex(property) {
+		return fmt.Errorf("property %q needs filterable index as source", property.Name)
+	}
+	return nil
 }

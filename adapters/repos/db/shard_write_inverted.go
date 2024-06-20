@@ -62,7 +62,7 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 			// 1. They are not in the schema map ( == nil)
 			// 2. Their inverted index is enabled
 			_, ok := schemaMap[prop.Name]
-			if !ok && inverted.HasAnyInvertedIndex(prop) {
+			if !ok && (inverted.HasAnyInvertedIndex(prop) || s.ForcedHasRangeableIndex(prop)) {
 				nilProps = append(nilProps, inverted.NilProperty{
 					Name:                prop.Name,
 					AddToPropertyLength: isPropertyForLength(dt),
@@ -79,6 +79,7 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 		schemaMap[filters.InternalPropLastUpdateTimeUnix] = object.Object.LastUpdateTimeUnix
 	}
 
-	props, err := inverted.NewAnalyzer(s.isFallbackToSearchable).Object(schemaMap, c.Properties, object.ID())
+	props, err := inverted.NewAnalyzer(s.isFallbackToSearchable, s.ForcedHasRangeableIndex).
+		Object(schemaMap, c.Properties, object.ID())
 	return props, nilProps, err
 }

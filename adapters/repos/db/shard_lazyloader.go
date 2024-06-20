@@ -689,3 +689,7 @@ func (l *LazyLoadShard) Activity() int32 {
 
 	return l.shard.Activity()
 }
+
+func (l *LazyLoadShard) ForcedHasRangeableIndex(property *models.Property) bool {
+	return forcedHasRangeableIndex(l.shardOpts.index.Config, property)
+}

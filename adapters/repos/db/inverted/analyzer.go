@@ -22,6 +22,8 @@ import (
 
 type IsFallbackToSearchable func() bool
 
+type IsForcedRangeableIndex func(property *models.Property) bool
+
 type Countable struct {
 	Data          []byte
 	TermFrequency float32
@@ -63,6 +65,7 @@ func DedupItems(props []Property) []Property {
 
 type Analyzer struct {
 	isFallbackToSearchable IsFallbackToSearchable
+	isForcedHasRangeable   func(property *models.Property) bool
 }
 
 // Text tokenizes given input according to selected tokenization,
@@ -239,9 +242,17 @@ func (a *Analyzer) Ref(in models.MultipleRef) ([]Countable, error) {
 	return out, nil
 }
 
-func NewAnalyzer(isFallbackToSearchable IsFallbackToSearchable) *Analyzer {
+func NewAnalyzer(isFallbackToSearchable IsFallbackToSearchable,
+	isForcedRangeableIndex IsForcedRangeableIndex,
+) *Analyzer {
 	if isFallbackToSearchable == nil {
 		isFallbackToSearchable = func() bool { return false }
 	}
-	return &Analyzer{isFallbackToSearchable: isFallbackToSearchable}
+	if isForcedRangeableIndex == nil {
+		isForcedRangeableIndex = func(_ *models.Property) bool { return false }
+	}
+	return &Analyzer{
+		isFallbackToSearchable: isFallbackToSearchable,
+		isForcedHasRangeable:   isForcedRangeableIndex,
+	}
 }
