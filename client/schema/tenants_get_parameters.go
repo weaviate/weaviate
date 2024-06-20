@@ -73,6 +73,12 @@ TenantsGetParams contains all the parameters to send to the API endpoint
 */
 type TenantsGetParams struct {
 
+	/* After.
+
+	   If tenant is provided, the pagination cursor will start after this tenant.
+	*/
+	After *string
+
 	// ClassName.
 	ClassName string
 
@@ -83,6 +89,12 @@ type TenantsGetParams struct {
 	   Default: true
 	*/
 	Consistency *bool
+
+	/* Limit.
+
+	   The maximum number of tenants to return.
+	*/
+	Limit *int64
 
 	timeout    time.Duration
 	Context    context.Context
@@ -148,6 +160,17 @@ func (o *TenantsGetParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithAfter adds the after to the tenants get params
+func (o *TenantsGetParams) WithAfter(after *string) *TenantsGetParams {
+	o.SetAfter(after)
+	return o
+}
+
+// SetAfter adds the after to the tenants get params
+func (o *TenantsGetParams) SetAfter(after *string) {
+	o.After = after
+}
+
 // WithClassName adds the className to the tenants get params
 func (o *TenantsGetParams) WithClassName(className string) *TenantsGetParams {
 	o.SetClassName(className)
@@ -170,6 +193,17 @@ func (o *TenantsGetParams) SetConsistency(consistency *bool) {
 	o.Consistency = consistency
 }
 
+// WithLimit adds the limit to the tenants get params
+func (o *TenantsGetParams) WithLimit(limit *int64) *TenantsGetParams {
+	o.SetLimit(limit)
+	return o
+}
+
+// SetLimit adds the limit to the tenants get params
+func (o *TenantsGetParams) SetLimit(limit *int64) {
+	o.Limit = limit
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -177,6 +211,23 @@ func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		return err
 	}
 	var res []error
+
+	if o.After != nil {
+
+		// query param after
+		var qrAfter string
+
+		if o.After != nil {
+			qrAfter = *o.After
+		}
+		qAfter := qrAfter
+		if qAfter != "" {
+
+			if err := r.SetQueryParam("after", qAfter); err != nil {
+				return err
+			}
+		}
+	}
 
 	// path param className
 	if err := r.SetPathParam("className", o.ClassName); err != nil {
@@ -188,6 +239,23 @@ func (o *TenantsGetParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Re
 		// header param consistency
 		if err := r.SetHeaderParam("consistency", swag.FormatBool(*o.Consistency)); err != nil {
 			return err
+		}
+	}
+
+	if o.Limit != nil {
+
+		// query param limit
+		var qrLimit int64
+
+		if o.Limit != nil {
+			qrLimit = *o.Limit
+		}
+		qLimit := swag.FormatInt64(qrLimit)
+		if qLimit != "" {
+
+			if err := r.SetQueryParam("limit", qLimit); err != nil {
+				return err
+			}
 		}
 	}
 

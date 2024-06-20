@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -434,6 +435,185 @@ func TestDeleteTenants(t *testing.T) {
 			} else {
 				for i := range test.errMsgs {
 					assert.ErrorContains(t, err, test.errMsgs[i])
+				}
+			}
+		})
+	}
+}
+
+func TestGetConsistentTenants(t *testing.T) {
+	var (
+		ctx     = context.Background()
+		tenants = []*models.Tenant{
+			{Name: "USER1", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER2", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER3", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER4", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER5", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER6", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER7", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER8", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER9", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER10", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER11", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER12", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER13", ActivityStatus: models.TenantActivityStatusHOT},
+		}
+		after      = "USER5"
+		limit      = int64(5)
+		properties = []*models.Property{
+			{
+				Name:     "uuid",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		}
+		repConfig   = &models.ReplicationConfig{Factor: 1}
+		testTenants = []string{"USER1", "USER2", "USER3", "USER4", "USER5", "USER6", "USER7", "USER8", "USER9", "USER10", "USER11", "USER13", "USER13"}
+	)
+
+	mtEnabledClass := &models.Class{
+		Class:              "MTenabled",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		Properties:         properties,
+		ReplicationConfig:  repConfig,
+		Vectorizer:         "none",
+	}
+
+	mtDisabledClass := &models.Class{
+		Class:              "MTdisabled",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false},
+		Properties:         properties,
+		ReplicationConfig:  repConfig,
+		Vectorizer:         "none",
+	}
+
+	unknownClass := &models.Class{
+		Class:              "UnknownClass",
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		Properties:         properties,
+		ReplicationConfig:  repConfig,
+		Vectorizer:         "none",
+	}
+
+	tests := []struct {
+		name            string
+		class           *models.Class
+		consistency     bool
+		tenants         []string
+		afterTenant     *string
+		limitTenant     *int64
+		expectedTenants []*models.Tenant
+		errMsgs         []string
+		mockCalls       func(fakeMetaHandler *fakeMetaHandler)
+	}{
+		{
+			name:            "Failure - MTdisabled",
+			class:           mtDisabledClass,
+			consistency:     true,
+			tenants:         []string{"USER1", "USER2"},
+			afterTenant:     nil,
+			limitTenant:     nil,
+			expectedTenants: nil,
+			errMsgs:         []string{"not enabled"},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil, uint64(1), errors.New("multi-tenancy not enabled"))
+			},
+		},
+		{
+			name:            "Failure - UnknownClass",
+			class:           unknownClass,
+			consistency:     true,
+			tenants:         []string{"USER1", "USER2"},
+			afterTenant:     nil,
+			limitTenant:     nil,
+			expectedTenants: nil,
+			errMsgs:         []string{ErrNotFound.Error()},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything, mock.Anything).Return(nil, uint64(1), ErrNotFound)
+			},
+		},
+		{
+			name:            "Success - MTenabled",
+			class:           mtEnabledClass,
+			consistency:     true,
+			tenants:         testTenants,
+			afterTenant:     &after,
+			limitTenant:     nil,
+			expectedTenants: tenants[6:],
+			errMsgs:         []string{},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything, mock.Anything).Return(tenants[6:], uint64(1), nil)
+			},
+		},
+		{
+			name:            "Success - MTenabledWithAfterAndLimit",
+			class:           mtEnabledClass,
+			consistency:     true,
+			tenants:         testTenants,
+			afterTenant:     &after,
+			limitTenant:     &limit,
+			expectedTenants: tenants[6:],
+			errMsgs:         []string{},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything, mock.Anything).Return(tenants[6:], uint64(1), nil)
+			},
+		},
+		{
+			name:            "Success - TestNoAfterAndLimit",
+			class:           mtEnabledClass,
+			consistency:     true,
+			tenants:         testTenants,
+			afterTenant:     nil,
+			limitTenant:     nil,
+			expectedTenants: tenants,
+			errMsgs:         []string{},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything, mock.Anything).Return(tenants, uint64(len(tenants)), nil)
+			},
+		},
+		{
+			name:            "Success - TestAfterOnly",
+			class:           mtEnabledClass,
+			consistency:     true,
+			tenants:         testTenants,
+			afterTenant:     &after,
+			limitTenant:     nil,
+			expectedTenants: tenants[2:],
+			errMsgs:         []string{},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything, mock.Anything).Return(tenants[2:], uint64(1), nil)
+			},
+		},
+		{
+			name:            "Success - TestLimitOnly",
+			class:           mtEnabledClass,
+			consistency:     true,
+			tenants:         testTenants,
+			afterTenant:     nil,
+			limitTenant:     &limit,
+			expectedTenants: tenants[:5],
+			errMsgs:         []string{},
+			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything, mock.Anything).Return(tenants[:5], uint64(1), nil)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+			test.mockCalls(fakeMetaHandler)
+
+			tenants, err := handler.GetConsistentTenants(ctx, nil, test.class.Class, test.consistency, test.tenants, test.afterTenant, test.limitTenant)
+
+			fakeMetaHandler.AssertExpectations(t)
+
+			assert.Equal(t, test.expectedTenants, tenants)
+			if len(test.errMsgs) == 0 {
+				assert.NoError(t, err)
+			} else {
+				for _, errMsg := range test.errMsgs {
+					assert.Contains(t, err.Error(), errMsg)
 				}
 			}
 		})

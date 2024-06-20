@@ -21,6 +21,8 @@ message TenantsGetRequest {
   oneof params {
     TenantNames names = 2;
   };
+  string after = 4;
+  int64 limit = 5;
 }
 
 message TenantNames {
