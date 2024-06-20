@@ -35,10 +35,10 @@ var dotByteImpl func(a, b []uint8) uint32 = func(a, b []byte) uint32 {
 var dotPQByteImpl func(uncompressed []float32, compressed []uint8, codebook [][][]float32) float32 = func(uncompressed []float32, compressed []byte, codebook [][][]float32) float32 {
 	var sum float32
 
-	segments := len(codebook)
-	for i := range uncompressed {
-		segment := i / segments
-		positionInSegment := i % segments
+	segmenLen := len(uncompressed) / len(compressed)
+	for i := range compressed {
+		segment := i / segmenLen
+		positionInSegment := i % segmenLen
 		sum += uncompressed[i] * codebook[segment][compressed[segment]][positionInSegment]
 	}
 
