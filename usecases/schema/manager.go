@@ -45,7 +45,7 @@ type Manager struct {
 	// For more context, refer to the handler's definition.
 	Handler
 
-	metaReader
+	SchemaReader
 }
 
 type VectorConfigParser func(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error)
@@ -186,14 +186,15 @@ type clusterState interface {
 }
 
 type scaleOut interface {
-	SetSchemaManager(sm scaler.SchemaManager)
+	SetSchemaReader(sr scaler.SchemaReader)
 	Scale(ctx context.Context, className string,
 		updated shardingConfig.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
 }
 
 // NewManager creates a new manager
 func NewManager(validator validator,
-	store metaWriter, metaReader metaReader,
+	schemaManager SchemaManager,
+	schemaReader SchemaReader,
 	repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
@@ -202,7 +203,9 @@ func NewManager(validator validator,
 	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	handler, err := NewHandler(
-		store, metaReader, validator,
+		schemaReader,
+		schemaManager,
+		validator,
 		logger, authorizer,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager)
@@ -216,7 +219,7 @@ func NewManager(validator validator,
 		logger:       logger,
 		clusterState: clusterState,
 		Handler:      handler,
-		metaReader:   metaReader,
+		SchemaReader: schemaReader,
 		Authorizer:   authorizer,
 	}
 
@@ -331,7 +334,7 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	status, _, err := m.metaWriter.QueryTenantsShards(class, tenants...)
+	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
 	if !m.AllowImplicitTenantActivation(class) || err != nil {
 		return status, err
 	}
@@ -366,7 +369,7 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
 	var foundTenant bool
 	var status string
-	err := m.metaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
+	err := m.schemaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
 		t, ok := ss.Physical[tenant]
 		if !ok {
 			return nil
@@ -410,7 +413,7 @@ func (m *Manager) activateTenantIfInactive(class string,
 		return status, nil
 	}
 
-	_, err := m.metaWriter.UpdateTenants(class, req)
+	_, err := m.schemaManager.UpdateTenants(class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {
@@ -429,7 +432,7 @@ func (m *Manager) activateTenantIfInactive(class string,
 
 func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 	allow := false
-	m.metaReader.Read(class, func(c *models.Class, _ *sharding.State) error {
+	m.schemaReader.Read(class, func(c *models.Class, _ *sharding.State) error {
 		allow = schema.AutoTenantActivationEnabled(c)
 		return nil
 	})
@@ -438,7 +441,7 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
-	owner, _, err := m.metaWriter.QueryShardOwner(class, shard)
+	owner, _, err := m.schemaManager.QueryShardOwner(class, shard)
 	if err != nil {
 		return "", err
 	}
