@@ -72,7 +72,7 @@ func (f *fakeFactory) Scaler(dataPath string) *Scaler {
 		f.Client,
 		f.logger,
 		dataPath)
-	scaler.SetSchemaManager(&f.ShardingState)
+	scaler.SetSchemaReader(&f.ShardingState)
 	return scaler
 }
 
