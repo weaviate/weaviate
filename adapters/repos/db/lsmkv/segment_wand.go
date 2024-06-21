@@ -72,7 +72,7 @@ func compareByteArrays(a, b []byte) bool {
 	return true
 }
 
-func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen int64, filterDocIds helpers.AllowList) (terms.Term, error) {
+func (s segment) WandTerm(key []byte, queryTermIndex int, N float64, duplicateTextBoost float64, propertyBoost float64, fullPropertyLen int64, filterDocIds helpers.AllowList) (terms.Term, error) {
 	node, err := s.index.Get(key)
 	if err != nil {
 		return nil, err
@@ -82,7 +82,7 @@ func (s segment) WandTerm(key []byte, N float64, duplicateTextBoost float64, pro
 	}
 
 	term := TermInverted{}
-	term.init(N, duplicateTextBoost, s, node.Start, node.End, key, string(key), propertyBoost, fullPropertyLen, filterDocIds)
+	term.init(N, duplicateTextBoost, s, node.Start, node.End, key, string(key), queryTermIndex, propertyBoost, fullPropertyLen, filterDocIds)
 	return &term, nil
 }
 

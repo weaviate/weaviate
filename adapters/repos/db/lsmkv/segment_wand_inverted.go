@@ -44,9 +44,11 @@ type TermInverted struct {
 	FilterDocIds        helpers.AllowList
 	invertedKeyLength   uint64
 	invertedValueLength uint64
+
+	queryTermIndex int
 }
 
-func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment segment, start uint64, end uint64, key []byte, queryTerm string, propertyBoost float64, fullTermDocCount int64, filterDocIds helpers.AllowList) error {
+func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment segment, start uint64, end uint64, key []byte, queryTerm string, queryTermIndex int, propertyBoost float64, fullTermDocCount int64, filterDocIds helpers.AllowList) error {
 	t.segment = curSegment
 	t.queryTerm = queryTerm
 	t.idPointer = 0
@@ -60,6 +62,7 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 	t.actualEnd = end - 4 - uint64(len(key))
 	t.offsetPointer = t.actualStart
 	t.PropertyBoost = propertyBoost
+	t.queryTermIndex = queryTermIndex
 
 	t.DocCount = binary.LittleEndian.Uint64(curSegment.contents[start : start+8])
 
@@ -113,10 +116,6 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 	}
 
 	return nil
-}
-
-func (t *TermInverted) ClearData() {
-	t.data = terms.DocPointerWithScore{}
 }
 
 func (t *TermInverted) decode() error {
@@ -173,7 +172,7 @@ func (t *TermInverted) advanceIdOnly() {
 	}
 }
 
-func (t *TermInverted) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+func (t *TermInverted) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, terms.DocPointerWithScore) {
 	id := t.idPointer
 	pair := t.data
 	freq := float64(pair.Frequency)
@@ -184,7 +183,7 @@ func (t *TermInverted) ScoreAndAdvance(averagePropLength float64, config schema.
 
 	// fmt.Printf("id: %d, tf: %f, idf: %f %s\n", id, tf, t.Idf, t.QueryTerm)
 
-	return id, tf * t.Idf
+	return id, tf * t.Idf, pair
 }
 
 func (t *TermInverted) AdvanceAtLeast(minID uint64) {
@@ -229,8 +228,8 @@ func (t *TermInverted) QueryTerm() string {
 	return t.queryTerm
 }
 
-func (t *TermInverted) Data() []terms.DocPointerWithScore {
-	return []terms.DocPointerWithScore{t.data}
+func (t *TermInverted) QueryTermIndex() int {
+	return t.queryTermIndex
 }
 
 func (t *TermInverted) jumpAproximate(minIDBytes []byte, start uint64, end uint64) uint64 {

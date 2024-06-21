@@ -24,13 +24,13 @@ type DocPointerWithScore struct {
 }
 
 type Term interface {
-	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64)
+	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, DocPointerWithScore)
 	AdvanceAtLeast(minID uint64)
 	IsExhausted() bool
 	IdPointer() uint64
 	IDF() float64
 	QueryTerm() string
-	Data() []DocPointerWithScore
+	QueryTermIndex() int
 }
 
 type Terms []Term
@@ -90,11 +90,14 @@ func (t Terms) findFirstNonExhausted() (int, bool) {
 	return -1, false
 }
 
-func (t Terms) ScoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+func (t Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, additionalExplanations bool) (uint64, float64, []*DocPointerWithScore) {
 	pos, ok := t.findFirstNonExhausted()
+
+	docInfos := make([]*DocPointerWithScore, len(t))
+
 	if !ok {
 		// done, nothing left to score
-		return 0, 0
+		return 0, 0, docInfos
 	}
 
 	id := t[pos].IdPointer()
@@ -103,13 +106,16 @@ func (t Terms) ScoreNext(averagePropLength float64, config schema.BM25Config) (u
 		if t[i].IdPointer() != id || t[i].IsExhausted() {
 			continue
 		}
-		_, score := t[i].ScoreAndAdvance(averagePropLength, config)
+		_, score, docInfo := t[i].ScoreAndAdvance(averagePropLength, config)
+		if additionalExplanations {
+			docInfos[t[i].QueryTermIndex()] = &docInfo
+		}
 		cumScore += score
 	}
 
 	sort.Sort(t) // pointer was advanced in scoreAndAdvance
 
-	return id, cumScore
+	return id, cumScore, docInfos
 }
 
 // provide sort interface
