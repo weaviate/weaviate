@@ -17,6 +17,8 @@ import (
 	"io"
 	"math/rand"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -79,7 +81,7 @@ type RemoteIndexClient interface {
 		searchVector [][]float32, targetVector []string, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-		additional additional.Properties,
+		additional additional.Properties, multiTargetCombination *dto.TargetCombination,
 	) ([]*storobj.Object, []float32, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
@@ -250,6 +252,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
 	replEnabled bool,
+	multiTargetCombination *dto.TargetCombination,
 ) ([]*storobj.Object, []float32, string, error) {
 	type pair struct {
 		first  []*storobj.Object
@@ -257,7 +260,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds)
+			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, multiTargetCombination)
 		if err != nil {
 			return nil, err
 		}

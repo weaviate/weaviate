@@ -91,6 +91,21 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		return results[0], dists[0], nil
 	}
 
+	allNil := true
+	for i := range results {
+		if len(results[i]) > 0 {
+			allNil = false
+			break
+		}
+	}
+	if allNil {
+		return []*storobj.Object{}, []float32{}, nil
+	}
+
+	if multiTargetCombination == nil {
+		return nil, nil, fmt.Errorf("multi target combination is nil")
+	}
+
 	allIDs := make(map[strfmt.UUID]*storobj.Object)
 	for i := range results {
 		for j := range results[i] {
@@ -165,6 +180,14 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 			return nil, nil, fmt.Errorf("number of results does not match number of distances")
 		}
 		var localIDs map[strfmt.UUID]*storobj.Object
+
+		if multiTargetCombination.Type != dto.Minimum {
+			localIDs = make(map[strfmt.UUID]*storobj.Object, len(allIDs))
+			for val := range allIDs {
+				localIDs[val] = &storobj.Object{} // content does not matter here - the entry is only needed to combine hybrid search
+			}
+		}
+
 		for j := range results[i] {
 			uid := results[i][j].ID()
 
@@ -176,13 +199,6 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 				}
 				tmp.distance = min(tmp.distance, dists[i][j])
 			} else {
-				if len(localIDs) == 0 { // this is only needed if the join method is not Min
-					localIDs = make(map[strfmt.UUID]*storobj.Object, len(allIDs))
-					for val := range allIDs {
-						localIDs[val] = &storobj.Object{} // content does not matter here - the entry is only needed to combine hybrid search
-					}
-
-				}
 				delete(localIDs, uid)
 				if len(multiTargetCombination.Weights) != len(results) {
 					return nil, nil, fmt.Errorf("number of weights in join does not match number of results")
