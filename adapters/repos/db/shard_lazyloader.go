@@ -437,7 +437,7 @@ func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
 	return l.shard.Queues()
 }
 
-func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targets []string) ([]float32, error) {
+func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
