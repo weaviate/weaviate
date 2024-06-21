@@ -106,7 +106,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 func (db *DB) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
 ) ([]search.Result, error) {
-	if searchVectors == nil {
+	if len(searchVectors) == 0 || len(searchVectors) == 1 && len(searchVectors[0]) == 0 {
 		results, err := db.Search(ctx, params)
 		return results, err
 	}

@@ -1412,7 +1412,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, limit, filters, keywordRanking,
-					sort, cursor, nil, addlProps, i.replicationEnabled())
+					sort, cursor, nil, addlProps, i.replicationEnabled(), nil)
 				if err != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
@@ -1609,7 +1609,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 			} else {
 				res, resDists, nodeName, err = i.remote.SearchShard(ctx,
 					shardName, searchVectors, targetVectors, limit, filters,
-					nil, sort, nil, groupBy, additional, i.replicationEnabled())
+					nil, sort, nil, groupBy, additional, i.replicationEnabled(), multiTargetCombination)
 				if err != nil {
 					return errors.Wrapf(err, "remote shard %s", shardName)
 				}
@@ -1670,7 +1670,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	searchVectors [][]float32, targetVectors []string, distance float32, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-	additional additional.Properties,
+	additional additional.Properties, targetCombination *dto.TargetCombination,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
@@ -1692,7 +1692,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVectors, targetVectors, distance, limit, filters, sort, groupBy, additional, nil)
+		ctx, searchVectors, targetVectors, distance, limit, filters, sort, groupBy, additional, targetCombination)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
