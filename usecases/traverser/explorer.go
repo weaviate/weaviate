@@ -237,7 +237,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	var err error
 	searchVectors := make([][]float32, len(targetVectors))
-	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
+	eg := enterrors.NewErrorGroupWrapper(e.logger)
 	eg.SetLimit(2 * _NUMCPU)
 	for i := range targetVectors {
 		i := i
