@@ -328,7 +328,9 @@ func (store *Store) GetSegmentsForTerms(propNamesByTokenization map[string][]str
 			for _, segment := range bucketSegments {
 				hasTerm := false
 				if segment == nil || segment.Closing {
+					// if there is a segment that is closing, we should wait for the compaction to finish
 					segment.CompactionMutex.RLock()
+					defer segment.CompactionMutex.RUnlock()
 					return store.GetSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
 				}
 				for _, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
