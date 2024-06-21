@@ -16,12 +16,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -46,7 +43,7 @@ func TestCombiner(t *testing.T) {
 		in              [][]search.Result
 		out             []search.Result
 		joinMethod      *dto.TargetCombination
-		missingElements map[strfmt.UUID][]string
+		missingElements map[uint64][]string
 		targetDistance  float32
 	}{
 		{
@@ -111,7 +108,7 @@ func TestCombiner(t *testing.T) {
 			joinMethod:      &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1)},
-			missingElements: map[strfmt.UUID][]string{uid(1): {"target2"}},
+			missingElements: map[uint64][]string{1: {"target2"}},
 		},
 		{
 			name:            "missing document without target vector that is not searched (weights)",
@@ -119,7 +116,7 @@ func TestCombiner(t *testing.T) {
 			joinMethod:      &dto.TargetCombination{Weights: map[string]float32{"target1": 1, "target2": 1}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1), res(1, 2.6)},
-			missingElements: map[strfmt.UUID][]string{uid(1): {"target3"}},
+			missingElements: map[uint64][]string{1: {"target3"}},
 		},
 		{
 			name:            "missing document without target vector (score fusion)",
@@ -127,7 +124,7 @@ func TestCombiner(t *testing.T) {
 			joinMethod:      &dto.TargetCombination{Type: dto.RelativeScore, Weights: map[string]float32{"target1": 0.5, "target2": 0.5}},
 			in:              [][]search.Result{{res(0, 0.5), res(1, 0.6)}, {res(0, 0.5)}},
 			out:             []search.Result{res(0, 1)},
-			missingElements: map[strfmt.UUID][]string{uid(1): {"target2"}},
+			missingElements: map[uint64][]string{1: {"target2"}},
 		},
 		{
 			name:       "many documents (weights)",
@@ -165,7 +162,7 @@ func TestCombiner(t *testing.T) {
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
 			out:             []search.Result{res(1, 0.95), res(2, 1.27)},
-			missingElements: map[strfmt.UUID][]string{uid(0): {"target3"}},
+			missingElements: map[uint64][]string{0: {"target3"}},
 		},
 		{
 			name:       "many documents (score fusion)",
@@ -188,14 +185,14 @@ func TestCombiner(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			searcher := fakeS{missingElements: tt.missingElements}
 
-			objs := make([][]*storobj.Object, len(tt.in))
+			idsIn := make([][]uint64, len(tt.in))
 			distsIn := make([][]float32, len(tt.in))
 			for i := range tt.in {
 				distsIn[i] = make([]float32, len(tt.in[i]))
-				objs[i] = make([]*storobj.Object, len(tt.in[i]))
+				idsIn[i] = make([]uint64, len(tt.in[i]))
 				for j := range tt.in[i] {
 					distsIn[i][j] = tt.in[i][j].Dist
-					objs[i][j] = &storobj.Object{Object: models.Object{ID: tt.in[i][j].ID}}
+					idsIn[i][j] = *(tt.in[i][j].DocID)
 				}
 			}
 
@@ -204,12 +201,12 @@ func TestCombiner(t *testing.T) {
 				limit = 100
 			}
 
-			results, dists, err := CombineMultiTargetResults(context.Background(), searcher, logger, objs, distsIn, tt.targets, searchesVectors[:len(tt.targets)], tt.joinMethod, limit, tt.targetDistance)
+			ids, dists, err := CombineMultiTargetResults(context.Background(), searcher, logger, idsIn, distsIn, tt.targets, searchesVectors[:len(tt.targets)], tt.joinMethod, limit, tt.targetDistance)
 			require.Nil(t, err)
-			require.Len(t, results, len(tt.out))
-			for i, r := range results {
+			require.Len(t, ids, len(tt.out))
+			for i, id := range ids {
 				// we do not want to compare ExplainScore etc
-				require.Equal(t, tt.out[i].ID, r.ID())
+				require.Equal(t, *(tt.out[i].DocID), id)
 				require.InDelta(t, tt.out[i].Dist, dists[i], 0.0001)
 			}
 		})
@@ -217,10 +214,10 @@ func TestCombiner(t *testing.T) {
 }
 
 type fakeS struct {
-	missingElements map[strfmt.UUID][]string
+	missingElements map[uint64][]string
 }
 
-func (f fakeS) VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targetVectors []string) ([]float32, error) {
+func (f fakeS) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targetVectors []string) ([]float32, error) {
 	returns := make([]float32, 0, len(targetVectors))
 	for range targetVectors {
 		returns = append(returns, 2)
