@@ -425,7 +425,7 @@ case $CONFIG in
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       CLUSTER_IN_LOCALHOST=true \
-      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-palm,qna-openai,generative-openai,text2vec-openai,generative-cohere,text2vec-cohere,reranker-cohere" \
+      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-palm,qna-openai,generative-openai,text2vec-openai,generative-cohere,text2vec-cohere,reranker-cohere,reranker-jinaai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -612,7 +612,7 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-cohere \
-      ENABLE_MODULES="text2vec-cohere,reranker-cohere,generative-cohere" \
+      ENABLE_MODULES="text2vec-cohere,reranker-cohere,reranker-jinaai,generative-cohere" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
