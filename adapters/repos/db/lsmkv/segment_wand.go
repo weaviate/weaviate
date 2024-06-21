@@ -327,7 +327,7 @@ func (store *Store) GetSegmentsForTerms(propNamesByTokenization map[string][]str
 			bucketSegments := bucket.GetSegments()
 			for _, segment := range bucketSegments {
 				hasTerm := false
-				if segment.Closing {
+				if segment == nil || segment.Closing {
 					segment.CompactionMutex.RLock()
 					return store.GetSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
 				}
