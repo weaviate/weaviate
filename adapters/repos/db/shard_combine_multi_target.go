@@ -50,7 +50,7 @@ type ResultContainerHybrid struct {
 
 func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
-	newResult := &search.Result{SecondarySortValue: distances[0], DocID: &id}
+	newResult := &search.Result{SecondarySortValue: distances[0], DocID: &id, ID: uuidFromUint64(id)}
 	r.ResultsIn = append(r.ResultsIn, newResult)
 }
 
