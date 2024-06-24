@@ -132,7 +132,7 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 }
 
 func FromBinaryOptional(data []byte,
-	addProp additional.Properties,
+	addProp additional.Properties, properties *propertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
 
@@ -223,6 +223,8 @@ func FromBinaryOptional(data []byte,
 			props,
 			meta,
 			vectorWeights,
+			properties,
+			propLength,
 		); err != nil {
 			return nil, errors.Wrap(err, "parse")
 		}
@@ -236,13 +238,18 @@ func FromBinaryOptional(data []byte,
 	return ko, nil
 }
 
+type propertyExtraction struct {
+	propStrings     []string
+	propStringsList [][]string
+}
+
 type bucket interface {
 	GetBySecondary(int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
-	additional additional.Properties,
+	additional additional.Properties, properties search.SelectProperties,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -259,6 +266,22 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		bufPool.Put(lsmBuf)
 	}()
 
+	var props *propertyExtraction = nil
+	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
+	if properties != nil {
+		propStrings := make([]string, len(properties))
+		propStringsList := make([][]string, len(properties))
+		for j := range properties {
+			propStrings[j] = properties[j].Name
+			propStringsList[j] = []string{properties[j].Name}
+		}
+
+		props = &propertyExtraction{
+			propStrings:     propStrings,
+			propStringsList: propStringsList,
+		}
+	}
+
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
 		res, newBuf, err := bucket.GetBySecondaryWithBuffer(0, docIDBuf, lsmBuf)
@@ -272,7 +295,7 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptional(res, additional)
+		unmarshalled, err := FromBinaryOptional(res, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -757,7 +780,11 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 	rw.MoveBufferPositionForward(classnameLength)
 	propertyLength := uint64(rw.ReadUint32())
 
-	jsonparser.EachKey(data[rw.Position:rw.Position+propertyLength], func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
+	return UnmarshalProperties(rw.Buffer[rw.Position:rw.Position+propertyLength], properties, aggregationProperties, propStrings)
+}
+
+func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
 		var errParse error
 		switch dataType {
 		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
@@ -885,7 +912,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		string(className),
 		schema,
 		meta,
-		vectorWeights,
+		vectorWeights, nil, 0,
 	)
 }
 
@@ -988,14 +1015,21 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	propsB []byte, additionalB []byte, vectorWeightsB []byte,
+	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *propertyExtraction, propLength uint32,
 ) error {
-	var props map[string]interface{}
-	if err := json.Unmarshal(propsB, &props); err != nil {
-		return err
+	var returnProps map[string]interface{}
+	if properties == nil || propLength == 0 {
+		if err := json.Unmarshal(propsB, &returnProps); err != nil {
+			return err
+		}
+	} else {
+		returnProps = make(map[string]interface{}, len(properties.propStrings))
+		if err := UnmarshalProperties(propsB[:propLength], &returnProps, properties.propStrings, properties.propStringsList); err != nil {
+			return err
+		}
 	}
 
-	if err := enrichSchemaTypes(props, false); err != nil {
+	if err := enrichSchemaTypes(returnProps, false); err != nil {
 		return errors.Wrap(err, "enrich schema datatypes")
 	}
 
@@ -1062,7 +1096,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		CreationTimeUnix:   create,
 		LastUpdateTimeUnix: update,
 		ID:                 uuid,
-		Properties:         props,
+		Properties:         returnProps,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,
 	}
