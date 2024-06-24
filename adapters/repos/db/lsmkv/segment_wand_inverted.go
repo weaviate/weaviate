@@ -46,9 +46,11 @@ type TermInverted struct {
 	invertedValueLength uint64
 
 	queryTermIndex int
+
+	blockList helpers.AllowList
 }
 
-func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment segment, start uint64, end uint64, key []byte, queryTerm string, queryTermIndex int, propertyBoost float64, fullTermDocCount int64, filterDocIds helpers.AllowList) error {
+func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment segment, start uint64, end uint64, key []byte, queryTerm string, queryTermIndex int, propertyBoost float64, fullTermDocCount int64, filterDocIds, blockList helpers.AllowList) error {
 	t.segment = curSegment
 	t.queryTerm = queryTerm
 	t.idPointer = 0
@@ -65,6 +67,9 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 	t.queryTermIndex = queryTermIndex
 
 	t.DocCount = binary.LittleEndian.Uint64(curSegment.contents[start : start+8])
+
+	t.blockList = blockList
+	t.FilterDocIds = filterDocIds
 
 	/*
 		if t.segment.mmapContents {
@@ -110,7 +115,7 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 
 	if !t.Exhausted {
 		t.decode()
-		if t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer) {
+		if t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer) && t.blockList != nil && t.blockList.Contains(t.idPointer) {
 			t.advance()
 		}
 	}
@@ -153,7 +158,7 @@ func (t *TermInverted) advance() {
 		t.Exhausted = true
 	} else {
 		t.decode()
-		if t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer) {
+		if t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer) && t.blockList != nil && t.blockList.Contains(t.idPointer) {
 			t.advance()
 		}
 	}
@@ -166,7 +171,7 @@ func (t *TermInverted) advanceIdOnly() {
 		t.Exhausted = true
 	} else {
 		t.decodeIdOnly()
-		if t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer) {
+		if t.FilterDocIds != nil && !t.FilterDocIds.Contains(t.idPointer) && t.blockList != nil && t.blockList.Contains(t.idPointer) {
 			t.advanceIdOnly()
 		}
 	}
@@ -226,6 +231,10 @@ func (t *TermInverted) IDF() float64 {
 
 func (t *TermInverted) QueryTerm() string {
 	return t.queryTerm
+}
+
+func (t *TermInverted) Data() []terms.DocPointerWithScore {
+	return []terms.DocPointerWithScore{t.data}
 }
 
 func (t *TermInverted) QueryTermIndex() int {

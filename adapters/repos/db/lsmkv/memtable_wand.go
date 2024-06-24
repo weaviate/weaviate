@@ -17,7 +17,6 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -50,12 +49,11 @@ func (m *Memtable) countTombstones(key []byte) (int, int, error) {
 	return tombstones, nonTombstones, nil
 }
 
-func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowList, query string, queryTermIndex int,
+func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds, blockList helpers.AllowList, query string, queryTermIndex int,
 	propName string, propertyBoosts map[string]float32, duplicateTextBoost int,
 	additionalExplanations bool,
 ) (*TermMem, error) {
 	termResult := &TermMem{queryTerm: query, queryTermIndex: queryTermIndex}
-	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
 	allMsAndProps := make(AllMapPairsAndPropName, 0, 1)
 
@@ -64,15 +62,12 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 		return termResult, err
 	}
 
-	var postM []MapPair
-	if filterDocIds != nil {
-		postM := make([]MapPair, 0, len(preM))
+	postM := make([]MapPair, 0, len(preM))
+	if filterDocIds != nil || blockList != nil {
 		for _, val := range preM {
 			docID := binary.BigEndian.Uint64(val.Key)
-			if filterDocIds.Contains(docID) {
+			if filterDocIds != nil && filterDocIds.Contains(docID) && blockList != nil && blockList.Contains(docID) {
 				postM = append(postM, val)
-			} else {
-				filteredDocIDs.Set(docID)
 			}
 		}
 	} else {
