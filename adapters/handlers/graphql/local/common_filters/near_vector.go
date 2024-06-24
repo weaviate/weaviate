@@ -14,11 +14,12 @@ package common_filters
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
 // ExtractNearVector arguments, such as "vector" and "distance"
-func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, error) {
+func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, *dto.TargetCombination, error) {
 	var args searchparams.NearVector
 
 	// vector is a required argument, so we don't need to check for its existing
@@ -40,17 +41,15 @@ func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, 
 	}
 
 	if certaintyOK && distanceOK {
-		return searchparams.NearVector{},
+		return searchparams.NearVector{}, nil,
 			fmt.Errorf("cannot provide distance and certainty")
 	}
 
-	targetVectors, ok := source["targetVectors"]
-	if ok {
-		targetVectorsArray := targetVectors.([]interface{})
-		args.TargetVectors = make([]string, len(targetVectorsArray))
-		for i, value := range targetVectorsArray {
-			args.TargetVectors[i] = value.(string)
-		}
+	targetVectors, combination, err := ExtractTargets(source)
+	if err != nil {
+		return searchparams.NearVector{}, nil, err
 	}
-	return args, nil
+	args.TargetVectors = targetVectors
+
+	return args, combination, nil
 }
