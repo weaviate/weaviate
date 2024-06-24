@@ -171,7 +171,7 @@ func (b *BM25Searcher) wand(
 	validateWandDisk := os.Getenv("USE_WAND_DISK") == "validate"
 	validateWandDiskForced := os.Getenv("USE_WAND_DISK") == "validate-force"
 	if useWandDisk || useWandDiskForced {
-		return b.wandDiskMem(ctx, filterDocIds, class, params, limit, useWandDiskForced)
+		return b.wandDisk(ctx, filterDocIds, class, params, limit, useWandDiskForced)
 	} else if validateWandDisk || validateWandDiskForced {
 		return b.validateWand(ctx, filterDocIds, class, params, limit, validateWandDiskForced)
 	} else {
@@ -182,7 +182,7 @@ func (b *BM25Searcher) wand(
 func (b *BM25Searcher) validateWand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, useWandDiskForced bool,
 ) ([]*storobj.Object, []float32, error) {
-	objsD, scoresD, errD := b.wandDiskMem(ctx, filterDocIds, class, params, limit, useWandDiskForced)
+	objsD, scoresD, errD := b.wandDisk(ctx, filterDocIds, class, params, limit, useWandDiskForced)
 	objsM, scoresM, errM := b.wandMem(ctx, filterDocIds, class, params, limit)
 	if errD != nil {
 		return nil, nil, errD

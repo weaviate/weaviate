@@ -34,7 +34,7 @@ var (
 )
 */
 
-func (b *BM25Searcher) wandDiskMem(
+func (b *BM25Searcher) wandDisk(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, useWandDiskForced bool,
 ) ([]*storobj.Object, []float32, error) {
 	/*
@@ -72,17 +72,6 @@ func (b *BM25Searcher) wandDiskMem(
 	queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, err := b.extractTermInformation(class, params)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	// wandDiskTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
-	// wandTimesId++
-	// startTime = float64(time.Now().UnixNano()) / 1e6
-
-	hasMultipleProperties := len(params.Properties) > 1
-
-	if hasMultipleProperties && !useWandDiskForced {
-		b.logger.Debug("BM25 search: multiple properties requested, falling back to memory search")
-		return b.wandMemScoring(ctx, queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
 	}
 
 	return b.wandDiskScoring(queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
