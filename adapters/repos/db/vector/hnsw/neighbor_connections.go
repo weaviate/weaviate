@@ -90,15 +90,7 @@ func (n *neighborFinderConnector) Do() error {
 }
 
 func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
-	var dist float32
-	var ok bool
-	var err error
-
-	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
-	} else {
-		dist, ok, err = n.distancer.DistanceToNode(id)
-	}
+	dist, ok, err := n.graph.distToNode(n.distancer, id, n.nodeVec)
 	if err != nil {
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
@@ -485,14 +477,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		return false, nil
 	}
 
-	var dist float32
-	var ok bool
-	var err error
-	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
-	} else {
-		dist, ok, err = n.distancer.DistanceToNode(candidate)
-	}
+	dist, ok, err := n.graph.distToNode(n.distancer, candidate, n.nodeVec)
 	if err != nil {
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
 	}

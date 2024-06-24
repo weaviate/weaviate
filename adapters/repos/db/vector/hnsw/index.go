@@ -162,6 +162,8 @@ type hnsw struct {
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
+	bqConfig   ent.BQConfig
+	sqConfig   ent.SQConfig
 
 	compressActionLock *sync.RWMutex
 	className          string
@@ -190,7 +192,8 @@ type CommitLogger interface {
 	Shutdown(ctx context.Context) error
 	RootPath() string
 	SwitchCommitLogs(bool) error
-	AddPQ(compressionhelpers.PQData) error
+	AddPQCompression(compressionhelpers.PQData) error
+	AddSQCompression(compressionhelpers.SQData) error
 }
 
 type BufferedLinksLogger interface {
@@ -273,6 +276,8 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		VectorForIDThunk:     cfg.VectorForIDThunk,
 		TempVectorForIDThunk: cfg.TempVectorForIDThunk,
 		pqConfig:             uc.PQ,
+		bqConfig:             uc.BQ,
+		sqConfig:             uc.SQ,
 		shardedNodeLocks:     common.NewDefaultShardedRWLocks(),
 
 		shardCompactionCallbacks: shardCompactionCallbacks,
@@ -426,7 +431,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 				continue
 			}
 		} else {
-			dist, ok, err = h.distBetweenNodeAndVec(entryPointID, nodeVec)
+			dist, ok, err = h.distToNode(distancer, entryPointID, nodeVec)
 		}
 		if err != nil {
 			return 0, errors.Wrapf(err,
@@ -521,9 +526,9 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
-func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
+func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node uint64, vecB []float32) (float32, bool, error) {
 	if h.compressed.Load() {
-		dist, err := h.compressor.DistanceBetweenCompressedAndUncompressedVectorsFromID(context.Background(), node, vecB)
+		dist, _, err := distancer.DistanceToNode(node)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
@@ -700,11 +705,17 @@ func (h *hnsw) DistancerProvider() distancer.Provider {
 }
 
 func (h *hnsw) ShouldUpgrade() (bool, int) {
+	if h.sqConfig.Enabled {
+		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
+	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
 
 func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, int) {
 	hnswConfig := config.(ent.UserConfig)
+	if hnswConfig.SQ.Enabled {
+		return hnswConfig.SQ.Enabled, hnswConfig.SQ.TrainingLimit
+	}
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }
 

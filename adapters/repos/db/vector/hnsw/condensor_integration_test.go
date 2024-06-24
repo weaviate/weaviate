@@ -609,7 +609,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	}
 
 	t.Run("add pq info", func(t *testing.T) {
-		uncondensed.AddPQ(compressionhelpers.PQData{
+		uncondensed.AddPQCompression(compressionhelpers.PQData{
 			Ks:                  4,
 			M:                   3,
 			Dimensions:          6,
@@ -657,7 +657,7 @@ func TestCondensorWithPQInformation(t *testing.T) {
 			UseBitsEncoding:     false,
 		}
 
-		assert.Equal(t, expected, res.PQData)
+		assert.Equal(t, expected, *res.CompressionPQData)
 	})
 }
 

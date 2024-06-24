@@ -13,6 +13,7 @@ package commitlog
 
 import (
 	"encoding/binary"
+	"math"
 	"os"
 
 	"github.com/pkg/errors"
@@ -41,6 +42,7 @@ const (
 	ClearLinksAtLevel // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1701
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 	AddPQ
+	AddSQ
 )
 
 func NewLogger(fileName string) *Logger {
@@ -74,7 +76,7 @@ func (l *Logger) AddNode(id uint64, level int) error {
 	return err
 }
 
-func (l *Logger) AddPQ(data compressionhelpers.PQData) error {
+func (l *Logger) AddPQCompression(data compressionhelpers.PQData) error {
 	toWrite := make([]byte, 10)
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
@@ -91,6 +93,16 @@ func (l *Logger) AddPQ(data compressionhelpers.PQData) error {
 	for _, encoder := range data.Encoders {
 		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
 	}
+	_, err := l.bufw.Write(toWrite)
+	return err
+}
+
+func (l *Logger) AddSQCompression(data compressionhelpers.SQData) error {
+	toWrite := make([]byte, 11)
+	toWrite[0] = byte(AddSQ)
+	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
+	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
+	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
 	_, err := l.bufw.Write(toWrite)
 	return err
 }
