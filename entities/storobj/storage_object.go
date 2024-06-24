@@ -823,7 +823,10 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 
 			}
 		case jsonparser.Object:
-
+			// nested objects and geo-props and phonenumbers.
+			nestedProps := map[string]interface{}{}
+			json.Unmarshal(value, &nestedProps)
+			(*properties)[aggregationProperties[idx]] = nestedProps
 		default:
 			panic("Unknown data type EachKey") // returning an error would be better
 		}
