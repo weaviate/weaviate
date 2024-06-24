@@ -17,9 +17,9 @@ import (
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
-	return common_filters.NearVectorArgument("AggregateObjects", className)
+	return common_filters.NearVectorArgument("AggregateObjects", className, false)
 }
 
 func nearObjectArgument(className string) *graphql.ArgumentConfig {
-	return common_filters.NearObjectArgument("AggregateObjects", className)
+	return common_filters.NearObjectArgument("AggregateObjects", className, false)
 }
