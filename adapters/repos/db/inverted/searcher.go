@@ -124,20 +124,16 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 		limit = int(config.DefaultQueryMaximumResults)
 	}
 
-	var props *storobj.PropertyExtraction = nil
-	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
-	if properties != nil {
-		propStrings := make([]string, len(properties))
-		propStringsList := make([][]string, len(properties))
-		for j := range properties {
-			propStrings[j] = properties[j]
-			propStringsList[j] = []string{properties[j]}
-		}
+	propStrings := make([]string, len(properties))
+	propStringsList := make([][]string, len(properties))
+	for j := range properties {
+		propStrings[j] = properties[j]
+		propStringsList[j] = []string{properties[j]}
+	}
 
-		props = &storobj.PropertyExtraction{
-			PropStrings:     propStrings,
-			PropStringsList: propStringsList,
-		}
+	props := &storobj.PropertyExtraction{
+		PropStrings:     propStrings,
+		PropStringsList: propStringsList,
 	}
 
 	i := 0

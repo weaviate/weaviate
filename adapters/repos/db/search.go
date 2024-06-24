@@ -268,8 +268,15 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 
 		for _, index := range db.indices {
 			// TODO support all additional props
+			scheme := index.getSchema.GetSchemaSkipAuth()
+			props := scheme.GetClass(string(index.Config.ClassName)).Properties
+			propsNames := make([]string, len(props))
+			for i, prop := range props {
+				propsNames[i] = prop.Name
+			}
+
 			res, _, err := index.objectSearch(ctx, totalLimit,
-				filters, nil, sort, nil, additional, nil, tenant, 0, nil)
+				filters, nil, sort, nil, additional, nil, tenant, 0, propsNames)
 			if err != nil {
 				// Multi tenancy specific errors
 				if errors.As(err, &objects.ErrMultiTenancy{}) {
