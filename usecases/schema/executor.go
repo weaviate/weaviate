@@ -61,6 +61,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			return fmt.Errorf("restore index %q: %w", i, err)
 		}
 	}
+	e.TriggerSchemaUpdateCallbacks()
 	return nil
 }
 
