@@ -221,6 +221,7 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 	shardName string, vector [][]float32, targetVector []string, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
 	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
+	properties search.SelectProperties,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }

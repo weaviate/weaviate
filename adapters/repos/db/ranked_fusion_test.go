@@ -419,6 +419,7 @@ func TestRFJourney(t *testing.T) {
 				Offset: 0,
 				Limit:  6,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider()
@@ -456,6 +457,7 @@ func TestRFJourney(t *testing.T) {
 				Offset: 0,
 				Limit:  -1,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider()
@@ -495,6 +497,7 @@ func TestRFJourney(t *testing.T) {
 				Offset: 2,
 				Limit:  1,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider()
@@ -536,6 +539,7 @@ func TestRFJourney(t *testing.T) {
 				Offset: 4,
 				Limit:  1,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider()
@@ -660,7 +664,8 @@ func TestRFJourneyWithFilters(t *testing.T) {
 				Offset: 0,
 				Limit:  100,
 			},
-			Filters: filter1,
+			Filters:    filter1,
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider()
@@ -691,6 +696,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 				Offset: 0,
 				Limit:  -1,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider()
@@ -730,7 +736,8 @@ func TestRFJourneyWithFilters(t *testing.T) {
 				Offset: 0,
 				Limit:  -1,
 			},
-			Filters: filter,
+			Filters:    filter,
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider()

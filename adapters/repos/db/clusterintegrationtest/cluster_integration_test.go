@@ -565,6 +565,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 					ClassName:  distributedClass,
 					Sort:       td.sort,
 					Pagination: &filters.Pagination{Limit: 100},
+					Properties: search.SelectProperties{{Name: "description"}},
 				}
 
 				node := nodes[rnd.Intn(len(nodes))]

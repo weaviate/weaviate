@@ -154,7 +154,7 @@ func TestStorageObjectUnmarshallingSpecificProps(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("without any optional", func(t *testing.T) {
-		after, err := FromBinaryOptional(asBinary, additional.Properties{})
+		after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
 		require.Nil(t, err)
 
 		t.Run("compare", func(t *testing.T) {
@@ -581,7 +581,8 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 						CreationTimeUnix: 123456,
 						ID:               strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
 						Properties: map[string]interface{}{
-							"name": "myName",
+							"name":   "myName",
+							"second": "entry",
 						},
 					},
 					vector,
@@ -593,7 +594,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				require.Nil(t, err)
 
 				t.Run("get without additional properties", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{})
+					after, err := FromBinaryOptional(asBinary, additional.Properties{}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -609,7 +610,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 				})
 
 				t.Run("get with additional property vector", func(t *testing.T) {
-					after, err := FromBinaryOptional(asBinary, additional.Properties{Vector: true})
+					after, err := FromBinaryOptional(asBinary, additional.Properties{Vector: true}, nil)
 					require.Nil(t, err)
 					// modify before to match expectations of after
 					before.Object.Additional = nil
@@ -623,6 +624,17 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					// purposes) even if the vector itself is skipped
 					assert.Equal(t, after.VectorLen, int(vectorLength))
 					assert.Equal(t, vector, after.Vector)
+				})
+
+				t.Run("with explicit properties", func(t *testing.T) {
+					after, err := FromBinaryOptional(asBinary, additional.Properties{},
+						&propertyExtraction{propStrings: []string{"name"}, propStringsList: [][]string{{"name"}}},
+					)
+					require.Nil(t, err)
+
+					assert.Equal(t, before.DocID, after.DocID)
+					// second property is not included
+					assert.Equal(t, map[string]interface{}{"name": "myName"}, after.Properties())
 				})
 			})
 		})
@@ -758,4 +770,61 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 		_, err := invalidObj.MarshalBinary()
 		require.ErrorContains(t, err, "could not marshal 'vector' max length exceeded")
 	})
+}
+
+func BenchmarkUnmarshalPropertiesFullObject(b *testing.B) {
+	benchmarkExtraction(b, nil)
+}
+
+func BenchmarkUnmarshalPropertiesExplicitOnlySome(b *testing.B) {
+	benchmarkExtraction(b, []string{"name", "second"})
+}
+
+func BenchmarkUnmarshalPropertiesExplicitAll(b *testing.B) {
+	benchmarkExtraction(b, []string{"name", "second", "number", "bool", "array"})
+}
+
+func benchmarkExtraction(b *testing.B, propStrings []string) {
+	beforeProps := map[string]interface{}{
+		"name":   "some long string",
+		"second": "other very long string",
+		"number": float64(17),
+		"bool":   false,
+		"array":  []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"},
+	}
+	before := FromObject(
+		&models.Object{
+			Class:            "MyFavoriteClass",
+			CreationTimeUnix: 123456,
+			ID:               "73f2eb5f-5abf-447a-81ca-74b1dd168247",
+			Properties:       beforeProps,
+		},
+		nil,
+		nil,
+	)
+	before.DocID = 7
+	var props *propertyExtraction
+
+	if len(propStrings) > 0 {
+		propStringsList := make([][]string, len(propStrings))
+		for i, prop := range propStrings {
+			propStringsList[i] = []string{prop}
+		}
+
+		props = &propertyExtraction{
+			propStrings:     propStrings,
+			propStringsList: propStringsList,
+		}
+	}
+
+	asBinary, err := before.MarshalBinary()
+	require.Nil(b, err)
+
+	b.ResetTimer()
+
+	for n := 0; n < b.N; n++ {
+		after, err := FromBinaryOptional(asBinary, additional.Properties{}, props)
+		require.Nil(b, err)
+		require.NotNil(b, after)
+	}
 }
