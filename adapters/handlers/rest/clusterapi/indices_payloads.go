@@ -20,8 +20,6 @@ import (
 	"math"
 	"net/http"
 
-	"github.com/weaviate/weaviate/entities/search"
-
 	"github.com/weaviate/weaviate/entities/dto"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -438,7 +436,7 @@ type searchParamsPayload struct{}
 func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-	addP additional.Properties, targetCombination *dto.TargetCombination, properties search.SelectProperties,
+	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]byte, error) {
 	type params struct {
 		SearchVector      []float32                    `json:"searchVector"`
@@ -453,7 +451,7 @@ func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string
 		SearchVectors     [][]float32                  `json:"searchVectors"`
 		TargetVectors     []string                     `json:"targetVectors"`
 		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
-		Properties        search.SelectProperties      `json:"properties"`
+		Properties        []string                     `json:"properties"`
 	}
 	var vector []float32
 	var targetVector string
@@ -469,7 +467,7 @@ func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string
 
 func (p searchParamsPayload) Unmarshal(in []byte) ([][]float32, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
-	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, search.SelectProperties, error,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, *dto.TargetCombination, []string, error,
 ) {
 	type searchParametersPayload struct {
 		SearchVector      []float32                    `json:"searchVector"`
@@ -485,7 +483,7 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([][]float32, []string, float3
 		SearchVectors     [][]float32                  `json:"searchVectors"`
 		TargetVectors     []string                     `json:"targetVectors"`
 		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
-		Properties        search.SelectProperties      `json:"properties"`
+		Properties        []string                     `json:"properties"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
