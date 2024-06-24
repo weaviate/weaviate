@@ -84,6 +84,10 @@ func NewSlowQueryReporter(threshold time.Duration, logger logrus.FieldLogger) *B
 func (sq *BaseSlowReporter) LogIfSlow(startTime time.Time, fields map[string]any) {
 	took := time.Since(startTime)
 	if took > sq.threshold {
+		if fields == nil {
+			fields = map[string]any{}
+		}
+		fields["took"] = took
 		sq.logger.WithFields(fields).Warn(fmt.Sprintf("Slow query detected (%s)", took.Round(time.Millisecond)))
 	}
 }
