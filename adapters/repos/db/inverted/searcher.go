@@ -77,7 +77,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 // Objects returns a list of full objects
 func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	className schema.ClassName,
+	className schema.ClassName, properties []string,
 ) ([]*storobj.Object, error) {
 	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
 	if err != nil {
@@ -95,7 +95,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(it, additional, limit)
+	return s.objectsByDocID(it, additional, limit, properties)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
@@ -109,7 +109,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 }
 
 func (s *Searcher) objectsByDocID(it docIDsIterator,
-	additional additional.Properties, limit int,
+	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -122,6 +122,22 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 	// Prevent unbounded iteration
 	if limit == 0 {
 		limit = int(config.DefaultQueryMaximumResults)
+	}
+
+	var props *storobj.PropertyExtraction = nil
+	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
+	if properties != nil {
+		propStrings := make([]string, len(properties))
+		propStringsList := make([][]string, len(properties))
+		for j := range properties {
+			propStrings[j] = properties[j]
+			propStringsList[j] = []string{properties[j]}
+		}
+
+		props = &storobj.PropertyExtraction{
+			PropStrings:     propStrings,
+			PropStringsList: propStringsList,
+		}
 	}
 
 	i := 0
@@ -140,7 +156,7 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 		if additional.ReferenceQuery {
 			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
 		} else {
-			unmarshalled, err = storobj.FromBinaryOptional(res, additional, nil)
+			unmarshalled, err = storobj.FromBinaryOptional(res, additional, props)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)

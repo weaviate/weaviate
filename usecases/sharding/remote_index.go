@@ -81,7 +81,7 @@ type RemoteIndexClient interface {
 		searchVector [][]float32, targetVector []string, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-		additional additional.Properties, multiTargetCombination *dto.TargetCombination, properties search.SelectProperties,
+		additional additional.Properties, multiTargetCombination *dto.TargetCombination, properties []string,
 	) ([]*storobj.Object, []float32, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
@@ -253,7 +253,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	adds additional.Properties,
 	replEnabled bool,
 	multiTargetCombination *dto.TargetCombination,
-	properties search.SelectProperties,
+	properties []string,
 ) ([]*storobj.Object, []float32, string, error) {
 	type pair struct {
 		first  []*storobj.Object

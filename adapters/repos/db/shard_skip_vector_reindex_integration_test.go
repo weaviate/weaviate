@@ -107,6 +107,10 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			},
 		},
 	}
+	props := make([]string, len(class.Properties))
+	for i, prop := range class.Properties {
+		props[i] = prop.Name
+	}
 
 	createOrigObj := func() *storobj.Object {
 		return &storobj.Object{
@@ -290,7 +294,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	search := func(t *testing.T, shard ShardLike, filter *filters.LocalFilter) []*storobj.Object {
 		searchLimit := 10
 		found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-			nil, nil, nil, additional.Properties{})
+			nil, nil, nil, additional.Properties{}, props)
 		require.NoError(t, err)
 		return found
 	}

@@ -132,7 +132,7 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 }
 
 func FromBinaryOptional(data []byte,
-	addProp additional.Properties, properties *propertyExtraction,
+	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
 
@@ -238,9 +238,9 @@ func FromBinaryOptional(data []byte,
 	return ko, nil
 }
 
-type propertyExtraction struct {
-	propStrings     []string
-	propStringsList [][]string
+type PropertyExtraction struct {
+	PropStrings     []string
+	PropStringsList [][]string
 }
 
 type bucket interface {
@@ -249,7 +249,7 @@ type bucket interface {
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
-	additional additional.Properties, properties search.SelectProperties,
+	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -266,19 +266,19 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		bufPool.Put(lsmBuf)
 	}()
 
-	var props *propertyExtraction = nil
+	var props *PropertyExtraction = nil
 	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
 	if properties != nil {
 		propStrings := make([]string, len(properties))
 		propStringsList := make([][]string, len(properties))
 		for j := range properties {
-			propStrings[j] = properties[j].Name
-			propStringsList[j] = []string{properties[j].Name}
+			propStrings[j] = properties[j]
+			propStringsList[j] = []string{properties[j]}
 		}
 
-		props = &propertyExtraction{
-			propStrings:     propStrings,
-			propStringsList: propStringsList,
+		props = &PropertyExtraction{
+			PropStrings:     propStrings,
+			PropStringsList: propStringsList,
 		}
 	}
 
@@ -822,6 +822,8 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 				(*properties)[aggregationProperties[idx]] = array
 
 			}
+		case jsonparser.Object:
+
 		default:
 			panic("Unknown data type EachKey") // returning an error would be better
 		}
@@ -1015,7 +1017,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *propertyExtraction, propLength uint32,
+	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
 	var returnProps map[string]interface{}
 	if properties == nil || propLength == 0 {
@@ -1023,8 +1025,8 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 			return err
 		}
 	} else {
-		returnProps = make(map[string]interface{}, len(properties.propStrings))
-		if err := UnmarshalProperties(propsB[:propLength], &returnProps, properties.propStrings, properties.propStringsList); err != nil {
+		returnProps = make(map[string]interface{}, len(properties.PropStrings))
+		if err := UnmarshalProperties(propsB[:propLength], &returnProps, properties.PropStrings, properties.PropStringsList); err != nil {
 			return err
 		}
 	}

@@ -258,7 +258,7 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	additional additional.Properties,
+	additional additional.Properties, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	var err error
 
@@ -323,7 +323,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties)
 	return objs, nil, err
 }
 
@@ -363,7 +363,7 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 	return s.queue, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, multiTargetCombination *dto.TargetCombination, properties search.SelectProperties) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, multiTargetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{

@@ -628,7 +628,7 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 
 				t.Run("with explicit properties", func(t *testing.T) {
 					after, err := FromBinaryOptional(asBinary, additional.Properties{},
-						&propertyExtraction{propStrings: []string{"name"}, propStringsList: [][]string{{"name"}}},
+						&PropertyExtraction{PropStrings: []string{"name"}, PropStringsList: [][]string{{"name"}}},
 					)
 					require.Nil(t, err)
 
@@ -803,7 +803,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 		nil,
 	)
 	before.DocID = 7
-	var props *propertyExtraction
+	var props *PropertyExtraction
 
 	if len(propStrings) > 0 {
 		propStringsList := make([][]string, len(propStrings))
@@ -811,9 +811,9 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 			propStringsList[i] = []string{prop}
 		}
 
-		props = &propertyExtraction{
-			propStrings:     propStrings,
-			propStringsList: propStringsList,
+		props = &PropertyExtraction{
+			PropStrings:     propStrings,
+			PropStringsList: propStringsList,
 		}
 	}
 

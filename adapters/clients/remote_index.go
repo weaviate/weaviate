@@ -406,7 +406,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 	multiTargetCombination *dto.TargetCombination,
-	properties search.SelectProperties,
+	properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
