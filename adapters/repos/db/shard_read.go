@@ -443,7 +443,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 	}
 
 	if groupBy != nil {
-		objs, dists, err := s.groupResults(ctx, idsCombined, distCombined, groupBy, additional)
+		objs, dists, err := s.groupResults(ctx, idsCombined, distCombined, groupBy, additional, properties)
 		if err != nil {
 			return nil, nil, err
 		}
