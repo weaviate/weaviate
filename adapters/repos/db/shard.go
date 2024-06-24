@@ -928,6 +928,9 @@ func (s *Shard) closeHashTree() error {
 		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
 	}
 
+	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
+
 	return nil
 }
 
@@ -973,6 +976,8 @@ func (s *Shard) drop() (err error) {
 	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
 		s.stopHashBeater()
+		s.hashtree = nil
+		s.hashtreeInitialized.Store(false)
 	}
 	s.hashtreeRWMux.Unlock()
 
