@@ -28,7 +28,11 @@ func newGlobalBucketRegistry() *globalBucketRegistry {
 	}
 }
 
-var GlobalBucketRegistry = newGlobalBucketRegistry()
+var GlobalBucketRegistry *globalBucketRegistry
+
+func init() {
+	GlobalBucketRegistry = newGlobalBucketRegistry()
+}
 
 var ErrBucketAlreadyRegistered = errors.New("bucket already registered")
 
