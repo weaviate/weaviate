@@ -194,7 +194,3 @@ func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
 func (sq *ScalarQuantizer) norm(code []byte) uint32 {
 	return binary.BigEndian.Uint32(code[len(code)-8:])
 }
-
-func (sq *ScalarQuantizer) norm2(code []byte) uint32 {
-	return binary.BigEndian.Uint32(code[len(code)-4:])
-}
