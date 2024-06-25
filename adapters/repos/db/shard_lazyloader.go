@@ -419,9 +419,13 @@ func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.isLoaded() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
 		return nil
 	}
+
 	return l.shard.Shutdown(ctx)
 }
 

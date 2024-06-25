@@ -255,36 +255,27 @@ func (i *Index) IncomingCreateShard(ctx context.Context, className string, shard
 	return nil
 }
 
-func (i *Index) IncomingReinitShard(ctx context.Context,
-	shardName string,
-) error {
-	shard := func() ShardLike {
-		i.shardInUseLocks.Lock(shardName)
-		defer i.shardInUseLocks.Unlock(shardName)
+func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error {
+	err := func() error {
+		i.shardCreateLocks.Lock(shardName)
+		defer i.shardCreateLocks.Unlock(shardName)
 
-		return i.shards.Load(shardName)
-	}()
-
-	if shard != nil {
-		err := func() error {
-			i.shardCreateLocks.Lock(shardName)
-			defer i.shardCreateLocks.Unlock(shardName)
-
-			i.shards.LoadAndDelete(shardName)
-
+		shard, ok := i.shards.LoadAndDelete(shardName)
+		if ok {
 			if err := shard.Shutdown(ctx); err != nil {
 				if !errors.Is(err, errAlreadyShutdown) {
 					return err
 				}
 			}
-			return nil
-		}()
-		if err != nil {
-			return err
 		}
+
+		return nil
+	}()
+	if err != nil {
+		return err
 	}
 
-	_, err := i.getOrInitLocalShard(ctx, shardName)
+	_, err = i.getOrInitLocalShard(ctx, shardName)
 	return err
 }
 

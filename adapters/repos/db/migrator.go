@@ -180,7 +180,7 @@ func (m *Migrator) updateIndexAddTenants(ctx context.Context, idx *Index,
 	for shardName, phys := range incomingSS.Physical {
 		// Only load the tenant if activity status == HOT
 		if schemaUC.IsLocalActiveTenant(&phys, m.db.schemaGetter.NodeName()) {
-			if _, err := idx.initLocalShard(ctx, shardName, incomingClass); err != nil {
+			if _, err := idx.initLocalShard(ctx, incomingClass, shardName); err != nil {
 				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
 			}
 		}
@@ -212,7 +212,7 @@ func (m *Migrator) updateIndexAddShards(ctx context.Context, idx *Index,
 	incomingClass *models.Class, incomingSS *sharding.State,
 ) error {
 	for _, shardName := range incomingSS.AllLocalPhysicalShards() {
-		if _, err := idx.initLocalShard(ctx, shardName, incomingClass); err != nil {
+		if _, err := idx.initLocalShard(ctx, incomingClass, shardName); err != nil {
 			return fmt.Errorf("add missing shard %s during update index: %w", shardName, err)
 		}
 	}
@@ -335,18 +335,6 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	ec := &errorcompounder.ErrorCompounder{}
 
 	for _, name := range updatesHot {
-		shard, err := idx.getOrInitLocalShard(ctx, name)
-		ec.Add(err)
-		if err != nil {
-			continue
-		}
-
-		// if the shard is a lazy load shard, we need to force its activation now
-		asLL, ok := shard.(*LazyLoadShard)
-		if !ok {
-			continue
-		}
-
 		name := name // prevent loop variable capture
 		enterrors.GoWrapper(func() {
 			// The timeout is rather arbitrary. It's meant to be so high that it can
@@ -355,9 +343,10 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 			defer cancel()
 
-			if err := asLL.Load(ctx); err != nil {
+			if err := idx.loadLocalShard(ctx, name); err != nil {
+				ec.Add(err)
 				idx.logger.WithFields(logrus.Fields{
-					"action": "tenant_activation_lazy_laod_shard",
+					"action": "tenant_activation_lazy_load_shard",
 					"shard":  name,
 				}).WithError(err).Errorf("loading shard %q failed", name)
 			}
@@ -373,36 +362,36 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 		for _, name := range updatesCold {
 			name := name
+
 			eg.Go(func() error {
-				shard := func() ShardLike {
-					idx.shardInUseLocks.Lock(name)
-					defer idx.shardInUseLocks.Unlock(name)
-
-					return idx.shards.Load(name)
-				}()
-
-				if shard == nil {
-					return nil // shard already does not exist or inactive
-				}
-
 				idx.shardCreateLocks.Lock(name)
 				defer idx.shardCreateLocks.Unlock(name)
 
-				idx.shards.LoadAndDelete(name)
+				shard, ok := idx.shards.LoadAndDelete(name)
+				if !ok {
+					return nil // shard already does not exist or inactive
+				}
 
 				if err := shard.Shutdown(ctx); err != nil {
-					if !errors.Is(err, errAlreadyShutdown) {
+					if errors.Is(err, errAlreadyShutdown) {
+						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
+					} else {
 						ec.Add(err)
-						idx.logger.WithField("action", "shutdown_shard").
-							WithField("shard", shard.ID()).Error(err)
+
+						idx.logger.
+							WithField("action", "shutdown_shard").
+							WithField("shard", shard.ID()).
+							Error(err)
 					}
-					m.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
 				}
+
 				return nil
 			})
 		}
+
 		eg.Wait()
 	}
+
 	return ec.ToError()
 }
 
