@@ -581,7 +581,8 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
+				models.PropertyTokenizationTrigram, models.PropertyTokenizationGse, models.PropertyTokenizationKagomeKr:
 				return nil
 			}
 		default:
