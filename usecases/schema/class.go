@@ -15,10 +15,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"os"
 	"reflect"
 	"strings"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
