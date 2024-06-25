@@ -6,4 +6,4 @@ package asm
 import "unsafe"
 
 //go:noescape
-func dot_byte_256(a, b, res, len unsafe.Pointer)
+func dot_byte_pq_arm64(uncompressed, compressed, codebook, res, len_uncompressed, len_compressed unsafe.Pointer)

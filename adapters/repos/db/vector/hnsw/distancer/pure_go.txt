@@ -1,0 +1,491 @@
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+goos: darwin
+goarch: arm64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer
+BenchmarkDotByte/2_dimensions-8         	406971189	         2.887 ns/op
+BenchmarkDotByte/2_dimensions-8         	417686528	         2.891 ns/op
+BenchmarkDotByte/2_dimensions-8         	411034564	         2.855 ns/op
+BenchmarkDotByte/2_dimensions-8         	410860994	         2.856 ns/op
+BenchmarkDotByte/2_dimensions-8         	420820688	         2.875 ns/op
+BenchmarkDotByte/2_dimensions-8         	421974003	         2.864 ns/op
+BenchmarkDotByte/4_dimensions-8         	341234612	         3.483 ns/op
+BenchmarkDotByte/4_dimensions-8         	343871686	         3.526 ns/op
+BenchmarkDotByte/4_dimensions-8         	344315976	         3.497 ns/op
+BenchmarkDotByte/4_dimensions-8         	346404530	         3.488 ns/op
+BenchmarkDotByte/4_dimensions-8         	342469906	         3.488 ns/op
+BenchmarkDotByte/4_dimensions-8         	346111705	         3.510 ns/op
+BenchmarkDotByte/6_dimensions-8         	292464380	         4.163 ns/op
+BenchmarkDotByte/6_dimensions-8         	286993380	         4.143 ns/op
+BenchmarkDotByte/6_dimensions-8         	289271463	         4.230 ns/op
+BenchmarkDotByte/6_dimensions-8         	288715348	         4.178 ns/op
+BenchmarkDotByte/6_dimensions-8         	286785577	         4.154 ns/op
+BenchmarkDotByte/6_dimensions-8         	285800535	         4.148 ns/op
+BenchmarkDotByte/8_dimensions-8         	251955232	         4.834 ns/op
+BenchmarkDotByte/8_dimensions-8         	249667651	         4.826 ns/op
+BenchmarkDotByte/8_dimensions-8         	249724543	         4.821 ns/op
+BenchmarkDotByte/8_dimensions-8         	251566129	         4.736 ns/op
+BenchmarkDotByte/8_dimensions-8         	251122683	         4.690 ns/op
+BenchmarkDotByte/8_dimensions-8         	255896958	         4.731 ns/op
+BenchmarkDotByte/10_dimensions-8        	225906307	         5.407 ns/op
+BenchmarkDotByte/10_dimensions-8        	225783114	         5.507 ns/op
+BenchmarkDotByte/10_dimensions-8        	225839469	         5.359 ns/op
+BenchmarkDotByte/10_dimensions-8        	224453438	         5.318 ns/op
+BenchmarkDotByte/10_dimensions-8        	221510550	         5.317 ns/op
+BenchmarkDotByte/10_dimensions-8        	224346100	         5.332 ns/op
+BenchmarkDotByte/12_dimensions-8        	202161272	         5.993 ns/op
+BenchmarkDotByte/12_dimensions-8        	202014618	         5.979 ns/op
+BenchmarkDotByte/12_dimensions-8        	202228671	         5.976 ns/op
+BenchmarkDotByte/12_dimensions-8        	202302027	         5.966 ns/op
+BenchmarkDotByte/12_dimensions-8        	201533502	         5.936 ns/op
+BenchmarkDotByte/12_dimensions-8        	198431973	         5.936 ns/op
+BenchmarkDotByte/16_dimensions-8        	164785564	         7.184 ns/op
+BenchmarkDotByte/16_dimensions-8        	165338361	         7.194 ns/op
+BenchmarkDotByte/16_dimensions-8        	166695481	         7.230 ns/op
+BenchmarkDotByte/16_dimensions-8        	166609972	         7.334 ns/op
+BenchmarkDotByte/16_dimensions-8        	167102952	         7.256 ns/op
+BenchmarkDotByte/16_dimensions-8        	166770550	         7.231 ns/op
+BenchmarkDotByte/24_dimensions-8        	123925718	         9.764 ns/op
+BenchmarkDotByte/24_dimensions-8        	123924987	         9.833 ns/op
+BenchmarkDotByte/24_dimensions-8        	123927846	         9.786 ns/op
+BenchmarkDotByte/24_dimensions-8        	123394256	         9.854 ns/op
+BenchmarkDotByte/24_dimensions-8        	123832011	         9.758 ns/op
+BenchmarkDotByte/24_dimensions-8        	123930992	         9.827 ns/op
+BenchmarkDotByte/30_dimensions-8        	100000000	        11.72 ns/op
+BenchmarkDotByte/30_dimensions-8        	100000000	        11.56 ns/op
+BenchmarkDotByte/30_dimensions-8        	100000000	        11.64 ns/op
+BenchmarkDotByte/30_dimensions-8        	100000000	        11.57 ns/op
+BenchmarkDotByte/30_dimensions-8        	100000000	        11.63 ns/op
+BenchmarkDotByte/30_dimensions-8        	100000000	        11.61 ns/op
+BenchmarkDotByte/32_dimensions-8        	98677783	        12.25 ns/op
+BenchmarkDotByte/32_dimensions-8        	98549474	        12.26 ns/op
+BenchmarkDotByte/32_dimensions-8        	98549474	        12.19 ns/op
+BenchmarkDotByte/32_dimensions-8        	98555204	        12.42 ns/op
+BenchmarkDotByte/32_dimensions-8        	98197326	        12.18 ns/op
+BenchmarkDotByte/32_dimensions-8        	98670682	        12.38 ns/op
+BenchmarkDotByte/128_dimensions-8       	24265443	        49.59 ns/op
+BenchmarkDotByte/128_dimensions-8       	21166213	        49.53 ns/op
+BenchmarkDotByte/128_dimensions-8       	24220690	        49.90 ns/op
+BenchmarkDotByte/128_dimensions-8       	24278043	        49.69 ns/op
+BenchmarkDotByte/128_dimensions-8       	24241321	        49.89 ns/op
+BenchmarkDotByte/128_dimensions-8       	24221301	        49.54 ns/op
+BenchmarkDotByte/256_dimensions-8       	12629595	        95.68 ns/op
+BenchmarkDotByte/256_dimensions-8       	12645676	        95.46 ns/op
+BenchmarkDotByte/256_dimensions-8       	12665368	        94.81 ns/op
+BenchmarkDotByte/256_dimensions-8       	12662412	        95.55 ns/op
+BenchmarkDotByte/256_dimensions-8       	12668784	        95.49 ns/op
+BenchmarkDotByte/256_dimensions-8       	12651560	        95.80 ns/op
+BenchmarkDotByte/300_dimensions-8       	11494321	       106.0 ns/op
+BenchmarkDotByte/300_dimensions-8       	11513500	       104.4 ns/op
+BenchmarkDotByte/300_dimensions-8       	11500968	       105.0 ns/op
+BenchmarkDotByte/300_dimensions-8       	11504868	       105.0 ns/op
+BenchmarkDotByte/300_dimensions-8       	11507713	       104.5 ns/op
+BenchmarkDotByte/300_dimensions-8       	11441510	       105.2 ns/op
+BenchmarkDotByte/384_dimensions-8       	 9187264	       132.9 ns/op
+BenchmarkDotByte/384_dimensions-8       	 9201577	       131.5 ns/op
+BenchmarkDotByte/384_dimensions-8       	 9197336	       133.0 ns/op
+BenchmarkDotByte/384_dimensions-8       	 9201447	       130.7 ns/op
+BenchmarkDotByte/384_dimensions-8       	 8430138	       130.6 ns/op
+BenchmarkDotByte/384_dimensions-8       	 9112017	       132.1 ns/op
+BenchmarkDotByte/512_dimensions-8       	 6824578	       175.4 ns/op
+BenchmarkDotByte/512_dimensions-8       	 6852450	       177.2 ns/op
+BenchmarkDotByte/512_dimensions-8       	 6853333	       176.3 ns/op
+BenchmarkDotByte/512_dimensions-8       	 6852098	       175.2 ns/op
+BenchmarkDotByte/512_dimensions-8       	 6856698	       177.0 ns/op
+BenchmarkDotByte/512_dimensions-8       	 6813277	       176.6 ns/op
+BenchmarkDotByte/768_dimensions-8       	 4712074	       254.3 ns/op
+BenchmarkDotByte/768_dimensions-8       	 4723002	       255.9 ns/op
+BenchmarkDotByte/768_dimensions-8       	 4721277	       257.4 ns/op
+BenchmarkDotByte/768_dimensions-8       	 4721788	       254.2 ns/op
+BenchmarkDotByte/768_dimensions-8       	 4566802	       254.3 ns/op
+BenchmarkDotByte/768_dimensions-8       	 4718883	       255.9 ns/op
+BenchmarkDotByte/1024_dimensions-8      	 3587235	       338.9 ns/op
+BenchmarkDotByte/1024_dimensions-8      	 3561097	       334.5 ns/op
+BenchmarkDotByte/1024_dimensions-8      	 3578391	       339.9 ns/op
+BenchmarkDotByte/1024_dimensions-8      	 3584659	       337.2 ns/op
+BenchmarkDotByte/1024_dimensions-8      	 3584316	       335.9 ns/op
+BenchmarkDotByte/1024_dimensions-8      	 3557179	       334.5 ns/op
+BenchmarkDotByte/1536_dimensions-8      	 2420740	       497.5 ns/op
+BenchmarkDotByte/1536_dimensions-8      	 2412901	       508.6 ns/op
+BenchmarkDotByte/1536_dimensions-8      	 2430530	       499.5 ns/op
+BenchmarkDotByte/1536_dimensions-8      	 2397778	       496.5 ns/op
+BenchmarkDotByte/1536_dimensions-8      	 2214468	       495.7 ns/op
+BenchmarkDotByte/1536_dimensions-8      	 2362935	       499.0 ns/op
+PASS
+ok  	github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer	175.524s
