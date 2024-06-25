@@ -43,7 +43,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantK:             0,
 			wantP:             0.0,
 			wantStopSequences: []string{},
-			wantBaseURL:       "https://api.anthropic.com/v1/messages",
+			wantBaseURL:       "https://api.anthropic.com",
 			wantErr:           nil,
 		},
 		{
@@ -91,7 +91,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantK:             0,
 			wantP:             0.0,
 			wantStopSequences: []string{},
-			wantBaseURL:       "https://api.anthropic.com/v1/messages",
+			wantBaseURL:       "https://api.anthropic.com",
 			wantErr:           nil,
 		},
 	}
