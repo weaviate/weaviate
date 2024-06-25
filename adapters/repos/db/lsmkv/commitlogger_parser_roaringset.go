@@ -93,7 +93,7 @@ func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
 		return errors.Wrap(err, "read segment contents")
 	}
 
-	segment := roaringset.NewSegmentNodeFromBuffer(contentReader.NewMMap(segBuf))
+	segment := roaringset.NewSegmentNodeFromBuffer(contentReader.NewMemory(segBuf))
 	key := segment.PrimaryKey()
 	if err := p.memtable.roaringSetAddRemoveBitmaps(key, segment.Additions(), segment.Deletions()); err != nil {
 		return errors.Wrap(err, "add/remove bitmaps")

@@ -57,7 +57,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
 		}
-		contReader = contentReader.NewMMap(contents)
+		contReader = contentReader.NewMemory(contents)
 		defer file.Close()
 	} else {
 		contReader = contentReader.NewPread(file, uint64(fileInfo.Size()))

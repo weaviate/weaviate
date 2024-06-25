@@ -33,7 +33,7 @@ func writeBytesToFile(t testing.TB, bytes []byte) *os.File {
 
 func GetContentReaderFromBytes(t testing.TB, mmap bool, bytes []byte) ContentReader {
 	if mmap {
-		return NewMMap(bytes)
+		return NewMemory(bytes)
 	} else {
 		fi := writeBytesToFile(t, bytes)
 		return NewPread(fi, uint64(len(bytes)))

@@ -41,15 +41,15 @@ type ContentReader interface {
 	ReaderFromOffset(start uint64, end uint64) io.Reader
 }
 
-type MMap struct {
+type Memory struct {
 	contents []byte
 }
 
-func (c MMap) ReadValue(offset uint64) (byte, uint64) {
+func (c Memory) ReadValue(offset uint64) (byte, uint64) {
 	return c.contents[offset], offset + 1
 }
 
-func (c MMap) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64) {
+func (c Memory) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64) {
 	if outBuf == nil {
 		return c.contents[offset : offset+length], offset + length
 	}
@@ -57,19 +57,19 @@ func (c MMap) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, ui
 	return outBuf, offset + length
 }
 
-func (c MMap) ReadUint64(offset uint64) (uint64, uint64) {
+func (c Memory) ReadUint64(offset uint64) (uint64, uint64) {
 	return binary.LittleEndian.Uint64(c.contents[offset : offset+uint64Len]), offset + uint64Len
 }
 
-func (c MMap) ReadUint32(offset uint64) (uint32, uint64) {
+func (c Memory) ReadUint32(offset uint64) (uint32, uint64) {
 	return binary.LittleEndian.Uint32(c.contents[offset : offset+uint32Len]), offset + uint32Len
 }
 
-func (c MMap) Length() uint64 {
+func (c Memory) Length() uint64 {
 	return uint64(len(c.contents))
 }
 
-func (c MMap) Close() error {
+func (c Memory) Close() error {
 	m := mmap.MMap(c.contents)
 	if err := m.Unmap(); err != nil {
 		return fmt.Errorf("close segment: munmap: %w", err)
@@ -77,29 +77,29 @@ func (c MMap) Close() error {
 	return nil
 }
 
-func (c MMap) NewWithOffsetStart(start uint64) (ContentReader, error) {
+func (c Memory) NewWithOffsetStart(start uint64) (ContentReader, error) {
 	if start > uint64(len(c.contents)) {
 		return nil, fmt.Errorf("start offset %d is greater than the length of the file", start)
 	}
 	return c.NewWithOffsetStartEnd(start, uint64(len(c.contents)))
 }
 
-func (c MMap) NewWithOffsetStartEnd(start uint64, end uint64) (ContentReader, error) {
+func (c Memory) NewWithOffsetStartEnd(start uint64, end uint64) (ContentReader, error) {
 	if end > uint64(len(c.contents)) {
 		return nil, fmt.Errorf("end offset %d is greater than the length of the contents %d", end, len(c.contents))
 	}
-	return MMap{contents: c.contents[start:end]}, nil
+	return Memory{contents: c.contents[start:end]}, nil
 }
 
-func (c MMap) ReaderFromOffset(start uint64, end uint64) io.Reader {
+func (c Memory) ReaderFromOffset(start uint64, end uint64) io.Reader {
 	if end == 0 {
 		return bytes.NewReader(c.contents[start:])
 	}
 	return bytes.NewReader(c.contents[start:end])
 }
 
-func NewMMap(contents []byte) ContentReader {
-	return MMap{contents: contents}
+func NewMemory(contents []byte) ContentReader {
+	return Memory{contents: contents}
 }
 
 func NewPread(contentFile *os.File, size uint64) ContentReader {

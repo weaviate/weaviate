@@ -154,7 +154,7 @@ func NewSegmentNode(
 	rw.MoveBufferToAbsolutePosition(0)
 	rw.WriteUint64(uint64(offset))
 
-	return &SegmentNode{contentReader: contentReader.NewMMap(data)}, nil
+	return &SegmentNode{contentReader: contentReader.NewMemory(data)}, nil
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,

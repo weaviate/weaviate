@@ -100,7 +100,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
 		}
-		contReader = contentReader.NewMMap(contents)
+		contReader = contentReader.NewMemory(contents)
 	} else {
 		contReader = contentReader.NewPread(file, uint64(fileInfo.Size()))
 	}

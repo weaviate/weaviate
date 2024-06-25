@@ -99,7 +99,7 @@ func TestTree(t *testing.T) {
 		bytes, err := tree.MarshalBinary()
 		require.Nil(t, err)
 
-		dTree := NewDiskTree(contentReader.NewMMap(bytes))
+		dTree := NewDiskTree(contentReader.NewMemory(bytes))
 
 		t.Run("get", func(t *testing.T) {
 			n, err := dTree.Get([]byte("foobar"))
