@@ -93,7 +93,7 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 
 	resultCount := 0
 	for propName, propSegments := range segments {
-		tombstones[propName] = make([]*sroar.Bitmap, len(propSegments)+len(memTables[propName]))
+		tombstones[propName] = make([]*sroar.Bitmap, 0)
 		for _, segment := range propSegments {
 			segment.CompactionMutex.RLock()
 			defer segment.CompactionMutex.RUnlock()
@@ -104,7 +104,12 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 			tombstones[propName] = append(tombstones[propName], tombstone)
 			resultCount += 1
 		}
-		for _, memTable := range memTables[propName] {
+	}
+	for propName, propMemTables := range memTables {
+		if _, ok := tombstones[propName]; !ok {
+			tombstones[propName] = make([]*sroar.Bitmap, 0)
+		}
+		for _, memTable := range propMemTables {
 
 			tombstone, err := memTable.GetTombstones()
 			if err != nil {
