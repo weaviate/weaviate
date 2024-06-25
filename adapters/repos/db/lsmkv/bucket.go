@@ -295,7 +295,7 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 	cursor := b.MapCursor()
 	defer cursor.Close()
 
-	for kList, vList := cursor.First(); kList != nil; kList, vList = cursor.Next() {
+	for kList, vList := cursor.First(ctx); kList != nil; kList, vList = cursor.Next(ctx) {
 		for _, v := range vList {
 			if err := f(kList, v.Key, v.Value, v.Tombstone); err != nil {
 				return fmt.Errorf("callback on object '%v' failed: %w", v, err)
@@ -322,6 +322,10 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
+	return b.get(key)
+}
+
+func (b *Bucket) get(key []byte) ([]byte, error) {
 	v, err := b.active.get(key)
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
@@ -476,7 +480,20 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		}
 	}
 
-	return b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	k, v, buffer, err := b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// additional validation to ensure the primary key has not been marked as deleted
+	pkv, err := b.get(k)
+	if err != nil {
+		return nil, nil, err
+	} else if pkv == nil {
+		return nil, buffer, nil
+	}
+
+	return v, buffer, nil
 }
 
 // SetList returns all Set entries for a given key.
@@ -490,29 +507,23 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	var out []value
 
 	v, err := b.disk.getCollection(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	out = v
 
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
-		if err != nil {
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
-			}
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
 		out = append(out, v...)
 
 	}
 
 	v, err = b.active.getCollection(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	if len(v) > 0 {
 		// skip the expensive append operation if there was no memtable
@@ -670,7 +681,7 @@ func MapListLegacySortingRequired() MapListOption {
 //
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
-func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -682,13 +693,15 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	segments := [][]MapPair{}
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 
 	for i := range disk {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
 			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
@@ -709,10 +722,8 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
-		if err != nil {
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
-			}
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
 
 		segments = append(segments, v)
@@ -720,10 +731,8 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 
 	// before = time.Now()
 	v, err := b.active.getMap(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	segments = append(segments, v)
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
@@ -742,7 +751,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		}
 	}
 
-	return newSortedMapMerger().do(segments)
+	return newSortedMapMerger().do(ctx, segments)
 }
 
 // MapSet writes one [MapPair] into the map for the given row key. It is

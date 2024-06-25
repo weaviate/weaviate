@@ -76,11 +76,12 @@ type RemoteIndexClient interface {
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
 		ids []strfmt.UUID) ([]*storobj.Object, error)
 	SearchShard(ctx context.Context, hostname, indexName, shardName string,
-		searchVector []float32, targetVector string, limit int, filters *filters.LocalFilter,
+		searchVector [][]float32, targetVector []string, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties,
 	) ([]*storobj.Object, []float32, error)
+
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
@@ -239,8 +240,8 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
-	queryVec []float32,
-	targetVector string,
+	queryVec [][]float32,
+	targetVector []string,
 	limit int,
 	filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking,

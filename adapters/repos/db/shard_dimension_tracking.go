@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"encoding/binary"
 	"strings"
 	"time"
@@ -33,9 +34,9 @@ const (
 	DimensionCategoryBQ
 )
 
-func (s *Shard) Dimensions() int {
+func (s *Shard) Dimensions(ctx context.Context) int {
 	keyLen := 4
-	return s.calcDimensions(func(k []byte, v []lsmkv.MapPair) int {
+	return s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
 		// consider only keys of len 4, skipping ones prefixed with vector name
 		if len(k) == keyLen {
 			dimLength := binary.LittleEndian.Uint32(k)
@@ -45,10 +46,10 @@ func (s *Shard) Dimensions() int {
 	})
 }
 
-func (s *Shard) DimensionsForVec(vecName string) int {
+func (s *Shard) DimensionsForVec(ctx context.Context, vecName string) int {
 	nameLen := len(vecName)
 	keyLen := nameLen + 4
-	return s.calcDimensions(func(k []byte, v []lsmkv.MapPair) int {
+	return s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
 		// consider only keys of len vecName + 4, prefixed with vecName
 		if len(k) == keyLen && strings.HasPrefix(string(k), vecName) {
 			dimLength := binary.LittleEndian.Uint32(k[nameLen:])
@@ -58,15 +59,15 @@ func (s *Shard) DimensionsForVec(vecName string) int {
 	})
 }
 
-func (s *Shard) QuantizedDimensions(segments int) int {
+func (s *Shard) QuantizedDimensions(ctx context.Context, segments int) int {
 	// Exit early if segments is 0 (unset), in this case PQ will use the same number of dimensions
 	// as the segment size
 	if segments <= 0 {
-		return s.Dimensions()
+		return s.Dimensions(ctx)
 	}
 
 	keyLen := 4
-	return s.calcDimensions(func(k []byte, v []lsmkv.MapPair) int {
+	return s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
 		// consider only keys of len 4, skipping ones prefixed with vector name
 		if len(k) == keyLen {
 			if dimLength := binary.LittleEndian.Uint32(k); dimLength > 0 {
@@ -77,16 +78,16 @@ func (s *Shard) QuantizedDimensions(segments int) int {
 	}) * segments
 }
 
-func (s *Shard) QuantizedDimensionsForVec(segments int, vecName string) int {
+func (s *Shard) QuantizedDimensionsForVec(ctx context.Context, segments int, vecName string) int {
 	// Exit early if segments is 0 (unset), in this case PQ will use the same number of dimensions
 	// as the segment size
 	if segments <= 0 {
-		return s.DimensionsForVec(vecName)
+		return s.DimensionsForVec(ctx, vecName)
 	}
 
 	nameLen := len(vecName)
 	keyLen := nameLen + 4
-	return s.calcDimensions(func(k []byte, v []lsmkv.MapPair) int {
+	return s.calcDimensions(ctx, func(k []byte, v []lsmkv.MapPair) int {
 		// consider only keys of len vecName + 4, prefixed with vecName
 		if len(k) == keyLen && strings.HasPrefix(string(k), vecName) {
 			if dimLength := binary.LittleEndian.Uint32(k[nameLen:]); dimLength > 0 {
@@ -97,7 +98,7 @@ func (s *Shard) QuantizedDimensionsForVec(segments int, vecName string) int {
 	}) * segments
 }
 
-func (s *Shard) calcDimensions(calcEntry func(k []byte, v []lsmkv.MapPair) int) int {
+func (s *Shard) calcDimensions(ctx context.Context, calcEntry func(k []byte, v []lsmkv.MapPair) int) int {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return 0
@@ -107,7 +108,7 @@ func (s *Shard) calcDimensions(calcEntry func(k []byte, v []lsmkv.MapPair) int) 
 	defer c.Close()
 
 	sum := 0
-	for k, v := c.First(); k != nil; k, v = c.Next() {
+	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
 		sum += calcEntry(k, v)
 	}
 
@@ -115,19 +116,38 @@ func (s *Shard) calcDimensions(calcEntry func(k []byte, v []lsmkv.MapPair) int) 
 }
 
 func (s *Shard) initDimensionTracking() {
+	// do not use the context passed from NewShard, as that one is only meant for
+	// initialization. However, this goroutine keeps running forever, so if the
+	// startup context expires, this would error.
+	// https://github.com/weaviate/weaviate/issues/5091
+	rootCtx := context.Background()
 	if s.index.Config.TrackVectorDimensions {
+		s.dimensionTrackingInitialized.Store(true)
+
+		// The timeout is rather arbitrary, it's just meant to prevent a context
+		// leak. The actual work should be much faster.
+		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
+		defer cancel()
+
 		// always send vector dimensions at startup if tracking is enabled
-		s.publishDimensionMetrics()
+		s.publishDimensionMetrics(ctx)
 		// start tracking vector dimensions goroutine only when tracking is enabled
 		f := func() {
 			t := time.NewTicker(5 * time.Minute)
 			defer t.Stop()
 			for {
 				select {
-				case <-s.stopMetrics:
+				case <-s.stopDimensionTracking:
+					s.dimensionTrackingInitialized.Store(false)
 					return
 				case <-t.C:
-					s.publishDimensionMetrics()
+					func() {
+						// The timeout is rather arbitrary, it's just meant to prevent a context
+						// leak. The actual work should be much faster.
+						ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
+						defer cancel()
+						s.publishDimensionMetrics(ctx)
+					}()
 				}
 			}
 		}
@@ -135,7 +155,7 @@ func (s *Shard) initDimensionTracking() {
 	}
 }
 
-func (s *Shard) publishDimensionMetrics() {
+func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	if s.promMetrics != nil {
 		className := s.index.Config.ClassName.String()
 
@@ -143,15 +163,15 @@ func (s *Shard) publishDimensionMetrics() {
 			// send stats for legacy vector only
 			switch category, segments := getDimensionCategory(s.index.vectorIndexUserConfig); category {
 			case DimensionCategoryPQ:
-				count := s.QuantizedDimensions(segments)
+				count := s.QuantizedDimensions(ctx, segments)
 				sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
 				sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
 			case DimensionCategoryBQ:
-				count := s.Dimensions() / 8 // BQ has a flat 8x reduction in the dimensions metric
+				count := s.Dimensions(ctx) / 8 // BQ has a flat 8x reduction in the dimensions metric
 				sendVectorSegmentsMetric(s.promMetrics, className, s.name, count)
 				sendVectorDimensionsMetric(s.promMetrics, className, s.name, 0)
 			default:
-				count := s.Dimensions()
+				count := s.Dimensions(ctx)
 				sendVectorDimensionsMetric(s.promMetrics, className, s.name, count)
 			}
 			return
@@ -164,17 +184,17 @@ func (s *Shard) publishDimensionMetrics() {
 		for vecName, vecCfg := range s.index.vectorIndexUserConfigs {
 			switch category, segments := getDimensionCategory(vecCfg); category {
 			case DimensionCategoryPQ:
-				count := s.QuantizedDimensionsForVec(segments, vecName)
+				count := s.QuantizedDimensionsForVec(ctx, segments, vecName)
 				sumSegments += count
 				sendVectorSegmentsForVecMetric(s.promMetrics, className, s.name, count, vecName)
 				sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, 0, vecName)
 			case DimensionCategoryBQ:
-				count := s.DimensionsForVec(vecName) / 8 // BQ has a flat 8x reduction in the dimensions metric
+				count := s.DimensionsForVec(ctx, vecName) / 8 // BQ has a flat 8x reduction in the dimensions metric
 				sumSegments += count
 				sendVectorSegmentsForVecMetric(s.promMetrics, className, s.name, count, vecName)
 				sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, 0, vecName)
 			default:
-				count := s.DimensionsForVec(vecName)
+				count := s.DimensionsForVec(ctx, vecName)
 				sumDimensions += count
 				sendVectorDimensionsForVecMetric(s.promMetrics, className, s.name, count, vecName)
 			}

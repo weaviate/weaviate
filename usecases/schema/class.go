@@ -40,7 +40,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, err
 	}
-	cl := h.metaReader.ReadOnlyClass(name)
+	cl := h.schemaReader.ReadOnlyClass(name)
 	return cl, nil
 }
 
@@ -51,10 +51,10 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		return nil, 0, err
 	}
 	if consistency {
-		vclasses, err := h.metaWriter.QueryReadOnlyClasses(name)
+		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
 		return vclasses[name].Class, vclasses[name].Version, err
 	}
-	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)
+	class, _ := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
 	return class, 0, nil
 }
 
@@ -66,7 +66,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
+		vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
 		if err != nil {
 			return nil, err
 		}
@@ -133,7 +133,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, fmt.Errorf("init sharding state: %w", err)
 	}
-	version, err := h.metaWriter.AddClass(cls, shardState)
+	version, err := h.schemaManager.AddClass(cls, shardState)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -182,7 +182,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 	shardingState.MigrateFromOldFormat()
 	shardingState.ApplyNodeMapping(m)
-	_, err = h.metaWriter.RestoreClass(class, &shardingState)
+	_, err = h.schemaManager.RestoreClass(class, &shardingState)
 	return err
 }
 
@@ -193,7 +193,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 		return err
 	}
 
-	_, err = h.metaWriter.DeleteClass(class)
+	_, err = h.schemaManager.DeleteClass(class)
 	return err
 }
 
@@ -212,7 +212,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	initial := h.metaReader.ReadOnlyClass(className)
+	initial := h.schemaReader.ReadOnlyClass(className)
 	var shardingState *sharding.State
 
 	// first layer of defense is basic validation if class already exists
@@ -226,7 +226,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		updatedRF := updated.ReplicationConfig.Factor
 
 		if initialRF != updatedRF {
-			ss, _, err := h.metaWriter.QueryShardingState(className)
+			ss, _, err := h.schemaManager.QueryShardingState(className)
 			if err != nil {
 				return fmt.Errorf("query sharding state for %q: %w", className, err)
 			}
@@ -243,7 +243,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	_, err = h.metaWriter.UpdateClass(updated, shardingState)
+	_, err = h.schemaManager.UpdateClass(updated, shardingState)
 	return err
 }
 
@@ -475,7 +475,7 @@ func (h *Handler) validateProperty(
 		}
 
 		// Validate data type of property.
-		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.metaReader.ReadOnlyClass, property.DataType,
+		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.schemaReader.ReadOnlyClass, property.DataType,
 			relaxCrossRefValidation, schema.ClassName(class.Class))
 		if err != nil {
 			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
@@ -629,12 +629,12 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	return nil
 }
 
-func (m *Handler) validateVectorSettings(class *models.Class) error {
+func (h *Handler) validateVectorSettings(class *models.Class) error {
 	if !hasTargetVectors(class) {
-		if err := m.validateVectorizer(class.Vectorizer); err != nil {
+		if err := h.validateVectorizer(class.Vectorizer); err != nil {
 			return err
 		}
-		if err := m.validateVectorIndexType(class.VectorIndexType); err != nil {
+		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
 		return nil
@@ -652,24 +652,24 @@ func (m *Handler) validateVectorSettings(class *models.Class) error {
 		// other cases are handled in module config validation
 		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
 			for vectorizer := range vm {
-				if err := m.validateVectorizer(vectorizer); err != nil {
+				if err := h.validateVectorizer(vectorizer); err != nil {
 					return fmt.Errorf("target vector %q: %w", name, err)
 				}
 			}
 		}
-		if err := m.validateVectorIndexType(cfg.VectorIndexType); err != nil {
+		if err := h.validateVectorIndexType(cfg.VectorIndexType); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func (m *Handler) validateVectorizer(vectorizer string) error {
+func (h *Handler) validateVectorizer(vectorizer string) error {
 	if vectorizer == config.VectorizerModuleNone {
 		return nil
 	}
 
-	if err := m.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
+	if err := h.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
 		return errors.Wrap(err, "vectorizer")
 	}
 

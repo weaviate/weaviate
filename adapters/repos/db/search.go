@@ -73,7 +73,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 	// if this is reference search and tenant is given (as origin class is MT)
 	// but searched class is non-MT, then skip tenant to pass validation
 	tenant := params.Tenant
-	if !idx.partitioningEnabled && params.IsRefOrigin {
+	if !idx.partitioningEnabled() && params.IsRefOrigin {
 		tenant = ""
 	}
 
@@ -104,10 +104,11 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 }
 
 func (db *DB) VectorSearch(ctx context.Context,
-	params dto.GetParams,
+	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
 ) ([]search.Result, error) {
-	if params.SearchVector == nil {
-		return db.Search(ctx, params)
+	if searchVectors == nil {
+		results, err := db.Search(ctx, params)
+		return results, err
 	}
 
 	totalLimit, err := db.getTotalLimit(params.Pagination, params.AdditionalProperties)
@@ -121,9 +122,9 @@ func (db *DB) VectorSearch(ctx context.Context,
 	}
 
 	targetDist := extractDistanceFromParams(params)
-	res, dists, err := idx.objectVectorSearch(ctx, params.SearchVector, params.TargetVector,
+	res, dists, err := idx.objectVectorSearch(ctx, searchVectors, targetVectors,
 		targetDist, totalLimit, params.Filters, params.Sort, params.GroupBy,
-		params.AdditionalProperties, params.ReplicationProperties, params.Tenant)
+		params.AdditionalProperties, params.ReplicationProperties, params.Tenant, params.TargetVectorCombination)
 	if err != nil {
 		return nil, errors.Wrapf(err, "object vector search at index %s", idx.ID())
 	}
@@ -148,32 +149,6 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 	return float32(dist)
 }
 
-// DenseObjectSearch is used to perform a vector search on the db
-//
-// Earlier use cases required only []search.Result as a return value from the db, and the
-// Class VectorSearch method fit this need. Later on, other use cases presented the need
-// for the raw storage objects, such as hybrid search.
-func (db *DB) DenseObjectSearch(ctx context.Context, class string, vector []float32,
-	targetVector string, offset int, limit int, filters *filters.LocalFilter,
-	addl additional.Properties, tenant string,
-) ([]*storobj.Object, []float32, error) {
-	totalLimit := offset + limit
-
-	index := db.GetIndex(schema.ClassName(class))
-	if index == nil {
-		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", class)
-	}
-
-	// TODO: groupBy think of this
-	objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector, 0,
-		totalLimit, filters, nil, nil, addl, nil, tenant)
-	if err != nil {
-		return nil, nil, fmt.Errorf("search index %s: %w", index.ID(), err)
-	}
-
-	return objs, dist, nil
-}
-
 func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
@@ -191,9 +166,9 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector []float32, targ
 		f := func() {
 			defer wg.Done()
 
-			objs, dist, err := index.objectVectorSearch(ctx, vector, targetVector,
+			objs, dist, err := index.objectVectorSearch(ctx, [][]float32{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "")
+				additional.Properties{}, nil, "", nil)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -308,7 +283,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 						continue
 					}
 					// tenant does belong to this class
-					if errors.As(err, &errTenantNotFound) {
+					if errors.Is(err, enterrors.ErrTenantNotFound) {
 						continue // tenant does belong to this class
 					}
 				}
@@ -414,7 +389,13 @@ func (db *DB) getStoreObjectsWithScores(res []*storobj.Object, scores []float32,
 	if offset == 0 && limit == 0 {
 		return nil, nil
 	}
-	return res[offset:limit], scores[offset:limit]
+	res = res[offset:limit]
+	// not all search results have scores
+	if len(scores) == 0 {
+		return res, scores
+	}
+
+	return res, scores[offset:limit]
 }
 
 func (db *DB) getDists(dists []float32, pagination *filters.Pagination) []float32 {

@@ -382,6 +382,11 @@
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        },
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean",
+          "x-omitempty": false
         }
       },
       "type": "object"
@@ -2094,11 +2099,10 @@
           "type": "string"
         },
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. Allowed values are `HOT` - tenant is fully active, `WARM` - tenant is active, some restrictions are imposed (TBD; not supported yet), `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, `FROZEN` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. Allowed values are `HOT` - tenant is fully active, `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, `FROZEN` - as COLD, but files are stored on cloud storage",
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
             "FROZEN"
           ]
@@ -2117,7 +2121,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.25.1"
+    "version": "1.26.0-preview0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

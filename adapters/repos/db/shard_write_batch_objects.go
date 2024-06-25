@@ -215,6 +215,11 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 	if err := ctx.Err(); err != nil {
 		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
 	}
+
+	if err := ob.shard.mayUpsertObjectHashTree(object, idBytes, status); err != nil {
+		return errors.Wrap(err, "object creation in hashtree")
+	}
+
 	return nil
 }
 
@@ -509,7 +514,7 @@ func (ob *objectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if err := ob.shard.GetPropertyLengthTracker().Flush(false); err != nil {
+	if err := ob.shard.GetPropertyLengthTracker().Flush(); err != nil {
 		for i := range ob.objects {
 			ob.setErrorAtIndex(err, i)
 		}

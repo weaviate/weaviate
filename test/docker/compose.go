@@ -89,13 +89,13 @@ type Compose struct {
 	withQnATransformers        bool
 	withWeaviateExposeGRPCPort bool
 	withSecondWeaviate         bool
-	size                       int
+	withWeaviateCluster        bool
+	withWeaviateClusterSize    int
 
 	withWeaviateAuth              bool
 	withWeaviateBasicAuth         bool
 	withWeaviateBasicAuthUsername string
 	withWeaviateBasicAuthPassword string
-	withWeaviateCluster           bool
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
@@ -355,17 +355,23 @@ func (d *Compose) WithSecondWeaviate() *Compose {
 	return d
 }
 
-func (d *Compose) WithWeaviateCluster() *Compose {
-	return d.With2NodeCluster()
+func (d *Compose) WithWeaviateCluster(size int) *Compose {
+	d.withWeaviateCluster = true
+	d.withWeaviateClusterSize = size
+	return d
 }
 
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
 	d.With2NodeCluster()
+	return d
+}
+
+func (d *Compose) WithWeaviateGRPC() *Compose {
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
 
-func (d *Compose) WithBasicAuth(username, password string) *Compose {
+func (d *Compose) WithWeaviateBasicAuth(username, password string) *Compose {
 	d.withWeaviateBasicAuth = true
 	d.withWeaviateBasicAuthUsername = username
 	d.withWeaviateBasicAuthPassword = password
@@ -389,10 +395,12 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		tescontainersnetwork.WithCheckDuplicate(),
 		tescontainersnetwork.WithAttachable(),
 	)
-	networkName := network.Name
 	if err != nil {
-		return nil, errors.Wrapf(err, "network: %s", networkName)
+		return nil, errors.Wrapf(err, "connecting to network")
 	}
+
+	networkName := network.Name
+
 	envSettings := make(map[string]string)
 	envSettings["network"] = networkName
 	envSettings["DISABLE_TELEMETRY"] = "true"
@@ -553,8 +561,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
+
 	if d.withWeaviateCluster {
-		cs, err := d.startCluster(ctx, d.size, envSettings)
+		cs, err := d.startCluster(ctx, d.withWeaviateClusterSize, envSettings)
 		for _, c := range cs {
 			if c != nil {
 				containers = append(containers, c)
@@ -590,19 +599,19 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 
 func (d *Compose) With1NodeCluster() *Compose {
 	d.withWeaviateCluster = true
-	d.size = 1
+	d.withWeaviateClusterSize = 1
 	return d
 }
 
 func (d *Compose) With2NodeCluster() *Compose {
 	d.withWeaviateCluster = true
-	d.size = 2
+	d.withWeaviateClusterSize = 2
 	return d
 }
 
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
-	d.size = 3
+	d.withWeaviateClusterSize = 3
 	return d
 }
 
@@ -642,7 +651,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	settings["RAFT_PORT"] = "8300"
 	settings["RAFT_INTERNAL_RPC_PORT"] = "8301"
 	settings["RAFT_JOIN"] = raft_join
-	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.size)
+	settings["RAFT_BOOTSTRAP_EXPECT"] = strconv.Itoa(d.withWeaviateClusterSize)
 
 	// first node
 	config1 := copySettings(settings)
