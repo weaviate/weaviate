@@ -29,7 +29,7 @@ import (
 type ReplicationConfig struct {
 
 	// Enable asynchronous replication
-	AsyncEnabled bool `json:"asyncEnabled,omitempty"`
+	AsyncEnabled bool `json:"asyncEnabled"`
 
 	// Number of times a class is replicated
 	Factor int64 `json:"factor,omitempty"`

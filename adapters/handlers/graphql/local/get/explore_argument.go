@@ -21,11 +21,11 @@ import (
 )
 
 func nearVectorArgument(className string) *graphql.ArgumentConfig {
-	return common_filters.NearVectorArgument("GetObjects", className)
+	return common_filters.NearVectorArgument("GetObjects", className, true)
 }
 
 func nearObjectArgument(className string) *graphql.ArgumentConfig {
-	return common_filters.NearObjectArgument("GetObjects", className)
+	return common_filters.NearObjectArgument("GetObjects", className, true)
 }
 
 func nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {

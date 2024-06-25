@@ -4,7 +4,7 @@ import pytest
 from weaviate.collections.classes.config import Configure, Property, DataType
 from weaviate.collections.classes.filters import Filter, _FilterValue
 
-from conftest import CollectionFactory
+from .conftest import CollectionFactory
 
 
 # bug in client + not supported in weaviate for filter by empty list

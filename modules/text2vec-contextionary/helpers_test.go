@@ -187,15 +187,16 @@ func (fmp *fakeModulesProvider) ExploreArguments(schema *models.Schema) map[stri
 }
 
 func (fmp *fakeModulesProvider) CrossClassExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
-	return fmp.ExtractSearchParams(arguments, "")
+	params, _ := fmp.ExtractSearchParams(arguments, "")
+	return params
 }
 
-func (fmp *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
+func (fmp *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) (map[string]interface{}, map[string]*dto.TargetCombination) {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearText"]; ok {
 		exractedParams["nearText"] = extractNearTextParam(param.(map[string]interface{}))
 	}
-	return exractedParams
+	return exractedParams, nil
 }
 
 func (fmp *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
@@ -283,7 +284,8 @@ func (fmp *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
 func extractNearTextParam(param map[string]interface{}) interface{} {
 	txt2vec := &mockText2vecContextionaryModule{}
 	argument := txt2vec.Arguments()["nearText"]
-	return argument.ExtractFunction(param)
+	params, _, _ := argument.ExtractFunction(param)
+	return params
 }
 
 func createArg(name string, value string) *ast.Argument {

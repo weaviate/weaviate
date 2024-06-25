@@ -18,21 +18,21 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-func NearVectorArgument(argumentPrefix, className string) *graphql.ArgumentConfig {
+func NearVectorArgument(argumentPrefix, className string, addTarget bool) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("%s%s", argumentPrefix, className)
 	return &graphql.ArgumentConfig{
 		// Description: descriptions.GetExplore,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:   fmt.Sprintf("%sNearVectorInpObj", prefix),
-				Fields: NearVectorFields(prefix),
+				Fields: NearVectorFields(prefix, addTarget),
 			},
 		),
 	}
 }
 
-func NearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
+func NearVectorFields(prefix string, addTarget bool) graphql.InputObjectConfigFieldMap {
+	fieldMap := graphql.InputObjectConfigFieldMap{
 		"vector": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Vector,
 			Type:        graphql.NewNonNull(graphql.NewList(graphql.Float)),
@@ -50,22 +50,24 @@ func NearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.NewList(graphql.String),
 		},
 	}
+	fieldMap = AddTargetArgument(fieldMap, prefix+"nearVector", addTarget)
+	return fieldMap
 }
 
-func NearObjectArgument(argumentPrefix, className string) *graphql.ArgumentConfig {
+func NearObjectArgument(argumentPrefix, className string, addTarget bool) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("%s%s", argumentPrefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:   fmt.Sprintf("%sNearObjectInpObj", prefix),
-				Fields: nearObjectFields(prefix),
+				Fields: nearObjectFields(prefix, addTarget),
 			},
 		),
 	}
 }
 
-func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
+func nearObjectFields(prefix string, addTarget bool) graphql.InputObjectConfigFieldMap {
+	fieldMap := graphql.InputObjectConfigFieldMap{
 		"id": &graphql.InputObjectFieldConfig{
 			Description: descriptions.ID,
 			Type:        graphql.String,
@@ -87,4 +89,6 @@ func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.NewList(graphql.String),
 		},
 	}
+	fieldMap = AddTargetArgument(fieldMap, prefix+"nearObject", addTarget)
+	return fieldMap
 }

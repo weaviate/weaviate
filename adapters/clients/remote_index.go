@@ -394,8 +394,8 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 }
 
 func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string,
-	vector []float32,
-	targetVector string,
+	vector [][]float32,
+	targetVector []string,
 	limit int,
 	filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking,

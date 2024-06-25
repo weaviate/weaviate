@@ -17,6 +17,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -646,8 +648,9 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		GetArgumentsFunction: func(classname string) *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument(classname)
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
-			return m.extractNearCustomTextArgument(source)
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
+			params := m.extractNearCustomTextArgument(source)
+			return params, nil, nil
 		},
 		ValidateFunction: func(param interface{}) error {
 			// all is valid

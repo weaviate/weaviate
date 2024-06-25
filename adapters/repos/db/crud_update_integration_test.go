@@ -92,12 +92,11 @@ func TestUpdateJourney(t *testing.T) {
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-				ClassName:    "UpdateTestClass",
-				SearchVector: searchVector,
+				ClassName: "UpdateTestClass",
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
-			})
+			}, []string{""}, [][]float32{searchVector})
 
 			expectedInAnyOrder := []interface{}{
 				"element-0", "element-1", "element-2", "element-3",
@@ -172,12 +171,11 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ClassName:    "UpdateTestClass",
-			SearchVector: searchVector,
+			ClassName: "UpdateTestClass",
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		})
+		}, []string{""}, [][]float32{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
@@ -235,12 +233,11 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ClassName:    "UpdateTestClass",
-			SearchVector: searchVector,
+			ClassName: "UpdateTestClass",
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
-		})
+		}, []string{""}, [][]float32{searchVector})
 
 		expectedInAnyOrder := []interface{}{
 			"element-0", "element-1", "element-2", "element-3",
