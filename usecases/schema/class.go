@@ -22,7 +22,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -585,16 +584,16 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
 				models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
 				return nil
-			case models.PropertyTokenizationKagomeKr:
-				// If Kagome is selected, enable & initialize the tokenizer (Korean)
-				helpers.EnableKagome = true
-				helpers.InitializeKagomeTokenizerKr()
-				return nil
-			case models.PropertyTokenizationKagomeJp:
-				// If Kagome is selected, enable & initialize the tokenizer (Japanese)
-				helpers.EnableKagome = true
-				helpers.InitializeKagomeTokenizerJp()
-				return nil
+				//case models.PropertyTokenizationKagomeKr:
+				//	// If Kagome is selected, enable & initialize the tokenizer (Korean)
+				//	helpers.EnableKagome = true
+				//	helpers.InitializeKagomeTokenizerKr()
+				//	return nil
+				//case models.PropertyTokenizationKagomeJp:
+				//	// If Kagome is selected, enable & initialize the tokenizer (Japanese)
+				//	helpers.EnableKagome = true
+				//	helpers.InitializeKagomeTokenizerJp()
+				//	return nil
 			}
 		default:
 			if tokenization == "" {
