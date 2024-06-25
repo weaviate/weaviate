@@ -46,7 +46,7 @@ var defaultMaxTokens = map[string]int{
 }
 
 var (
-	DefaultBaseURL                = "https://api.anthropic.com/v1/messages"
+	DefaultBaseURL                = "https://api.anthropic.com"
 	DefaultAnthropicModel         = "claude-3-5-sonnet-20240620"
 	DefaultAnthropicTemperature   = 1.0
 	DefaultAnthropicMaxTokens     = 200000
@@ -60,6 +60,7 @@ type classSettings struct {
 	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
+// NewClassSettings creates a new classSettings instance
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-anthropic")}
 }

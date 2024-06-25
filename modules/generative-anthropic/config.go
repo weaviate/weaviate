@@ -18,5 +18,24 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/generative-cohere/config"
+	"github.com/weaviate/weaviate/modules/generative-anthropic/config"
 )
+
+func (m *GenerativeAnthropicModule) ClassConfigDefaults() map[string]interface{} {
+	return map[string]interface{}{}
+}
+
+func (m *GenerativeAnthropicModule) PropertyConfigDefaults(
+	dt *schema.DataType,
+) map[string]interface{} {
+	return map[string]interface{}{}
+}
+
+func (m *GenerativeAnthropicModule) ValidateClass(ctx context.Context,
+	class *models.Class, cfg moduletools.ClassConfig,
+) error {
+	settings := config.NewClassSettings(cfg)
+	return settings.Validate(class)
+}
+
+var _ = modulecapabilities.ClassConfigurator(New())
