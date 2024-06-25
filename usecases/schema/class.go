@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"os"
 	"reflect"
 	"strings"
@@ -581,7 +582,18 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
+				models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
+				return nil
+			case models.PropertyTokenizationKagomeKr:
+				// If Kagome is selected, enable & initialize the tokenizer (Korean)
+				helpers.EnableKagome = true
+				helpers.InitializeKagomeTokenizerKr()
+				return nil
+			case models.PropertyTokenizationKagomeJp:
+				// If Kagome is selected, enable & initialize the tokenizer (Japanese)
+				helpers.EnableKagome = true
+				helpers.InitializeKagomeTokenizerJp()
 				return nil
 			}
 		default:
