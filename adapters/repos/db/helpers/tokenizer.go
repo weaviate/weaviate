@@ -162,6 +162,8 @@ func tokenizeGSE(in string) []string {
 	return append(terms, alpha...)
 }
 
+// TODO - add a Korean tokenizer here
+
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
 // lowercases the words
 func tokenizeWordWithWildcards(in string) []string {
