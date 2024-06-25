@@ -53,7 +53,7 @@ func (v *vertex) upgradeToLevelNoLock(level int) {
 	v.connections = newConnections
 }
 
-func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
+func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) (owned bool) {
 	v.Lock()
 	defer v.Unlock()
 
@@ -70,11 +70,12 @@ func (v *vertex) setConnectionsAtLevel(level int, connections []uint64) {
 		// but we gain at least a 33% memory saving on this particular node right
 		// away.
 		v.connections[level] = connections
-		return
+		return true
 	}
 
 	v.connections[level] = v.connections[level][:newLen]
 	copy(v.connections[level], connections)
+	return false
 }
 
 func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64, maxConns int) {

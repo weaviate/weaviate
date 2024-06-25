@@ -259,13 +259,22 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	n.graph.pools.pqResults.Put(results)
 
-	// set all outgoing in one go
-	n.node.setConnectionsAtLevel(level, neighbors)
-	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors); err != nil {
+	neighborsCpy := neighbors
+	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
+	// if so, we need to create a copy
+	owned := n.node.setConnectionsAtLevel(level, neighbors)
+	if owned {
+		n.node.Lock()
+		neighborsCpy = make([]uint64, len(neighbors))
+		copy(neighborsCpy, neighbors)
+		n.node.Unlock()
+	}
+
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighborsCpy); err != nil {
 		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
 	}
 
-	for _, neighborID := range neighbors {
+	for _, neighborID := range neighborsCpy {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
 			return errors.Wrapf(err, "connect neighbor %d", neighborID)
 		}
@@ -274,7 +283,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if len(neighbors) > 0 {
 		// there could be no neighbors left, if all are marked deleted, in this
 		// case, don't change the entrypoint
-		nextEntryPointID := neighbors[len(neighbors)-1]
+		nextEntryPointID := neighborsCpy[len(neighbors)-1]
 		if nextEntryPointID == n.node.id {
 			return nil
 		}
