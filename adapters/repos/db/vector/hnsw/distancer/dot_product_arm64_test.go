@@ -31,6 +31,19 @@ var dotByteImpl func(a, b []byte) uint32 = func(a, b []byte) uint32 {
 	return uint32(sum)
 }
 
+var dotPQByteImpl func(uncompressed []float32, compressed []uint8, codebook [][][]float32) float32 = func(uncompressed []float32, compressed []byte, codebook [][][]float32) float32 {
+	var sum float32
+
+	segmenLen := len(uncompressed) / len(compressed)
+	for i := range uncompressed {
+		segment := i / segmenLen
+		positionInSegment := i % segmenLen
+		sum += uncompressed[i] * codebook[segment][compressed[segment]][positionInSegment]
+	}
+
+	return sum
+}
+
 func testDotProductFixedValue(t *testing.T, size uint) {
 	count := 10000
 	countFailed := 0
@@ -254,4 +267,27 @@ func BenchmarkDotByte(b *testing.B) {
 			// b.Run("avx", func(b *testing.B) { benchmarkDotByte(b, dim, asm.DotByteAVX256) })
 		})
 	}
+}
+
+func testDotProductBytePQFixedValue(t *testing.T, size uint, dotFn func(x []float32, y []uint8, z [][][]float32) float32) {
+	uncompressed := []float32{1.0, 2.0, 3.0, 4.0}
+	compressed := []byte{0, 1}
+	codebook := [][][]float32{
+		{{1.0, 0.5}, {0.5, 1.0}},
+		{{2.0, 1.5}, {1.5, 2.0}},
+	}
+	res := dotFn(uncompressed, compressed, codebook)
+
+	resControl := dotPQByteImpl(uncompressed, compressed, codebook)
+	if resControl != res {
+		t.Logf("for dim: %d -> want: %f, got: %f", size, resControl, res)
+		t.Fail()
+	}
+
+}
+
+func TestCompareDotProductBytePQ(t *testing.T) {
+	dotFn := asm.DotBytePQARM64
+
+	testDotProductBytePQFixedValue(t, 1, dotFn)
 }
