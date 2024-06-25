@@ -1,6 +1,7 @@
 #include <arm_neon.h>
 
-void dot_byte_256(unsigned char *a, unsigned char *b, unsigned int *res, long *len)
+
+void l2_neon_byte_256(unsigned char *a, unsigned char *b, unsigned int *res, long *len)
 {
     int size = *len;
 
@@ -20,65 +21,54 @@ void dot_byte_256(unsigned char *a, unsigned char *b, unsigned int *res, long *l
         uint8x16x4_t a4 = vld1q_u8_x4(a + i);
         uint8x16x4_t b4 = vld1q_u8_x4(b + i);
 
-        // Convert 8-bit vectors to 16-bit vectors to prevent overflow
-        uint16x8_t a0_low = vmovl_u8(vget_low_u8(a4.val[0]));
-        uint16x8_t a0_high = vmovl_u8(vget_high_u8(a4.val[0]));
-        uint16x8_t b0_low = vmovl_u8(vget_low_u8(b4.val[0]));
-        uint16x8_t b0_high = vmovl_u8(vget_high_u8(b4.val[0]));
 
-        uint16x8_t a1_low = vmovl_u8(vget_low_u8(a4.val[1]));
-        uint16x8_t a1_high = vmovl_u8(vget_high_u8(a4.val[1]));
-        uint16x8_t b1_low = vmovl_u8(vget_low_u8(b4.val[1]));
-        uint16x8_t b1_high = vmovl_u8(vget_high_u8(b4.val[1]));
+        int16x8_t diff_0_low, diff_0_high, diff_1_low, diff_1_high, diff_2_low, diff_2_high, diff_3_low, diff_3_high;
 
-        uint16x8_t a2_low = vmovl_u8(vget_low_u8(a4.val[2]));
-        uint16x8_t a2_high = vmovl_u8(vget_high_u8(a4.val[2]));
-        uint16x8_t b2_low = vmovl_u8(vget_low_u8(b4.val[2]));
-        uint16x8_t b2_high = vmovl_u8(vget_high_u8(b4.val[2]));
+        // Compute differences and extend to signed 16-bit integers
+        diff_0_low = vreinterpretq_s16_u16(vsubl_u8(vget_low_u8(a4.val[0]), vget_low_u8(b4.val[0])));
+        diff_0_high = vreinterpretq_s16_u16(vsubl_u8(vget_high_u8(a4.val[0]), vget_high_u8(b4.val[0])));
 
-        uint16x8_t a3_low = vmovl_u8(vget_low_u8(a4.val[3]));
-        uint16x8_t a3_high = vmovl_u8(vget_high_u8(a4.val[3]));
-        uint16x8_t b3_low = vmovl_u8(vget_low_u8(b4.val[3]));
-        uint16x8_t b3_high = vmovl_u8(vget_high_u8(b4.val[3]));
+        diff_1_low = vreinterpretq_s16_u16(vsubl_u8(vget_low_u8(a4.val[1]), vget_low_u8(b4.val[1])));
+        diff_1_high = vreinterpretq_s16_u16(vsubl_u8(vget_high_u8(a4.val[1]), vget_high_u8(b4.val[1])));
 
-        // Multiply 16-bit vectors
-        uint16x8_t product0_low = vmulq_u16(a0_low, b0_low);
-        uint16x8_t product0_high = vmulq_u16(a0_high, b0_high);
+        diff_2_low = vreinterpretq_s16_u16(vsubl_u8(vget_low_u8(a4.val[2]), vget_low_u8(b4.val[2])));
+        diff_2_high = vreinterpretq_s16_u16(vsubl_u8(vget_high_u8(a4.val[2]), vget_high_u8(b4.val[2])));
 
-        uint16x8_t product1_low = vmulq_u16(a1_low, b1_low);
-        uint16x8_t product1_high = vmulq_u16(a1_high, b1_high);
+        diff_3_low = vreinterpretq_s16_u16(vsubl_u8(vget_low_u8(a4.val[3]), vget_low_u8(b4.val[3])));
+        diff_3_high = vreinterpretq_s16_u16(vsubl_u8(vget_high_u8(a4.val[3]), vget_high_u8(b4.val[3])));
 
-        uint16x8_t product2_low = vmulq_u16(a2_low, b2_low);
-        uint16x8_t product2_high = vmulq_u16(a2_high, b2_high);
+        int32x4_t sq_0_low = vmull_s16(vget_low_s16(diff_0_low), vget_low_s16(diff_0_low));
+        sq_0_low += vmull_s16(vget_high_s16(diff_0_low), vget_high_s16(diff_0_low));
+        int32x4_t sq_0_high = vmull_s16(vget_low_s16(diff_0_high), vget_low_s16(diff_0_high));
+        sq_0_high += vmull_s16(vget_high_s16(diff_0_high), vget_high_s16(diff_0_high));
 
-        uint16x8_t product3_low = vmulq_u16(a3_low, b3_low);
-        uint16x8_t product3_high = vmulq_u16(a3_high, b3_high);
+        int32x4_t sq_1_low = vmull_s16(vget_low_s16(diff_1_low), vget_low_s16(diff_1_low));
+        sq_1_low += vmull_s16(vget_high_s16(diff_1_low), vget_high_s16(diff_1_low));
+        int32x4_t sq_1_high = vmull_s16(vget_low_s16(diff_1_high), vget_low_s16(diff_1_high));
+        sq_1_high += vmull_s16(vget_high_s16(diff_1_high), vget_high_s16(diff_1_high));
 
-        // Sum the products to 32-bit integers
-        uint32x4_t sum0_low_32 = vpaddlq_u16(product0_low);
-        uint32x4_t sum0_high_32 = vpaddlq_u16(product0_high);
+        int32x4_t sq_2_low = vmull_s16(vget_low_s16(diff_2_low), vget_low_s16(diff_2_low));
+        sq_2_low += vmull_s16(vget_high_s16(diff_2_low), vget_high_s16(diff_2_low));
+        int32x4_t sq_2_high = vmull_s16(vget_low_s16(diff_2_high), vget_low_s16(diff_2_high));
+        sq_2_high += vmull_s16(vget_high_s16(diff_2_high), vget_high_s16(diff_2_high));
 
-        uint32x4_t sum1_low_32 = vpaddlq_u16(product1_low);
-        uint32x4_t sum1_high_32 = vpaddlq_u16(product1_high);
+        int32x4_t sq_3_low = vmull_s16(vget_low_s16(diff_3_low), vget_low_s16(diff_3_low));
+        sq_3_low += vmull_s16(vget_high_s16(diff_3_low), vget_high_s16(diff_3_low));
+        int32x4_t sq_3_high = vmull_s16(vget_low_s16(diff_3_high), vget_low_s16(diff_3_high));
+        sq_3_high += vmull_s16(vget_high_s16(diff_3_high), vget_high_s16(diff_3_high));
 
-        uint32x4_t sum2_low_32 = vpaddlq_u16(product2_low);
-        uint32x4_t sum2_high_32 = vpaddlq_u16(product2_high);
+        // convert to unsigned 32-bit ints (square is garantueed to be positive)
+        res_vec0 += vreinterpretq_u32_s32(sq_0_low);
+        res_vec0 += vreinterpretq_u32_s32(sq_0_high);
 
-        uint32x4_t sum3_low_32 = vpaddlq_u16(product3_low);
-        uint32x4_t sum3_high_32 = vpaddlq_u16(product3_high);
+        res_vec1 += vreinterpretq_u32_s32(sq_1_low);
+        res_vec1 += vreinterpretq_u32_s32(sq_1_high);
 
-        // Add the results to the final vectors
-        res_vec0 = vaddq_u32(res_vec0, sum0_low_32);
-        res_vec0 = vaddq_u32(res_vec0, sum0_high_32);
+        res_vec2 += vreinterpretq_u32_s32(sq_2_low);
+        res_vec2 += vreinterpretq_u32_s32(sq_2_high);
 
-        res_vec1 = vaddq_u32(res_vec1, sum1_low_32);
-        res_vec1 = vaddq_u32(res_vec1, sum1_high_32);
-
-        res_vec2 = vaddq_u32(res_vec2, sum2_low_32);
-        res_vec2 = vaddq_u32(res_vec2, sum2_high_32);
-
-        res_vec3 = vaddq_u32(res_vec3, sum3_low_32);
-        res_vec3 = vaddq_u32(res_vec3, sum3_high_32);
+        res_vec3 += vreinterpretq_u32_s32(sq_3_low);
+        res_vec3 += vreinterpretq_u32_s32(sq_3_high);
 
         i += 64;
     }
@@ -89,23 +79,18 @@ void dot_byte_256(unsigned char *a, unsigned char *b, unsigned int *res, long *l
         uint8x16_t a_vec = vld1q_u8(a + i);
         uint8x16_t b_vec = vld1q_u8(b + i);
 
-        // Convert 8-bit vectors to 16-bit vectors to prevent overflow
-        uint16x8_t a_vec_low = vmovl_u8(vget_low_u8(a_vec));
-        uint16x8_t a_vec_high = vmovl_u8(vget_high_u8(a_vec));
-        uint16x8_t b_vec_low = vmovl_u8(vget_low_u8(b_vec));
-        uint16x8_t b_vec_high = vmovl_u8(vget_high_u8(b_vec));
 
-        // Multiply 16-bit vectors
-        uint16x8_t product_low = vmulq_u16(a_vec_low, b_vec_low);
-        uint16x8_t product_high = vmulq_u16(a_vec_high, b_vec_high);
+        int16x8_t diff_low = vreinterpretq_s16_u16(vsubl_u8(vget_low_u8(a_vec), vget_low_u8(b_vec)));
+        int16x8_t diff_high = vreinterpretq_s16_u16(vsubl_u8(vget_high_u8(a_vec), vget_high_u8(b_vec)));
 
-        // Sum the products to 32-bit integers
-        uint32x4_t sum_low_32 = vpaddlq_u16(product_low);
-        uint32x4_t sum_high_32 = vpaddlq_u16(product_high);
+        int32x4_t sq_low = vmull_s16(vget_low_s16(diff_low), vget_low_s16(diff_low));
+        sq_low += vmull_s16(vget_high_s16(diff_low), vget_high_s16(diff_low));
 
-        // Add the results to the final vector
-        res_vec0 = vaddq_u32(res_vec0, sum_low_32);
-        res_vec0 = vaddq_u32(res_vec0, sum_high_32);
+        int32x4_t sq_high = vmull_s16(vget_low_s16(diff_high), vget_low_s16(diff_high));
+        sq_high += vmull_s16(vget_high_s16(diff_high), vget_high_s16(diff_high));
+
+        res_vec0 += vreinterpretq_u32_s32(sq_low);
+        res_vec0 += vreinterpretq_u32_s32(sq_high);
 
         i += 16;
     }
@@ -121,7 +106,9 @@ void dot_byte_256(unsigned char *a, unsigned char *b, unsigned int *res, long *l
     int j = l;
     while (j < size)
     {
-        sum += (uint32_t)(a[j]) * (uint32_t)(b[j]);
+
+        int32_t diff = (int32_t)(a[j]) - (int32_t)(b[j]);
+        sum += (uint32_t)(diff * diff);
         j++;
     }
 

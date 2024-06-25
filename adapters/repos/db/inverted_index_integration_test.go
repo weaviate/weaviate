@@ -1348,10 +1348,9 @@ func TestFilterPropertyLengthError(t *testing.T) {
 	}
 
 	params := dto.GetParams{
-		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-		ClassName:    class.Class,
-		Pagination:   &filters.Pagination{Limit: 5},
-		Filters:      LengthFilter,
+		ClassName:  class.Class,
+		Pagination: &filters.Pagination{Limit: 5},
+		Filters:    LengthFilter,
 	}
 	_, err = repo.Search(context.Background(), params)
 	require.NotNil(t, err)

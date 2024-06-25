@@ -20,6 +20,8 @@ import (
 	"math"
 	"net/http"
 
+	"github.com/weaviate/weaviate/usecases/byteops"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -41,6 +43,8 @@ type indicesPayloads struct {
 	VersionedObjectList       versionedObjectListPayload
 	SearchResults             searchResultsPayload
 	SearchParams              searchParamsPayload
+	VectorDistanceParams      vectorDistanceParamsPayload
+	VectorDistanceResults     vectorDistanceResultsPayload
 	ReferenceList             referenceListPayload
 	AggregationParams         aggregationParamsPayload
 	AggregationResult         aggregationResultPayload
@@ -341,9 +345,93 @@ func (p mergeDocPayload) Unmarshal(in []byte) (objects.MergeDocument, error) {
 	return mergeDoc, err
 }
 
+type vectorDistanceParamsPayload struct{}
+
+func (p vectorDistanceParamsPayload) Marshal(id strfmt.UUID, targets []string, searchVectors [][]float32,
+) ([]byte, error) {
+	type params struct {
+		Id            strfmt.UUID `json:"id"`
+		Targets       []string    `json:"targets"`
+		SearchVectors [][]float32 `json:"searchVectors"`
+	}
+
+	par := params{id, targets, searchVectors}
+	return json.Marshal(par)
+}
+
+func (p vectorDistanceParamsPayload) Unmarshal(in []byte) (strfmt.UUID, []string, [][]float32, error,
+) {
+	type params struct {
+		Id            strfmt.UUID `json:"id"`
+		Targets       []string    `json:"targets"`
+		SearchVectors [][]float32 `json:"searchVectors"`
+	}
+	var par params
+	err := json.Unmarshal(in, &par)
+	return par.Id, par.Targets, par.SearchVectors, err
+}
+
+func (p vectorDistanceParamsPayload) MIME() string {
+	return "vnd.weaviate.vectordistanceparams+json"
+}
+
+func (p vectorDistanceParamsPayload) CheckContentTypeHeaderReq(r *http.Request) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
+func (p vectorDistanceParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+type vectorDistanceResultsPayload struct{}
+
+func (p vectorDistanceResultsPayload) Unmarshal(in []byte) ([]float32, error) {
+	read := uint64(0)
+
+	distsLength := binary.LittleEndian.Uint64(in[read : read+8])
+	read += 8
+
+	dists := make([]float32, distsLength)
+	for i := range dists {
+		dists[i] = math.Float32frombits(binary.LittleEndian.Uint32(in[read : read+4]))
+		read += 4
+	}
+
+	if read != uint64(len(in)) {
+		return nil, errors.Errorf("corrupt read: %d != %d", read, len(in))
+	}
+
+	return dists, nil
+}
+
+func (p vectorDistanceResultsPayload) Marshal(dists []float32) ([]byte, error) {
+	buf := byteops.NewReadWriter(make([]byte, 8+len(dists)*4))
+	buf.WriteUint64(uint64(len(dists)))
+
+	for _, dist := range dists {
+		buf.WriteUint32(math.Float32bits(dist))
+	}
+
+	return buf.Buffer, nil
+}
+
+func (p vectorDistanceResultsPayload) MIME() string {
+	return "application/vnd.weaviate.vectordistanceresults+octet-stream"
+}
+
+func (p vectorDistanceResultsPayload) SetContentTypeHeader(w http.ResponseWriter) {
+	w.Header().Set("content-type", p.MIME())
+}
+
+func (p vectorDistanceResultsPayload) CheckContentTypeHeader(r *http.Response) (string, bool) {
+	ct := r.Header.Get("content-type")
+	return ct, ct == p.MIME()
+}
+
 type searchParamsPayload struct{}
 
-func (p searchParamsPayload) Marshal(vector []float32, targetVector string, limit int,
+func (p searchParamsPayload) Marshal(vectors [][]float32, targetVectors []string, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties,
@@ -358,13 +446,22 @@ func (p searchParamsPayload) Marshal(vector []float32, targetVector string, limi
 		Cursor         *filters.Cursor              `json:"cursor"`
 		GroupBy        *searchparams.GroupBy        `json:"groupBy"`
 		Additional     additional.Properties        `json:"additional"`
+		SearchVectors  [][]float32                  `json:"searchVectors"`
+		TargetVectors  []string                     `json:"targetVectors"`
+	}
+	var vector []float32
+	var targetVector string
+	// BC with pre 1.26
+	if len(vectors) == 1 {
+		vector = vectors[0]
+		targetVector = targetVectors[0]
 	}
 
-	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP}
+	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors}
 	return json.Marshal(par)
 }
 
-func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, string, float32, int,
+func (p searchParamsPayload) Unmarshal(in []byte) ([][]float32, []string, float32, int,
 	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
 	*filters.Cursor, *searchparams.GroupBy, additional.Properties, error,
 ) {
@@ -379,10 +476,17 @@ func (p searchParamsPayload) Unmarshal(in []byte) ([]float32, string, float32, i
 		Cursor         *filters.Cursor              `json:"cursor"`
 		GroupBy        *searchparams.GroupBy        `json:"groupBy"`
 		Additional     additional.Properties        `json:"additional"`
+		SearchVectors  [][]float32                  `json:"searchVectors"`
+		TargetVectors  []string                     `json:"targetVectors"`
 	}
 	var par searchParametersPayload
 	err := json.Unmarshal(in, &par)
-	return par.SearchVector, par.TargetVector, par.Distance, par.Limit,
+	if len(par.SearchVector) > 0 {
+		par.SearchVectors = [][]float32{par.SearchVector}
+		par.TargetVectors = []string{par.TargetVector}
+	}
+
+	return par.SearchVectors, par.TargetVectors, par.Distance, par.Limit,
 		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, err
 }
 

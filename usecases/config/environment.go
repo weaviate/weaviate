@@ -400,6 +400,10 @@ func FromEnv(config *Config) error {
 		config.DisableTelemetry = true
 	}
 
+	if configbase.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
+		config.HNSWStartupWaitForVectorCache = true
+	}
+
 	return nil
 }
 

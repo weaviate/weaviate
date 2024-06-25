@@ -385,7 +385,8 @@
         },
         "asyncEnabled": {
           "description": "Enable asynchronous replication",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         }
       },
       "type": "object"
@@ -2120,7 +2121,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.25.3"
+    "version": "1.26.0-preview0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

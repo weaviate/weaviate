@@ -105,9 +105,9 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	params dto.GetParams,
+	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
 ) ([]search.Result, error) {
-	args := f.Called(params)
+	args := f.Called(params, searchVectors)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
@@ -136,12 +136,6 @@ func (f *fakeVectorSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 
 func (f *fakeVectorSearcher) SparseObjectSearch(ctx context.Context,
 	params dto.GetParams,
-) ([]*storobj.Object, []float32, error) {
-	return nil, nil, nil
-}
-
-func (f *fakeVectorSearcher) DenseObjectSearch(context.Context, string,
-	[]float32, string, int, int, *filters.LocalFilter, additional.Properties, string,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
@@ -457,8 +451,16 @@ func (p nearCustomTextParams) SimilarityMetricProvided() bool {
 	return p.Certainty != 0 || p.WithDistance
 }
 
+func (n nearCustomTextParams) SupportMultiTargetVector() bool {
+	return false
+}
+
 func (p nearCustomTextParams) GetTargetVectors() []string {
 	return p.TargetVectors
+}
+
+func (p nearCustomTextParams) GetTargetCombination() *dto.TargetCombination {
+	return nil
 }
 
 type nearExploreMove struct {
@@ -674,8 +676,9 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		ExploreArgumentsFunction: func() *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument("")
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
-			return m.extractNearCustomTextArgument(source)
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
+			params := m.extractNearCustomTextArgument(source)
+			return params, nil, nil
 		},
 		ValidateFunction: func(param interface{}) error {
 			nearText, ok := param.(*nearCustomTextParams)

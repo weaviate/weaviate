@@ -11,8 +11,13 @@
 
 package nearDepth
 
+import (
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/entities/dto"
+)
+
 // extractNearDepthFn arguments, such as "depth" and "certainty"
-func extractNearDepthFn(source map[string]interface{}) interface{} {
+func extractNearDepthFn(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 	var args NearDepthParams
 
 	depth, ok := source["depth"].(string)
@@ -31,15 +36,11 @@ func extractNearDepthFn(source map[string]interface{}) interface{} {
 		args.WithDistance = true
 	}
 
-	// targetVectors is an optional argument, so it could be nil
-	targetVectors, ok := source["targetVectors"]
-	if ok {
-		targetVectorsArray := targetVectors.([]interface{})
-		args.TargetVectors = make([]string, len(targetVectorsArray))
-		for i, value := range targetVectorsArray {
-			args.TargetVectors[i] = value.(string)
-		}
+	targetVectors, combination, err := common_filters.ExtractTargets(source)
+	if err != nil {
+		return nil, nil, err
 	}
+	args.TargetVectors = targetVectors
 
-	return &args
+	return &args, combination, nil
 }

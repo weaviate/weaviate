@@ -75,7 +75,7 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	migratePropertySettings(props...)
 
 	class.Properties = clusterSchema.MergeProps(class.Properties, props)
-	version, err := h.metaWriter.AddProperty(class.Class, props...)
+	version, err := h.schemaManager.AddProperty(class.Class, props...)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -3,8 +3,8 @@ import math
 from loguru import logger
 import weaviate
 import weaviate.classes as wvc
-import sys
 import pytest
+
 
 # The idea is that we append this number to collection or prop names. It is
 # meant to return the same number a lot of tiems, but not always. This way,
@@ -13,11 +13,12 @@ import pytest
 def random_number_with_frequent_collisions():
     return math.floor(math.log(random.randint(1, 1000000), 2))
 
-@pytest.mark.skip(reason="currently python integration test run on a single node cluster, this test needs a dedicated 3 node cluster")
+
+@pytest.mark.skip(
+    reason="currently python integration test run on a single node cluster, this test needs a dedicated 3 node cluster"
+)
 def test_auto_schema_explicit_property_update_ec(weaviate_client) -> None:
-    clients :[weaviate.WeaviateClient] = [
-        weaviate_client(8080+1, 50051+1) for i in range(3)
-    ]
+    clients: [weaviate.WeaviateClient] = [weaviate_client(8080 + 1, 50051 + 1) for i in range(3)]
     client = random.choice(clients)
     client.collections.delete_all()
     logger.info("cleanup completed")

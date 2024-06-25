@@ -67,7 +67,7 @@ type modulesProvider interface {
 }
 
 type targetVectorParamHelper interface {
-	GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error)
+	GetTargetVectorOrDefault(sch schema.Schema, className string, targetVector []string) ([]string, error)
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
@@ -112,7 +112,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
 		fused = FusionRanked(weights, found, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, found, names)
+		fused = FusionRelativeScore(weights, found, names, true)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
@@ -165,7 +165,7 @@ func HybridCombiner(ctx context.Context, params *Params, resultSet [][]*search.R
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
 		fused = FusionRanked(weights, resultSet, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, resultSet, names)
+		fused = FusionRelativeScore(weights, resultSet, names, true)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
@@ -250,9 +250,9 @@ func decideSearchVector(ctx context.Context,
 		return vector, nil
 	} else {
 		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
+			targetVectors, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
+				class, targetVectors)
 			targetVector := getTargetVector(targetVectors)
-			targetVector, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
-				class, targetVector)
 			if err != nil {
 				return nil, err
 			}

@@ -3,10 +3,11 @@
 package protocol
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -361,15 +362,18 @@ func file_v1_tenants_proto_rawDescGZIP() []byte {
 	return file_v1_tenants_proto_rawDescData
 }
 
-var file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_v1_tenants_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_v1_tenants_proto_goTypes = []interface{}{
-	(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
-	(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
-	(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
-	(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
-	(*Tenant)(nil),            // 4: weaviate.v1.Tenant
-}
+var (
+	file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+	file_v1_tenants_proto_msgTypes  = make([]protoimpl.MessageInfo, 4)
+	file_v1_tenants_proto_goTypes   = []interface{}{
+		(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
+		(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
+		(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
+		(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
+		(*Tenant)(nil),            // 4: weaviate.v1.Tenant
+	}
+)
+
 var file_v1_tenants_proto_depIdxs = []int32{
 	2, // 0: weaviate.v1.TenantsGetRequest.names:type_name -> weaviate.v1.TenantNames
 	4, // 1: weaviate.v1.TenantsGetReply.tenants:type_name -> weaviate.v1.Tenant
