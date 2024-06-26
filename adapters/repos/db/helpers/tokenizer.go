@@ -39,7 +39,7 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationField,
 	models.PropertyTokenizationTrigram,
 	models.PropertyTokenizationGse,
-	// models.PropertyTokenizationKagomeKr,
+	models.PropertyTokenizationKagomeKr,
 }
 
 func init() {
