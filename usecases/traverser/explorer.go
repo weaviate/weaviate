@@ -249,7 +249,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 				searchVectorParam = searchVectorParams[i]
 			}
 
-			searchVectors[i], err = e.vectorFromParamsForTaget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
+			searchVectors[i], err = e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
 			if err != nil {
 				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
 			}
@@ -679,7 +679,7 @@ func (e *Explorer) targetFromParams(ctx context.Context,
 		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
 }
 
-func (e *Explorer) vectorFromParamsForTaget(ctx context.Context,
+func (e *Explorer) vectorFromParamsForTarget(ctx context.Context,
 	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string,
 ) ([]float32, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target)
@@ -788,6 +788,19 @@ func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDist
 		distance = params.NearObject.Distance
 		withDistance = params.NearObject.WithDistance
 		return
+	}
+
+	if params.HybridSearch != nil {
+		if params.HybridSearch.NearTextParams != nil {
+			distance = params.HybridSearch.NearTextParams.Distance
+			withDistance = params.HybridSearch.NearTextParams.WithDistance
+			return
+		}
+		if params.HybridSearch.NearVectorParams != nil {
+			distance = params.HybridSearch.NearVectorParams.Distance
+			withDistance = params.HybridSearch.NearVectorParams.WithDistance
+			return
+		}
 	}
 
 	if len(params.ModuleParams) == 1 {

@@ -4,7 +4,7 @@ from typing import List, Optional, Union
 import pytest
 from weaviate.classes.config import Configure, DataType, Property
 from weaviate.classes.data import DataObject
-from weaviate.classes.query import MetadataQuery, Move
+from weaviate.classes.query import HybridVector, MetadataQuery, Move
 from weaviate.collections.classes.grpc import PROPERTIES
 from weaviate.types import UUID
 
@@ -124,3 +124,43 @@ def test_near_text_search(
     assert "default" in objs[0].vector
     if return_properties is not None:
         assert objs[0].properties["value"] == "apple cake"
+
+def test_hybrid_near_vector_search(collection_factory: CollectionFactory) -> None:
+    collection = collection_factory(
+        properties=[
+            Property(name="text", data_type=DataType.TEXT),
+        ],
+        vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
+            vectorize_collection_name=False
+        ),
+    )
+    uuid_banana = collection.data.insert({"text": "banana"})
+    obj = collection.query.fetch_object_by_id(uuid_banana, include_vector=True)
+
+    collection.data.insert({"text": "dog"})
+    collection.data.insert({"text": "different concept"})
+
+    hybrid_objs = collection.query.hybrid(
+        query=None,
+        vector=HybridVector.near_vector(vector=obj.vector["default"]),
+    ).objects
+
+    assert hybrid_objs[0].uuid == uuid_banana
+    assert len(hybrid_objs) == 3
+
+    # make a near vector search to get the distance
+    near_vec = collection.query.near_vector(
+        near_vector=obj.vector["default"], return_metadata=["distance"]
+    ).objects
+    assert near_vec[0].metadata.distance is not None
+
+    hybrid_objs2 = collection.query.hybrid(
+        query=None,
+        vector=HybridVector.near_vector(
+            vector=obj.vector["default"], distance=near_vec[0].metadata.distance + 0.001
+        ),
+        return_metadata=MetadataQuery.full(),
+    ).objects
+
+    assert hybrid_objs2[0].uuid == uuid_banana
+    assert len(hybrid_objs2) == 1
