@@ -213,8 +213,12 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
-				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -223,8 +227,12 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
-				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -233,8 +241,12 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
-				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -279,16 +291,18 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants: []*models.Tenant{
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
 				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
-				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusFROZEN},
 			},
 			errMsgs: []string{},
 			expectedTenants: []*models.Tenant{
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
 				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
-				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusFROZEN},
 			},
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
-				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 	}
@@ -299,7 +313,7 @@ func TestUpdateTenants(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			test.mockCalls(fakeSchemaManager)
 
-			err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
+			_, err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
 			if len(test.errMsgs) == 0 {
 				require.NoError(t, err)
 			} else {

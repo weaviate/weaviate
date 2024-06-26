@@ -169,6 +169,22 @@ func (s *Raft) DeleteTenants(class string, req *cmd.DeleteTenantsRequest) (uint6
 	return s.Execute(command)
 }
 
+func (s *Raft) UpdateTenantsProcess(class string, req *cmd.TenantProcessRequest) (uint64, error) {
+	if class == "" || req == nil {
+		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
+	}
+	subCommand, err := proto.Marshal(req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_TENANT_PROCESS,
+		Class:      class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(command)
+}
+
 func (s *Raft) StoreSchemaV1() error {
 	command := &cmd.ApplyRequest{
 		Type: cmd.ApplyRequest_TYPE_STORE_SCHEMA_V1,
