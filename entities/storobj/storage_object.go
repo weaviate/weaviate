@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strings"
 
 	"github.com/buger/jsonparser"
 
@@ -792,10 +793,12 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 			errParse = err
 			(*properties)[aggregationProperties[idx]] = val
 		case jsonparser.Array: // can be a beacon or an actual array
-			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
-			beaconVal, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
+			arrayEntries := value[1 : len(value)-1]                                    // without leading and trailing []
+			beaconVal, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon") // this points to the underlying memory
 			if errBeacon == nil {
-				(*properties)[aggregationProperties[idx]] = []interface{}{map[string]interface{}{"beacon": beaconVal}}
+				// necessary in case the underlying memory is reused by the next iteration
+				beaconValCopy := strings.Clone(beaconVal)
+				(*properties)[aggregationProperties[idx]] = []interface{}{map[string]interface{}{"beacon": beaconValCopy}}
 			} else {
 				// check how many entries there are in the array by counting the ",". This allows us to allocate an
 				// array with the right size without extending it with every append.
