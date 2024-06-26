@@ -32,7 +32,7 @@ type DistanceForVector interface {
 }
 
 type idAndDistance struct {
-	obj      uint64
+	docId    uint64
 	distance float32
 }
 
@@ -84,7 +84,7 @@ func uuidFromUint64(id uint64) strfmt.UUID {
 	return strfmt.UUID(uuid.NewSHA1(uuid.Nil, []byte(fmt.Sprintf("%d", id))).String())
 }
 
-func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, logger logrus.FieldLogger, results [][]uint64, dists [][]float32, targetVectors []string, searchVectors [][]float32, multiTargetCombination *dto.TargetCombination, limit int, targetDist float32) ([]uint64, []float32, error) {
+func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, logger logrus.FieldLogger, results [][]uint64, dists [][]float32, targetVectors []string, searchVectors [][]float32, targetCombination *dto.TargetCombination, limit int, targetDist float32) ([]uint64, []float32, error) {
 	if len(results) == 0 {
 		return []uint64{}, []float32{}, nil
 	}
@@ -104,7 +104,11 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		return []uint64{}, []float32{}, nil
 	}
 
-	if multiTargetCombination == nil {
+	if targetCombination == nil {
+		return nil, nil, fmt.Errorf("multi target combination is nil")
+	}
+
+	if targetCombination == nil {
 		return nil, nil, fmt.Errorf("multi target combination is nil")
 	}
 
@@ -116,10 +120,10 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 	}
 	missingIDs := make(map[uint64]targetVectorData)
 
-	if multiTargetCombination.Type == dto.RelativeScore {
+	if targetCombination.Type == dto.RelativeScore {
 		weights := make([]float64, len(results))
 		for i, target := range targetVectors {
-			weights[i] = float64(multiTargetCombination.Weights[target])
+			weights[i] = float64(targetCombination.Weights[target])
 		}
 
 		scoresToRemove := make(map[uint64]struct{})
@@ -139,7 +143,7 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 			}
 			collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 			resultContainer := ResultContainerHybrid{ResultsIn: fusionInput[i], allIDs: allIDs, IDsToRemove: make(map[uint64]struct{})}
-			if err := getScoresOfMissingResults(ctx, shard, logger, missingIDs, &resultContainer, multiTargetCombination.Weights); err != nil {
+			if err := getScoresOfMissingResults(ctx, shard, logger, missingIDs, &resultContainer, targetCombination.Weights); err != nil {
 				return nil, nil, err
 			}
 			for key := range resultContainer.IDsToRemove {
@@ -182,7 +186,7 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		}
 		var localIDs map[uint64]struct{}
 
-		if multiTargetCombination.Type != dto.Minimum {
+		if targetCombination.Type != dto.Minimum {
 			localIDs = make(map[uint64]struct{}, len(allIDs))
 			for val := range allIDs {
 				localIDs[val] = struct{}{}
@@ -194,21 +198,21 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 
 			tmp, ok := combinedResults[uid]
 
-			if multiTargetCombination.Type == dto.Minimum {
+			if targetCombination.Type == dto.Minimum {
 				if !ok {
-					tmp = idAndDistance{obj: results[i][j], distance: dists[i][j]}
+					tmp = idAndDistance{docId: results[i][j], distance: dists[i][j]}
 				}
 				tmp.distance = min(tmp.distance, dists[i][j])
 			} else {
 				delete(localIDs, uid)
-				if len(multiTargetCombination.Weights) != len(results) {
+				if len(targetCombination.Weights) != len(results) {
 					return nil, nil, fmt.Errorf("number of weights in join does not match number of results")
 				}
 				if !ok {
-					tmp = idAndDistance{obj: results[i][j], distance: 0}
+					tmp = idAndDistance{docId: results[i][j], distance: 0}
 				}
 
-				weight := multiTargetCombination.Weights[targetVectors[i]]
+				weight := targetCombination.Weights[targetVectors[i]]
 				tmp.distance += weight * dists[i][j]
 			}
 			combinedResults[uid] = tmp
@@ -216,8 +220,8 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		}
 		collectMissingIds(localIDs, missingIDs, targetVectors, searchVectors, i)
 	}
-	if multiTargetCombination.Type != dto.Minimum {
-		if err := getScoresOfMissingResults(ctx, shard, logger, missingIDs, &ResultContainerStandard{combinedResults}, multiTargetCombination.Weights); err != nil {
+	if targetCombination.Type != dto.Minimum {
+		if err := getScoresOfMissingResults(ctx, shard, logger, missingIDs, &ResultContainerStandard{combinedResults}, targetCombination.Weights); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -239,7 +243,7 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 	lim := queue.Len()
 	for i := 0; i < lim; i++ {
 		item := queue.Pop()
-		returnResults = append(returnResults, combinedResults[uuidCounter[item.ID]].obj)
+		returnResults = append(returnResults, combinedResults[uuidCounter[item.ID]].docId)
 		returnDists = append(returnDists, combinedResults[uuidCounter[item.ID]].distance)
 	}
 
