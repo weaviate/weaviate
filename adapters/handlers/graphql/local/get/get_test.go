@@ -2234,7 +2234,7 @@ func TestNearVectorNoModules(t *testing.T) {
 		query := `{ Get { SomeThing(
 						limit: -1
 						nearVector: {
-							vectorPerTarget:{ test1: [0.123, 0.984], test1: [0.456, 0.789]}
+							vectorPerTarget:{ test1: [0.123, 0.984], test2: [0.456, 0.789]}
 							targetVectors: ["test1", "test2"]
 								}) { intField } } }`
 

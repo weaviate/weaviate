@@ -422,7 +422,7 @@ def test_multi_target_near_vector(collection_factory: CollectionFactory) -> None
         ]
     )
 
-    uuid1 = collection.data.insert(
+    collection.data.insert(
         properties={}, vector={"first": [1, 0], "second": [0, 0, 1], "third": [0, 0, 0, 1]}
     )
     uuid2 = collection.data.insert(
@@ -437,7 +437,7 @@ def test_multi_target_near_vector(collection_factory: CollectionFactory) -> None
     )
     assert len(nt.objects) == 1
     assert nt.objects[0].uuid == uuid2
-    assert math.isclose(nt.objects[0].metadata.distance, 0, rel_tol=1e-5)
+    assert nt.objects[0].metadata.distance == 0
 
 
 def test_multi_target_with_filter(collection_factory: CollectionFactory):
@@ -607,7 +607,7 @@ def test_test_multi_target_near_vector_gql(collection_factory: CollectionFactory
         ]
     )
 
-    uuid1 = collection.data.insert(
+    collection.data.insert(
         properties={}, vector={"title1": [1, 0], "title2": [0, 0, 1], "title3": [0, 0, 0, 1]}
     )
     uuid2 = collection.data.insert(
