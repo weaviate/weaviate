@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
@@ -421,34 +423,40 @@ func (p *Provider) ExploreArguments(schema *models.Schema) map[string]*graphql.A
 // being specific to any one class and it's configuration. This is used in
 // Explore() { } for example
 func (p *Provider) CrossClassExtractSearchParams(arguments map[string]interface{}) map[string]interface{} {
-	return p.extractSearchParams(arguments, nil)
+	// explore does not support target vectors
+	params, _ := p.extractSearchParams(arguments, nil)
+	return params
 }
 
 // ExtractSearchParams extracts GraphQL arguments
-func (p *Provider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
-	exractedParams := map[string]interface{}{}
+func (p *Provider) ExtractSearchParams(arguments map[string]interface{}, className string) (map[string]interface{}, map[string]*dto.TargetCombination) {
 	class, err := p.getClass(className)
 	if err != nil {
-		return exractedParams
+		return map[string]interface{}{}, nil
 	}
 	return p.extractSearchParams(arguments, class)
 }
 
-func (p *Provider) extractSearchParams(arguments map[string]interface{}, class *models.Class) map[string]interface{} {
+func (p *Provider) extractSearchParams(arguments map[string]interface{}, class *models.Class) (map[string]interface{}, map[string]*dto.TargetCombination) {
 	exractedParams := map[string]interface{}{}
+	exractedCombination := map[string]*dto.TargetCombination{}
 	for _, module := range p.GetAll() {
 		if p.shouldCrossClassIncludeClassArgument(class, module.Name(), module.Type()) {
 			if args, ok := module.(modulecapabilities.GraphQLArguments); ok {
 				for paramName, argument := range args.Arguments() {
 					if param, ok := arguments[paramName]; ok && argument.ExtractFunction != nil {
-						extracted := argument.ExtractFunction(param.(map[string]interface{}))
+						extracted, combination, err := argument.ExtractFunction(param.(map[string]interface{}))
+						if err != nil {
+							continue
+						}
 						exractedParams[paramName] = extracted
+						exractedCombination[paramName] = combination
 					}
 				}
 			}
 		}
 	}
-	return exractedParams
+	return exractedParams, exractedCombination
 }
 
 // CrossClassValidateSearchParam validates module parameters without

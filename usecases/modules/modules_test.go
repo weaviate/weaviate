@@ -18,6 +18,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/tailor-inc/graphql"
@@ -54,7 +56,7 @@ func TestModulesProvider(t *testing.T) {
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
+		extractedArgs, _ := modulesProvider.ExtractSearchParams(arguments, class.Class)
 
 		// then
 		mod1 := registered[0]
@@ -167,7 +169,7 @@ func TestModulesProvider(t *testing.T) {
 		registered := modulesProvider.GetAll()
 		getArgs := modulesProvider.GetArguments(class)
 		exploreArgs := modulesProvider.ExploreArguments(schema)
-		extractedArgs := modulesProvider.ExtractSearchParams(arguments, class.Class)
+		extractedArgs, _ := modulesProvider.ExtractSearchParams(arguments, class.Class)
 		restApiFPArgs := modulesProvider.RestApiAdditionalProperties("featureProjection", class)
 		restApiInterpretationArgs := modulesProvider.RestApiAdditionalProperties("interpretation", class)
 		graphQLArgs := modulesProvider.GraphQLAdditionalFieldNames()
@@ -350,10 +352,10 @@ func TestModulesProvider(t *testing.T) {
 	})
 }
 
-func fakeExtractFn(param map[string]interface{}) interface{} {
+func fakeExtractFn(param map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 	extracted := map[string]interface{}{}
 	extracted["nearArgumentParam"] = []string{"fake"}
-	return extracted
+	return extracted, nil, nil
 }
 
 func fakeValidateFn(param interface{}) error {
