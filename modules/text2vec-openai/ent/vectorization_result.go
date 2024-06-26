@@ -40,7 +40,7 @@ func GetRateLimitsFromHeader(header http.Header) *modulecomponents.RateLimits {
 		limitTokens = dummyLimit
 	}
 	if limitRequests == 0 && remainingRequests > 0 {
-		limitTokens = dummyLimit
+		limitRequests = dummyLimit
 	}
 	return &modulecomponents.RateLimits{
 		LimitRequests:     limitRequests,
