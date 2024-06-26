@@ -29,7 +29,7 @@ var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
-	KagomeEnabled    = false
+	KagomeEnabled    = false // Disable Kagome tokenizer by default to reduce resource usage until needed
 )
 
 var Tokenizations []string = []string{
