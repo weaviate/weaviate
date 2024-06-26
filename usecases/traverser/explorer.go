@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -235,18 +237,28 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	var err error
 	searchVectors := make([][]float32, len(targetVectors))
+	eg := enterrors.NewErrorGroupWrapper(e.logger)
+	eg.SetLimit(2 * _NUMCPU)
 	for i := range targetVectors {
-		var searchVectorParam *searchparams.NearVector
-		if params.NearVector != nil {
-			searchVectorParam = params.NearVector
-		} else if searchVectorParams != nil {
-			searchVectorParam = searchVectorParams[i]
-		}
+		i := i
+		eg.Go(func() error {
+			var searchVectorParam *searchparams.NearVector
+			if params.NearVector != nil {
+				searchVectorParam = params.NearVector
+			} else if searchVectorParams != nil {
+				searchVectorParam = searchVectorParams[i]
+			}
 
-		searchVectors[i], err = e.vectorFromParamsForTaget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
-		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: vectorize search vector: %v", err)
-		}
+			searchVectors[i], err = e.vectorFromParamsForTaget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
+			if err != nil {
+				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
 	}
 
 	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
