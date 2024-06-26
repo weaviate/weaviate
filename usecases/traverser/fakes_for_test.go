@@ -459,6 +459,10 @@ func (p nearCustomTextParams) GetTargetVectors() []string {
 	return p.TargetVectors
 }
 
+func (p nearCustomTextParams) GetTargetCombination() *dto.TargetCombination {
+	return nil
+}
+
 type nearExploreMove struct {
 	Values  []string
 	Force   float32
@@ -672,8 +676,9 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		ExploreArgumentsFunction: func() *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument("")
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
-			return m.extractNearCustomTextArgument(source)
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
+			params := m.extractNearCustomTextArgument(source)
+			return params, nil, nil
 		},
 		ValidateFunction: func(param interface{}) error {
 			nearText, ok := param.(*nearCustomTextParams)
