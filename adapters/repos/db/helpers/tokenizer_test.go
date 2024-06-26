@@ -143,7 +143,6 @@ func TestTokenize(t *testing.T) {
 }
 
 func TestTokenizeAndCountDuplicates(t *testing.T) {
-
 	type testCase struct {
 		input        string
 		tokenization string
