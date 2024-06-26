@@ -219,13 +219,17 @@ func processDenseSearch(ctx context.Context,
 	if params.HybridSearch.NearTextParams != nil {
 		params.NearTextParams = params.HybridSearch.NearTextParams
 		query = params.HybridSearch.NearTextParams.Values[0]
-	} else if params.HybridSearch.NearVectorParams != nil {
-		params.NearVectorParams = params.HybridSearch.NearVectorParams
-		vector = params.HybridSearch.NearVectorParams.Vector
 	}
-	vector, err := decideSearchVector(ctx, params.Class, query, params.TargetVectors, vector, modules, schemaGetter, targetVectorParamHelper)
-	if err != nil {
-		return nil, err
+
+	if params.HybridSearch.NearVectorParams == nil {
+		var err error
+		vector, err = decideSearchVector(ctx, params.Class, query, params.TargetVectors, vector, modules, schemaGetter, targetVectorParamHelper)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		targetVector := getTargetVector(params.TargetVectors)
+		vector = params.HybridSearch.NearVectorParams.VectorPerTarget[targetVector]
 	}
 
 	res, dists, err := denseSearch(vector)
