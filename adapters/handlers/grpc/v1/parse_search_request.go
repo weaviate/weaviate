@@ -815,23 +815,21 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 
 	}
 
-	if targetVectors != nil {
-		vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
-		if err != nil {
-			return props, errors.Wrap(err, "get vector index config from class")
-		}
-
-		certainty := false
-		for _, conf := range vectorIndex {
-			if conf.DistanceName() == common.DistanceCosine && prop.Certainty {
-				certainty = true
-			} else {
-				certainty = false
-				break // all vector indexes must be cosine for certainty
-			}
-		}
-		props.Certainty = certainty
+	vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
+	if err != nil {
+		return props, errors.Wrap(err, "get vector index config from class")
 	}
+
+	certainty := false
+	for _, conf := range vectorIndex {
+		if conf.DistanceName() == common.DistanceCosine && prop.Certainty {
+			certainty = true
+		} else {
+			certainty = false
+			break // all vector indexes must be cosine for certainty
+		}
+	}
+	props.Certainty = certainty
 
 	return props, nil
 }
