@@ -29,7 +29,7 @@ var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
-	KagomeEnabled    = true
+	KagomeEnabled    = false
 )
 
 var Tokenizations []string = []string{
@@ -104,6 +104,16 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 	}
 }
 
+func removeEmptyStrings(terms []string) []string {
+	for i := 0; i < len(terms); i++ {
+		if terms[i] == "" || terms[i] == " " {
+			terms = append(terms[:i], terms[i+1:]...)
+			i--
+		}
+	}
+	return terms
+}
+
 // tokenizeField trims white spaces
 // (former DataTypeString/Field)
 func tokenizeField(in string) []string {
@@ -159,13 +169,7 @@ func tokenizeGSE(in string) []string {
 	defer gseTokenizerLock.Unlock()
 	terms := gseTokenizer.CutAll(in)
 
-	// Remove empty strings from terms
-	for i := 0; i < len(terms); i++ {
-		if terms[i] == "" || terms[i] == " " {
-			terms = append(terms[:i], terms[i+1:]...)
-			i--
-		}
-	}
+	terms = removeEmptyStrings(terms)
 
 	alpha := tokenizeWord(in)
 	return append(terms, alpha...)
@@ -218,13 +222,7 @@ func tokenizeWithKagome(in string, t *kagomeTokenizer.Tokenizer) []string {
 		}
 	}
 
-	// Remove empty strings from terms
-	for i := 0; i < len(terms); i++ {
-		if terms[i] == "" || terms[i] == " " {
-			terms = append(terms[:i], terms[i+1:]...)
-			i--
-		}
-	}
+	terms = removeEmptyStrings(terms)
 
 	return terms
 }
