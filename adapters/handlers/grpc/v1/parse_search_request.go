@@ -55,21 +55,21 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 
 	out.Tenant = req.Tenant
 
-	targetVectors, targetCombination, err := extractTargetVectors(req, class)
+	targetVectors, targetCombination, vectorSearch, err := extractTargetVectors(req, class)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract target vectors")
 	}
 	out.TargetVectorCombination = targetCombination
 
 	if req.Metadata != nil {
-		addProps, err := extractAdditionalPropsFromMetadata(class, req.Metadata, targetVectors)
+		addProps, err := extractAdditionalPropsFromMetadata(class, req.Metadata, targetVectors, vectorSearch)
 		if err != nil {
 			return dto.GetParams{}, errors.Wrap(err, "extract additional props")
 		}
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, getClass, req.Collection, req.Uses_123Api, targetVectors)
+	out.Properties, err = extractPropertiesRequest(req.Properties, getClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -365,7 +365,7 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 	return groupOut, nil
 }
 
-func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string, *dto.TargetCombination, error) {
+func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string, *dto.TargetCombination, bool, error) {
 	var targetVectors []string
 	var targets *pb.Targets
 	vectorSearch := false
@@ -412,7 +412,7 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	if targets != nil {
 		var err error
 		if combination, err = extractTargets(targets); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 	} else if len(targetVectors) > 1 {
 		// here weights need to be added if the default combination requires it
@@ -420,18 +420,18 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	}
 
 	if vectorSearch && len(targetVectors) == 0 && len(class.VectorConfig) > 1 {
-		return nil, nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
+		return nil, nil, false, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 	}
 
 	if vectorSearch {
 		for _, target := range targetVectors {
 			if _, ok := class.VectorConfig[target]; !ok {
-				return nil, nil, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
+				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
 			}
 		}
 	}
 
-	return targetVectors, combination, nil
+	return targetVectors, combination, vectorSearch, nil
 }
 
 func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
@@ -567,7 +567,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors []string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
@@ -582,7 +582,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 
 	if !usesNewDefaultLogic {
 		// Old stubs being used, use deprecated method
-		return extractPropertiesRequestDeprecated(reqProps, getClass, className, targetVectors)
+		return extractPropertiesRequestDeprecated(reqProps, getClass, className, targetVectors, vectorSearch)
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
@@ -635,13 +635,13 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, getClass, linkedClassName, usesNewDefaultLogic, targetVectors)
+				refProperties, err = extractPropertiesRequest(prop.Properties, getClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors)
+				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
@@ -679,7 +679,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 	return props, nil
 }
 
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors []string) ([]search.SelectProperty, error) {
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
@@ -723,13 +723,13 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, getClass, linkedClassName, targetVectors)
+				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, getClass, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors)
+				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
@@ -793,7 +793,7 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 	return selectProps
 }
 
-func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest, targetVectors []string) (additional.Properties, error) {
+func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest, targetVectors []string, vectorSearch bool) (additional.Properties, error) {
 	props := additional.Properties{
 		Vector:             prop.Vector,
 		ID:                 prop.Uuid,
@@ -815,21 +815,23 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 
 	}
 
-	vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
-	if err != nil {
-		return props, errors.Wrap(err, "get vector index config from class")
-	}
-
-	certainty := false
-	for _, conf := range vectorIndex {
-		if conf.DistanceName() == common.DistanceCosine && prop.Certainty {
-			certainty = true
-		} else {
-			certainty = false
-			break // all vector indexes must be cosine for certainty
+	if vectorSearch {
+		vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
+		if err != nil {
+			return props, errors.Wrap(err, "get vector index config from class")
 		}
+
+		certainty := false
+		for _, conf := range vectorIndex {
+			if conf.DistanceName() == common.DistanceCosine && prop.Certainty {
+				certainty = true
+			} else {
+				certainty = false
+				break // all vector indexes must be cosine for certainty
+			}
+		}
+		props.Certainty = certainty
 	}
-	props.Certainty = certainty
 
 	return props, nil
 }
