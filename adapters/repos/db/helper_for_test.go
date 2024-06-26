@@ -277,8 +277,11 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	}
 
 	shardName := shardState.AllPhysicalShards()[0]
-	_, err = idx.initLocalShard(ctx, class, shardName)
+
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards)
 	require.NoError(t, err)
+
+	idx.shards.Store(shardName, shard)
 
 	return idx.shards.Load(shardName), idx
 }
