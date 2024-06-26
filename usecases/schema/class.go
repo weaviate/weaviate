@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
@@ -582,7 +583,10 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
 				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
-				models.PropertyTokenizationTrigram, models.PropertyTokenizationGse, models.PropertyTokenizationKagomeKr:
+				models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
+				return nil
+			case models.PropertyTokenizationKagomeKr:
+				helpers.InitializeKagomeTokenizerKr()
 				return nil
 			}
 		default:

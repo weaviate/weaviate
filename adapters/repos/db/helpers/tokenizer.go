@@ -29,7 +29,7 @@ var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
-	EnableKagome     = true // To later have an option of disabling this by default
+	KagomeEnabled    = true
 )
 
 var Tokenizations []string = []string{
@@ -171,32 +171,39 @@ func tokenizeGSE(in string) []string {
 	return append(terms, alpha...)
 }
 
-// TODO - add a Korean tokenizer here
 var (
 	// Korean tokenizer and dictionary instances
 	koTokenizerInstance *kagomeTokenizer.Tokenizer
 	koOnce              sync.Once
+	kagomeInitErr       error
 )
 
 func initializeKagomeTokenizer(dictInstance *kagomeDict.Dict, tokenizerInstance **kagomeTokenizer.Tokenizer, once *sync.Once) bool {
-	//if os.Getenv("ENABLE_KAGOME") == "true" {
-	//	EnableKagome = true
-	//}
-
-	if EnableKagome {
-		once.Do(func() {
-			var err error
-			*tokenizerInstance, err = kagomeTokenizer.New(dictInstance)
-			if err != nil {
-				log.Fatalf("failed to create tokenizer: %v", err)
-			}
-		})
+	// If already initialized successfully
+	if KagomeEnabled {
+		return true
 	}
 
-	return EnableKagome
+	// If already initialized with an error
+	if kagomeInitErr != nil {
+		return false
+	}
+
+	// Otherwise, initialize the tokenizer
+	once.Do(func() {
+		var err error
+		*tokenizerInstance, err = kagomeTokenizer.New(dictInstance)
+		if err != nil {
+			kagomeInitErr = err
+			log.Printf("failed to create tokenizer: %v", err)
+		} else {
+			KagomeEnabled = true
+		}
+	})
+
+	return true
 }
 
-// Initialize the Korean tokenizer (if not already initialized)
 func InitializeKagomeTokenizerKr() bool {
 	return initializeKagomeTokenizer(koDict.Dict(), &koTokenizerInstance, &koOnce)
 }
@@ -224,6 +231,7 @@ func tokenizeWithKagome(in string, t *kagomeTokenizer.Tokenizer) []string {
 
 // tokenizeKagomeKr tokenizes Korean text using the cached Korean tokenizer
 func tokenizeKagomeKr(in string) []string {
+	// Initialize the tokenizer on the first run
 	if InitializeKagomeTokenizerKr() {
 		return tokenizeWithKagome(in, koTokenizerInstance)
 	} else {
