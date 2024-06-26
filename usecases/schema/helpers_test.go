@@ -31,8 +31,8 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeMetaHandler) {
-	metaHandler := &fakeMetaHandler{}
+func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSchemaManager) {
+	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
@@ -42,16 +42,16 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeMeta
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	handler, err := NewHandler(
-		metaHandler, metaHandler, &fakeValidator{}, logger, &fakeAuthorizer{nil},
+		schemaManager, schemaManager, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
 	require.Nil(t, err)
-	return &handler, metaHandler
+	return &handler, schemaManager
 }
 
-func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorizer) (*Handler, *fakeMetaHandler) {
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorizer) (*Handler, *fakeSchemaManager) {
 	cfg := config.Config{}
-	metaHandler := &fakeMetaHandler{}
+	metaHandler := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{
@@ -151,7 +151,7 @@ func (f *fakeScaleOutManager) Scale(ctx context.Context,
 	return nil, nil
 }
 
-func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
+func (f *fakeScaleOutManager) SetSchemaReader(sr scaler.SchemaReader) {
 }
 
 type fakeValidator struct{}

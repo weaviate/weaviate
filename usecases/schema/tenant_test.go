@@ -61,7 +61,7 @@ func TestAddTenants(t *testing.T) {
 		class     string
 		tenants   []*models.Tenant
 		errMsgs   []string
-		mockCalls func(fakeMetaHandler *fakeMetaHandler)
+		mockCalls func(fakeSchemaManager *fakeSchemaManager)
 	}
 
 	tests := []test{
@@ -70,9 +70,9 @@ func TestAddTenants(t *testing.T) {
 			class:   mtNilClass.Class,
 			tenants: tenants,
 			errMsgs: nil,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				// MT validation is done leader side now
-				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -80,9 +80,9 @@ func TestAddTenants(t *testing.T) {
 			class:   mtDisabledClass.Class,
 			tenants: tenants,
 			errMsgs: nil,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				// MT validation is done leader side now
-				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeSchemaManager.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -90,8 +90,8 @@ func TestAddTenants(t *testing.T) {
 			class:   "UnknownClass",
 			tenants: tenants,
 			errMsgs: nil,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -103,7 +103,7 @@ func TestAddTenants(t *testing.T) {
 				{Name: "Bbbb"},
 			},
 			errMsgs:   []string{"tenant"},
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {},
 		},
 		{
 			name:  "InvalidActivityStatus",
@@ -118,7 +118,7 @@ func TestAddTenants(t *testing.T) {
 				"DOES_NOT_EXIST_1",
 				"DOES_NOT_EXIST_2",
 			},
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {},
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {},
 		},
 		{
 			name:  "Success",
@@ -129,8 +129,8 @@ func TestAddTenants(t *testing.T) {
 				{Name: "Cccc", ActivityStatus: models.TenantActivityStatusCOLD},
 			},
 			errMsgs: []string{},
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.On("AddTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		// TODO test with replication factor >= 2
@@ -140,13 +140,13 @@ func TestAddTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-			test.mockCalls(fakeMetaHandler)
+			test.mockCalls(fakeSchemaManager)
 
 			_, err := handler.AddTenants(ctx, nil, test.class, test.tenants)
 
-			fakeMetaHandler.AssertExpectations(t)
+			fakeSchemaManager.AssertExpectations(t)
 
 			if len(test.errMsgs) == 0 {
 				require.NoError(t, err)
@@ -203,7 +203,7 @@ func TestUpdateTenants(t *testing.T) {
 		updateTenants   []*models.Tenant
 		errMsgs         []string
 		expectedTenants []*models.Tenant
-		mockCalls       func(fakeMetaHandler *fakeMetaHandler)
+		mockCalls       func(fakeSchemaManager *fakeSchemaManager)
 	}
 
 	tests := []test{
@@ -213,7 +213,7 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
 					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
@@ -227,7 +227,7 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
 					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
@@ -241,7 +241,7 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
 					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
@@ -257,7 +257,7 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"tenant"},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
+			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
 		},
 		{
 			name:  "InvalidActivityStatus",
@@ -272,7 +272,7 @@ func TestUpdateTenants(t *testing.T) {
 				"WARM",
 			},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
+			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
 		},
 		{
 			name:  "EmptyActivityStatus",
@@ -283,7 +283,7 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"invalid activity status"},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
+			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
 		},
 		{
 			name:  "Success",
@@ -297,7 +297,7 @@ func TestUpdateTenants(t *testing.T) {
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
 				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 			},
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
 				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
 					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
@@ -310,8 +310,8 @@ func TestUpdateTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
-			test.mockCalls(fakeMetaHandler)
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			test.mockCalls(fakeSchemaManager)
 
 			_, err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
 			if len(test.errMsgs) == 0 {
@@ -322,7 +322,7 @@ func TestUpdateTenants(t *testing.T) {
 				}
 			}
 
-			fakeMetaHandler.AssertExpectations(t)
+			fakeSchemaManager.AssertExpectations(t)
 		})
 	}
 }
@@ -373,7 +373,7 @@ func TestDeleteTenants(t *testing.T) {
 		tenants         []*models.Tenant
 		errMsgs         []string
 		expectedTenants []*models.Tenant
-		mockCalls       func(fakeMetaHandler *fakeMetaHandler)
+		mockCalls       func(fakeSchemaManager *fakeSchemaManager)
 	}
 
 	tests := []test{
@@ -383,8 +383,8 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -393,8 +393,8 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -403,8 +403,8 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -417,7 +417,7 @@ func TestDeleteTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"empty tenant name at index 1"},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeMetaHandler *fakeMetaHandler) {},
+			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
 		},
 		{
 			name:            "Success",
@@ -425,8 +425,8 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants[:2],
 			errMsgs:         []string{},
 			expectedTenants: tenants[2:],
-			mockCalls: func(fakeMetaHandler *fakeMetaHandler) {
-				fakeMetaHandler.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
+				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 	}
@@ -434,8 +434,8 @@ func TestDeleteTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeMetaHandler := newTestHandler(t, &fakeDB{})
-			test.mockCalls(fakeMetaHandler)
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			test.mockCalls(fakeSchemaManager)
 
 			tenantNames := make([]string, len(test.tenants))
 			for i := range test.tenants {

@@ -27,4 +27,5 @@ const (
 	ClassName            = "Name of the Class"
 	ID                   = "Concept identifier in the uuid format"
 	Beacon               = "Concept identifier in the beacon format, such as weaviate://<hostname>/<kind>/id"
+	Target               = "Configure how multi target searches are combined"
 )

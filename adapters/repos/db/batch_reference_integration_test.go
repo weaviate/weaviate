@@ -377,12 +377,11 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// to remove the additional storage updates. By still including this
 			// test we verify that such an update is indeed no longer necessary
 			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-				ClassName:    "AddingBatchReferencesTestSource",
-				SearchVector: []float32{0.49},
+				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
 					Limit: 1,
 				},
-			})
+			}, []string{""}, [][]float32{{0.49}})
 
 			require.Nil(t, err)
 			require.Len(t, res, 1)

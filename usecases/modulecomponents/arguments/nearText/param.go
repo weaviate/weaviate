@@ -74,11 +74,6 @@ func (n NearTextParams) Validate() error {
 			"nearText cannot provide both distance and certainty")
 	}
 
-	if len(n.TargetVectors) > 1 {
-		return errors.Errorf(
-			"nearText.targetVectors cannot provide more than 1 target vector value")
-	}
-
 	return nil
 }
 
