@@ -363,7 +363,7 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 	return s.queue, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, multiTargetCombination *dto.TargetCombination) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
@@ -433,7 +433,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 		return nil, nil, err
 	}
 
-	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, multiTargetCombination, limit, targetDist)
+	idsCombined, distCombined, err := CombineMultiTargetResults(ctx, s, s.index.logger, idss, distss, targetVectors, searchVectors, targetCombination, limit, targetDist)
 	if err != nil {
 		return nil, nil, err
 	}

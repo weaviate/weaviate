@@ -81,7 +81,7 @@ type RemoteIndexClient interface {
 		searchVector [][]float32, targetVector []string, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-		additional additional.Properties, multiTargetCombination *dto.TargetCombination,
+		additional additional.Properties, targetCombination *dto.TargetCombination,
 	) ([]*storobj.Object, []float32, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
