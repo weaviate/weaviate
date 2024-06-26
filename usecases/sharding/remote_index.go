@@ -252,7 +252,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
 	replEnabled bool,
-	multiTargetCombination *dto.TargetCombination,
+	targetCombination *dto.TargetCombination,
 ) ([]*storobj.Object, []float32, string, error) {
 	type pair struct {
 		first  []*storobj.Object
@@ -260,7 +260,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	}
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
-			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, multiTargetCombination)
+			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination)
 		if err != nil {
 			return nil, err
 		}
