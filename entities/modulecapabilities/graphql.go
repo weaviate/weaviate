@@ -13,6 +13,7 @@ package modulecapabilities
 
 import (
 	"github.com/tailor-inc/graphql"
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 // GetArgumentsFn generates get graphql config for a given classname
@@ -25,7 +26,7 @@ type AggregateArgumentsFn = func(classname string) *graphql.ArgumentConfig
 type ExploreArgumentsFn = func() *graphql.ArgumentConfig
 
 // ExtractFn extracts graphql params to given struct implementation
-type ExtractFn = func(param map[string]interface{}) interface{}
+type ExtractFn = func(param map[string]interface{}) (interface{}, *dto.TargetCombination, error)
 
 // NearParam defines params with certainty information
 type NearParam interface {

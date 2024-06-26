@@ -17,6 +17,8 @@ import (
 	"math"
 	"sync/atomic"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -598,6 +600,26 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 	h.pools.pqResults.Put(res)
 	return ids, dists, nil
+}
+
+func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	queryVector = h.normalizeVec(queryVector)
+	if h.compressed.Load() {
+		dist, returnFn := h.compressor.NewDistancer(queryVector)
+		f := func(nodeID uint64) (float32, error) {
+			dist, _, err := dist.DistanceToNode(nodeID)
+			return dist, err
+		}
+		return common.QueryVectorDistancer{DistanceFunc: f, CloseFunc: returnFn}
+
+	} else {
+		distancer := h.distancerProvider.New(queryVector)
+		f := func(nodeID uint64) (float32, error) {
+			dist, _, err := h.distanceToFloatNode(distancer, nodeID)
+			return dist, err
+		}
+		return common.QueryVectorDistancer{DistanceFunc: f}
+	}
 }
 
 func newSearchByDistParams(maxLimit int64) *searchByDistParams {

@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.3"
+    "version": "1.26.0-preview0"
   },
   "basePath": "/v1",
   "paths": {
@@ -4713,7 +4713,8 @@ func init() {
       "properties": {
         "asyncEnabled": {
           "description": "Enable asynchronous replication",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         },
         "factor": {
           "description": "Number of times a class is replicated",
@@ -5304,7 +5305,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.3"
+    "version": "1.26.0-preview0"
   },
   "basePath": "/v1",
   "paths": {
@@ -10268,7 +10269,8 @@ func init() {
       "properties": {
         "asyncEnabled": {
           "description": "Enable asynchronous replication",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         },
         "factor": {
           "description": "Number of times a class is replicated",

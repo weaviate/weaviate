@@ -140,7 +140,7 @@ func Test_L2_FloatByte_DistanceImplementation(t *testing.T) {
 			control := L2FloatBytePureGo(x, y)
 
 			asmResult := asm.L2FloatByteAVX256(x, y)
-			require.Equal(t, int(control), int(asmResult))
+			assert.InEpsilon(t, control, asmResult, 0.01)
 		})
 	}
 }

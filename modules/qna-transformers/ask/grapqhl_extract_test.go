@@ -264,7 +264,7 @@ func Test_extractAskFn(t *testing.T) {
 		provider := New(nil)
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				if got := provider.extractAskFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
+				if got, _, _ := provider.extractAskFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
 					t.Errorf("extractAskFn() = %v, want %v", got, tt.want)
 				}
 			})
@@ -274,7 +274,7 @@ func Test_extractAskFn(t *testing.T) {
 		provider := New(&fakeTransformer{})
 		for _, tt := range testsWithAutocorrect {
 			t.Run(tt.name, func(t *testing.T) {
-				if got := provider.extractAskFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
+				if got, _, _ := provider.extractAskFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
 					t.Errorf("extractAskFn() = %v, want %v", got, tt.want)
 				}
 			})
