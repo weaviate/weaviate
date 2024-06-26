@@ -64,13 +64,21 @@ func TestTokenise(t *testing.T) {
 	tokens = Tokenize(models.PropertyTokenizationGse, "The quick brown fox jumps over the lazy dog")
 	assert.Equal(t, []string{"t", "h", "e", "q", "u", "i", "c", "k", "b", "r", "o", "w", "n", "f", "o", "x", "j", "u", "m", "p", "s", "o", "v", "e", "r", "t", "h", "e", "l", "a", "z", "y", "d", "o", "g", "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
 
-	// Kagome tokenizer for Korean and Japanese
-	// Should be disabled by default & return empty tokens
-	koreanText := "아버지가방에들어가신다"
+	// Kagome tokenizer for Korean
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "아버지가방에들어가신다")
+	assert.Equal(t, []string{"아버지", "가", "방", "에", "들어가", "신다"}, tokens)
 
-	tokens = Tokenize(models.PropertyTokenizationKagomeKr, koreanText)
-	expectedKorean := []string{"아버지", "가", "방", "에", "들어가", "신다"}
-	assert.Equal(t, expectedKorean, tokens)
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "아버지가 방에 들어가신다")
+	assert.Equal(t, []string{"아버지", "가", "방", "에", "들어가", "신다"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "결정하겠다")
+	assert.Equal(t, []string{"결정", "하", "겠", "다"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를처리하는예시입니다")
+	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를 처리하는 예시입니다")
+	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
 }
 
 func TestTokenize(t *testing.T) {
