@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -76,6 +77,91 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 	class.Properties = clusterSchema.MergeProps(class.Properties, props)
 	version, err := h.schemaManager.AddProperty(ctx, class.Class, props...)
+	if err != nil {
+		return nil, 0, err
+	}
+	return class, version, err
+}
+
+func (h *Handler) UpdateClassProperty(ctx context.Context, principal *models.Principal,
+	class *models.Class, prop *models.Property,
+) (*models.Class, uint64, error) {
+	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if class == nil {
+		return nil, 0, fmt.Errorf("class is nil: %w", ErrNotFound)
+	}
+
+	if prop == nil {
+		return nil, 0, fmt.Errorf("no property provided")
+	}
+
+	// Only supports setting indexRangeable for property with
+	// indexFilterable already set.
+	// Will fail for any other type of change.
+
+	if prop.Name == "" {
+		return nil, 0, fmt.Errorf("property name not provided")
+	}
+
+	var existingProp *models.Property
+	for _, property := range class.Properties {
+		if prop.Name == property.Name {
+			existingProp = property
+			break
+		}
+	}
+
+	if existingProp == nil {
+		return nil, 0, fmt.Errorf("property not found")
+	}
+
+	// validate
+	if len(prop.DataType) > 0 {
+		return nil, 0, fmt.Errorf("invalid property: data type provided")
+	}
+	if prop.Description != "" {
+		return nil, 0, fmt.Errorf("invalid property: description provided")
+	}
+	if prop.IndexFilterable != nil {
+		return nil, 0, fmt.Errorf("invalid property: index filterable provided")
+	}
+	if prop.IndexSearchable != nil {
+		return nil, 0, fmt.Errorf("invalid property: index searchable provided")
+	}
+	if prop.IndexInverted != nil {
+		return nil, 0, fmt.Errorf("invalid property: index inverted provided")
+	}
+	if prop.ModuleConfig != nil {
+		return nil, 0, fmt.Errorf("invalid property: module config provided")
+	}
+	if len(prop.NestedProperties) > 0 {
+		return nil, 0, fmt.Errorf("invalid property: nested properties provided")
+	}
+	if prop.Tokenization != "" {
+		return nil, 0, fmt.Errorf("invalid property: tokenization provided")
+	}
+
+	switch dt, _ := schema.AsPrimitive(existingProp.DataType); dt {
+	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeDate:
+		// ok
+	default:
+		return nil, 0, fmt.Errorf("invalid property: unsupported data type %q", dt.String())
+	}
+	if !inverted.HasFilterableIndex(existingProp) {
+		return nil, 0, fmt.Errorf("invalid property: filterable index needed as source")
+	}
+
+	if !(prop.IndexRangeable != nil && *prop.IndexRangeable) {
+		return nil, 0, fmt.Errorf("index rangeable change to %v not allowed", prop.IndexRangeable)
+	}
+
+	existingProp.IndexRangeable = prop.IndexRangeable
+
+	version, err := h.schemaManager.AddProperty(class.Class, existingProp)
 	if err != nil {
 		return nil, 0, err
 	}

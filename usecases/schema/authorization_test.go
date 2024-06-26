@@ -89,6 +89,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/objects",
 		},
 		{
+			methodName:       "UpdateClassProperty",
+			additionalArgs:   []interface{}{&models.Class{}, &models.Property{}},
+			expectedVerb:     "update",
+			expectedResource: "schema/objects",
+		},
+		{
 			methodName:       "DeleteClassProperty",
 			additionalArgs:   []interface{}{"somename", "someprop"},
 			expectedVerb:     "update",

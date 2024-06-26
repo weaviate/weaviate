@@ -135,6 +135,26 @@ func (s *schemaHandlers) addClassProperty(params schema.SchemaObjectsPropertiesA
 	return schema.NewSchemaObjectsPropertiesAddOK().WithPayload(params.Body)
 }
 
+func (s *schemaHandlers) updateClassProperty(params schema.SchemaObjectsPropertiesUpdateParams,
+	principal *models.Principal,
+) middleware.Responder {
+	_, _, err := s.manager.UpdateClassProperty(params.HTTPRequest.Context(), principal, s.manager.ReadOnlyClass(params.ClassName), params.Body)
+	if err != nil {
+		s.metricRequestsTotal.logError(params.ClassName, err)
+		switch err.(type) {
+		case errors.Forbidden:
+			return schema.NewSchemaObjectsPropertiesUpdateForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return schema.NewSchemaObjectsPropertiesUpdateUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk(params.ClassName)
+	return schema.NewSchemaObjectsPropertiesUpdateOK().WithPayload(params.Body)
+}
+
 func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *models.Principal) middleware.Responder {
 	dbSchema, err := s.manager.GetConsistentSchema(principal, *params.Consistency)
 	if err != nil {
@@ -317,6 +337,8 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		SchemaObjectsDeleteHandlerFunc(h.deleteClass)
 	api.SchemaSchemaObjectsPropertiesAddHandler = schema.
 		SchemaObjectsPropertiesAddHandlerFunc(h.addClassProperty)
+	api.SchemaSchemaObjectsPropertiesUpdateHandler = schema.
+		SchemaObjectsPropertiesUpdateHandlerFunc(h.updateClassProperty)
 
 	api.SchemaSchemaObjectsUpdateHandler = schema.
 		SchemaObjectsUpdateHandlerFunc(h.updateClass)
