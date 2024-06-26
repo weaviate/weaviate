@@ -67,8 +67,6 @@ func TestTokenise(t *testing.T) {
 	// Kagome tokenizer for Korean and Japanese
 	// Should be disabled by default & return empty tokens
 	koreanText := "아버지가방에들어가신다"
-	tokens = Tokenize(models.PropertyTokenizationKagomeKr, koreanText)
-	assert.Equal(t, []string{}, tokens)
 
 	// Enable & Initialize Kagome tokenizer
 	EnableKagome = true
