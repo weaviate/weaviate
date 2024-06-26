@@ -14,6 +14,8 @@ package nearImu
 import (
 	"reflect"
 	"testing"
+
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func Test_extractNearIMUFn(t *testing.T) {
@@ -21,9 +23,10 @@ func Test_extractNearIMUFn(t *testing.T) {
 		source map[string]interface{}
 	}
 	tests := []struct {
-		name string
-		args args
-		want interface{}
+		name       string
+		args       args
+		want       interface{}
+		wantTarget *dto.TargetCombination
 	}{
 		{
 			name: "should extract properly with distance and imu params set",
@@ -75,11 +78,31 @@ func Test_extractNearIMUFn(t *testing.T) {
 				IMU:           "base64;encoded",
 				TargetVectors: []string{"targetVector"},
 			},
+			wantTarget: &dto.TargetCombination{Type: dto.Minimum},
+		},
+		{
+			name: "should extract properly with imu and targets set",
+			args: args{
+				source: map[string]interface{}{
+					"imu": "base64;encoded",
+					"targets": map[string]interface{}{
+						"targetVectors":     []interface{}{"targetVector1", "targetVector2"},
+						"combinationMethod": dto.ManualWeights,
+						"weights":           map[string]float64{"targetVector1": 0.5, "targetVector2": 0.5},
+					},
+				},
+			},
+			want: &NearIMUParams{
+				IMU:           "base64;encoded",
+				TargetVectors: []string{"targetVector1", "targetVector2"},
+			},
+			wantTarget: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := extractNearIMUFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
+			got, target, err := extractNearIMUFn(tt.args.source)
+			if !reflect.DeepEqual(got, tt.want) || !reflect.DeepEqual(target, tt.wantTarget) || err != nil {
 				t.Errorf("extractNearIMUFn() = %v, want %v", got, tt.want)
 			}
 		})
