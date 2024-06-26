@@ -274,6 +274,13 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
