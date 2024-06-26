@@ -17,6 +17,9 @@ import (
 	"context"
 	"testing"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/storobj"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -38,6 +41,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
+		DisableLazyLoadShards:     true, // need access to the shard directly to convert UUIDs to docIds
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 
@@ -94,9 +98,12 @@ func TestVectorDistanceQuery(t *testing.T) {
 		)
 		require.Nil(t, err)
 
+		docId, err := docIdFromUUID(shards[0].(*Shard), ids[0])
+		require.Nil(t, err)
+
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			ids[0],
+			docId,
 			[][]float32{vectors[1], vectors[2], vectors[3]},
 			[]string{"custom1", "custom2"},
 		)
@@ -104,7 +111,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			ids[0],
+			docId,
 			[][]float32{},
 			[]string{},
 		)
@@ -112,14 +119,14 @@ func TestVectorDistanceQuery(t *testing.T) {
 
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			ids[0],
+			docId,
 			[][]float32{vectors[1], vectors[2]},
 			[]string{"custom1", "doesNotExist"})
 		require.NotNil(t, err)
 
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			ids[0],
+			docId,
 			[][]float32{vectors[1], {1, 0}},
 			[]string{"custom1", "custom2"})
 		require.NotNil(t, err)
@@ -134,10 +141,12 @@ func TestVectorDistanceQuery(t *testing.T) {
 			nil,
 			0),
 		)
+		docId, err := docIdFromUUID(shards[0].(*Shard), ids[1])
+		require.Nil(t, err)
 
 		distances, err := shards[0].VectorDistanceForQuery(
 			context.Background(),
-			ids[1],
+			docId,
 			[][]float32{vectors[1], vectors[2], vectors[3]},
 			[]string{"custom1", "custom2", "custom3"})
 		require.Nil(t, err)
@@ -157,10 +166,13 @@ func TestVectorDistanceQuery(t *testing.T) {
 			0),
 		)
 
+		docId, err := docIdFromUUID(shards[0].(*Shard), ids[2])
+		require.Nil(t, err)
+
 		// querying for existing target vectors works
 		distances, err := shards[0].VectorDistanceForQuery(
 			context.Background(),
-			ids[2],
+			docId,
 			[][]float32{vectors[1], vectors[2]},
 
 			[]string{"custom1", "custom2"})
@@ -172,9 +184,26 @@ func TestVectorDistanceQuery(t *testing.T) {
 		// error for non-existing target vector
 		_, err = shards[0].VectorDistanceForQuery(
 			context.Background(),
-			ids[2],
+			docId,
 			[][]float32{vectors[1], vectors[2]},
 			[]string{"custom1", "custom3"})
 		require.NotNil(t, err)
 	})
+}
+
+func docIdFromUUID(s *Shard, id strfmt.UUID) (uint64, error) {
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	if err != nil {
+		return 0, err
+	}
+	docIdBytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
+	if err != nil {
+		return 0, err
+	}
+
+	docId, err := storobj.DocIDFromBinary(docIdBytes)
+	if err != nil {
+		return 0, err
+	}
+	return docId, nil
 }
