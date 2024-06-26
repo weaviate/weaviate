@@ -44,7 +44,6 @@ var Tokenizations []string = []string{
 
 func init() {
 	init_gse()
-	InitializeKagomeTokenizerKr()
 }
 
 func init_gse() {
