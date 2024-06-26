@@ -143,13 +143,14 @@ func TestTokenize(t *testing.T) {
 }
 
 func TestTokenizeAndCountDuplicates(t *testing.T) {
-	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
 
 	type testCase struct {
 		input        string
 		tokenization string
 		expected     map[string]int
 	}
+
+	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
 
 	testCases := []testCase{
 		{
