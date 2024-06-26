@@ -221,6 +221,7 @@ message NearVector {
   bytes vector_bytes = 4;
   repeated string target_vectors = 5 [deprecated = true];  // deprecated in 1.26 - use targets
   Targets targets = 6;
+  map <string, bytes> vectorPerTarget = 7;
 }
 
 message NearObject {

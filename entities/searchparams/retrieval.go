@@ -20,11 +20,11 @@ import (
 )
 
 type NearVector struct {
-	Vector        []float32 `json:"vector"`
-	Certainty     float64   `json:"certainty"`
-	Distance      float64   `json:"distance"`
-	WithDistance  bool      `json:"-"`
-	TargetVectors []string  `json:"targetVectors"`
+	Certainty       float64              `json:"certainty"`
+	Distance        float64              `json:"distance"`
+	WithDistance    bool                 `json:"-"`
+	VectorPerTarget map[string][]float32 `json:"vectorPerTarget"`
+	TargetVectors   []string             `json:"targetVectors"`
 }
 
 type KeywordRanking struct {
