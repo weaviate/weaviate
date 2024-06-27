@@ -65,6 +65,8 @@ func TestTokenise(t *testing.T) {
 	assert.Equal(t, []string{"t", "h", "e", "q", "u", "i", "c", "k", "b", "r", "o", "w", "n", "f", "o", "x", "j", "u", "m", "p", "s", "o", "v", "e", "r", "t", "h", "e", "l", "a", "z", "y", "d", "o", "g", "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
 
 	// Kagome tokenizer for Korean
+	_ = InitializeKagomeTokenizerKr()
+
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "아버지가방에들어가신다")
 	assert.Equal(t, []string{"아버지", "가", "방", "에", "들어가", "신다"}, tokens)
 
@@ -150,6 +152,8 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 	}
 
 	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
+
+	_ = InitializeKagomeTokenizerKr()
 
 	testCases := []testCase{
 		{
