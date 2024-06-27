@@ -108,10 +108,6 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		return nil, nil, fmt.Errorf("multi target combination is nil")
 	}
 
-	if targetCombination == nil {
-		return nil, nil, fmt.Errorf("multi target combination is nil")
-	}
-
 	allIDs := make(map[uint64]struct{})
 	for i := range results {
 		for j := range results[i] {
