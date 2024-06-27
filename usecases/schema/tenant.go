@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -121,26 +122,45 @@ func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
 // Class must exist and has partitioning enabled
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
-) error {
+) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
-		return err
+		return nil, err
 	}
+
+	h.logger.WithFields(logrus.Fields{
+		"class":   class,
+		"tenants": tenants,
+	}).Debug("update tenants status")
+
 	validated, err := validateTenants(tenants)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := validateActivityStatuses(validated, false); err != nil {
-		return err
+		return nil, err
 	}
 
 	req := api.UpdateTenantsRequest{
-		Tenants: make([]*api.Tenant, len(tenants)),
+		Tenants:      make([]*api.Tenant, len(tenants)),
+		ClusterNodes: h.clusterState.Candidates(),
 	}
+	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
+		tNames[i] = tenant.Name
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
-	_, err = h.schemaManager.UpdateTenants(class, &req)
-	return err
+
+	if _, err = h.schemaManager.UpdateTenants(class, &req); err != nil {
+		return nil, err
+	}
+
+	// we get the new state to return correct status
+	// specially in FREEZING and UNFREEZING
+	uTenants, _, err := h.schemaManager.QueryTenants(class, tNames)
+	if err != nil {
+		return nil, err
+	}
+	return uTenants, err
 }
 
 // DeleteTenants is used to delete tenants of a class.

@@ -13,6 +13,7 @@ package common_filters
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -22,11 +23,11 @@ import (
 func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, *dto.TargetCombination, error) {
 	var args searchparams.NearVector
 
-	// vector is a required argument, so we don't need to check for its existing
-	vector := source["vector"].([]interface{})
-	args.Vector = make([]float32, len(vector))
-	for i, value := range vector {
-		args.Vector[i] = float32(value.(float64))
+	vectorGQL, okVec := source["vector"].([]interface{})
+	vectorPerTarget, okVecPerTarget := source["vectorPerTarget"].(map[string][]float32)
+	if (!okVec && !okVecPerTarget) || (okVec && okVecPerTarget) {
+		return searchparams.NearVector{}, nil,
+			fmt.Errorf("vector or vectorPerTarget is required field")
 	}
 
 	certainty, certaintyOK := source["certainty"]
@@ -50,6 +51,47 @@ func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, 
 		return searchparams.NearVector{}, nil, err
 	}
 	args.TargetVectors = targetVectors
+
+	if okVec {
+		vector := make([]float32, len(vectorGQL))
+		for i, value := range vectorGQL {
+			vector[i] = float32(value.(float64))
+		}
+		if len(targetVectors) == 0 {
+			args.VectorPerTarget = map[string][]float32{"": vector}
+		} else {
+			args.VectorPerTarget = make(map[string][]float32, len(targetVectors))
+			for _, target := range targetVectors {
+				args.VectorPerTarget[target] = vector
+			}
+		}
+	}
+
+	if okVecPerTarget {
+		targets := make([]string, 0, len(vectorPerTarget))
+		for target := range vectorPerTarget {
+			targets = append(targets, target)
+		}
+
+		if len(targetVectors) == 0 {
+			args.TargetVectors = targets
+		} else {
+			if len(targetVectors) != len(targets) {
+				return searchparams.NearVector{}, nil,
+					fmt.Errorf("number of targets (%d) does not match number of vectors (%d)", len(targetVectors), len(targets))
+			}
+			sort.Strings(targetVectors)
+			sort.Strings(targets)
+			for i, target := range targetVectors {
+				if target != targets[i] {
+					return searchparams.NearVector{}, nil,
+						fmt.Errorf("targets do not match: %s != %s", target, targets[i])
+				}
+			}
+
+		}
+		args.VectorPerTarget = vectorPerTarget
+	}
 
 	return args, combination, nil
 }

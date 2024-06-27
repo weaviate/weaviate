@@ -307,6 +307,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.ClusterService = rCluster.New(rConfig)
+	migrator.SetCluster(appState.ClusterService.Raft)
+
 	executor := schema.NewExecutor(migrator,
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, backup.RestoreClassDir(dataPath),

@@ -230,7 +230,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	err := s.manager.UpdateTenants(
+	updatedTenants, err := s.manager.UpdateTenants(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
@@ -244,10 +244,8 @@ func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
 		}
 	}
 
-	payload := params.Body
-
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsUpdateOK().WithPayload(payload)
+	return schema.NewTenantsUpdateOK().WithPayload(updatedTenants)
 }
 
 func (s *schemaHandlers) deleteTenants(params schema.TenantsDeleteParams,

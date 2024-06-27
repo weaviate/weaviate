@@ -129,6 +129,7 @@ jobs:
           "--only-module-backup-filesystem",
           "--only-module-backup-gcs",
           "--only-module-backup-s3",
+          "--only-module-offload-s3",
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
           "--only-module-multi2vec-clip",
