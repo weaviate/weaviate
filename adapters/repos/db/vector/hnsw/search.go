@@ -158,20 +158,6 @@ func (h *hnsw) shouldRescore() bool {
 	return h.compressed.Load() && !h.doNotRescore
 }
 
-func (h *hnsw) searchLayerByVector(queryVector []float32,
-	entrypoints *priorityqueue.Queue[any], ef int, level int,
-	allowList helpers.AllowList,
-) (*priorityqueue.Queue[any], error,
-) {
-	var compressorDistancer compressionhelpers.CompressorDistancer
-	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
-		defer returnFn()
-	}
-	return h.searchLayerByVectorWithDistancer(queryVector, entrypoints, ef, level, allowList, compressorDistancer)
-}
-
 func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
@@ -494,7 +480,13 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	maxLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
+	var compressorDistancer compressionhelpers.CompressorDistancer
+	if h.compressed.Load() {
+		var returnFn compressionhelpers.ReturnDistancerFn
+		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
+		defer returnFn()
+	}
+	entryPointDistance, ok, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
@@ -504,12 +496,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
-	var compressorDistancer compressionhelpers.CompressorDistancer
-	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
-		defer returnFn()
-	}
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin[any](10)
@@ -564,6 +550,11 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	if h.shouldRescore() {
+		if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
+			for res.Len() > h.sqConfig.RescoreLimit {
+				res.Pop()
+			}
+		}
 		ids := make([]uint64, res.Len())
 		i := len(ids) - 1
 		for res.Len() > 0 {
