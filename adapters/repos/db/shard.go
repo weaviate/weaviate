@@ -775,7 +775,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 	if partitioningEnabled {
 		ht, err = s.buildCompactHashTree()
 	} else {
-		ht, err = s.buildMultiSegmentHashTree()
+		ht, err = s.buildMultiSegmentHashTree(ctx)
 	}
 	if err != nil {
 		return err
@@ -875,8 +875,33 @@ func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
 	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
 }
 
-func (s *Shard) buildMultiSegmentHashTree() (hashtree.AggregatedHashTree, error) {
-	shardState := s.index.shardState()
+func (s *Shard) shardState(ctx context.Context) (*sharding.State, error) {
+	// when a class was just created, the shard state may not be already updated
+	// specially when an incoming request is trigering the shard creation or loading
+	// ideally the shard state obtained should already include the current shard
+	// the shard state is obtained by calling CopyShardingState, currently it's not
+	// waiting for it to be fully up to date thus the need of this approach
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		shardState := s.index.shardState()
+
+		_, ok := shardState.Physical[s.name]
+		if ok {
+			return shardState, nil
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (s *Shard) buildMultiSegmentHashTree(ctx context.Context) (hashtree.AggregatedHashTree, error) {
+	shardState, err := s.shardState(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	virtualNodes := make([]sharding.Virtual, len(shardState.Virtual))
 	copy(virtualNodes, shardState.Virtual)
