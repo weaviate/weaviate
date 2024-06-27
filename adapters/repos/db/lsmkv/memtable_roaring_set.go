@@ -97,27 +97,6 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 	return nil
 }
 
-func (m *Memtable) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
-	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
-		return err
-	}
-
-	m.Lock()
-	defer m.Unlock()
-
-	if err := m.roaringSetAddCommitLog(key, additions.ToArray(), deletions.ToArray()); err != nil {
-		return err
-	}
-
-	m.roaringSet.Insert(key, roaringset.Insert{
-		Additions: additions.ToArray(),
-		Deletions: deletions.ToArray(),
-	})
-
-	m.roaringSetAdjustMeta(additions.GetCardinality() + deletions.GetCardinality())
-	return nil
-}
-
 func (m *Memtable) roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err

@@ -17,14 +17,13 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func (p *commitloggerParser) doRoaringSet() error {
 	prs := &commitlogParserRoaringSet{
 		parser:  p,
-		consume: p.memtable.roaringSetAddRemoveBitmaps,
+		consume: p.memtable.roaringSetAddRemoveSlices,
 	}
 
 	return prs.parse()
@@ -32,7 +31,7 @@ func (p *commitloggerParser) doRoaringSet() error {
 
 type commitlogParserRoaringSet struct {
 	parser  *commitloggerParser
-	consume func(key []byte, additions, deletions *sroar.Bitmap) error
+	consume func(key []byte, additions, deletions []uint64) error
 }
 
 func (prs *commitlogParserRoaringSet) parse() error {
@@ -112,7 +111,7 @@ func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
 	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
 	key := segment.PrimaryKey()
 
-	if err := prs.consume(key, segment.Additions(), segment.Deletions()); err != nil {
+	if err := prs.consume(key, segment.Additions().ToArray(), segment.Deletions().ToArray()); err != nil {
 		return fmt.Errorf("consume segment additions/deletions: %w", err)
 	}
 
@@ -134,7 +133,7 @@ func (prs *commitlogParserRoaringSet) parseNodeList(reader io.Reader) error {
 
 	segment := roaringset.NewSegmentNodeListFromBuffer(segBuf)
 	key := segment.PrimaryKey()
-	if err := prs.parser.memtable.roaringSetAddRemoveSlices(key, segment.Additions(), segment.Deletions()); err != nil {
+	if err := prs.consume(key, segment.Additions(), segment.Deletions()); err != nil {
 		return errors.Wrap(err, "add/remove bitmaps")
 	}
 
