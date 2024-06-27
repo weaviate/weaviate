@@ -206,8 +206,8 @@ func InitializeKagomeTokenizerKr() error {
 }
 
 func tokenizeWithKagome(in string, tokenizer *KagomeTokenizer) []string {
-	tokenizer.mutex.RLock()
-	defer tokenizer.mutex.RUnlock()
+	tokenizer.mutex.Lock()
+	defer tokenizer.mutex.Unlock()
 
 	if tokenizer.tokenizer == nil {
 		return []string{}
