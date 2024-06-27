@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -250,6 +251,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	defer func() {
+		p := recover()
+		if p != nil {
+			err = fmt.Errorf("unexpected error initializing shard %q of index %q: %v", shardName, index.ID(), p)
+			index.logger.WithError(err).WithFields(logrus.Fields{
+				"index": index.ID(),
+				"shard": shardName,
+			}).Error("panic during shard initialization")
+			debug.PrintStack()
+		}
+
 		if err != nil {
 			// spawn a new context as we cannot guarantee that the init context is
 			// still valid, but we want to make sure that we have enough time to clean
