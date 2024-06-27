@@ -30,7 +30,6 @@ var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
-	EnableKagome     = false
 )
 
 var Tokenizations []string = []string{
@@ -183,39 +182,36 @@ func tokenizeGSE(in string) []string {
 var (
 	// Korean tokenizer and dictionary instances
 	koTokenizerInstance *tokenizer.Tokenizer
-	koOnce              sync.Once
 
 	// Japanese tokenizer and dictionary instances
 	jpTokenizerInstance *tokenizer.Tokenizer
-	jpOnce              sync.Once
+
+	// Mutex for additional protection if needed
+	kagomeMutex sync.Mutex
 )
 
-func initializeKagomeTokenizer(dictInstance *dict.Dict, tokenizerInstance **tokenizer.Tokenizer, once *sync.Once) bool {
-	if os.Getenv("ENABLE_KAGOME") == "true" {
-		EnableKagome = true
+func initializeKagomeTokenizer(dictInstance *dict.Dict, tokenizerInstance **tokenizer.Tokenizer) bool {
+	kagomeMutex.Lock()
+	defer kagomeMutex.Unlock()
+
+	var err error
+	*tokenizerInstance, err = tokenizer.New(dictInstance)
+	if err != nil {
+		log.Fatalf("failed to create tokenizer: %v", err)
+		return false
 	}
 
-	if EnableKagome {
-		once.Do(func() {
-			var err error
-			*tokenizerInstance, err = tokenizer.New(dictInstance)
-			if err != nil {
-				log.Fatalf("failed to create tokenizer: %v", err)
-			}
-		})
-	}
-
-	return EnableKagome
+	return true
 }
 
 // Initialize the Korean tokenizer (if not already initialized)
 func InitializeKagomeTokenizerKr() bool {
-	return initializeKagomeTokenizer(koDict.Dict(), &koTokenizerInstance, &koOnce)
+	return initializeKagomeTokenizer(koDict.Dict(), &koTokenizerInstance)
 }
 
 // Initialize the Japanese tokenizer (if not already initialized)
 func InitializeKagomeTokenizerJp() bool {
-	return initializeKagomeTokenizer(jpDict.Dict(), &jpTokenizerInstance, &jpOnce)
+	return initializeKagomeTokenizer(jpDict.Dict(), &jpTokenizerInstance)
 }
 
 // tokenizeWithKagome uses the provided tokenizer to tokenizeWithKagome the input text

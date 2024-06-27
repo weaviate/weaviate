@@ -586,13 +586,11 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
 				return nil
 			case models.PropertyTokenizationKagomeKr:
-				// If Kagome is selected, enable & initialize the tokenizer (Korean)
-				helpers.EnableKagome = true
+				// If Kagome is selected, initialize the tokenizer (Korean)
 				helpers.InitializeKagomeTokenizerKr()
 				return nil
 			case models.PropertyTokenizationKagomeJp:
 				// If Kagome is selected, enable & initialize the tokenizer (Japanese)
-				helpers.EnableKagome = true
 				helpers.InitializeKagomeTokenizerJp()
 				return nil
 			}
