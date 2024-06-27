@@ -100,6 +100,7 @@ These demos are working applications that highlight some of Weaviate's capabilit
 - [Verba, the Golden RAGtreiver](https://verba.weaviate.io) ([GitHub](https://github.com/weaviate/verba))
 - [Healthsearch](https://healthsearch.weaviate.io) ([GitHub](https://github.com/weaviate/healthsearch-demo))
 - [Awesome-Moviate](https://awesome-moviate.weaviate.io/) ([GitHub](https://github.com/weaviate-tutorials/awesome-moviate))
+- [Quickly get started with Weaviate out of the box using Golang and Docker](https://github.com/soulteary/weaviate-quickstart)
 
 ## How can you connect to Weaviate?
 
