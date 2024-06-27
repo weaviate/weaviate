@@ -74,7 +74,6 @@ func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 		return nil, errors.Wrap(err, "get anthropic url")
 	}
 
-	// TODO: investigate useful of having optional system prompt as a parameter
 	input := generateInput{
 		Messages: []message{
 			{

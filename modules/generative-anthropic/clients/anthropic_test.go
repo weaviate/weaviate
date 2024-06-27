@@ -104,11 +104,11 @@ func TestGenerate(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Anthropic-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL, err := a.getAnthropicUrl(ctxWithValue, baseURL)
+		buildURL, err := a.getAnthropicURL(ctxWithValue, baseURL)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/messages", buildURL)
 
-		buildURL, err = a.getAnthropicUrl(context.TODO(), baseURL)
+		buildURL, err = a.getAnthropicURL(context.TODO(), baseURL)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/messages", buildURL)
 	})
