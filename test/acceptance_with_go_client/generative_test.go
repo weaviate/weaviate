@@ -51,28 +51,32 @@ func TestGenerative(t *testing.T) {
 		},
 	}
 	require.Nil(t, classCreator.WithClass(&class).Do(ctx))
-
+	uids := []string{uuid.New().String(), uuid.New().String()}
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]interface{}{"first": "one", "second": "two"},
-	).WithID(uuid.New().String()).Do(ctx)
+	).WithID(uids[0]).Do(ctx)
 	require.Nil(t, err)
 
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]interface{}{"first": "three", "second": "four"},
-	).WithID(uuid.New().String()).Do(ctx)
+	).WithID(uids[1]).Do(ctx)
 	require.Nil(t, err)
 
 	t.Run("single result", func(t *testing.T) {
 		gs := graphql.NewGenerativeSearch().SingleResult("Input: {first} and {second}")
 
-		result, err := c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).Do(ctx)
+		fields := graphql.Field{
+			Name: "_additional{id}",
+		}
+		result, err := c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
 		require.Nil(t, err)
 
-		expected := []string{"Input: one and two", "Input: three and four"}
+		expected := map[string]string{uids[0]: "Input: one and two", uids[1]: "Input: three and four"}
 		for i := 0; i < 2; i++ {
+			uidReturn := result.Data["Get"].(map[string]interface{})[className].([]interface{})[i].(map[string]interface{})["_additional"].(map[string]interface{})["id"].(string)
 			returnString := result.Data["Get"].(map[string]interface{})[className].([]interface{})[i].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["singleResult"].(string)
 			require.NotNil(t, returnString)
-			require.True(t, strings.Contains(returnString, expected[i]), "expected %s to contain %s", returnString, expected[i])
+			require.True(t, strings.Contains(returnString, expected[uidReturn]), "expected %s to contain %s", returnString, expected[uidReturn])
 		}
 	})
 
