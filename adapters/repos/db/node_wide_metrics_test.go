@@ -40,7 +40,7 @@ func TestShardActivity(t *testing.T) {
 					ReplicationFactor: NewAtomicInt64(1),
 				},
 				partitioningEnabled: false,
-				shards: shardMap{},
+				shards:              shardMap{},
 			},
 		},
 	}
