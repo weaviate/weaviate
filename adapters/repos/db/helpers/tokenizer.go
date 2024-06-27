@@ -180,9 +180,7 @@ type KagomeTokenizer struct {
 	mutex     sync.RWMutex
 }
 
-var (
-	koreanTokenizer KagomeTokenizer
-)
+var koreanTokenizer KagomeTokenizer
 
 func initializeKagomeTokenizer(dictInstance *kagomeDict.Dict, tokenizer *KagomeTokenizer, language string) error {
 	tokenizer.mutex.Lock()
