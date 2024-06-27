@@ -12,6 +12,7 @@
 package helper
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
@@ -293,6 +295,11 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
 	return resp, err
+}
+
+func GetTenantsGRPC(t *testing.T, class string) (*pb.TenantsGetReply, error) {
+	t.Helper()
+	return ClientGRPC(t).TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
 }
 
 func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {
