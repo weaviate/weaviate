@@ -134,16 +134,6 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 	return dist, err
 }
 
-/*func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedAndUncompressedVectorsFromID(ctx context.Context, id uint64, vector []float32) (float32, error) {
-	compressedVector, err := compressor.compressedVectorFromID(ctx, id)
-	if err != nil {
-		return 0, err
-	}
-
-	dist, err := compressor.DistanceBetweenCompressedAndUncompressedVectors(compressedVector, vector)
-	return dist, err
-}*/
-
 func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx context.Context, id uint64) ([]T, error) {
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
