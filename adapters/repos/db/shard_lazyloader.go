@@ -459,8 +459,8 @@ func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 }
 
 func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	if err := l.Load(ctx); err != nil {
-		return nil, err
+	if !l.isLoaded() {
+		return []hashtree.Digest{}, nil
 	}
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
