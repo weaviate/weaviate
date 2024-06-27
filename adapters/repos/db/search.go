@@ -73,7 +73,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 	// if this is reference search and tenant is given (as origin class is MT)
 	// but searched class is non-MT, then skip tenant to pass validation
 	tenant := params.Tenant
-	if !idx.partitioningEnabled() && params.IsRefOrigin {
+	if !idx.partitioningEnabled && params.IsRefOrigin {
 		tenant = ""
 	}
 
