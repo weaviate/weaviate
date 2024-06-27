@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
+	kagomeDict "github.com/ikawaha/kagome-dict/dict"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -174,44 +175,47 @@ func tokenizeGSE(in string) []string {
 	return append(terms, alpha...)
 }
 
-type KagomeTokenizers struct {
-	Korean *kagomeTokenizer.Tokenizer
+type KagomeTokenizer struct {
+	tokenizer *kagomeTokenizer.Tokenizer
+	mutex     sync.RWMutex
 }
 
 var (
-	tokenizers KagomeTokenizers
-	initMutex  sync.Mutex
+	koreanTokenizer KagomeTokenizer
 )
 
-func InitializeKagomeTokenizerKr() error {
-	// Acquire lock to prevent initialization race
-	initMutex.Lock()
-	defer initMutex.Unlock()
+func initializeKagomeTokenizer(dictInstance *kagomeDict.Dict, tokenizer *KagomeTokenizer, language string) error {
+	tokenizer.mutex.Lock()
+	defer tokenizer.mutex.Unlock()
 
-	if tokenizers.Korean != nil {
-		return nil
+	if tokenizer.tokenizer != nil {
+		return nil // Already initialized
 	}
 
-	dictInstance := koDict.Dict()
-	tokenizer, err := kagomeTokenizer.New(dictInstance)
+	newTokenizer, err := kagomeTokenizer.New(dictInstance)
 	if err != nil {
-		log.Printf("failed to create Korean tokenizer: %v", err)
+		log.Printf("failed to create a tokenizer using: %v; error: %v", language, err)
 		return err
 	}
 
-	tokenizers.Korean = tokenizer
-	log.Printf("successfully created Korean tokenizer")
+	tokenizer.tokenizer = newTokenizer
+	log.Printf("successfully created a tokenizer using: %v", language)
 	return nil
 }
 
-func tokenizeKagomeKr(in string) []string {
-	tokenizer := tokenizers.Korean
-	if tokenizer == nil {
-		log.Printf("Tokenizer not initialized")
+func InitializeKagomeTokenizerKr() error {
+	return initializeKagomeTokenizer(koDict.Dict(), &koreanTokenizer, "Korean")
+}
+
+func tokenizeWithKagome(in string, tokenizer *KagomeTokenizer) []string {
+	tokenizer.mutex.RLock()
+	defer tokenizer.mutex.RUnlock()
+
+	if tokenizer.tokenizer == nil {
 		return []string{}
 	}
 
-	kagomeTokens := tokenizer.Tokenize(in)
+	kagomeTokens := tokenizer.tokenizer.Tokenize(in)
 	terms := make([]string, 0, len(kagomeTokens))
 
 	for _, token := range kagomeTokens {
@@ -221,6 +225,14 @@ func tokenizeKagomeKr(in string) []string {
 	}
 
 	return removeEmptyStrings(terms)
+}
+
+func tokenizeKagomeKr(in string) []string {
+	if err := InitializeKagomeTokenizerKr(); err != nil {
+		log.Printf("Korean tokenizer not available: %v", err)
+		return []string{}
+	}
+	return tokenizeWithKagome(in, &koreanTokenizer)
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
