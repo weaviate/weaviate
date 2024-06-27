@@ -21,7 +21,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/getsentry/sentry-go"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -125,6 +127,10 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		if p == nil {
 			// happy path
 			return
+		}
+
+		if entsentry.Enabled() {
+			sentry.CurrentHub().Recover(r)
 		}
 
 		err = fmt.Errorf("unexpected error loading bucket %q at path %q: %v",

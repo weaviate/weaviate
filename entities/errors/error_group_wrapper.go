@@ -17,9 +17,11 @@ import (
 	"os"
 	"runtime/debug"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/configbase"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -66,10 +68,13 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 }
 
 func (egw *ErrorGroupWrapper) setDeferFunc() {
-	disable := configbase.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
+	disable := entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
 	if !disable {
 		egw.deferFunc = func(localVars ...interface{}) {
 			if r := recover(); r != nil {
+				if entsentry.Enabled() {
+					sentry.CurrentHub().Recover(r)
+				}
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
 				debug.PrintStack()
 				egw.returnError = fmt.Errorf("panic occurred: %v", r)
