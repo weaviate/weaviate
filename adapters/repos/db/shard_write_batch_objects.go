@@ -19,8 +19,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/getsentry/sentry-go"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/configbase"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -43,7 +45,7 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 // asyncEnabled is a quick and dirty way to create a feature flag for async
 // indexing.
 func asyncEnabled() bool {
-	return configbase.Enabled(os.Getenv("ASYNC_INDEXING"))
+	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 // Workers are started with the first batch and keep working as there are objects to add from any batch. Each batch
@@ -393,6 +395,9 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 ) {
 	defer func() {
 		err := recover()
+		if entsentry.Enabled() {
+			sentry.CurrentHub().Recover(err)
+		}
 		if err != nil {
 			ob.setErrorAtIndex(fmt.Errorf("an unexpected error occurred: %s", err), index)
 			fmt.Fprintf(os.Stderr, "panic: %s\n", err)

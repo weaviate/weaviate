@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
 	"github.com/pkg/errors"
@@ -48,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -792,6 +794,9 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+					if entsentry.Enabled() {
+						sentry.CurrentHub().Recover(err)
+					}
 					debug.PrintStack()
 				}
 			}()

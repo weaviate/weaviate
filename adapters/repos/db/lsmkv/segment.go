@@ -19,9 +19,11 @@ import (
 	"os"
 
 	"github.com/edsrzf/mmap-go"
+	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/willf/bloom"
 )
 
@@ -79,7 +81,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		if p == nil {
 			return
 		}
-
+		if entsentry.Enabled() {
+			sentry.CurrentHub().Recover(p)
+		}
 		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
 	}()
 

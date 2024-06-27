@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -108,6 +109,7 @@ type Config struct {
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 }
 
 type moduleProvider interface {
