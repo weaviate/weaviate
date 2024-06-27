@@ -225,9 +225,15 @@ func tokenizeWithKagome(in string, tokenizer *KagomeTokenizer) []string {
 	return removeEmptyStrings(terms)
 }
 
+var initKoreanTokenizerOnce sync.Once
+
 func tokenizeKagomeKr(in string) []string {
-	if err := InitializeKagomeTokenizerKr(); err != nil {
-		log.Printf("Korean tokenizer not available: %v", err)
+	var initErr error
+	initKoreanTokenizerOnce.Do(func() {
+		initErr = InitializeKagomeTokenizerKr()
+	})
+	if initErr != nil {
+		log.Printf("Korean tokenizer not available: %v", initErr)
 		return []string{}
 	}
 	return tokenizeWithKagome(in, &koreanTokenizer)
