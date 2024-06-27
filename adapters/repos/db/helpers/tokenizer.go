@@ -210,11 +210,6 @@ func InitializeKagomeTokenizerKr() error {
 }
 
 func tokenizeKagomeKr(in string) []string {
-	if err := InitializeKagomeTokenizerKr(); err != nil {
-		log.Printf("Tokenizer not available: %v", err)
-		return []string{}
-	}
-
 	tokenizer := tokenizers.Korean.Load()
 	if tokenizer == nil {
 		log.Printf("Tokenizer not initialized")

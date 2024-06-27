@@ -586,7 +586,7 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
 				return nil
 			case models.PropertyTokenizationKagomeKr:
-				helpers.InitializeKagomeTokenizerKr()
+				_ = helpers.InitializeKagomeTokenizerKr()
 				return nil
 			}
 		default:
