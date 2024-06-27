@@ -146,7 +146,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 			readThisRound = 9
 		case AddSQ:
 			err = d.ReadSQ(fd, out)
-			readThisRound = 9
+			readThisRound = 10
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
