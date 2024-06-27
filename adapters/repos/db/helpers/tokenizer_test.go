@@ -71,8 +71,7 @@ func TestTokenise(t *testing.T) {
 	assert.Equal(t, []string{"아버지가방에들어가신다"}, tokens)
 
 	// Enable Korean tokenizer via env var
-	var envSetErr error
-	envSetErr = os.Setenv("USE_KOREAN_TOKENIZER", "true")
+	envSetErr := os.Setenv("USE_KOREAN_TOKENIZER", "true")
 	if envSetErr != nil {
 		// Handle error if setting the environment variable fails
 		panic(envSetErr)
@@ -165,8 +164,7 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
 
 	// Enable Korean tokenizer via env var
-	var envSetErr error
-	envSetErr = os.Setenv("USE_KOREAN_TOKENIZER", "true")
+	envSetErr := os.Setenv("USE_KOREAN_TOKENIZER", "true")
 	if envSetErr != nil {
 		// Handle error if setting the environment variable fails
 		panic(envSetErr)
