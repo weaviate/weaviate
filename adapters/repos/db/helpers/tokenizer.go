@@ -178,32 +178,50 @@ type KagomeTokenizers struct {
 	Korean *kagomeTokenizer.Tokenizer
 }
 
-var tokenizers KagomeTokenizers
+var (
+	tokenizers KagomeTokenizers
+	initOnce   sync.Once
+	mutex      sync.RWMutex
+)
 
 func InitializeKagomeTokenizerKr() bool {
-	if tokenizers.Korean != nil {
-		return true
-	}
+	var success bool
 
-	dictInstance := koDict.Dict()
-	var err error
-	tokenizers.Korean, err = kagomeTokenizer.New(dictInstance)
-	if err != nil {
-		log.Printf("failed to create tokenizer: %v", err)
-		return false
-	}
+	initOnce.Do(func() {
+		dictInstance := koDict.Dict()
+		var err error
+		tokenizer, err := kagomeTokenizer.New(dictInstance)
+		if err != nil {
+			log.Printf("failed to create tokenizer: %v", err)
+			return
+		}
 
-	log.Printf("successfully created Korean tokenizer")
-	return true
+		mutex.Lock()
+		tokenizers.Korean = tokenizer
+		mutex.Unlock()
+
+		log.Printf("successfully created Korean tokenizer")
+		success = true
+	})
+
+	return success
 }
 
 func tokenizeKagomeKr(in string) []string {
-	if !InitializeKagomeTokenizerKr() || tokenizers.Korean == nil {
+	if !InitializeKagomeTokenizerKr() {
+		return []string{}
+	}
+
+	mutex.RLock()
+	tokenizer := tokenizers.Korean
+	mutex.RUnlock()
+
+	if tokenizer == nil {
 		return []string{}
 	}
 
 	kagomeTokens := tokenizers.Korean.Tokenize(in)
-	terms := []string{}
+	terms := make([]string, 0, len(kagomeTokens))
 
 	for _, token := range kagomeTokens {
 		if token.Surface != "EOS" && token.Surface != "BOS" {
