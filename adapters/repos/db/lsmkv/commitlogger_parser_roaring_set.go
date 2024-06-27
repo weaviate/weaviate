@@ -17,14 +17,13 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func (p *commitloggerParser) doRoaringSet() error {
 	prs := &commitlogParserRoaringSet{
 		parser:  p,
-		consume: p.memtable.roaringSetAddRemoveBitmaps,
+		consume: p.memtable.roaringSetAddRemoveSlices,
 	}
 
 	return prs.parse()
@@ -32,7 +31,7 @@ func (p *commitloggerParser) doRoaringSet() error {
 
 type commitlogParserRoaringSet struct {
 	parser  *commitloggerParser
-	consume func(key []byte, additions, deletions *sroar.Bitmap) error
+	consume func(key []byte, additions, deletions []uint64) error
 }
 
 func (prs *commitlogParserRoaringSet) parse() error {
@@ -47,7 +46,7 @@ func (prs *commitlogParserRoaringSet) parse() error {
 			return errors.Wrap(err, "read commit type")
 		}
 
-		if !CommitTypeRoaringSet.Is(commitType) {
+		if !CommitTypeRoaringSet.Is(commitType) && !CommitTypeRoaringSetList.Is(commitType) {
 			return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
 		}
 
@@ -65,7 +64,7 @@ func (prs *commitlogParserRoaringSet) parse() error {
 			}
 		case 1:
 			{
-				err = prs.parseNodeV1()
+				err = prs.parseNodeV1(commitType)
 			}
 		default:
 			{
@@ -84,13 +83,16 @@ func (prs *commitlogParserRoaringSet) parseNodeV0() error {
 	return prs.parseNode(prs.parser.reader)
 }
 
-func (prs *commitlogParserRoaringSet) parseNodeV1() error {
+func (prs *commitlogParserRoaringSet) parseNodeV1(commitType CommitType) error {
 	reader, err := prs.parser.doRecord()
 	if err != nil {
 		return err
 	}
-
-	return prs.parseNode(reader)
+	if commitType == CommitTypeRoaringSet {
+		return prs.parseNode(reader)
+	} else {
+		return prs.parseNodeList(reader)
+	}
 }
 
 func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
@@ -109,8 +111,30 @@ func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
 	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
 	key := segment.PrimaryKey()
 
-	if err := prs.consume(key, segment.Additions(), segment.Deletions()); err != nil {
+	if err := prs.consume(key, segment.Additions().ToArray(), segment.Deletions().ToArray()); err != nil {
 		return fmt.Errorf("consume segment additions/deletions: %w", err)
+	}
+
+	return nil
+}
+
+func (prs *commitlogParserRoaringSet) parseNodeList(reader io.Reader) error {
+	lenBuf := make([]byte, 8)
+	if _, err := io.ReadFull(reader, lenBuf); err != nil {
+		return errors.Wrap(err, "read segment len")
+	}
+	segmentLen := binary.LittleEndian.Uint64(lenBuf)
+
+	segBuf := make([]byte, segmentLen)
+	copy(segBuf, lenBuf)
+	if _, err := io.ReadFull(reader, segBuf[8:]); err != nil {
+		return errors.Wrap(err, "read segment contents")
+	}
+
+	segment := roaringset.NewSegmentNodeListFromBuffer(segBuf)
+	key := segment.PrimaryKey()
+	if err := prs.consume(key, segment.Additions(), segment.Deletions()); err != nil {
+		return errors.Wrap(err, "add/remove bitmaps")
 	}
 
 	return nil
