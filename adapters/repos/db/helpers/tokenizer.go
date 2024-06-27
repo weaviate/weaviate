@@ -20,9 +20,9 @@ import (
 
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
-	"github.com/ikawaha/kagome-dict/dict"
+	kagomeDict "github.com/ikawaha/kagome-dict/dict"
 	jpDict "github.com/ikawaha/kagome-dict/ipa"
-	"github.com/ikawaha/kagome/v2/tokenizer"
+	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -181,23 +181,23 @@ func tokenizeGSE(in string) []string {
 
 var (
 	// Korean tokenizer and dictionary instances
-	koTokenizerInstance *tokenizer.Tokenizer
+	koTokenizerInstance *kagomeTokenizer.Tokenizer
 
 	// Japanese tokenizer and dictionary instances
-	jpTokenizerInstance *tokenizer.Tokenizer
+	jpTokenizerInstance *kagomeTokenizer.Tokenizer
 
 	// Mutex for additional protection if needed
 	kagomeMutex sync.Mutex
 )
 
-func initializeKagomeTokenizer(dictInstance *dict.Dict, tokenizerInstance **tokenizer.Tokenizer) bool {
+func initializeKagomeTokenizer(dictInstance *kagomeDict.Dict, kagomeTokenizerInstance **kagomeTokenizer.Tokenizer) bool {
 	kagomeMutex.Lock()
 	defer kagomeMutex.Unlock()
 
 	var err error
-	*tokenizerInstance, err = tokenizer.New(dictInstance)
+	*kagomeTokenizerInstance, err = kagomeTokenizer.New(dictInstance)
 	if err != nil {
-		log.Fatalf("failed to create tokenizer: %v", err)
+		log.Fatalf("failed to create Kagome tokenizer: %v", err)
 		return false
 	}
 
@@ -215,7 +215,7 @@ func InitializeKagomeTokenizerJp() bool {
 }
 
 // tokenizeWithKagome uses the provided tokenizer to tokenizeWithKagome the input text
-func tokenizeWithKagome(in string, t *tokenizer.Tokenizer) []string {
+func tokenizeWithKagome(in string, t *kagomeTokenizer.Tokenizer) []string {
 	kagomeTokens := t.Tokenize(in)
 	terms := []string{}
 
