@@ -50,6 +50,8 @@ func (m *Memtable) flush() error {
 	w := bufio.NewWriter(f)
 
 	var keys []segmentindex.Key
+	skipIndices := false
+
 	switch m.strategy {
 	case StrategyReplace:
 		if keys, err = m.flushDataReplace(w); err != nil {
@@ -66,6 +68,12 @@ func (m *Memtable) flush() error {
 			return err
 		}
 
+	case StrategyRoaringSetRange:
+		if keys, err = m.flushDataRoaringSetRange(w); err != nil {
+			return err
+		}
+		skipIndices = true
+
 	case StrategyMapCollection:
 		if keys, err = m.flushDataMap(w); err != nil {
 			return err
@@ -75,14 +83,16 @@ func (m *Memtable) flush() error {
 		return fmt.Errorf("cannot flush strategy %s", m.strategy)
 	}
 
-	indices := &segmentindex.Indexes{
-		Keys:                keys,
-		SecondaryIndexCount: m.secondaryIndices,
-		ScratchSpacePath:    m.path + ".scratch.d",
-	}
+	if !skipIndices {
+		indices := &segmentindex.Indexes{
+			Keys:                keys,
+			SecondaryIndexCount: m.secondaryIndices,
+			ScratchSpacePath:    m.path + ".scratch.d",
+		}
 
-	if _, err := indices.WriteTo(w); err != nil {
-		return err
+		if _, err := indices.WriteTo(w); err != nil {
+			return err
+		}
 	}
 
 	if err := w.Flush(); err != nil {
