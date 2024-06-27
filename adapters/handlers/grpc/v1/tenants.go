@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
@@ -66,6 +67,12 @@ func tenantToGRPC(tenant *models.Tenant) (*pb.Tenant, error) {
 		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD
 	} else if tenant.ActivityStatus == models.TenantActivityStatusFROZEN {
 		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN
+	} else if tenant.ActivityStatus == types.TenantActivityStatusFREEZING {
+		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FREEZING
+	} else if tenant.ActivityStatus == types.TenantActivityStatusUNFREEZING {
+		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNFREEZING
+	} else if tenant.ActivityStatus == types.TenantActivityStatusUNFROZEN {
+		status = pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNFROZEN
 	} else {
 		return nil, fmt.Errorf("unknown tenant activity status %s", tenant.ActivityStatus)
 	}

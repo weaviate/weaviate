@@ -19,9 +19,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -134,11 +134,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status FREEZING", func(t *testing.T) {
-			resp, err := helper.GetTenants(t, className)
+			resp, err := helper.GetTenantsGRPC(t, className)
 			require.Nil(t, err)
-			for _, tn := range resp.Payload {
+			for _, tn := range resp.Tenants {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.Equal(t, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FREEZING, tn.ActivityStatus)
 					break
 				}
 			}
@@ -151,15 +151,15 @@ func Test_DownloadS3Journey(t *testing.T) {
 
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
-				resp, err := helper.GetTenants(t, className)
+				resp, err := helper.GetTenantsGRPC(t, className)
 				require.Nil(t, err)
-				for _, tn := range resp.Payload {
+				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
-						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN))
 		})
 
 		t.Run("updating tenant status to HOT", func(t *testing.T) {
@@ -173,15 +173,15 @@ func Test_DownloadS3Journey(t *testing.T) {
 
 		t.Run("verify tenant status HOT", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
-				resp, err := helper.GetTenants(t, className)
+				resp, err := helper.GetTenantsGRPC(t, className)
 				require.Nil(t, err)
-				for _, tn := range resp.Payload {
+				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
-						assert.Equal(at, models.TenantActivityStatusHOT, tn.ActivityStatus)
+						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT))
 		})
 
 		t.Run("verify object creation", func(t *testing.T) {
@@ -301,12 +301,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status COLD", func(t *testing.T) {
-			resp, err := helper.GetTenants(t, className)
+			resp, err := helper.GetTenantsGRPC(t, className)
 			require.Nil(t, err)
-
-			for _, tn := range resp.Payload {
+			for _, tn := range resp.Tenants {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, models.TenantActivityStatusCOLD, tn.ActivityStatus)
+					require.Equal(t, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD, tn.ActivityStatus)
 					break
 				}
 			}
@@ -322,11 +321,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("verify tenant status FREEZING", func(t *testing.T) {
-			resp, err := helper.GetTenants(t, className)
+			resp, err := helper.GetTenantsGRPC(t, className)
 			require.Nil(t, err)
-			for _, tn := range resp.Payload {
+			for _, tn := range resp.Tenants {
 				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+					require.Equal(t, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FREEZING, tn.ActivityStatus)
 					break
 				}
 			}
@@ -339,15 +338,15 @@ func Test_DownloadS3Journey(t *testing.T) {
 
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
-				resp, err := helper.GetTenants(t, className)
+				resp, err := helper.GetTenantsGRPC(t, className)
 				require.Nil(t, err)
-				for _, tn := range resp.Payload {
+				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
-						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN))
 		})
 
 		t.Run("updating tenant status to COLD", func(t *testing.T) {
@@ -361,15 +360,15 @@ func Test_DownloadS3Journey(t *testing.T) {
 
 		t.Run("verify tenant status COLD", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
-				resp, err := helper.GetTenants(t, className)
+				resp, err := helper.GetTenantsGRPC(t, className)
 				require.Nil(t, err)
-				for _, tn := range resp.Payload {
+				for _, tn := range resp.Tenants {
 					if tn.Name == tenantNames[0] {
-						assert.Equal(at, models.TenantActivityStatusCOLD, tn.ActivityStatus)
+						assert.Equal(at, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD, tn.ActivityStatus)
 						break
 					}
 				}
-			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusCOLD))
+			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD))
 		})
 	})
 }
