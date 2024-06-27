@@ -72,7 +72,7 @@ func TestGenerative(t *testing.T) {
 		for i := 0; i < 2; i++ {
 			returnString := result.Data["Get"].(map[string]interface{})[className].([]interface{})[i].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["singleResult"].(string)
 			require.NotNil(t, returnString)
-			require.True(t, strings.Contains(returnString, expected[i]))
+			require.True(t, strings.Contains(returnString, expected[i]), "expected %s to contain %s", returnString, expected[i])
 		}
 	})
 
@@ -84,10 +84,11 @@ func TestGenerative(t *testing.T) {
 
 		returnString := result.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["groupedResult"].(string)
 		require.NotNil(t, returnString)
-		require.True(t, strings.Contains(returnString, "Input: {first} and {second}:"))
+		expected := "Input: {first} and {second}:"
+		require.True(t, strings.Contains(returnString, expected), "expected %s to contain %s", returnString, expected)
 
 		// order is not guaranteed
-		require.True(t, strings.Contains(returnString, "{\"first\":\"one\",\"second\":\"two\"}"))
-		require.True(t, strings.Contains(returnString, "{\"first\":\"three\",\"second\":\"four\"}"))
+		require.True(t, strings.Contains(returnString, "{\"first\":\"one\",\"second\":\"two\"}"), "got &v", returnString)
+		require.True(t, strings.Contains(returnString, "{\"first\":\"three\",\"second\":\"four\"}"), "got &v", returnString)
 	})
 }
