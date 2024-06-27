@@ -180,26 +180,33 @@ type KagomeTokenizers struct {
 }
 
 var (
-	tokenizers          KagomeTokenizers
-	initializationError error
-	initOnce            sync.Once
+	tokenizers KagomeTokenizers
+	initMutex  sync.Mutex
 )
 
 func InitializeKagomeTokenizerKr() error {
-	initOnce.Do(func() {
-		dictInstance := koDict.Dict()
-		tokenizer, err := kagomeTokenizer.New(dictInstance)
-		if err != nil {
-			initializationError = err
-			log.Printf("failed to create Korean tokenizer: %v", err)
-			return
-		}
+	if tokenizers.Korean.Load() != nil {
+		return nil // Already initialized
+	}
 
-		tokenizers.Korean.Store(tokenizer)
-		log.Printf("successfully created Korean tokenizer")
-	})
+	initMutex.Lock()
+	defer initMutex.Unlock()
 
-	return initializationError
+	// Double-check after acquiring the lock
+	if tokenizers.Korean.Load() != nil {
+		return nil
+	}
+
+	dictInstance := koDict.Dict()
+	tokenizer, err := kagomeTokenizer.New(dictInstance)
+	if err != nil {
+		log.Printf("failed to create Korean tokenizer: %v", err)
+		return err
+	}
+
+	tokenizers.Korean.Store(tokenizer)
+	log.Printf("successfully created Korean tokenizer")
+	return nil
 }
 
 func tokenizeKagomeKr(in string) []string {
