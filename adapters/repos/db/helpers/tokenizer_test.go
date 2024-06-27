@@ -12,7 +12,6 @@
 package helpers
 
 import (
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -66,17 +65,6 @@ func TestTokenise(t *testing.T) {
 	assert.Equal(t, []string{"t", "h", "e", "q", "u", "i", "c", "k", "b", "r", "o", "w", "n", "f", "o", "x", "j", "u", "m", "p", "s", "o", "v", "e", "r", "t", "h", "e", "l", "a", "z", "y", "d", "o", "g", "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
 
 	// Kagome tokenizer for Korean
-	// Should be disabled by default & return the whole string
-	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "아버지가방에들어가신다")
-	assert.Equal(t, []string{}, tokens)
-
-	// Enable Korean tokenizer via env var
-	envSetErr := os.Setenv("USE_KOREAN_TOKENIZER", "true")
-	if envSetErr != nil {
-		// Handle error if setting the environment variable fails
-		panic(envSetErr)
-	}
-
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "아버지가방에들어가신다")
 	assert.Equal(t, []string{"아버지", "가", "방", "에", "들어가", "신다"}, tokens)
 
@@ -91,12 +79,6 @@ func TestTokenise(t *testing.T) {
 
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를 처리하는 예시입니다")
 	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
-
-	envSetErr = os.Setenv("USE_KOREAN_TOKENIZER", "false")
-	if envSetErr != nil {
-		// Handle error if setting the environment variable fails
-		panic(envSetErr)
-	}
 }
 
 func TestTokenize(t *testing.T) {
@@ -169,12 +151,7 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 
 	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
 
-	// Enable Korean tokenizer via env var
-	envSetErr := os.Setenv("USE_KOREAN_TOKENIZER", "true")
-	if envSetErr != nil {
-		// Handle error if setting the environment variable fails
-		panic(envSetErr)
-	}
+	InitializeKagomeTokenizerKr()
 
 	testCases := []testCase{
 		{
@@ -245,11 +222,5 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 				assert.Equal(t, tc.expected[terms[i]], dups[i])
 			}
 		})
-	}
-
-	envSetErr = os.Setenv("USE_KOREAN_TOKENIZER", "false")
-	if envSetErr != nil {
-		// Handle error if setting the environment variable fails
-		panic(envSetErr)
 	}
 }

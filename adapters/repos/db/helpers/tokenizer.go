@@ -28,7 +28,6 @@ var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
-	KagomeEnabled    = false // Disable Kagome tokenizer by default to reduce resource usage until needed
 )
 
 var Tokenizations []string = []string{
@@ -184,10 +183,6 @@ var tokenizers KagomeTokenizers
 func InitializeKagomeTokenizerKr() bool {
 	if tokenizers.Korean != nil {
 		return true
-	}
-
-	if os.Getenv("USE_KOREAN_TOKENIZER") != "true" {
-		return false
 	}
 
 	dictInstance := koDict.Dict()
