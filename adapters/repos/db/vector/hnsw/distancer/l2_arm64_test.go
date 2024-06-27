@@ -31,6 +31,7 @@ func L2PureGo(a, b []float32) float32 {
 
 	return sum
 }
+
 func L2PureGoByte(a, b []uint8) uint32 {
 	var sum uint32
 

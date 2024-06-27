@@ -51,6 +51,7 @@ type UserConfig struct {
 	Distance               string   `json:"distance"`
 	PQ                     PQConfig `json:"pq"`
 	BQ                     BQConfig `json:"bq"`
+	SQ                     SQConfig `json:"sq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -89,6 +90,11 @@ func (u *UserConfig) SetDefaults() {
 	}
 	u.BQ = BQConfig{
 		Enabled: DefaultBQEnabled,
+	}
+	u.SQ = SQConfig{
+		Enabled:       DefaultSQEnabled,
+		TrainingLimit: DefaultSQTrainingLimit,
+		RescoreLimit:  DefaultSQRescoreLimit,
 	}
 }
 
@@ -181,6 +187,10 @@ func ParseAndValidateConfig(input interface{}) (config.VectorIndexConfig, error)
 		return uc, err
 	}
 
+	if err := parseSQMap(asMap, &uc.SQ); err != nil {
+		return uc, err
+	}
+
 	return uc, uc.validate()
 }
 
@@ -205,8 +215,18 @@ func (u *UserConfig) validate() error {
 			strings.Join(errMsgs, ", "))
 	}
 
-	if u.PQ.Enabled && u.BQ.Enabled {
-		return fmt.Errorf("invalid hnsw config: two compression methods enabled: PQ and BQ")
+	enabled := 0
+	if u.PQ.Enabled {
+		enabled++
+	}
+	if u.BQ.Enabled {
+		enabled++
+	}
+	if u.SQ.Enabled {
+		enabled++
+	}
+	if enabled > 1 {
+		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
 
 	return nil
