@@ -14,8 +14,10 @@ package cluster
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/hashicorp/raft"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Snapshot returns an FSMSnapshot used to: support log compaction, to
@@ -39,27 +41,39 @@ func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 // concurrently with any other command. The FSM must discard all previous
 // state before restoring the snapshot.
 func (st *Store) Restore(rc io.ReadCloser) error {
-	st.log.Info("restoring schema from snapshot")
-	defer func() {
-		if err := rc.Close(); err != nil {
-			st.log.WithError(err).Error("restore snapshot: close reader")
+	f := func() error {
+		st.log.Info("restoring schema from snapshot")
+		defer func() {
+			if err := rc.Close(); err != nil {
+				st.log.WithError(err).Error("restore snapshot: close reader")
+			}
+		}()
+
+		if err := st.schemaManager.Restore(rc, st.cfg.Parser); err != nil {
+			st.log.WithError(err).Error("restoring schema from snapshot")
+			return fmt.Errorf("restore schema from snapshot: %w", err)
 		}
-	}()
+		st.log.Info("successfully restored schema from snapshot")
 
-	if err := st.schemaManager.Restore(rc, st.cfg.Parser); err != nil {
-		st.log.WithError(err).Error("restoring schema from snapshot")
-		return fmt.Errorf("restore schema from snapshot: %w", err)
-	}
-	st.log.Info("successfully restored schema from snapshot")
+		if st.reloadDBFromSnapshot() {
+			st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).
+				Info("successfully reloaded indexes from snapshot")
+		}
 
-	if st.reloadDBFromSnapshot() {
-		st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).
-			Info("successfully reloaded indexes from snapshot")
-	}
-
-	if st.raft != nil {
-		st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+		if st.raft != nil {
+			st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+		}
+		return nil
 	}
 
-	return nil
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	var err error
+	g := func() {
+		err = f()
+		wg.Done()
+	}
+	enterrors.GoWrapper(g, st.log)
+	wg.Wait()
+	return err
 }
