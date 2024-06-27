@@ -70,9 +70,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.getStringProperty(modelProperty, DefaultAnthropicModel)
+	model := ic.Model()
 
-	if model == nil || !ic.validateModel(*model) {
+	if !basesettings.ValidateSetting[string](model, availableAnthropicModels) {
 		return errors.Errorf("wrong Anthropic model name, available model names are: %v", availableAnthropicModels)
 	}
 
@@ -116,12 +116,6 @@ func (ic *classSettings) GetMaxTokensForModel(model string) int {
 	return defaultMaxTokens[model]
 }
 
-// possibly we just validate the model name is not empty, to allow
-// for future models to be added without changing the code
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableAnthropicModels, model)
-}
-
 func (ic *classSettings) BaseURL() string {
 	return *ic.getStringProperty(baseURLProperty, DefaultBaseURL)
 }
@@ -148,13 +142,4 @@ func (ic *classSettings) P() float64 {
 
 func (ic *classSettings) StopSequences() []string {
 	return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultAnthropicStopSequences)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }

@@ -69,7 +69,7 @@ func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map
 func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
-	anthropicURL, err := a.getAnthropicUrl(ctx, settings.BaseURL())
+	anthropicURL, err := a.getAnthropicURL(ctx, settings.BaseURL())
 	if err != nil {
 		return nil, errors.Wrap(err, "get anthropic url")
 	}
@@ -100,7 +100,7 @@ func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
-	apiKey, err := a.getApiKey(ctx)
+	apiKey, err := a.getAPIKey(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "Anthropic API key")
 	}
@@ -154,9 +154,9 @@ func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 	return nil, errors.New("no response from Anthropic")
 }
 
-func (a *anthropic) getAnthropicUrl(ctx context.Context, baseURL string) (string, error) {
+func (a *anthropic) getAnthropicURL(ctx context.Context, baseURL string) (string, error) {
 	passedBaseURL := baseURL
-	if headerBaseURL := a.getValueFromContext(ctx, "X-Anthropic-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Anthropic-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return url.JoinPath(passedBaseURL, "/v1/messages")
@@ -194,21 +194,8 @@ func (a *anthropic) generateForPrompt(textProperties map[string]string, prompt s
 	return prompt, nil
 }
 
-func (a *anthropic) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
-}
-
-func (a *anthropic) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := a.getValueFromContext(ctx, "X-Anthropic-Api-Key"); apiKey != "" {
+func (a *anthropic) getAPIKey(ctx context.Context) (string, error) {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Anthropic-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if a.apiKey != "" {
@@ -216,7 +203,7 @@ func (a *anthropic) getApiKey(ctx context.Context) (string, error) {
 	}
 	return "", errors.New("no api key found for Anthropic " +
 		"neither in request header: X-Anthropic-Api-Key " +
-		"nor in the environment variable under ANTHROPIC_API_KEY")
+		"nor in the environment variable under ANTHROPIC_APIKEY")
 }
 
 type generateInput struct {

@@ -65,7 +65,7 @@ func (m *GenerativeAnthropicModule) Init(ctx context.Context,
 func (m *GenerativeAnthropicModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	apiKey := os.Getenv("ANTHROPIC_APIKEY")
 
 	client := clients.New(apiKey, timeout, logger)
 

@@ -712,6 +712,7 @@ func registerModules(appState *state.State) error {
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
 		modgenerativepalm.Name,
+		modgenerativeanthropic.Name,
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
@@ -953,7 +954,6 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 
 	}
-
 	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
 		appState.Modules.Register(modtext2vecpalm.New())
 		appState.Logger.
