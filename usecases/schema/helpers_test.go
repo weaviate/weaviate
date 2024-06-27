@@ -114,6 +114,10 @@ func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest) 
 	return nil
 }
 
+func (f *fakeDB) UpdateTenantsProcess(class string, req *command.TenantProcessRequest) error {
+	return nil
+}
+
 func (f *fakeDB) DeleteTenants(class string, cmd *command.DeleteTenantsRequest) error {
 	return nil
 }

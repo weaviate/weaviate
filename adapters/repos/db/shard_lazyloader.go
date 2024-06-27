@@ -367,11 +367,11 @@ func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.E
 	return l.shard.createPropertyIndex(ctx, eg, props...)
 }
 
-func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {
+func (l *LazyLoadShard) HaltForTransfer(ctx context.Context) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.BeginBackup(ctx)
+	return l.shard.HaltForTransfer(ctx)
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
@@ -534,7 +534,7 @@ func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string
 	return l.shard.prepareAddReferences(ctx, shardID, refs)
 }
 
-func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *backupMutex) interface{} {
+func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *shardTransfer) interface{} {
 	l.mustLoad()
 	return l.shard.commitReplication(ctx, shardID, mutex)
 }

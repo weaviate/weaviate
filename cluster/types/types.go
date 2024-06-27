@@ -33,3 +33,9 @@ type RaftResolver interface {
 	NewTCPTransport(bindAddr string, advertise net.Addr, maxPool int, timeout time.Duration, logger *logrus.Logger) (*raft.NetworkTransport, error)
 	NotResolvedNodes() map[raft.ServerID]struct{}
 }
+
+const (
+	TenantActivityStatusFREEZING   = "FREEZING"
+	TenantActivityStatusUNFREEZING = "UNFREEZING"
+	TenantActivityStatusUNFROZEN   = "UNFROZEN"
+)

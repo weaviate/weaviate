@@ -32,6 +32,7 @@ import (
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
+	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
@@ -117,7 +118,7 @@ func New() *Compose {
 
 func (d *Compose) WithMinIO() *Compose {
 	d.withMinIO = true
-	d.enableModules = append(d.enableModules, modstgs3.Name)
+	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
 	return d
 }
 
@@ -177,6 +178,14 @@ func (d *Compose) WithBackendS3(bucket string) *Compose {
 	d.withBackendS3Bucket = bucket
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name)
+	return d
+}
+
+func (d *Compose) WithOffloadS3(bucket string) *Compose {
+	d.withBackendS3 = true
+	d.withBackendS3Bucket = bucket
+	d.withMinIO = true
+	d.enableModules = append(d.enableModules, modsloads3.Name)
 	return d
 }
 
@@ -416,6 +425,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 				envSettings[k] = v
 			}
 			envSettings["BACKUP_S3_BUCKET"] = d.withBackendS3Bucket
+			envSettings["OFFLOAD_S3_BUCKET"] = d.withBackendS3Bucket
 		}
 	}
 	if d.withGCS {

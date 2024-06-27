@@ -226,6 +226,11 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		}
 	}
 
+	// unlimited results
+	if limit < 0 {
+		limit = len(combinedResults)
+	}
+
 	queue := priorityqueue.NewMin[float32](limit)
 	uuidCounter := make([]uint64, len(combinedResults))
 	count := uint64(0)

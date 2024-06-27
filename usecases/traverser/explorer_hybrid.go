@@ -239,7 +239,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			searchVectors := make([]*searchparams.NearVector, len(targetVectors))
 			if len(params.HybridSearch.Vector) > 0 {
 				for i, targetVector := range targetVectors {
-					searchVectors[i] = &searchparams.NearVector{Vector: params.HybridSearch.Vector, TargetVectors: []string{targetVector}}
+					searchVectors[i] = &searchparams.NearVector{VectorPerTarget: map[string][]float32{targetVector: params.HybridSearch.Vector}, TargetVectors: []string{targetVector}}
 				}
 			} else {
 				eg := enterrors.NewErrorGroupWrapper(e.logger)
@@ -249,7 +249,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 					targetVector := targetVector
 					eg.Go(func() error {
 						searchVector, err := e.modulesProvider.VectorFromInput(ctx, params.ClassName, params.HybridSearch.Query, targetVector)
-						searchVectors[i] = &searchparams.NearVector{Vector: searchVector, TargetVectors: []string{targetVector}}
+						searchVectors[i] = &searchparams.NearVector{VectorPerTarget: map[string][]float32{targetVector: searchVector}, TargetVectors: []string{targetVector}}
 						return err
 					})
 				}

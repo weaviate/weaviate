@@ -82,18 +82,9 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if nv := req.NearVector; nv != nil {
-		var vector []float32
-		// bytes vector has precedent for being more efficient
-		if len(nv.VectorBytes) > 0 {
-			vector = byteops.Float32FromByteVector(nv.VectorBytes)
-		} else if len(nv.Vector) > 0 {
-			vector = nv.Vector
-		} else {
-			return dto.GetParams{}, fmt.Errorf("near_vector: vector is required")
-		}
-		out.NearVector = &searchparams.NearVector{
-			Vector:        vector,
-			TargetVectors: targetVectors,
+		out.NearVector, err = parseNearVec(nv, targetVectors)
+		if err != nil {
+			return dto.GetParams{}, err
 		}
 
 		// The following business logic should not sit in the API. However, it is
@@ -250,10 +241,11 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		}
 
 		if nearVec != nil {
-			out.HybridSearch.NearVectorParams = &searchparams.NearVector{
-				Vector:        byteops.Float32FromByteVector(nearVec.VectorBytes),
-				TargetVectors: targetVectors,
+			out.HybridSearch.NearVectorParams, err = parseNearVec(nearVec, targetVectors)
+			if err != nil {
+				return dto.GetParams{}, err
 			}
+
 			if nearVec.Distance != nil {
 				out.HybridSearch.NearVectorParams.Distance = *nearVec.Distance
 				out.HybridSearch.NearVectorParams.WithDistance = true
@@ -1073,4 +1065,48 @@ func parseNearIMU(n *pb.NearIMUSearch, targetVectors []string) (*nearImu.NearIMU
 	}
 
 	return out, nil
+}
+
+func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.NearVector, error) {
+	var vector []float32
+	// bytes vector has precedent for being more efficient
+	if len(nv.VectorBytes) > 0 {
+		vector = byteops.Float32FromByteVector(nv.VectorBytes)
+	} else if len(nv.Vector) > 0 {
+		vector = nv.Vector
+	}
+
+	if vector != nil && nv.VectorPerTarget != nil {
+		return nil, fmt.Errorf("near_vector: either vector or VectorPerTarget must be provided, not both")
+	}
+
+	targetVectorsTmp := targetVectors
+	if len(targetVectors) == 0 {
+		targetVectorsTmp = []string{""}
+	}
+
+	targetsPerVector := make(map[string][]float32, len(targetVectorsTmp))
+	if vector != nil {
+		for _, target := range targetVectorsTmp {
+			targetsPerVector[target] = vector
+		}
+	} else if nv.VectorPerTarget != nil {
+		if len(nv.VectorPerTarget) != len(targetVectorsTmp) {
+			return nil, fmt.Errorf("near_vector: vector per target must be provided for all targets")
+		}
+		for _, target := range targetVectorsTmp {
+			if vec, ok := nv.VectorPerTarget[target]; ok {
+				targetsPerVector[target] = byteops.Float32FromByteVector(vec)
+			} else {
+				return nil, fmt.Errorf("near_vector: vector for target %s is required", target)
+			}
+		}
+	} else {
+		return nil, fmt.Errorf("near_vector: vector is required")
+	}
+
+	return &searchparams.NearVector{
+		VectorPerTarget: targetsPerVector,
+		TargetVectors:   targetVectors,
+	}, nil
 }
