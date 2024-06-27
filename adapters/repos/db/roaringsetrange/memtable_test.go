@@ -259,7 +259,6 @@ func BenchmarkMemtableFlatten(b *testing.B) {
 		val[0] = value
 		m.Insert(keys[value], val)
 	}
-	// m.Close()
 
 	for i := 0; i < b.N; i++ {
 		m.Nodes()

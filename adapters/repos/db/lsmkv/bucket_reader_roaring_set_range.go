@@ -64,7 +64,6 @@ func (r *BucketReaderRoaringSetRange) Read(ctx context.Context, value uint64,
 
 func (r *BucketReaderRoaringSetRange) greaterThanEqual(ctx context.Context, value uint64) (*sroar.Bitmap, error) {
 	resultBM, cursor, ok, err := r.nonNullBMWithCursor(ctx)
-	// fmt.Printf("  ==> nn card %d\n", resultBM.GetCardinality())
 	if !ok {
 		return resultBM, err
 	}
@@ -182,7 +181,6 @@ func (r *BucketReaderRoaringSetRange) nonNullBMWithCursor(ctx context.Context) (
 	}
 
 	return nonNullBM, cursor, true, nil
-	// return nonNullBM.Clone(), cursor, true, nil
 }
 
 func (r *BucketReaderRoaringSetRange) mergeGreaterThanEqual(ctx context.Context, resBM *sroar.Bitmap,
