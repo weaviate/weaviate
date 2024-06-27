@@ -89,10 +89,7 @@ func (m *Memtable) roaringSetRangeAddCommitLog(key uint64, additions []uint64, d
 
 	keyBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(keyBuf, key)
-	bmAdditions := roaringset.NewBitmap(additions...)
-	bmDeletions := roaringset.NewBitmap(deletions...)
-
-	if node, err := roaringset.NewSegmentNode(keyBuf, bmAdditions, bmDeletions); err != nil {
+	if node, err := roaringset.NewSegmentNodeList(keyBuf, additions, deletions); err != nil {
 		return errors.Wrap(err, "create node for commit log")
 	} else if err := m.commitlog.add(node); err != nil {
 		return errors.Wrap(err, "add node to commit log")

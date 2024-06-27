@@ -207,7 +207,7 @@ func TestMemtableRoaringSet(t *testing.T) {
 		require.Nil(t, m.commitlog.close())
 	})
 
-	t.Run("adding/removing bitmaps", func(t *testing.T) {
+	t.Run("adding/removing slices", func(t *testing.T) {
 		cl, err := newCommitLogger(memPath())
 		require.NoError(t, err)
 
@@ -216,10 +216,10 @@ func TestMemtableRoaringSet(t *testing.T) {
 
 		key1, key2 := []byte("key1"), []byte("key2")
 
-		assert.Nil(t, m.roaringSetAddRemoveBitmaps(key1,
-			roaringset.NewBitmap(1, 2), roaringset.NewBitmap(7, 8)))
-		assert.Nil(t, m.roaringSetAddRemoveBitmaps(key2,
-			roaringset.NewBitmap(3, 4), roaringset.NewBitmap(9, 10)))
+		assert.Nil(t, m.roaringSetAddRemoveSlices(key1,
+			[]uint64{1, 2}, []uint64{7, 8}))
+		assert.Nil(t, m.roaringSetAddRemoveSlices(key2,
+			[]uint64{3, 4}, []uint64{9, 10}))
 		assert.Greater(t, m.Size(), uint64(0))
 
 		setKey1, err := m.roaringSetGet(key1)
