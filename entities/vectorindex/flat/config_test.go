@@ -94,25 +94,8 @@ func Test_FlatUserConfig(t *testing.T) {
 					"cache":        true,
 				},
 			},
-			expected: UserConfig{
-				VectorCacheMaxObjects: 100,
-				Distance:              common.DefaultDistanceMetric,
-				PQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
-				},
-				BQ: CompressionUserConfig{
-					Enabled:      false,
-					RescoreLimit: DefaultCompressionRescore,
-					Cache:        DefaultVectorCache,
-				},
-				SQ: CompressionUserConfig{
-					Enabled:      true,
-					RescoreLimit: 20,
-					Cache:        true,
-				},
-			},
+			expectErr:    true,
+			expectErrMsg: "SQ is not currently supported for flat indices",
 		},
 		{
 			name: "pq enabled",
@@ -127,20 +110,6 @@ func Test_FlatUserConfig(t *testing.T) {
 			},
 			expectErr:    true,
 			expectErrMsg: "PQ is not currently supported for flat indices",
-			// expected: UserConfig{
-			// 	VectorCacheMaxObjects: 100,
-			// 	Distance:              common.DefaultDistanceMetric,
-			// 	PQ: CompressionUserConfig{
-			// 		Enabled:      true,
-			// 		RescoreLimit: 100,
-			// 		Cache:        true,
-			// 	},
-			// 	BQ: CompressionUserConfig{
-			// 		Enabled:      false,
-			// 		RescoreLimit: DefaultCompressionRescore,
-			// 		Cache:        DefaultVectorCache,
-			// 	},
-			// },
 		},
 		{
 			name: "sq and bq enabled",

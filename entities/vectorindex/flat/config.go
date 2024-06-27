@@ -168,9 +168,12 @@ func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 		return errors.New("cannot enable multiple quantization methods at the same time")
 	}
 
-	// TODO: remove once PQ is supported
+	// TODO: remove once PQ and SQ are supported
 	if uc.PQ.Enabled {
 		return errors.New("PQ is not currently supported for flat indices")
+	}
+	if uc.SQ.Enabled {
+		return errors.New("SQ is not currently supported for flat indices")
 	}
 
 	return nil
