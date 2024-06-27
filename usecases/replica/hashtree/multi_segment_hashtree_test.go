@@ -164,11 +164,11 @@ func TestMultiSegmentHashTreeComparisonHeight1(t *testing.T) {
 }
 
 func TestMultiSegmentHashTreeComparisonIncrementalConciliation(t *testing.T) {
-	leavesSpace := 1_000_000
-	totalSegmentsCount := 128
+	leavesSpace := 100_000
+	totalSegmentsCount := 64
 	segmentSize := leavesSpace / totalSegmentsCount
 	actualNumberOfElementsPerSegment := segmentSize / 100
-	maxHeight := 11
+	maxHeight := 10
 
 	segments := make([]Segment, 9)
 

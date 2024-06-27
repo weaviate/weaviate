@@ -260,7 +260,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			QueryMaximumResults: maxResults,
 			ReplicationFactor:   NewAtomicInt64(1),
 		},
-		shardState:            shardState,
+		partitioningEnabled:   shardState.PartitioningEnabled,
 		invertedIndexConfig:   iic,
 		vectorIndexUserConfig: vic,
 		logger:                logger,

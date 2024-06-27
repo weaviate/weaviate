@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -62,7 +63,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		})
 	}
 
-	return h.metaWriter.AddTenants(class, &request)
+	return h.schemaManager.AddTenants(class, &request)
 }
 
 func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {
@@ -121,26 +122,45 @@ func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
 // Class must exist and has partitioning enabled
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
-) error {
+) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
-		return err
+		return nil, err
 	}
+
+	h.logger.WithFields(logrus.Fields{
+		"class":   class,
+		"tenants": tenants,
+	}).Debug("update tenants status")
+
 	validated, err := validateTenants(tenants)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := validateActivityStatuses(validated, false); err != nil {
-		return err
+		return nil, err
 	}
 
 	req := api.UpdateTenantsRequest{
-		Tenants: make([]*api.Tenant, len(tenants)),
+		Tenants:      make([]*api.Tenant, len(tenants)),
+		ClusterNodes: h.clusterState.Candidates(),
 	}
+	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
+		tNames[i] = tenant.Name
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
-	_, err = h.metaWriter.UpdateTenants(class, &req)
-	return err
+
+	if _, err = h.schemaManager.UpdateTenants(class, &req); err != nil {
+		return nil, err
+	}
+
+	// we get the new state to return correct status
+	// specially in FREEZING and UNFREEZING
+	uTenants, _, err := h.schemaManager.QueryTenants(class, tNames)
+	if err != nil {
+		return nil, err
+	}
+	return uTenants, err
 }
 
 // DeleteTenants is used to delete tenants of a class.
@@ -160,7 +180,7 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	_, err := h.metaWriter.DeleteTenants(class, &req)
+	_, err := h.schemaManager.DeleteTenants(class, &req)
 	return err
 }
 
@@ -180,7 +200,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	}
 
 	if consistency {
-		tenants, _, err := h.metaWriter.QueryTenants(class, tenants)
+		tenants, _, err := h.schemaManager.QueryTenants(class, tenants)
 		return tenants, err
 	}
 
@@ -211,11 +231,11 @@ func (h *Handler) getTenants(class string) ([]*models.Tenant, error) {
 		}
 		return nil
 	}
-	return ts, h.metaReader.Read(class, f)
+	return ts, h.schemaReader.Read(class, f)
 }
 
 func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
-	info := h.metaReader.ClassInfo(class)
+	info := h.schemaReader.ClassInfo(class)
 	if !info.Exists {
 		return info, fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
@@ -236,7 +256,7 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 	var tenants []*models.Tenant
 	var err error
 	if consistency {
-		tenants, _, err = h.metaWriter.QueryTenants(class, []string{tenant})
+		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
 	} else {
 		// If non consistent, fallback to the default implementation
 		tenants, err = h.getTenantsByNames(class, []string{tenant})
@@ -277,5 +297,5 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 		}
 		return nil
 	}
-	return ts, h.metaReader.Read(class, f)
+	return ts, h.schemaReader.Read(class, f)
 }

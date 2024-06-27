@@ -67,6 +67,7 @@ import (
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
+	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
@@ -196,6 +197,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMaxActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
 		MaxSegmentSize:            appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		HNSWMaxLogSize:            appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:   appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
@@ -223,7 +225,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
+
 	migrator := db.NewMigrator(repo, appState.Logger)
+	migrator.SetNode(appState.Cluster.LocalName())
+	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
+	migrator.SetOffloadProvider(appState.Modules, "offload-s3")
+
 	vectorRepo = repo
 	// migrator = vectorMigrator
 	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
@@ -300,6 +307,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.ClusterService = rCluster.New(rConfig)
+	migrator.SetCluster(appState.ClusterService.Raft)
+
 	executor := schema.NewExecutor(migrator,
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, backup.RestoreClassDir(dataPath),
@@ -946,6 +955,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstgs3.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modsloads3.Name]; ok {
+		appState.Modules.Register(modsloads3.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modsloads3.Name).
 			Debug("enabled module")
 	}
 

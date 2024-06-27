@@ -62,6 +62,10 @@ type MultiSegmentHashTree struct {
 }
 
 func NewMultiSegmentHashTree(segments []Segment, maxHeight int) (*MultiSegmentHashTree, error) {
+	if len(segments) == 0 {
+		return nil, fmt.Errorf("%w: illegal segments (no segments provided)", ErrIllegalArguments)
+	}
+
 	var capacity uint64
 
 	for _, s := range segments {
@@ -77,10 +81,6 @@ func NewMultiSegmentHashTree(segments []Segment, maxHeight int) (*MultiSegmentHa
 }
 
 func newMultiSegmentHashTree(segments []Segment, underlyingHashTree AggregatedHashTree) (*MultiSegmentHashTree, error) {
-	if len(segments) == 0 {
-		return nil, fmt.Errorf("%w: illegal segments", ErrIllegalArguments)
-	}
-
 	// prevent undesired effects if segment list is externally manipulated
 	ownSegments := make([]Segment, len(segments))
 	copy(ownSegments, segments)

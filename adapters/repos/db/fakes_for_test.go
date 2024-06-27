@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -216,9 +218,9 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, targetVector string, limit int,
+	shardName string, vector [][]float32, targetVector []string, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties,
+	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
@@ -367,6 +369,12 @@ func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
 func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) FindUUIDs(ctx context.Context,
+	hostName, indexName, shardName string, filters *filters.LocalFilter,
+) (result []strfmt.UUID, err error) {
 	return nil, nil
 }
 

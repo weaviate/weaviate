@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -216,6 +217,9 @@ type rClient interface {
 	DigestObjects(ctx context.Context, host, index, shard string,
 		ids []strfmt.UUID) ([]RepairResponse, error)
 
+	FindUUIDs(ctx context.Context, host, index, shard string,
+		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+
 	DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
 		initialToken, finalToken uint64, limit int) ([]RepairResponse, uint64, error)
 
@@ -283,4 +287,10 @@ func (fc finderClient) Overwrite(ctx context.Context,
 	xs []*objects.VObject,
 ) ([]RepairResponse, error) {
 	return fc.cl.OverwriteObjects(ctx, host, index, shard, xs)
+}
+
+func (fc finderClient) FindUUIDs(ctx context.Context,
+	host, class, shard string, filters *filters.LocalFilter,
+) ([]strfmt.UUID, error) {
+	return fc.cl.FindUUIDs(ctx, host, class, shard, filters)
 }

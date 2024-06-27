@@ -24,8 +24,8 @@ import (
 )
 
 type executor struct {
-	store    metaReader
-	migrator Migrator
+	schemaReader SchemaReader
+	migrator     Migrator
 
 	callbacksLock sync.RWMutex
 	callbacks     []func(updatedSchema schema.Schema)
@@ -35,13 +35,13 @@ type executor struct {
 }
 
 // NewManager creates a new manager
-func NewExecutor(migrator Migrator, mr metaReader,
+func NewExecutor(migrator Migrator, sr SchemaReader,
 	logger logrus.FieldLogger, classBackupDir func(string) error,
 ) *executor {
 	return &executor{
 		migrator:        migrator,
 		logger:          logger,
-		store:           mr,
+		schemaReader:    sr,
 		restoreClassDir: classBackupDir,
 	}
 }
@@ -158,7 +158,7 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 			Status: p.Status,
 		}
 	}
-	cls := e.store.ReadOnlyClass(class)
+	cls := e.schemaReader.ReadOnlyClass(class)
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
@@ -171,7 +171,7 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 
 func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) error {
 	ctx := context.Background()
-	cls := e.store.ReadOnlyClass(class)
+	cls := e.schemaReader.ReadOnlyClass(class)
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
@@ -188,6 +188,33 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
+		}).WithError(err).Error("error updating tenants")
+		return err
+	}
+	return nil
+}
+
+func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error {
+	ctx := context.Background()
+	cls := e.schemaReader.ReadOnlyClass(class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+	// no error here because that means the process shouldn't be applied to db
+	if req.Process == nil {
+		return nil
+	}
+
+	if err := e.migrator.UpdateTenants(ctx, cls, []*UpdateTenantPayload{
+		{
+			Name:   req.Process.Tenant.Name,
+			Status: req.Process.Tenant.Status,
+		},
+	}); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action":     "update_tenants_process",
+			"sub-action": "update_tenants",
+			"class":      class,
 		}).WithError(err).Error("error updating tenants")
 		return err
 	}
@@ -234,7 +261,7 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	e.callbacksLock.RLock()
 	defer e.callbacksLock.RUnlock()
 
-	s := e.store.ReadOnlySchema()
+	s := e.schemaReader.ReadOnlySchema()
 	for _, cb := range e.callbacks {
 		cb(schema.Schema{
 			Objects: &s,

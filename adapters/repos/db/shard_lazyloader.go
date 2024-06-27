@@ -18,6 +18,8 @@ import (
 	"os"
 	"sync"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -230,11 +232,11 @@ func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *fi
 	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
 }
 
-func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error) {
+func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination) ([]*storobj.Object, []float32, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
+	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
@@ -365,11 +367,11 @@ func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.E
 	return l.shard.createPropertyIndex(ctx, eg, props...)
 }
 
-func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {
+func (l *LazyLoadShard) HaltForTransfer(ctx context.Context) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.BeginBackup(ctx)
+	return l.shard.HaltForTransfer(ctx)
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
@@ -435,6 +437,13 @@ func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
 	return l.shard.Queues()
 }
 
+func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	if !l.isLoaded() {
 		return nil
@@ -450,8 +459,8 @@ func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
 }
 
 func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	if err := l.Load(ctx); err != nil {
-		return nil, err
+	if !l.isLoaded() {
+		return []hashtree.Digest{}, nil
 	}
 	return l.shard.HashTreeLevel(ctx, level, discriminant)
 }
@@ -525,7 +534,7 @@ func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string
 	return l.shard.prepareAddReferences(ctx, shardID, refs)
 }
 
-func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *backupMutex) interface{} {
+func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, mutex *shardTransfer) interface{} {
 	l.mustLoad()
 	return l.shard.commitReplication(ctx, shardID, mutex)
 }

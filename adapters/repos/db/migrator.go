@@ -23,9 +23,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -35,13 +38,44 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// provider is an interface has to be implemented by modules
+// to get the backend (s3, azure blob storage, google cloud storage) module
+type provider interface {
+	// OffloadBackend returns the backend module for (s3, azure blob storage, google cloud storage)
+	OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool)
+}
+
+type processor interface {
+	UpdateTenantsProcess(class string, req *command.TenantProcessRequest) (uint64, error)
+}
+
 type Migrator struct {
-	db     *DB
-	logger logrus.FieldLogger
+	db      *DB
+	cloud   modulecapabilities.OffloadCloud
+	logger  logrus.FieldLogger
+	cluster processor
+	nodeId  string
 }
 
 func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 	return &Migrator{db: db, logger: logger}
+}
+
+func (m *Migrator) SetNode(nodeID string) {
+	m.nodeId = nodeID
+}
+
+func (m *Migrator) SetCluster(c processor) {
+	m.cluster = c
+}
+
+func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
+	cloud, enabled := provider.OffloadBackend(moduleName)
+	if !enabled {
+		m.logger.Debug(fmt.Sprintf("module %s is not enabled", moduleName))
+	}
+	m.cloud = cloud
+	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
@@ -65,6 +99,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxActiveSeconds: m.db.config.MemtablesMaxActiveSeconds,
 			MaxSegmentSize:            m.db.config.MaxSegmentSize,
 			HNSWMaxLogSize:            m.db.config.HNSWMaxLogSize,
+			HNSWWaitForCachePrefill:   m.db.config.HNSWWaitForCachePrefill,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
 			AvoidMMap:                 m.db.config.AvoidMMap,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
@@ -321,20 +356,34 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	updatesHot := make([]string, 0, len(updates))
-	updatesCold := make([]string, 0, len(updates))
-	for _, update := range updates {
-		switch update.Status {
+	hot := make([]string, 0, len(updates))
+	cold := make([]string, 0, len(updates))
+	freezing := make([]string, 0, len(updates))
+	frozen := make([]string, 0, len(updates))
+	unfreezing := make([]string, 0, len(updates))
+
+	for _, tName := range updates {
+		switch tName.Status {
 		case models.TenantActivityStatusHOT:
-			updatesHot = append(updatesHot, update.Name)
+			hot = append(hot, tName.Name)
 		case models.TenantActivityStatusCOLD:
-			updatesCold = append(updatesCold, update.Name)
+			cold = append(cold, tName.Name)
+
+		case models.TenantActivityStatusFROZEN: // never arrives from user
+			frozen = append(frozen, tName.Name)
+		case types.TenantActivityStatusFREEZING: // never arrives from user
+			freezing = append(freezing, tName.Name)
+		case types.TenantActivityStatusUNFREEZING: // never arrives from user
+			unfreezing = append(freezing, tName.Name)
 		}
 	}
 
 	ec := &errorcompounder.ErrorCompounder{}
+	if len(hot) > 0 {
+		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
+	}
 
-	for _, name := range updatesHot {
+	for _, name := range hot {
 		shard, err := idx.getOrInitLocalShard(ctx, name)
 		ec.Add(err)
 		if err != nil {
@@ -364,14 +413,15 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		}, idx.logger)
 	}
 
-	if len(updatesCold) > 0 {
-		idx.backupMutex.RLock()
-		defer idx.backupMutex.RUnlock()
+	if len(cold) > 0 {
+		m.logger.WithField("action", "tenants_to_cold").Debug(cold)
+		idx.shardTransferMutex.RLock()
+		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
-		for _, name := range updatesCold {
+		for _, name := range cold {
 			name := name
 			eg.Go(func() error {
 				shard := func() ShardLike {
@@ -403,6 +453,22 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		}
 		eg.Wait()
 	}
+
+	if len(frozen) > 0 {
+		m.logger.WithField("action", "tenants_to_frozen").Debug(frozen)
+		m.frozen(idx, frozen, ec)
+	}
+
+	if len(freezing) > 0 {
+		m.logger.WithField("action", "tenants_to_freezing").Debug(freezing)
+		m.freeze(ctx, idx, class.Class, freezing, ec)
+	}
+
+	if len(unfreezing) > 0 {
+		m.logger.WithField("action", "tenants_to_unfreezing").Debug(unfreezing)
+		m.unfreeze(ctx, idx, class.Class, unfreezing, ec)
+	}
+
 	return ec.ToError()
 }
 

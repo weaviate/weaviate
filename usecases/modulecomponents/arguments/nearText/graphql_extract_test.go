@@ -14,6 +14,8 @@ package nearText
 import (
 	"reflect"
 	"testing"
+
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func Test_extractNearTextFn(t *testing.T) {
@@ -21,9 +23,10 @@ func Test_extractNearTextFn(t *testing.T) {
 		source map[string]interface{}
 	}
 	tests := []struct {
-		name string
-		args args
-		want *NearTextParams
+		name       string
+		args       args
+		want       *NearTextParams
+		wantTarget *dto.TargetCombination
 	}{
 		{
 			"Extract with concepts",
@@ -35,6 +38,7 @@ func Test_extractNearTextFn(t *testing.T) {
 			&NearTextParams{
 				Values: []string{"c1", "c2", "c3"},
 			},
+			nil,
 		},
 		{
 			"Extract with concepts, distance, limit and network",
@@ -53,6 +57,7 @@ func Test_extractNearTextFn(t *testing.T) {
 				Limit:        100,
 				Network:      true,
 			},
+			nil,
 		},
 		{
 			"Extract with concepts, certainty, limit and network",
@@ -70,6 +75,7 @@ func Test_extractNearTextFn(t *testing.T) {
 				Limit:     100,
 				Network:   true,
 			},
+			nil,
 		},
 		{
 			"Extract with moveTo, moveAwayFrom, and distance",
@@ -104,6 +110,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					Force:  0.25,
 				},
 			},
+			nil,
 		},
 		{
 			"Extract with moveTo, moveAwayFrom, and certainty",
@@ -137,6 +144,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					Force:  0.25,
 				},
 			},
+			nil,
 		},
 		{
 			"Extract with moveTo, moveAwayFrom, distance (and objects)",
@@ -207,6 +215,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
+			nil,
 		},
 		{
 			"Extract with moveTo, moveAwayFrom, certainty (and objects)",
@@ -276,6 +285,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
+			nil,
 		},
 		{
 			"Extract with moveTo, moveAwayFrom, distance (and doubled objects)",
@@ -346,6 +356,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
+			nil,
 		},
 		{
 			"Extract with moveTo, moveAwayFrom, certainty (and doubled objects)",
@@ -415,6 +426,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
+			nil,
 		},
 		{
 			"Extract with concepts and targetVectors",
@@ -428,13 +440,15 @@ func Test_extractNearTextFn(t *testing.T) {
 				Values:        []string{"c1", "c2", "c3"},
 				TargetVectors: []string{"targetVector"},
 			},
+			&dto.TargetCombination{Type: dto.Minimum},
 		},
 	}
 
 	testsWithAutocorrect := []struct {
-		name string
-		args args
-		want *NearTextParams
+		name       string
+		args       args
+		want       *NearTextParams
+		wantTarget *dto.TargetCombination
 	}{
 		{
 			"Extract with concepts",
@@ -448,6 +462,7 @@ func Test_extractNearTextFn(t *testing.T) {
 				Values:      []string{"c1", "c2", "c3"},
 				Autocorrect: true,
 			},
+			nil,
 		},
 		{
 			"Extract with concepts and perform autocorrect",
@@ -461,6 +476,7 @@ func Test_extractNearTextFn(t *testing.T) {
 				Values:      []string{"transformed text", "c2", "transformed text"},
 				Autocorrect: true,
 			},
+			nil,
 		},
 		{
 			"Extract with moveTo, moveAwayFrom, distance (and doubled objects) and autocorrect",
@@ -533,6 +549,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
+			nil,
 		},
 		{
 			"Extract with moveTo, moveAwayFrom, certainty (and doubled objects) and autocorrect",
@@ -604,6 +621,7 @@ func Test_extractNearTextFn(t *testing.T) {
 					},
 				},
 			},
+			nil,
 		},
 		{
 			"Extract with concepts and targetVectors",
@@ -619,6 +637,25 @@ func Test_extractNearTextFn(t *testing.T) {
 				TargetVectors: []string{"targetVector"},
 				Autocorrect:   true,
 			},
+			&dto.TargetCombination{Type: dto.Minimum},
+		},
+		{
+			name: "should extract properly with concepts and targets set",
+			args: args{
+				source: map[string]interface{}{
+					"concepts": []interface{}{"c1", "c2", "c3"},
+					"targets": map[string]interface{}{
+						"targetVectors":     []interface{}{"targetVector1", "targetVector2"},
+						"combinationMethod": dto.ManualWeights,
+						"weights":           map[string]float64{"targetVector1": 0.5, "targetVector2": 0.5},
+					},
+				},
+			},
+			want: &NearTextParams{
+				Values:        []string{"c1", "c2", "c3"},
+				TargetVectors: []string{"targetVector1", "targetVector2"},
+			},
+			wantTarget: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
 		},
 	}
 	testsWithAutocorrect = append(testsWithAutocorrect, tests...)
@@ -627,8 +664,9 @@ func Test_extractNearTextFn(t *testing.T) {
 		provider := New(nil)
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				if got := provider.extractNearTextFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("extractNearTextFn() = %v, want %v", got, tt.want)
+				got, target, err := provider.extractNearTextFn(tt.args.source)
+				if !reflect.DeepEqual(got, tt.want) || !reflect.DeepEqual(target, tt.wantTarget) || err != nil {
+					t.Errorf("extractNearTextFn() = %v, want %v, %v with error %v", got, tt.want, tt.wantTarget, err)
 				}
 			})
 		}
@@ -637,8 +675,9 @@ func Test_extractNearTextFn(t *testing.T) {
 		provider := New(&fakeTransformer{})
 		for _, tt := range testsWithAutocorrect {
 			t.Run(tt.name, func(t *testing.T) {
-				if got := provider.extractNearTextFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
-					t.Errorf("extractNearTextFn() = %v, want %v", got, tt.want)
+				got, target, err := provider.extractNearTextFn(tt.args.source)
+				if !reflect.DeepEqual(got, tt.want) || !reflect.DeepEqual(target, tt.wantTarget) || err != nil {
+					t.Errorf("extractNearTextFn() = %v, want %v, %v with error %v", got, tt.want, tt.wantTarget, err)
 				}
 			})
 		}
