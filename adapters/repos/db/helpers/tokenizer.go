@@ -16,12 +16,10 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 	"unicode"
 
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
-	kagomeDict "github.com/ikawaha/kagome-dict/dict"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -177,82 +175,48 @@ func tokenizeGSE(in string) []string {
 	return append(terms, alpha...)
 }
 
-var (
-	// Korean tokenizer and dictionary instances
-	koTokenizerInstance *kagomeTokenizer.Tokenizer
-	koOnce              sync.Once
-	kagomeInitErr       error
-)
-
-func initializeKagomeTokenizer(dictType string, tokenizerInstance **kagomeTokenizer.Tokenizer, once *sync.Once) bool {
-	var dictInstance *kagomeDict.Dict
-
-	switch dictType {
-	case "korean":
-		dictInstance = koDict.Dict()
-	default:
-		log.Printf("Sorry, '%v' is not a recognised Kagome tokenizer type.", dictType)
-		return false
-	}
-
-	// If already initialized successfully
-	if KagomeEnabled {
-		return true
-	}
-
-	// If already initialized with an error
-	if kagomeInitErr != nil {
-		return false
-	}
-
-	if os.Getenv("USE_KOREAN_TOKENIZER") == "true" {
-		// Otherwise, initialize the tokenizer
-		once.Do(func() {
-			start := time.Now()
-			var err error
-			*tokenizerInstance, err = kagomeTokenizer.New(dictInstance)
-			duration := time.Since(start)
-			if err != nil {
-				kagomeInitErr = err
-				log.Printf("failed to create tokenizer: %v", err)
-			} else {
-				KagomeEnabled = true
-				log.Printf("successfully created tokenizer (took %v)", duration)
-			}
-		})
-		return true
-	} else {
-		return false
-	}
+type KagomeTokenizers struct {
+	Korean *kagomeTokenizer.Tokenizer
 }
+
+var tokenizers KagomeTokenizers
 
 func InitializeKagomeTokenizerKr() bool {
-	return initializeKagomeTokenizer("korean", &koTokenizerInstance, &koOnce)
+	if tokenizers.Korean != nil {
+		return true
+	}
+
+	if os.Getenv("USE_KOREAN_TOKENIZER") != "true" {
+		return false
+	}
+
+	dictInstance := koDict.Dict()
+	var err error
+	tokenizers.Korean, err = kagomeTokenizer.New(dictInstance)
+	if err != nil {
+		log.Printf("failed to create tokenizer: %v", err)
+		return false
+	}
+
+	log.Printf("successfully created Korean tokenizer")
+	return true
 }
 
-func tokenizeWithKagome(in string, t *kagomeTokenizer.Tokenizer) []string {
-	kagomeTokens := t.Tokenize(in)
+func tokenizeKagomeKr(in string) []string {
+	if !InitializeKagomeTokenizerKr() || tokenizers.Korean == nil {
+		return []string{}
+	}
+
+	kagomeTokens := tokenizers.Korean.Tokenize(in)
 	terms := []string{}
 
 	for _, token := range kagomeTokens {
-		if token.Surface != "EOS" && token.Surface != "BOS" { // Skip the BOS and EOS tokens
+		if token.Surface != "EOS" && token.Surface != "BOS" {
 			terms = append(terms, token.Surface)
 		}
 	}
 
-	terms = removeEmptyStrings(terms)
-
-	return terms
-}
-
-// tokenizeKagomeKr tokenizes Korean text using the cached Korean tokenizer
-func tokenizeKagomeKr(in string) []string {
-	// Initialize the tokenizer on the first run
-	if InitializeKagomeTokenizerKr() {
-		return tokenizeWithKagome(in, koTokenizerInstance)
-	} else {
-		return []string{in}
-	}
+	return removeEmptyStrings(terms)
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and
