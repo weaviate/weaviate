@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode"
 
 	"github.com/go-ego/gse"
@@ -175,52 +176,45 @@ func tokenizeGSE(in string) []string {
 }
 
 type KagomeTokenizers struct {
-	Korean *kagomeTokenizer.Tokenizer
+	Korean atomic.Pointer[kagomeTokenizer.Tokenizer]
 }
 
 var (
-	tokenizers KagomeTokenizers
-	initOnce   sync.Once
-	mutex      sync.RWMutex
+	tokenizers          KagomeTokenizers
+	initializationError error
+	initOnce            sync.Once
 )
 
-func InitializeKagomeTokenizerKr() bool {
-	var success bool
-
+func InitializeKagomeTokenizerKr() error {
 	initOnce.Do(func() {
 		dictInstance := koDict.Dict()
-		var err error
 		tokenizer, err := kagomeTokenizer.New(dictInstance)
 		if err != nil {
-			log.Printf("failed to create tokenizer: %v", err)
+			initializationError = err
+			log.Printf("failed to create Korean tokenizer: %v", err)
 			return
 		}
 
-		mutex.Lock()
-		tokenizers.Korean = tokenizer
-		mutex.Unlock()
-
+		tokenizers.Korean.Store(tokenizer)
 		log.Printf("successfully created Korean tokenizer")
-		success = true
 	})
 
-	return success
+	return initializationError
 }
 
 func tokenizeKagomeKr(in string) []string {
-	if !InitializeKagomeTokenizerKr() {
+	if err := InitializeKagomeTokenizerKr(); err != nil {
+		log.Printf("Tokenizer not available: %v", err)
 		return []string{}
 	}
 
-	mutex.RLock()
-	tokenizer := tokenizers.Korean
-	mutex.RUnlock()
-
+	tokenizer := tokenizers.Korean.Load()
 	if tokenizer == nil {
+		log.Printf("Tokenizer not initialized")
 		return []string{}
 	}
 
-	kagomeTokens := tokenizers.Korean.Tokenize(in)
+	kagomeTokens := tokenizer.Tokenize(in)
 	terms := make([]string, 0, len(kagomeTokens))
 
 	for _, token := range kagomeTokens {
