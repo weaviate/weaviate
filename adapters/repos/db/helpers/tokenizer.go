@@ -194,6 +194,10 @@ func initializeKagomeTokenizer(dictInstance *kagomeDict.Dict, kagomeTokenizerIns
 	kagomeMutex.Lock()
 	defer kagomeMutex.Unlock()
 
+	if *kagomeTokenizerInstance != nil {
+		return true
+	}
+
 	var err error
 	*kagomeTokenizerInstance, err = kagomeTokenizer.New(dictInstance)
 	if err != nil {
