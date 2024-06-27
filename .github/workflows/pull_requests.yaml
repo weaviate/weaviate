@@ -331,7 +331,7 @@ jobs:
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
-    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Modules-Acceptance-Tests-large, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
+    needs: [Acceptance-Tests, Modules-Acceptance-Tests, Modules-Acceptance-Tests-large, Unit-Tests, Integration-Tests, Vulnerability-Scanning-Trivy, Run-Swagger]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
