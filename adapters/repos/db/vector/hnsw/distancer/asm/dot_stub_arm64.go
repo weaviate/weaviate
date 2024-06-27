@@ -19,6 +19,7 @@ package asm
 //go:generate goat ../c/dot_neon_arm64.c -O3 -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 //go:generate goat ../c/dot_sve_arm64.c -O3 -e="-mcpu=neoverse-v1" -e="--target=arm64" -e="-march=armv8-a+sve"
 //go:generate goat ../c/dot_byte_arm64.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
+//go:generate goat ../c/dot_byte_pq_neon.c -O3 -e="-mfpu=neon-fp-armv8" -e="-mfloat-abi=hard" -e="--target=arm64" -e="-march=armv8-a+simd+fp"
 
 import (
 	"reflect"
@@ -144,6 +145,27 @@ func DotByteARM64(x []uint8, y []uint8) uint32 {
 		// The C function expects pointers to the result and the length of the arrays.
 		unsafe.Pointer(&res),
 		unsafe.Pointer(&l))
+
+	return res
+}
+
+func DotBytePQARM64(uncompressed []float32, compressed []uint8, codebook [][][]float32) float32 {
+
+	var res float32
+
+	LenUncompressed := len(uncompressed)
+	LenCompressed := len(compressed)
+
+	dot_byte_pq_neon(
+		// The slice header contains the address of the underlying array.
+		// We only need to cast it to a pointer.
+		unsafe.Pointer(unsafe.SliceData(uncompressed)),
+		unsafe.Pointer(unsafe.SliceData(compressed)),
+		unsafe.Pointer(unsafe.SliceData(codebook)),
+		// The C function expects pointers to the result and the length of the arrays.
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&LenUncompressed),
+		unsafe.Pointer(&LenCompressed))
 
 	return res
 }
