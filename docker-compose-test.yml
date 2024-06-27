@@ -20,7 +20,7 @@ services:
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
       PERSISTENCE_DATA_PATH: "./data"
       DEFAULT_VECTORIZER_MODULE: text2vec-contextionary
-      ENABLE_MODULES: text2vec-contextionary,backup-filesystem
+      ENABLE_MODULES: text2vec-contextionary,backup-filesystem,generative-dummy
       BACKUP_FILESYSTEM_PATH: "/var/lib/backups" 
       PROMETHEUS_MONITORING_ENABLED: 'true'
       PROMETHEUS_MONITORING_GROUP_CLASSES: 'true'
