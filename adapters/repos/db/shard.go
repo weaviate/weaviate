@@ -698,7 +698,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return err
 	}
 
-	partitioningEnabled := s.index.shardState.PartitioningEnabled
+	partitioningEnabled := s.index.partitioningEnabled
 
 	// load the most recent hashtree file
 	dirEntries, err := os.ReadDir(s.pathHashTree())
@@ -874,7 +874,7 @@ func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
 }
 
 func (s *Shard) buildMultiSegmentHashTree() (hashtree.AggregatedHashTree, error) {
-	shardState := s.index.shardState
+	shardState := s.index.shardState()
 
 	virtualNodes := make([]sharding.Virtual, len(shardState.Virtual))
 	copy(virtualNodes, shardState.Virtual)
@@ -1544,7 +1544,7 @@ func (s *Shard) isFallbackToSearchable() bool {
 
 func (s *Shard) tenant() string {
 	// TODO provide better impl
-	if s.index.shardState.PartitioningEnabled {
+	if s.index.partitioningEnabled {
 		return s.name
 	}
 	return ""
