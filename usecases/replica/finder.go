@@ -302,6 +302,9 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", host, err)
 			}
+			if len(levelDigests) == 0 {
+				return nil, hashtree.ErrNoMoreRanges
+			}
 
 			levelDiffCount := hashtree.LevelDiff(l, diff, digests, levelDigests)
 			if levelDiffCount == 0 {
