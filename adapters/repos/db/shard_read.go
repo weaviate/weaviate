@@ -266,11 +266,17 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	startTime := time.Now()
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
-			"collection": s.index.Config.ClassName,
-			"shard":      s.ID(),
-			"tenant":     s.tenant(),
-			"query":      "ObjectSearch",
-			"version":    s.versioner.Version(),
+			"collection":      s.index.Config.ClassName,
+			"shard":           s.ID(),
+			"tenant":          s.tenant(),
+			"query":           "ObjectSearch",
+			"filters":         filters,
+			"limit":           limit,
+			"sort":            sort,
+			"cursor":          cursor,
+			"keyword_ranking": keywordRanking,
+			"version":         s.versioner.Version(),
+			"additional":      additional,
 		})
 	}()
 
@@ -371,7 +377,12 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 			"shard":      s.ID(),
 			"tenant":     s.tenant(),
 			"query":      "ObjectVectorSearch",
+			"filters":    filters,
+			"limit":      limit,
+			"sort":       sort,
 			"version":    s.versioner.Version(),
+			"additional": additional,
+			"group_by":   groupBy,
 		})
 	}()
 
