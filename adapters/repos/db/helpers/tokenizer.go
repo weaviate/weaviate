@@ -12,15 +12,12 @@
 package helpers
 
 import (
-	"log"
 	"os"
 	"strings"
 	"sync"
 	"unicode"
 
 	"github.com/go-ego/gse"
-	koDict "github.com/ikawaha/kagome-dict-ko"
-	kagomeDict "github.com/ikawaha/kagome-dict/dict"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -183,34 +180,38 @@ var (
 	kagomeInitErr       error
 )
 
-func initializeKagomeTokenizer(dictInstance *kagomeDict.Dict, tokenizerInstance **kagomeTokenizer.Tokenizer, once *sync.Once) bool {
-	// If already initialized successfully
-	if KagomeEnabled {
-		return true
-	}
-
-	// If already initialized with an error
-	if kagomeInitErr != nil {
-		return false
-	}
-
-	// Otherwise, initialize the tokenizer
-	once.Do(func() {
-		var err error
-		*tokenizerInstance, err = kagomeTokenizer.New(dictInstance)
-		if err != nil {
-			kagomeInitErr = err
-			log.Printf("failed to create tokenizer: %v", err)
-		} else {
-			KagomeEnabled = true
-		}
-	})
-
-	return true
-}
+//func initializeKagomeTokenizer(dictInstance *kagomeDict.Dict, tokenizerInstance **kagomeTokenizer.Tokenizer, once *sync.Once) bool {
+//	// If already initialized successfully
+//	if KagomeEnabled {
+//		return true
+//	}
+//
+//	// If already initialized with an error
+//	if kagomeInitErr != nil {
+//		return false
+//	}
+//
+//	// Otherwise, initialize the tokenizer
+//	once.Do(func() {
+//		start := time.Now()
+//		var err error
+//		*tokenizerInstance, err = kagomeTokenizer.New(dictInstance)
+//		duration := time.Since(start)
+//		if err != nil {
+//			kagomeInitErr = err
+//			log.Printf("failed to create tokenizer: %v", err)
+//		} else {
+//			KagomeEnabled = true
+//			log.Printf("successfully created tokenizer (took %v)", duration)
+//		}
+//	})
+//
+//	return true
+//}
 
 func InitializeKagomeTokenizerKr() bool {
-	return initializeKagomeTokenizer(koDict.Dict(), &koTokenizerInstance, &koOnce)
+	// return initializeKagomeTokenizer(koDict.Dict(), &koTokenizerInstance, &koOnce)
+	return false
 }
 
 func tokenizeWithKagome(in string, t *kagomeTokenizer.Tokenizer) []string {
