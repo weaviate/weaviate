@@ -772,6 +772,86 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 	})
 }
 
+// Test that using the same buffer as source for unmarshalling does not cause problems due to memoy reuse
+func TestMemoryReuse(t *testing.T) {
+	props := []map[string]interface{}{
+		{
+			"numberArray":  []interface{}{1.1, 2.1},
+			"intArray":     []interface{}{1., 2., 5000.},
+			"textArrayUTF": []interface{}{"語", "b"},
+			"boolArray":    []interface{}{true, false},
+			"textArray":    []interface{}{"hello", ",", "I", "am", "a", "veeery", "long", "Array", "with some text."},
+			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+			"foo":          float64(17),
+		},
+		{
+			"numberArray":  []interface{}{1.4, 6.1},
+			"intArray":     []interface{}{4., 3., 9000.},
+			"textArrayUTF": []interface{}{"a", "c"},
+			"boolArray":    []interface{}{true, true},
+			"textArray":    []interface{}{"I", "contain", "other", "text"},
+			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168248"}},
+			"foo":          float64(5),
+		},
+		{
+			"numberArray":  []interface{}{1.4, 6.1, 8.9},
+			"intArray":     []interface{}{4., 3., 9000., 1.},
+			"textArrayUTF": []interface{}{"a", "c", "d"},
+			"boolArray":    []interface{}{true, true, false},
+			"textArray":    []interface{}{"I", "contain", "other", "text", "too"},
+			"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/73f4eb5f-5abf-447a-81ca-74b1dd168249"}},
+			"foo":          float64(9),
+		},
+	}
+
+	largestSize := 0
+	for i, prop := range props {
+		obj := models.Object{
+			Class:      "something",
+			ID:         strfmt.UUID(fmt.Sprintf("73f4eb5f-5abf-447a-81ca-74b1dd16824%v", i)),
+			Properties: prop,
+		}
+		before := FromObject(&obj, nil, nil)
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
+		if len(asBinary) > largestSize {
+			largestSize = len(asBinary)
+		}
+	}
+
+	reuseableBuff := make([]byte, largestSize)
+	afterProps := []map[string]interface{}{}
+	for i, beforeProp := range props {
+		obj := models.Object{
+			Class:      "something",
+			ID:         strfmt.UUID(fmt.Sprintf("73f4eb5f-5abf-447a-81ca-74b1dd16824%v", i)),
+			Properties: beforeProp,
+		}
+
+		propStrings := make([]string, 0, len(beforeProp))
+		propStringsList := make([][]string, 0, len(beforeProp))
+
+		for j := range beforeProp {
+			propStrings = append(propStrings, j)
+			propStringsList = append(propStringsList, []string{j})
+		}
+
+		before := FromObject(&obj, nil, nil)
+		asBinary, err := before.MarshalBinary()
+		require.Nil(t, err)
+		reuseableBuff = reuseableBuff[:len(asBinary)]
+		copy(reuseableBuff, asBinary)
+
+		afterProp := map[string]interface{}{}
+		require.Nil(t, UnmarshalProperties(reuseableBuff, &afterProp, propStrings, propStringsList))
+		afterProps = append(afterProps, afterProp)
+	}
+
+	for i, afterProp := range afterProps {
+		assert.Equal(t, props[i], afterProp)
+	}
+}
+
 func BenchmarkUnmarshalPropertiesFullObject(b *testing.B) {
 	benchmarkExtraction(b, nil)
 }
