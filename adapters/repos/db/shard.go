@@ -736,10 +736,12 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		}
 
 		// attempt to load hashtree from file
+		var ht hashtree.AggregatedHashTree
+
 		if partitioningEnabled {
-			s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+			ht, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
 		} else {
-			s.hashtree, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
+			ht, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
 		}
 		if err != nil {
 			s.index.logger.
@@ -747,6 +749,8 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
 				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
+		} else {
+			s.hashtree = ht
 		}
 
 		f.Close()
@@ -764,14 +768,18 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
+	var ht hashtree.AggregatedHashTree
+
 	if partitioningEnabled {
-		s.hashtree, err = s.buildCompactHashTree()
+		ht, err = s.buildCompactHashTree()
 	} else {
-		s.hashtree, err = s.buildMultiSegmentHashTree()
+		ht, err = s.buildMultiSegmentHashTree()
 	}
 	if err != nil {
 		return err
 	}
+
+	s.hashtree = ht
 
 	// sync hashtree with current object states
 
