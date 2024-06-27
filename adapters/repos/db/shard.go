@@ -698,7 +698,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return err
 	}
 
-	partitioningEnabled := s.index.shardState.PartitioningEnabled
+	partitioningEnabled := s.index.partitioningEnabled
 
 	// load the most recent hashtree file
 	dirEntries, err := os.ReadDir(s.pathHashTree())
@@ -736,10 +736,12 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		}
 
 		// attempt to load hashtree from file
+		var ht hashtree.AggregatedHashTree
+
 		if partitioningEnabled {
-			s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+			ht, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
 		} else {
-			s.hashtree, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
+			ht, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
 		}
 		if err != nil {
 			s.index.logger.
@@ -747,6 +749,8 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
 				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
+		} else {
+			s.hashtree = ht
 		}
 
 		f.Close()
@@ -764,14 +768,18 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
+	var ht hashtree.AggregatedHashTree
+
 	if partitioningEnabled {
-		s.hashtree, err = s.buildCompactHashTree()
+		ht, err = s.buildCompactHashTree()
 	} else {
-		s.hashtree, err = s.buildMultiSegmentHashTree()
+		ht, err = s.buildMultiSegmentHashTree()
 	}
 	if err != nil {
 		return err
 	}
+
+	s.hashtree = ht
 
 	// sync hashtree with current object states
 
@@ -866,7 +874,7 @@ func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
 }
 
 func (s *Shard) buildMultiSegmentHashTree() (hashtree.AggregatedHashTree, error) {
-	shardState := s.index.shardState
+	shardState := s.index.shardState()
 
 	virtualNodes := make([]sharding.Virtual, len(shardState.Virtual))
 	copy(virtualNodes, shardState.Virtual)
@@ -928,6 +936,9 @@ func (s *Shard) closeHashTree() error {
 		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
 	}
 
+	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
+
 	return nil
 }
 
@@ -973,6 +984,8 @@ func (s *Shard) drop() (err error) {
 	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
 		s.stopHashBeater()
+		s.hashtree = nil
+		s.hashtreeInitialized.Store(false)
 	}
 	s.hashtreeRWMux.Unlock()
 
@@ -1531,7 +1544,7 @@ func (s *Shard) isFallbackToSearchable() bool {
 
 func (s *Shard) tenant() string {
 	// TODO provide better impl
-	if s.index.shardState.PartitioningEnabled {
+	if s.index.partitioningEnabled {
 		return s.name
 	}
 	return ""
