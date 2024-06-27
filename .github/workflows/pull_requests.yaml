@@ -33,7 +33,7 @@ jobs:
           else
             exit 0
           fi
-  Vulnerability-Scanning:
+  Vulnerability-Scanning-Trivy:
     name: vulnerability-scanning
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
@@ -53,6 +53,16 @@ jobs:
           exit-code: '1'
           format: 'table'
           severity: 'HIGH,CRITICAL'
+  Vulnerability-Scanning-Snyk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@master
+      - name: Run Snyk to check for vulnerabilities
+        uses: snyk/actions/golang@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
