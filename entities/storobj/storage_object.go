@@ -786,11 +786,12 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
 	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
-		var errParse error
 		switch dataType {
 		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
 			val, err := parseValues(dataType, value)
-			errParse = err
+			if err != nil {
+				returnError = err
+			}
 			(*properties)[aggregationProperties[idx]] = val
 		case jsonparser.Array: // can be a beacon or an actual array
 			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
@@ -800,8 +801,8 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 				// there can be more than one
 				var beacons []interface{}
 				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
-					beaconVal, err := jsonparser.GetString(beaconByte, "beacon") // this points to the underlying memory
-					returnError = err
+					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon") // this points to the underlying memory
+					returnError = err2
 					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
 				}
 				_, returnError = jsonparser.ArrayEach(value, handler)
@@ -818,17 +819,23 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 				}
 
 				array := make([]interface{}, 0, entryCount)
-				_, returnError = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
+				_, err = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
 					var val interface{}
 
 					switch innerDataType {
 					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
-						val, errParse = parseValues(innerDataType, innerValue)
+						val, err = parseValues(innerDataType, innerValue)
+						if err != nil {
+							returnError = err
+						}
 					default:
-						innerErr = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
+						returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
 					}
 					array = append(array, val)
 				})
+				if err != nil {
+					returnError = err
+				}
 				(*properties)[aggregationProperties[idx]] = array
 
 			}
@@ -842,12 +849,14 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 			// - AND the user requests them
 			// => the performance impact is minimal
 			nestedProps := map[string]interface{}{}
-			json.Unmarshal(value, &nestedProps)
+			err := json.Unmarshal(value, &nestedProps)
+			if err != nil {
+				returnError = err
+			}
 			(*properties)[aggregationProperties[idx]] = nestedProps
 		default:
-			returnError = fmt.Errorf("Unknown data type %v", dataType)
+			returnError = fmt.Errorf("unknown data type %v", dataType)
 		}
-		returnError = errParse
 	}, propStrings...)
 
 	return returnError
