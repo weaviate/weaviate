@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strings"
 
 	"github.com/buger/jsonparser"
 
@@ -785,6 +784,7 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 }
 
 func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
 		var errParse error
 		switch dataType {
@@ -793,12 +793,19 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 			errParse = err
 			(*properties)[aggregationProperties[idx]] = val
 		case jsonparser.Array: // can be a beacon or an actual array
-			arrayEntries := value[1 : len(value)-1]                                    // without leading and trailing []
-			beaconVal, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon") // this points to the underlying memory
+			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
+			// this checks if refs are present - the return points to the underlying memory, dont use without copying
+			_, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
 			if errBeacon == nil {
-				// necessary in case the underlying memory is reused by the next iteration
-				beaconValCopy := strings.Clone(beaconVal)
-				(*properties)[aggregationProperties[idx]] = []interface{}{map[string]interface{}{"beacon": beaconValCopy}}
+				// there can be more than one
+				var beacons []interface{}
+				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
+					beaconVal, err := jsonparser.GetString(beaconByte, "beacon") // this points to the underlying memory
+					returnError = err
+					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
+				}
+				_, returnError = jsonparser.ArrayEach(value, handler)
+				(*properties)[aggregationProperties[idx]] = beacons
 			} else {
 				// check how many entries there are in the array by counting the ",". This allows us to allocate an
 				// array with the right size without extending it with every append.
@@ -811,14 +818,14 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 				}
 
 				array := make([]interface{}, 0, entryCount)
-				jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
+				_, returnError = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
 					var val interface{}
 
 					switch innerDataType {
 					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
 						val, errParse = parseValues(innerDataType, innerValue)
 					default:
-						panic("Unknown data type ArrayEach") // returning an error would be better
+						innerErr = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
 					}
 					array = append(array, val)
 				})
@@ -827,18 +834,23 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 			}
 		case jsonparser.Object:
 			// nested objects and geo-props and phonenumbers.
+			//
+			// we do not have the schema for nested object and cannot use the efficient jsonparser for them
+			//  (we could for phonenumbers and geo-props but they are not worth the effort)
+			// however this part is only called if
+			// - one of the datatypes is present
+			// - AND the user requests them
+			// => the performance impact is minimal
 			nestedProps := map[string]interface{}{}
 			json.Unmarshal(value, &nestedProps)
 			(*properties)[aggregationProperties[idx]] = nestedProps
 		default:
-			panic("Unknown data type EachKey") // returning an error would be better
+			returnError = fmt.Errorf("Unknown data type %v", dataType)
 		}
-		if errParse != nil {
-			panic(errParse)
-		}
+		returnError = errParse
 	}, propStrings...)
 
-	return nil
+	return returnError
 }
 
 func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {

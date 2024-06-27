@@ -364,7 +364,10 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		"time":         "2011-11-23T01:52:23.000004234Z",
 		"boolArray":    []interface{}{true, false, true},
 		"beacon":       []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
-		"ref":          []interface{}{map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
+		"ref": []interface{}{
+			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"},
+			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248"},
+		},
 	}
 	properties := map[string]interface{}{
 		"numberArray":  []float64{1.1, 2.1},
@@ -377,7 +380,10 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 		"time":         time.Date(2011, 11, 23, 1, 52, 23, 4234, time.UTC),
 		"boolArray":    []bool{true, false, true},
 		"beacon":       []map[string]interface{}{{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"}},
-		"ref":          []models.SingleRef{{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"}},
+		"ref": []models.SingleRef{
+			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"},
+			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a81"},
+		},
 	}
 	before := FromObject(
 		&models.Object{
