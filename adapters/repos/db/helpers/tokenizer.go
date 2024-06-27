@@ -16,7 +16,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"unicode"
 
 	"github.com/go-ego/gse"
@@ -176,7 +175,7 @@ func tokenizeGSE(in string) []string {
 }
 
 type KagomeTokenizers struct {
-	Korean atomic.Pointer[kagomeTokenizer.Tokenizer]
+	Korean *kagomeTokenizer.Tokenizer
 }
 
 var (
@@ -185,15 +184,11 @@ var (
 )
 
 func InitializeKagomeTokenizerKr() error {
-	if tokenizers.Korean.Load() != nil {
-		return nil // Already initialized
-	}
-
+	// Acquire lock to prevent initialization race
 	initMutex.Lock()
 	defer initMutex.Unlock()
 
-	// Double-check after acquiring the lock
-	if tokenizers.Korean.Load() != nil {
+	if tokenizers.Korean != nil {
 		return nil
 	}
 
@@ -204,13 +199,13 @@ func InitializeKagomeTokenizerKr() error {
 		return err
 	}
 
-	tokenizers.Korean.Store(tokenizer)
+	tokenizers.Korean = tokenizer
 	log.Printf("successfully created Korean tokenizer")
 	return nil
 }
 
 func tokenizeKagomeKr(in string) []string {
-	tokenizer := tokenizers.Korean.Load()
+	tokenizer := tokenizers.Korean
 	if tokenizer == nil {
 		log.Printf("Tokenizer not initialized")
 		return []string{}
