@@ -130,7 +130,7 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 		}
 
 		if entsentry.Enabled() {
-			sentry.CurrentHub().Recover(r)
+			sentry.CurrentHub().Recover(p)
 		}
 
 		err = fmt.Errorf("unexpected error loading bucket %q at path %q: %v",

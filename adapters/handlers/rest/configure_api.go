@@ -154,6 +154,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			appState.Logger.WithError(err).Error("sentry initialization failed")
 			os.Exit(1)
 		}
+
+		sentry.ConfigureScope(func(scope *sentry.Scope) {
+			for key, value := range appState.ServerConfig.Config.Sentry.Tags {
+				scope.SetTag(key, value)
+			}
+		})
 	}
 
 	limitResources(appState)
