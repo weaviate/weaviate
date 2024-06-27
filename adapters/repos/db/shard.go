@@ -157,7 +157,10 @@ type ShardLike interface {
 	publishDimensionMetrics(ctx context.Context)
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
@@ -167,7 +170,6 @@ type ShardLike interface {
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
@@ -1154,7 +1156,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 
 func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	for _, prop := range props {
-		if !inverted.HasInvertedIndex(prop) {
+		if !inverted.HasAnyInvertedIndex(prop) {
 			continue
 		}
 
@@ -1226,8 +1228,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		searchableBucketOpts := append(bucketOpts,
-			lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithPread(s.index.Config.AvoidMMap))
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
@@ -1235,6 +1236,19 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketSearchableFromPropNameLSM(prop.Name),
 			searchableBucketOpts...,
+		); err != nil {
+			return err
+		}
+	}
+
+	if inverted.HasRangeableIndex(prop) {
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name),
+			append(bucketOpts,
+				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
+				lsmkv.WithUseBloomFilter(false),
+				lsmkv.WithCalcCountNetAdditions(false),
+			)...,
 		); err != nil {
 			return err
 		}

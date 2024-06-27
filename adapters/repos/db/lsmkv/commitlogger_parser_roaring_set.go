@@ -17,14 +17,29 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func (p *commitloggerParser) doRoaringSet() error {
+	prs := &commitlogParserRoaringSet{
+		parser:  p,
+		consume: p.memtable.roaringSetAddRemoveBitmaps,
+	}
+
+	return prs.parse()
+}
+
+type commitlogParserRoaringSet struct {
+	parser  *commitloggerParser
+	consume func(key []byte, additions, deletions *sroar.Bitmap) error
+}
+
+func (prs *commitlogParserRoaringSet) parse() error {
 	for {
 		var commitType CommitType
 
-		err := binary.Read(p.checksumReader, binary.LittleEndian, &commitType)
+		err := binary.Read(prs.parser.checksumReader, binary.LittleEndian, &commitType)
 		if errors.Is(err, io.EOF) {
 			break
 		}
@@ -38,7 +53,7 @@ func (p *commitloggerParser) doRoaringSet() error {
 
 		var version uint8
 
-		err = binary.Read(p.checksumReader, binary.LittleEndian, &version)
+		err = binary.Read(prs.parser.checksumReader, binary.LittleEndian, &version)
 		if err != nil {
 			return errors.Wrap(err, "read commit version")
 		}
@@ -46,11 +61,11 @@ func (p *commitloggerParser) doRoaringSet() error {
 		switch version {
 		case 0:
 			{
-				err = p.parseRoaringSetNodeV0()
+				err = prs.parseNodeV0()
 			}
 		case 1:
 			{
-				err = p.parseRoaringSetNodeV1(commitType)
+				err = prs.parseNodeV1(commitType)
 			}
 		default:
 			{
@@ -65,23 +80,23 @@ func (p *commitloggerParser) doRoaringSet() error {
 	return nil
 }
 
-func (p *commitloggerParser) parseRoaringSetNodeV0() error {
-	return p.parseRoaringSetNode(p.reader)
+func (prs *commitlogParserRoaringSet) parseNodeV0() error {
+	return prs.parseNode(prs.parser.reader)
 }
 
-func (p *commitloggerParser) parseRoaringSetNodeV1(commitType CommitType) error {
-	reader, err := p.doRecord()
+func (prs *commitlogParserRoaringSet) parseNodeV1(commitType CommitType) error {
+	reader, err := prs.parser.doRecord()
 	if err != nil {
 		return err
 	}
 	if commitType == CommitTypeRoaringSet {
-		return p.parseRoaringSetNode(reader)
+		return prs.parseNode(reader)
 	} else {
-		return p.parseRoaringSetNodeList(reader)
+		return prs.parseNodeList(reader)
 	}
 }
 
-func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
+func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
 	lenBuf := make([]byte, 8)
 	if _, err := io.ReadFull(reader, lenBuf); err != nil {
 		return errors.Wrap(err, "read segment len")
@@ -96,14 +111,15 @@ func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
 
 	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
 	key := segment.PrimaryKey()
-	if err := p.memtable.roaringSetAddRemoveBitmaps(key, segment.Additions(), segment.Deletions()); err != nil {
-		return errors.Wrap(err, "add/remove bitmaps")
+
+	if err := prs.consume(key, segment.Additions(), segment.Deletions()); err != nil {
+		return fmt.Errorf("consume segment additions/deletions: %w", err)
 	}
 
 	return nil
 }
 
-func (p *commitloggerParser) parseRoaringSetNodeList(reader io.Reader) error {
+func (prs *commitlogParserRoaringSet) parseNodeList(reader io.Reader) error {
 	lenBuf := make([]byte, 8)
 	if _, err := io.ReadFull(reader, lenBuf); err != nil {
 		return errors.Wrap(err, "read segment len")
@@ -118,7 +134,7 @@ func (p *commitloggerParser) parseRoaringSetNodeList(reader io.Reader) error {
 
 	segment := roaringset.NewSegmentNodeListFromBuffer(segBuf)
 	key := segment.PrimaryKey()
-	if err := p.memtable.roaringSetAddRemoveSlices(key, segment.Additions(), segment.Deletions()); err != nil {
+	if err := prs.parser.memtable.roaringSetAddRemoveSlices(key, segment.Additions(), segment.Deletions()); err != nil {
 		return errors.Wrap(err, "add/remove bitmaps")
 	}
 
