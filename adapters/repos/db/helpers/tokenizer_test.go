@@ -91,6 +91,12 @@ func TestTokenise(t *testing.T) {
 
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를 처리하는 예시입니다")
 	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
+
+	envSetErr = os.Setenv("USE_KOREAN_TOKENIZER", "false")
+	if envSetErr != nil {
+		// Handle error if setting the environment variable fails
+		panic(envSetErr)
+	}
 }
 
 func TestTokenize(t *testing.T) {
@@ -239,5 +245,11 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 				assert.Equal(t, tc.expected[terms[i]], dups[i])
 			}
 		})
+	}
+
+	envSetErr = os.Setenv("USE_KOREAN_TOKENIZER", "false")
+	if envSetErr != nil {
+		// Handle error if setting the environment variable fails
+		panic(envSetErr)
 	}
 }
