@@ -22,7 +22,7 @@ func (m *Memtable) roaringSetAddOne(key []byte, value uint64) error {
 }
 
 func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
-	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
 
@@ -40,7 +40,7 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 }
 
 func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
-	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
 
@@ -62,7 +62,7 @@ func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
 }
 
 func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
-	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
 
@@ -80,7 +80,7 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 }
 
 func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
-	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
 
@@ -98,7 +98,7 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 }
 
 func (m *Memtable) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitmap, deletions *sroar.Bitmap) error {
-	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
 
@@ -119,7 +119,7 @@ func (m *Memtable) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitma
 }
 
 func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
-	if err := checkStrategyRoaringSet(m.strategy); err != nil {
+	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return roaringset.BitmapLayer{}, err
 	}
 
