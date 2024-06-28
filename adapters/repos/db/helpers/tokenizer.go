@@ -12,7 +12,6 @@
 package helpers
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -180,46 +179,35 @@ type KagomeTokenizers struct {
 }
 
 var (
-	tokenizers     KagomeTokenizers
-	kagomeInitLock sync.Mutex
-	kagomeInitOnce sync.Once
+	tokenizers KagomeTokenizers
+	initMutex  sync.Mutex
 )
 
-func InitializeKoreanTokenizer() error {
-	var err error
-	kagomeInitOnce.Do(func() {
-		_, err = GetKoreanTokenizer()
-	})
-	return err
-}
+func InitializeKagomeTokenizerKr() error {
+	// Acquire lock to prevent initialization race
+	initMutex.Lock()
+	defer initMutex.Unlock()
 
-func GetKoreanTokenizer() (*kagomeTokenizer.Tokenizer, error) {
-	kagomeInitLock.Lock()
-	defer kagomeInitLock.Unlock()
-
-	if tokenizers.Korean == nil {
-		dictInstance := koDict.Dict()
-		tokenizer, err := kagomeTokenizer.New(dictInstance)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Korean tokenizer: %v", err)
-		}
-
-		tokenizers.Korean = tokenizer
-		log.Printf("successfully created Korean tokenizer")
+	if tokenizers.Korean != nil {
+		return nil
 	}
 
-	return tokenizers.Korean, nil
+	dictInstance := koDict.Dict()
+	tokenizer, err := kagomeTokenizer.New(dictInstance)
+	if err != nil {
+		log.Printf("failed to create Korean tokenizer: %v", err)
+		return err
+	}
+
+	tokenizers.Korean = tokenizer
+	log.Printf("successfully created Korean tokenizer")
+	return nil
 }
 
 func tokenizeKagomeKr(in string) []string {
-	if err := InitializeKoreanTokenizer(); err != nil {
-		log.Printf("failed to initialize the Kagome Korean tokenizer: %v", err)
-		return []string{}
-	}
-
-	tokenizer, err := GetKoreanTokenizer()
-	if err != nil {
-		log.Printf("failed to get the Kagome Korean tokenizer: %v", err)
+	tokenizer := tokenizers.Korean
+	if tokenizer == nil {
+		log.Printf("Tokenizer not initialized")
 		return []string{}
 	}
 
