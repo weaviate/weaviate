@@ -64,6 +64,7 @@ import (
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
@@ -610,6 +611,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankercohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankerdummy.Name]; ok {
+		appState.Modules.Register(modrerankerdummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankerdummy.Name).
 			Debug("enabled module")
 	}
 
