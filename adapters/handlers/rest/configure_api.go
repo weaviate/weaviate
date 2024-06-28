@@ -57,6 +57,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
@@ -71,6 +72,7 @@ import (
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
@@ -736,6 +738,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modrerankerdummy.Name]; ok {
+		appState.Modules.Register(modrerankerdummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankerdummy.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules["qna-transformers"]; ok {
 		appState.Modules.Register(modqna.New())
 		appState.Logger.
@@ -837,6 +847,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativeollama.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativedummy.Name]; ok {
+		appState.Modules.Register(modgenerativedummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedummy.Name).
 			Debug("enabled module")
 	}
 
