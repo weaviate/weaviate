@@ -790,6 +790,19 @@ func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDist
 		return
 	}
 
+	if params.HybridSearch != nil {
+		if params.HybridSearch.NearTextParams != nil {
+			distance = params.HybridSearch.NearTextParams.Distance
+			withDistance = params.HybridSearch.NearTextParams.WithDistance
+			return
+		}
+		if params.HybridSearch.NearVectorParams != nil {
+			distance = params.HybridSearch.NearVectorParams.Distance
+			withDistance = params.HybridSearch.NearVectorParams.WithDistance
+			return
+		}
+	}
+
 	if len(params.ModuleParams) == 1 {
 		distance, withDistance = extractDistanceFromModuleParams(params.ModuleParams)
 	}

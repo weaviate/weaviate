@@ -841,7 +841,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 		return errors.Wrap(err, "init commit logger")
 	}
 
-	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics)
+	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics, b.logger)
 	if err != nil {
 		return err
 	}

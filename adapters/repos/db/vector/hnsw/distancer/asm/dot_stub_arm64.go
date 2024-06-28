@@ -147,3 +147,31 @@ func DotByteARM64(x []uint8, y []uint8) uint32 {
 
 	return res
 }
+
+func DotFloatByte_Neon(x []float32, y []uint8) float32 {
+	var res float32
+
+	l := len(x)
+
+	if l < 16 {
+		for i := 0; i < l; i++ {
+			res += x[i] * float32(y[i])
+		}
+		return res
+	}
+
+	dot_float_byte_neon(
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	if l > 16 && l%16 != 0 {
+		start := l - l%16
+		for i := start; i < l; i++ {
+			res += x[i] * float32(y[i])
+		}
+	}
+
+	return res
+}
