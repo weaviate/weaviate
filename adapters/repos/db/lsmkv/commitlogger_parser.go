@@ -50,6 +50,8 @@ func (p *commitloggerParser) Do() error {
 		return p.doCollection()
 	case StrategyRoaringSet:
 		return p.doRoaringSet()
+	case StrategyRoaringSetRange:
+		return p.doRoaringSetRange()
 	default:
 		return errors.Errorf("unknown strategy %s on commit log parse", p.strategy)
 	}

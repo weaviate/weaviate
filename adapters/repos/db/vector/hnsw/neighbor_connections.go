@@ -90,15 +90,7 @@ func (n *neighborFinderConnector) Do() error {
 }
 
 func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
-	var dist float32
-	var ok bool
-	var err error
-
-	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
-	} else {
-		dist, ok, err = n.distancer.DistanceToNode(id)
-	}
+	dist, ok, err := n.graph.distToNode(n.distancer, id, n.nodeVec)
 	if err != nil {
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
@@ -267,13 +259,22 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	n.graph.pools.pqResults.Put(results)
 
-	// set all outgoing in one go
-	n.node.setConnectionsAtLevel(level, neighbors)
-	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors); err != nil {
+	neighborsCpy := neighbors
+	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
+	// if so, we need to create a copy
+	owned := n.node.setConnectionsAtLevel(level, neighbors)
+	if owned {
+		n.node.Lock()
+		neighborsCpy = make([]uint64, len(neighbors))
+		copy(neighborsCpy, neighbors)
+		n.node.Unlock()
+	}
+
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighborsCpy); err != nil {
 		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
 	}
 
-	for _, neighborID := range neighbors {
+	for _, neighborID := range neighborsCpy {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
 			return errors.Wrapf(err, "connect neighbor %d", neighborID)
 		}
@@ -282,7 +283,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if len(neighbors) > 0 {
 		// there could be no neighbors left, if all are marked deleted, in this
 		// case, don't change the entrypoint
-		nextEntryPointID := neighbors[len(neighbors)-1]
+		nextEntryPointID := neighborsCpy[len(neighbors)-1]
 		if nextEntryPointID == n.node.id {
 			return nil
 		}
@@ -485,14 +486,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		return false, nil
 	}
 
-	var dist float32
-	var ok bool
-	var err error
-	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
-	} else {
-		dist, ok, err = n.distancer.DistanceToNode(candidate)
-	}
+	dist, ok, err := n.graph.distToNode(n.distancer, candidate, n.nodeVec)
 	if err != nil {
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
 	}

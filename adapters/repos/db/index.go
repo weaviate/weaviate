@@ -168,7 +168,7 @@ type Index struct {
 	stopwords                 *stopwords.Detector
 	replicator                *replica.Replicator
 
-	shardState *sharding.State
+	partitioningEnabled bool
 
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
@@ -269,7 +269,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		vectorIndexUserConfigs: vectorIndexUserConfigs,
 		stopwords:              sd,
 		replicator:             repl,
-		shardState:             shardState,
+		partitioningEnabled:    shardState.PartitioningEnabled,
 		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
 			nodeResolver, remoteClient),
 		metrics:            NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
@@ -292,7 +292,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
 
-	if err := index.initAndStoreShards(ctx, class, promMetrics); err != nil {
+	if err := index.initAndStoreShards(ctx, class, shardState, promMetrics); err != nil {
 		return nil, err
 	}
 
@@ -305,14 +305,14 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 // since called in Index's constructor there is no risk same shard will be inited/created in parallel,
 // therefore shardCreateLocks are not used here
 func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
-	promMetrics *monitoring.PrometheusMetrics,
+	shardState *sharding.State, promMetrics *monitoring.PrometheusMetrics,
 ) error {
 	if i.Config.DisableLazyLoadShards {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
 		eg.SetLimit(_NUMCPU)
 
-		for _, shardName := range i.shardState.AllLocalPhysicalShards() {
-			physical := i.shardState.Physical[shardName]
+		for _, shardName := range shardState.AllLocalPhysicalShards() {
+			physical := shardState.Physical[shardName]
 			if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 				// do not instantiate inactive shard
 				continue
@@ -338,8 +338,8 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	for _, shardName := range i.shardState.AllLocalPhysicalShards() {
-		physical := i.shardState.Physical[shardName]
+	for _, shardName := range shardState.AllLocalPhysicalShards() {
+		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
@@ -715,10 +715,6 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	defer release()
 
 	return shard.PutObject(ctx, object)
-}
-
-func (i *Index) partitioningEnabled() bool {
-	return i.shardState.PartitioningEnabled
 }
 
 func (i *Index) replicationEnabled() bool {
@@ -1519,7 +1515,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 // to be called after validating multi-tenancy
 func (i *Index) targetShardNames(tenant string) ([]string, error) {
 	className := i.Config.ClassName.String()
-	if !i.shardState.PartitioningEnabled {
+	if !i.partitioningEnabled {
 		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
 	}
 
@@ -2068,12 +2064,15 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 	return nil
 }
 
+func (i *Index) shardState() *sharding.State {
+	return i.getSchema.CopyShardingState(i.Config.ClassName.String())
+}
+
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
 	shardsQueueSize := make(map[string]int64)
 
 	// TODO-RAFT should be strongly consistent?
-	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
-	shardNames := shardState.AllPhysicalShards()
+	shardNames := i.shardState().AllPhysicalShards()
 
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
@@ -2379,11 +2378,11 @@ func objectSearchPreallocate(limit int, shards []string) ([]*storobj.Object, []f
 }
 
 func (i *Index) validateMultiTenancy(tenant string) error {
-	if i.shardState.PartitioningEnabled && tenant == "" {
+	if i.partitioningEnabled && tenant == "" {
 		return objects.NewErrMultiTenancy(
 			fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", i.Config.ClassName),
 		)
-	} else if !i.shardState.PartitioningEnabled && tenant != "" {
+	} else if !i.partitioningEnabled && tenant != "" {
 		return objects.NewErrMultiTenancy(
 			fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", i.Config.ClassName),
 		)

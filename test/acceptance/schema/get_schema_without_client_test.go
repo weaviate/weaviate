@@ -64,6 +64,11 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"segments":      float64(0),
 						"trainingLimit": float64(100000),
 					},
+					"sq": map[string]interface{}{
+						"enabled":       false,
+						"trainingLimit": float64(100000),
+						"rescoreLimit":  float64(20),
+					},
 				},
 				"shardingConfig": map[string]interface{}{
 					"actualCount":         float64(1),
