@@ -42,6 +42,7 @@ var Tokenizations []string = []string{
 
 func init() {
 	init_gse()
+	_ = InitializeKagomeTokenizerKr()
 }
 
 func init_gse() {
@@ -179,14 +180,14 @@ type KagomeTokenizers struct {
 }
 
 var (
-	tokenizers KagomeTokenizers
-	initMutex  sync.Mutex
+	tokenizers     KagomeTokenizers
+	kagomeInitLock sync.Mutex
 )
 
 func InitializeKagomeTokenizerKr() error {
 	// Acquire lock to prevent initialization race
-	initMutex.Lock()
-	defer initMutex.Unlock()
+	kagomeInitLock.Lock()
+	defer kagomeInitLock.Unlock()
 
 	if tokenizers.Korean != nil {
 		return nil
