@@ -17,6 +17,8 @@ import (
 	"regexp"
 	"strings"
 
+	additional2 "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
@@ -702,7 +704,14 @@ func extractProperties(className string, selections *ast.SelectionSet,
 						if modulesProvider != nil {
 							if additionalCheck.isModuleAdditional(additionalProperty) {
 								additionalProps.ModuleParams = getModuleParams(additionalProps.ModuleParams)
-								additionalProps.ModuleParams[additionalProperty] = modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
+								extracted := modulesProvider.ExtractAdditionalField(className, additionalProperty, s.Arguments)
+								if extractor, ok := extracted.(additional2.PropertyExtractor); ok {
+									extractedProperties := extractor.GetPropertiesToExtract()
+									for _, extractedProperty := range extractedProperties {
+										properties = append(properties, search.SelectProperty{Name: extractedProperty})
+									}
+								}
+								additionalProps.ModuleParams[additionalProperty] = extracted
 								continue
 							}
 						}
