@@ -466,8 +466,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		localDeny.Insert(candidate)
 		// now find a new one
 
-		alternative, _, err := n.graph.findNewLocalEntrypoint(localDeny,
-			n.graph.currentMaximumLayer, candidate)
+		alternative, err := n.graph.findNewLocalEntrypoint(localDeny, candidate)
 		if err != nil {
 			return err
 		}
