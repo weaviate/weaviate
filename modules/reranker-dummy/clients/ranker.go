@@ -23,11 +23,6 @@ type client struct {
 	logger logrus.FieldLogger
 }
 
-type documentScore struct {
-	Document string
-	Length   int
-}
-
 func New(logger logrus.FieldLogger) *client {
 	return &client{
 		logger: logger,
