@@ -54,13 +54,14 @@ func TestGenerative(t *testing.T) {
 	uids := []string{uuid.New().String(), uuid.New().String()}
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]interface{}{"first": "one", "second": "two"},
-	).WithID(uids[0]).Do(ctx)
+	).WithID(uids[0]).WithVector([]float32{1, 0}).Do(ctx)
 	require.Nil(t, err)
 
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]interface{}{"first": "three", "second": "four"},
-	).WithID(uids[1]).Do(ctx)
+	).WithID(uids[1]).WithVector([]float32{1, 0}).Do(ctx)
 	require.Nil(t, err)
+	nv := graphql.NearVectorArgumentBuilder{}
 
 	t.Run("single result", func(t *testing.T) {
 		gs := graphql.NewGenerativeSearch().SingleResult("Input: {first} and {second}")
@@ -68,7 +69,8 @@ func TestGenerative(t *testing.T) {
 		fields := graphql.Field{
 			Name: "_additional{id}",
 		}
-		result, err := c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
+
+		result, err := c.GraphQL().Get().WithClassName(className).WithNearVector(nv.WithVector([]float32{1, 0})).WithGenerativeSearch(gs).WithFields(fields).Do(ctx)
 		require.Nil(t, err)
 
 		expected := map[string]string{uids[0]: "Input: one and two", uids[1]: "Input: three and four"}
@@ -83,7 +85,7 @@ func TestGenerative(t *testing.T) {
 	t.Run("grouped result", func(t *testing.T) {
 		gs := graphql.NewGenerativeSearch().GroupedResult("Input: {first} and {second}")
 
-		result, err := c.GraphQL().Get().WithClassName(className).WithGenerativeSearch(gs).Do(ctx)
+		result, err := c.GraphQL().Get().WithClassName(className).WithNearVector(nv.WithVector([]float32{1, 0})).WithGenerativeSearch(gs).Do(ctx)
 		require.Nil(t, err)
 
 		returnString := result.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["groupedResult"].(string)

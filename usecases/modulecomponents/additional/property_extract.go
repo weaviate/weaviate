@@ -9,16 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package summary
+package additional
 
-type Params struct {
-	Properties []string
-}
-
-func (n Params) GetProperties() []string {
-	return n.Properties
-}
-
-func (n Params) GetPropertiesToExtract() []string {
-	return n.Properties
+// some modules use data from objects - they need to be extracted from the binary-object no matter if the user requested it or not
+type PropertyExtractor interface {
+	GetPropertiesToExtract() []string
 }
