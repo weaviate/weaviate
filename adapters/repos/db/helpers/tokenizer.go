@@ -28,6 +28,7 @@ var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
+	KagomeKrEnabled  = false
 )
 
 var Tokenizations []string = []string{
@@ -189,25 +190,31 @@ func InitializeKagomeTokenizerKr() error {
 	kagomeInitLock.Lock()
 	defer kagomeInitLock.Unlock()
 
-	if tokenizers.Korean != nil {
+	if os.Getenv("ENABLE_KOREAN_TOKENIZER") == "true" {
+		if tokenizers.Korean != nil {
+			return nil
+		}
+
+		dictInstance := koDict.Dict()
+		tokenizer, err := kagomeTokenizer.New(dictInstance)
+		if err != nil {
+			log.Printf("failed to create Korean tokenizer: %v", err)
+			return err
+		}
+
+		tokenizers.Korean = tokenizer
+		KagomeKrEnabled = true
+		log.Printf("successfully created Korean tokenizer")
+		return nil
+	} else {
+		log.Println("Korean tokenizer not enabled; enable by setting ENABLE_KOREAN_TOKENIZER env variable to true")
 		return nil
 	}
-
-	dictInstance := koDict.Dict()
-	tokenizer, err := kagomeTokenizer.New(dictInstance)
-	if err != nil {
-		log.Printf("failed to create Korean tokenizer: %v", err)
-		return err
-	}
-
-	tokenizers.Korean = tokenizer
-	log.Printf("successfully created Korean tokenizer")
-	return nil
 }
 
 func tokenizeKagomeKr(in string) []string {
 	tokenizer := tokenizers.Korean
-	if tokenizer == nil {
+	if tokenizer == nil || KagomeKrEnabled == false {
 		log.Printf("Tokenizer not initialized")
 		return []string{}
 	}
