@@ -1051,7 +1051,8 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		if err := json.Unmarshal(propsB, &returnProps); err != nil {
 			return err
 		}
-	} else {
+	} else if len(propsB) >= int(propLength) {
+		// the properties are not read in all cases, skip if not needed
 		returnProps = make(map[string]interface{}, len(properties.PropStrings))
 		if err := UnmarshalProperties(propsB[:propLength], &returnProps, properties.PropStrings, properties.PropStringsList); err != nil {
 			return err
