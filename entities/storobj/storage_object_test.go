@@ -642,6 +642,20 @@ func TestStorageMaxVectorDimensionsObjectMarshalling(t *testing.T) {
 					// second property is not included
 					assert.Equal(t, map[string]interface{}{"name": "myName"}, after.Properties())
 				})
+
+				t.Run("test no props and moduleparams", func(t *testing.T) {
+					after, err := FromBinaryOptional(asBinary, additional.Properties{
+						NoProps:      true,
+						ModuleParams: map[string]interface{}{"foo": "bar"}, // this causes the property extraction code to run
+					},
+						&PropertyExtraction{PropStrings: nil, PropStringsList: nil},
+					)
+					require.Nil(t, err)
+
+					assert.Equal(t, before.DocID, after.DocID)
+					var emptyProps map[string]interface{}
+					assert.Equal(t, emptyProps, after.Properties())
+				})
 			})
 		})
 	}
