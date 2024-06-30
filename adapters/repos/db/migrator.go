@@ -316,6 +316,11 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 // UpdateTenants activates or deactivates tenant partitions and returns a commit func
 // that can be used to either commit or rollback the changes
 func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) error {
+	fmt.Printf("time=%s, UpdateTenants BEGIN\n", time.Now())
+	defer func() {
+		fmt.Printf("time=%s, UpdateTenants END\n", time.Now())
+	}()
+
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
@@ -334,8 +339,14 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 	ec := &errorcompounder.ErrorCompounder{}
 
+	absoluteShardName := func(shard string) string {
+		return fmt.Sprintf("%s/%s", class.Class, shard)
+	}
+
 	for _, name := range updatesHot {
+		fmt.Printf("updateTenants TO_HOT_BEGIN: shardName=%s\n", absoluteShardName(name))
 		shard, err := idx.getOrInitLocalShard(ctx, name)
+		fmt.Printf("updateTenants TO_HOT_COMPLETE: shardName=%s, shard=%v, err=%v\n", absoluteShardName(name), shard, err)
 		ec.Add(err)
 		if err != nil {
 			continue
@@ -355,12 +366,15 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 			defer cancel()
 
+			fmt.Printf("FORCE_LAZY_LOAD_BEGIN shard=%s\n", absoluteShardName(name))
+			before := time.Now()
 			if err := asLL.Load(ctx); err != nil {
 				idx.logger.WithFields(logrus.Fields{
 					"action": "tenant_activation_lazy_laod_shard",
 					"shard":  name,
 				}).WithError(err).Errorf("loading shard %q failed", name)
 			}
+			fmt.Printf("FORCE_LAZY_LOAD_COMPLETE shard=%s, duration=%v\n", absoluteShardName(name), time.Since(before))
 		}, idx.logger)
 	}
 
@@ -373,6 +387,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 		for _, name := range updatesCold {
 			name := name
+			fmt.Printf("updateTenants TO_COLD_BEGIN: shardName=%s\n", absoluteShardName(name))
 			eg.Go(func() error {
 				shard := func() ShardLike {
 					idx.shardInUseLocks.Lock(name)
@@ -382,6 +397,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				}()
 
 				if shard == nil {
+					fmt.Printf("updateTenants TO_COLD_NOT_FOUND: shardName=%s, shard=nil\n", absoluteShardName(name))
 					return nil // shard already does not exist or inactive
 				}
 
@@ -398,6 +414,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 					}
 					m.logger.WithField("shard", shard.Name()).Debug("was already shut or dropped")
 				}
+
+				fmt.Printf("updateTenants TO_COLD_COMPLETE: shardName=%s\n", absoluteShardName(name))
 				return nil
 			})
 		}

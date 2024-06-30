@@ -97,8 +97,10 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	defer l.mutex.Unlock()
 
 	if l.loaded {
+		fmt.Printf("LAZY_LOAD_ALREADY_LOADED shard=%q lazy-loader-address=%p\n", l.shardOpts.name, l)
 		return nil
 	}
+	fmt.Printf("LAZY_LOAD_START_LOAD shard=%q lazy-loader-address=%p\n", l.shardOpts.name, l)
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
 		return errors.Wrap(err, "memory pressure: cannot load shard")
@@ -123,6 +125,8 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	} else {
 		l.shardOpts.promMetrics.FinishLoadingShard(l.shardOpts.class.Class)
 	}
+
+	fmt.Printf("LAZY_LOAD_END_LOAD shard=%q lazy-loader-address=%p\n", l.shardOpts.name, l)
 
 	return nil
 }
