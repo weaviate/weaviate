@@ -231,6 +231,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 ) (_ *Shard, err error) {
 	before := time.Now()
 
+	ShardEventLog.BeginLoad(shardName)
+	defer func() {
+		ShardEventLog.EndLoad(shardName, err)
+	}()
+
 	s := &Shard{
 		index:       index,
 		name:        shardName,
@@ -1010,6 +1015,11 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
+	ShardEventLog.BeginRemove(s.name)
+	defer func() {
+		ShardEventLog.EndRemove(s.name, err)
+	}()
+
 	if err = s.waitForShutdown(ctx); err != nil {
 		return
 	}
