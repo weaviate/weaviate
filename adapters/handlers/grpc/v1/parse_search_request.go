@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	additional2 "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/rank"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearAudio"
@@ -334,6 +335,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != nil {
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
+	extractPropertiesForModules(&out)
 	return out, nil
 }
 
@@ -483,12 +485,15 @@ func extractGenerative(req *pb.SearchRequest) *generate.Params {
 	generative := generate.Params{}
 	if req.Generative.SingleResponsePrompt != "" {
 		generative.Prompt = &req.Generative.SingleResponsePrompt
+		singleResultPrompts := generate.ExtractPropsFromPrompt(generative.Prompt)
+		generative.PropertiesToExtract = append(generative.PropertiesToExtract, singleResultPrompts...)
 	}
 	if req.Generative.GroupedResponseTask != "" {
 		generative.Task = &req.Generative.GroupedResponseTask
 	}
 	if len(req.Generative.GroupedProperties) > 0 {
 		generative.Properties = req.Generative.GroupedProperties
+		generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
 	}
 	return &generative
 }
@@ -1109,4 +1114,29 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 		VectorPerTarget: targetsPerVector,
 		TargetVectors:   targetVectors,
 	}, nil
+}
+
+// extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user
+func extractPropertiesForModules(params *dto.GetParams) {
+	var additionalProps []string
+	for _, value := range params.AdditionalProperties.ModuleParams {
+		extractor, ok := value.(additional2.PropertyExtractor)
+		if ok {
+			additionalProps = append(additionalProps, extractor.GetPropertiesToExtract()...)
+		}
+	}
+
+	propsToAdd := make([]search.SelectProperty, 0)
+	for _, additionalProp := range additionalProps {
+		for _, prop := range params.Properties {
+			if prop.Name == additionalProp {
+				continue
+			}
+		}
+		propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})
+	}
+	params.Properties = append(params.Properties, propsToAdd...)
+	if len(params.Properties) > 0 {
+		params.AdditionalProperties.NoProps = false
+	}
 }
