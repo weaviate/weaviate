@@ -347,21 +347,18 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			continue
 		}
 
-		name := name // prevent loop variable capture
-		enterrors.GoWrapper(func() {
-			// The timeout is rather arbitrary. It's meant to be so high that it can
-			// never stop a valid tenant activation use case, but low enough to
-			// prevent a context-leak.
-			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
-			defer cancel()
+		// The timeout is rather arbitrary. It's meant to be so high that it can
+		// never stop a valid tenant activation use case, but low enough to
+		// prevent a context-leak.
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
+		defer cancel()
 
-			if err := asLL.Load(ctx); err != nil {
-				idx.logger.WithFields(logrus.Fields{
-					"action": "tenant_activation_lazy_laod_shard",
-					"shard":  name,
-				}).WithError(err).Errorf("loading shard %q failed", name)
-			}
-		}, idx.logger)
+		if err := asLL.Load(ctx); err != nil {
+			idx.logger.WithFields(logrus.Fields{
+				"action": "tenant_activation_lazy_laod_shard",
+				"shard":  name,
+			}).WithError(err).Errorf("loading shard %q failed", name)
+		}
 	}
 
 	if len(updatesCold) > 0 {
