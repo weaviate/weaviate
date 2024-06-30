@@ -13,8 +13,14 @@ package db
 
 import (
 	"fmt"
+	"runtime/debug"
 	"sync"
 	"time"
+)
+
+const (
+	PanicOnConflict = true
+	ShowStackTraces = true
 )
 
 type shardEventLog struct {
@@ -28,8 +34,9 @@ type shardEventWrapper struct {
 }
 
 type shardEvent struct {
-	name string
-	time time.Time
+	name  string
+	time  time.Time
+	stack []byte
 }
 
 func newShardEventLog() *shardEventLog {
@@ -48,6 +55,8 @@ func (l *shardEventLog) BeginLoad(shardName string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
+	stack := debug.Stack()
+
 	shard, ok := l.shards[shardName]
 	if !ok {
 		shard = shardEventWrapper{}
@@ -57,26 +66,31 @@ func (l *shardEventLog) BeginLoad(shardName string) {
 		// conflict: we are trying to load a shard that is already initialized
 		// first add current event, then dump all events
 		shard.events = append(shard.events, shardEvent{
-			name: "BEGIN_LOAD",
-			time: time.Now(),
+			name:  "BEGIN_LOAD",
+			time:  time.Now(),
+			stack: stack,
 		})
 		l.shards[shardName] = shard
 
 		l.dumpEvents(shardName)
+		if PanicOnConflict {
+			panic("CONFLICT FOUND for tenant " + shardName)
+		}
 		return
 	}
 
 	shard.initialized = true
 	shard.events = append(shard.events, shardEvent{
-		name: "BEGIN_LOAD",
-		time: time.Now(),
+		name:  "BEGIN_LOAD",
+		time:  time.Now(),
+		stack: stack,
 	})
 
 	l.shards[shardName] = shard
 }
 
 func (l *shardEventLog) dumpEvents(shardName string) {
-	fmt.Printf("DUMP_EVENTS shard=%q\n", shardName)
+	fmt.Printf("DUMP_EVENTS NO_STACKTRACE shard=%q\n", shardName)
 	shard, ok := l.shards[shardName]
 	if !ok {
 		fmt.Printf("no events\n")
@@ -85,6 +99,15 @@ func (l *shardEventLog) dumpEvents(shardName string) {
 
 	for i, event := range shard.events {
 		fmt.Printf("index=%05d event=%q time=%q\n", i, event.name, event.time)
+	}
+	if ShowStackTraces {
+		fmt.Printf("DUMP_EVENTS WITH_STACKTRACE shard=%q\n", shardName)
+		for i, event := range shard.events {
+			fmt.Printf("index=%05d event=%q time=%q\n", i, event.name, event.time)
+			if event.stack != nil {
+				fmt.Printf("STACK_TRACE\n%s\nEND_STACK_TRACE\n", event.stack)
+			}
+		}
 	}
 	fmt.Printf("END_DUMP_EVENTS\n")
 }
