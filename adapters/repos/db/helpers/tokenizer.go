@@ -214,7 +214,7 @@ func InitializeKagomeTokenizerKr() error {
 
 func tokenizeKagomeKr(in string) []string {
 	tokenizer := tokenizers.Korean
-	if tokenizer == nil || KagomeKrEnabled == false {
+	if tokenizer == nil || !KagomeKrEnabled {
 		log.Printf("Tokenizer not initialized")
 		return []string{}
 	}
