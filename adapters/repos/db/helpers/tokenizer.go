@@ -45,8 +45,10 @@ func init() {
 	_ = initializeKagomeTokenizerKr()
 }
 
+// Optional tokenizers can be enabled with an environment variable like:
+// 'ENABLE_TOKENIZER_XXX', e.g. 'ENABLE_TOKENIZER_GSE', 'ENABLE_TOKENIZER_KOREAN'
 func init_gse() {
-	if os.Getenv("USE_GSE") == "true" {
+	if os.Getenv("USE_GSE") == "true" || os.Getenv("ENABLE_TOKENIZER_GSE") == "true" {
 		UseGse = true
 	}
 	if UseGse {
@@ -189,7 +191,7 @@ func initializeKagomeTokenizerKr() error {
 	kagomeInitLock.Lock()
 	defer kagomeInitLock.Unlock()
 
-	if os.Getenv("ENABLE_KOREAN_TOKENIZER") == "true" {
+	if os.Getenv("ENABLE_TOKENIZER_KOREAN") == "true" {
 		if tokenizers.Korean != nil {
 			return nil
 		}
