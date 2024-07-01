@@ -496,7 +496,7 @@ func extractGenerative(req *pb.SearchRequest, class *models.Class) *generate.Par
 		generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
 	} else {
 		// if users do not supply a properties, all properties need to be extracted
-		generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class)...)
+		generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class, false)...)
 	}
 	return &generative
 }
@@ -1130,10 +1130,11 @@ func extractPropertiesForModules(params *dto.GetParams) {
 	}
 
 	propsToAdd := make([]search.SelectProperty, 0)
+OUTER:
 	for _, additionalProp := range additionalProps {
 		for _, prop := range params.Properties {
 			if prop.Name == additionalProp {
-				continue
+				continue OUTER
 			}
 		}
 		propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})
