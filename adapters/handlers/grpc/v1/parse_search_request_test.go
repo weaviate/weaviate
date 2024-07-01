@@ -1681,9 +1681,3 @@ func sortNamedVecs(vecs []string) {
 		return vecs[i] < vecs[j]
 	})
 }
-
-func sortProperties(props search.SelectProperties) {
-	sort.Slice(props, func(i, j int) bool {
-		return props[i].Name < props[j].Name
-	})
-}
