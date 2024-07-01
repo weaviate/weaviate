@@ -38,7 +38,7 @@ var availableAnthropicModels = []string{
 // todo: anthropic make a distinction between input and output tokens
 // so have a context window and a max output tokens, while the max
 // input tokens for all models is 200000, the max output tokens is shorter at
-// 4096 
+// 4096
 var defaultMaxTokens = map[string]int{
 	"claude-3-5-sonnet-20240620": 4096,
 	"claude-3-opus-20240229":     4096,
