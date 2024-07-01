@@ -142,8 +142,9 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 			out.Level = 0
 			out.Nodes = make([]*vertex, cache.InitialSize)
 		case AddPQ:
-			err = d.ReadPQ(fd, out)
-			readThisRound = 9
+			var totalRead int
+			totalRead, err = d.ReadPQ(fd, out)
+			readThisRound = 9 + totalRead
 		case AddSQ:
 			err = d.ReadSQ(fd, out)
 			readThisRound = 10
@@ -533,30 +534,30 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, data *compressionhelpers.P
 	return kms, nil
 }
 
-func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
+func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, error) {
 	dims, err := d.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	enc, err := d.readByte(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	ks, err := d.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	m, err := d.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	dist, err := d.readByte(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	useBitsEncoding, err := d.readByte(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	encoder := compressionhelpers.Encoder(enc)
 	pqData := compressionhelpers.PQData{
@@ -568,18 +569,22 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
 	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
+	var totalRead int
 	switch encoder {
 	case compressionhelpers.UseTileEncoder:
 		encoderReader = d.ReadTileEncoder
+		totalRead = 51 * int(pqData.M)
 	case compressionhelpers.UseKMeansEncoder:
 		encoderReader = d.ReadKMeansEncoder
+		totalRead = int(pqData.Dimensions) * int(pqData.Ks) * 4
 	default:
-		return errors.New("Unsuported encoder type")
+		return 0, errors.New("Unsuported encoder type")
 	}
+
 	for i := uint16(0); i < m; i++ {
 		encoder, err := encoderReader(r, &pqData, i)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		pqData.Encoders = append(pqData.Encoders, encoder)
 	}
@@ -587,7 +592,7 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 
 	res.CompressionPQData = &pqData
 
-	return nil
+	return totalRead, nil
 }
 
 func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
