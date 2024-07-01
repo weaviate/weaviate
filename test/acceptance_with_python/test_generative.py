@@ -11,6 +11,7 @@ import weaviate.classes as wvc
     [
         ("show me {prop}", None, None),
         (None, "combine these", ["prop"]),
+        (None, "combine these", None),
         ("show me {prop}", "combine these", ["prop"]),
     ],
 )
@@ -25,12 +26,13 @@ def test_generative(single: str, grouped: str, grouped_properties: List[str]) ->
             "moduleConfig": {"generative-dummy": {}},
             "properties": [
                 {"name": "prop", "dataType": ["text"]},
+                {"name": "prop2", "dataType": ["text"]},
             ],
         }
     )
 
-    collection.data.insert({"prop": "hello"}, vector=[1, 0])
-    collection.data.insert({"prop": "world"}, vector=[1, 0])
+    collection.data.insert({"prop": "hello", "prop2": "banana"}, vector=[1, 0])
+    collection.data.insert({"prop": "world", "prop2": "banana"}, vector=[1, 0])
 
     ret = collection.generate.near_vector(
         [1, 0],
@@ -51,5 +53,7 @@ def test_generative(single: str, grouped: str, grouped_properties: List[str]) ->
     if grouped is not None:
         assert "hello" in ret.generated
         assert "world" in ret.generated
+    if grouped_properties is None and grouped is not None:
+        assert "banana" in ret.generated
 
     client.collections.delete(name=collection_name)

@@ -283,7 +283,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}
-		out.AdditionalProperties.ModuleParams["generate"] = extractGenerative(req)
+		out.AdditionalProperties.ModuleParams["generate"] = extractGenerative(req, class)
 	}
 
 	if req.Rerank != nil {
@@ -481,7 +481,7 @@ func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 	return sortOut
 }
 
-func extractGenerative(req *pb.SearchRequest) *generate.Params {
+func extractGenerative(req *pb.SearchRequest, class *models.Class) *generate.Params {
 	generative := generate.Params{}
 	if req.Generative.SingleResponsePrompt != "" {
 		generative.Prompt = &req.Generative.SingleResponsePrompt
@@ -494,6 +494,9 @@ func extractGenerative(req *pb.SearchRequest) *generate.Params {
 	if len(req.Generative.GroupedProperties) > 0 {
 		generative.Properties = req.Generative.GroupedProperties
 		generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
+	} else {
+		// if users do not supply a properties, all properties need to be extracted
+		generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class)...)
 	}
 	return &generative
 }
