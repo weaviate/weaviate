@@ -17,8 +17,6 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
@@ -30,7 +28,6 @@ var (
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
 	KagomeKrEnabled  = false
-	log              logrus.FieldLogger
 )
 
 var Tokenizations []string = []string{
@@ -43,15 +40,7 @@ var Tokenizations []string = []string{
 	models.PropertyTokenizationKagomeKr,
 }
 
-func InitLogger(logger logrus.FieldLogger) {
-	log = logger
-}
-
 func init() {
-	logger := logrus.New()
-	logger.SetFormatter(&logrus.JSONFormatter{})
-	logger.SetLevel(logrus.InfoLevel)
-	InitLogger(logger)
 	init_gse()
 	_ = initializeKagomeTokenizerKr()
 }
@@ -208,16 +197,13 @@ func initializeKagomeTokenizerKr() error {
 		dictInstance := koDict.Dict()
 		tokenizer, err := kagomeTokenizer.New(dictInstance)
 		if err != nil {
-			log.WithField("action", "initialize_kagome_kr_tokenizer").WithError(err).Error("failed to create Korean tokenizer")
 			return err
 		}
 
 		tokenizers.Korean = tokenizer
 		KagomeKrEnabled = true
-		log.WithField("action", "initialize_kagome_kr_tokenizer").Info("successfully created Korean tokenizer")
 		return nil
 	} else {
-		log.WithField("action", "initialize_kagome_kr_tokenizer").Warn("Korean tokenizer not enabled; enable by setting ENABLE_KOREAN_TOKENIZER env variable to true")
 		return nil
 	}
 }
@@ -225,7 +211,6 @@ func initializeKagomeTokenizerKr() error {
 func tokenizeKagomeKr(in string) []string {
 	tokenizer := tokenizers.Korean
 	if tokenizer == nil || !KagomeKrEnabled {
-		log.WithField("action", "tokenizer_with_kagome_kr").Warn("Korean tokenizer has not been initialized")
 		return []string{}
 	}
 
