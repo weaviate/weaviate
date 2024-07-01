@@ -46,17 +46,19 @@ type Provider struct {
 	schemaGetter              schemaGetter
 	hasMultipleVectorizers    bool
 	targetVectorNameValidator *regexp.Regexp
+	logger                    logrus.FieldLogger
 }
 
 type schemaGetter interface {
 	ReadOnlyClass(name string) *models.Class
 }
 
-func NewProvider() *Provider {
+func NewProvider(logger logrus.FieldLogger) *Provider {
 	return &Provider{
 		registered:                map[string]modulecapabilities.Module{},
 		altNames:                  map[string]string{},
 		targetVectorNameValidator: regexp.MustCompile(`^` + schema.TargetVectorNameRegex + `$`),
+		logger:                    logger,
 	}
 }
 
@@ -261,6 +263,10 @@ func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 	}
 }
 
+func (p *Provider) isGenerativeModule(moduleType modulecapabilities.ModuleType) bool {
+	return moduleType == modulecapabilities.Text2TextGenerative
+}
+
 func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string,
 	moduleType modulecapabilities.ModuleType,
 ) bool {
@@ -280,7 +286,7 @@ func (p *Provider) shouldIncludeClassArgument(class *models.Class, module string
 			return true
 		}
 	}
-	// Allow Text2Text (Generative, QnA, Summarize, NER) modules to be registered to a given class
+	// Allow Text2Text (QnA, Generative, Summarize, NER) modules to be registered to a given class
 	// only if there's no configuration present and there's only one module of a given type enabled
 	return p.isOnlyOneModuleEnabledOfAGivenType(moduleType)
 }
@@ -306,6 +312,9 @@ func (p *Provider) shouldIncludeArgument(schema *models.Schema, module string,
 }
 
 func (p *Provider) shouldAddGenericArgument(class *models.Class, moduleType modulecapabilities.ModuleType) bool {
+	if p.isGenerativeModule(moduleType) {
+		return true
+	}
 	return p.hasMultipleVectorizersConfig(class) && p.isVectorizerModule(moduleType)
 }
 
@@ -495,8 +504,19 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 // GetAdditionalFields provides GraphQL Get additional fields
 func (p *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
 	additionalProperties := map[string]*graphql.Field{}
+	additionalGenerativeDefaultProvider := ""
+	additionalGenerativeParameters := map[string]modulecapabilities.GenerativeProperty{}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		if p.isGenerativeModule(module.Type()) {
+			if arg, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
+				for name, additionalGenerativeParameter := range arg.AdditionalGenerativeProperties() {
+					additionalGenerativeParameters[name] = additionalGenerativeParameter
+					if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+						additionalGenerativeDefaultProvider = name
+					}
+				}
+			}
+		} else if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				for name, additionalProperty := range arg.AdditionalProperties() {
 					if additionalProperty.GraphQLFieldFunction != nil {
@@ -514,6 +534,11 @@ func (p *Provider) GetAdditionalFields(class *models.Class) map[string]*graphql.
 			}
 		}
 	}
+	if len(additionalGenerativeParameters) > 0 {
+		if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
+			additionalProperties[modulecomponents.AdditionalPropertyGenerate] = generateFn.GraphQLFieldFunction(class.Class)
+		}
+	}
 	return additionalProperties
 }
 
@@ -523,8 +548,21 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 	if err != nil {
 		return err
 	}
+	additionalGenerativeDefaultProvider := ""
+	additionalGenerativeParameters := map[string]modulecapabilities.GenerativeProperty{}
 	for _, module := range p.GetAll() {
-		if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+		if name == modulecomponents.AdditionalPropertyGenerate {
+			if p.isGenerativeModule(module.Type()) {
+				if arg, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
+					for name, additionalGenerativeParameter := range arg.AdditionalGenerativeProperties() {
+						additionalGenerativeParameters[name] = additionalGenerativeParameter
+						if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+							additionalGenerativeDefaultProvider = name
+						}
+					}
+				}
+			}
+		} else if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
 					if additionalProperty, ok := additionalProperties[name]; ok {
@@ -532,6 +570,11 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 					}
 				}
 			}
+		}
+	}
+	if name == modulecomponents.AdditionalPropertyGenerate {
+		if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
+			return generateFn.GraphQLExtractFunction(params, class)
 		}
 	}
 	return nil
@@ -576,9 +619,20 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 			return nil, err
 		}
 
+		additionalGenerativeDefaultProvider := ""
+		additionalGenerativeParameters := map[string]modulecapabilities.GenerativeProperty{}
 		allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 		for _, module := range p.GetAll() {
-			if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+			if p.isGenerativeModule(module.Type()) {
+				if arg, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
+					for name, additionalGenerativeParameter := range arg.AdditionalGenerativeProperties() {
+						additionalGenerativeParameters[name] = additionalGenerativeParameter
+						if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
+							additionalGenerativeDefaultProvider = name
+						}
+					}
+				}
+			} else if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
 				if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 					if arg != nil && arg.AdditionalProperties() != nil {
 						for name, additionalProperty := range arg.AdditionalProperties() {
@@ -588,6 +642,12 @@ func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, mod
 				}
 			}
 		}
+		if len(additionalGenerativeParameters) > 0 {
+			if generateFn := modulecomponents.GetGenericGenerateProperty(class.Class, additionalGenerativeParameters, additionalGenerativeDefaultProvider, p.logger); generateFn != nil {
+				allAdditionalProperties[modulecomponents.AdditionalPropertyGenerate] = *generateFn
+			}
+		}
+
 		if len(allAdditionalProperties) > 0 {
 			if err := p.checkCapabilities(allAdditionalProperties, moduleParams, capability); err != nil {
 				return nil, err
@@ -654,17 +714,23 @@ func (p *Provider) getAdditionalPropertyFn(
 
 // GraphQLAdditionalFieldNames get's all additional field names used in graphql
 func (p *Provider) GraphQLAdditionalFieldNames() []string {
-	additionalPropertiesNames := []string{}
+	additionalPropertiesNames := map[string]struct{}{}
 	for _, module := range p.GetAll() {
 		if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 			for _, additionalProperty := range arg.AdditionalProperties() {
-				if additionalProperty.GraphQLNames != nil {
-					additionalPropertiesNames = append(additionalPropertiesNames, additionalProperty.GraphQLNames...)
+				for _, gqlName := range additionalProperty.GraphQLNames {
+					additionalPropertiesNames[gqlName] = struct{}{}
 				}
 			}
+		} else if _, ok := module.(modulecapabilities.AdditionalGenerativeProperties); ok {
+			additionalPropertiesNames[modulecomponents.AdditionalPropertyGenerate] = struct{}{}
 		}
 	}
-	return additionalPropertiesNames
+	var availableAdditionalPropertiesNames []string
+	for gqlName := range additionalPropertiesNames {
+		availableAdditionalPropertiesNames = append(availableAdditionalPropertiesNames, gqlName)
+	}
+	return availableAdditionalPropertiesNames
 }
 
 // RestApiAdditionalProperties get's all rest specific additional properties with their

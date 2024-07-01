@@ -72,7 +72,7 @@ func TestGetAnswer(t *testing.T) {
 			c := New(test.timeout, nullLogger())
 
 			settings := &fakeClassConfig{apiEndpoint: server.URL}
-			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", settings)
+			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, settings)
 
 			if test.answer.Error != "" {
 				assert.Contains(t, err.Error(), test.answer.Error)

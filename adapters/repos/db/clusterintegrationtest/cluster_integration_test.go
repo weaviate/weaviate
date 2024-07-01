@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -353,8 +354,9 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			IncludeMetaCount: true,
 		}
 
+		logger, _ := test.NewNullLogger()
 		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider())
+		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger))
 		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{

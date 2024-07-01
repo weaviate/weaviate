@@ -25,7 +25,7 @@ import (
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
 func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument, class *models.Class) *Params {
-	out := &Params{}
+	out := &Params{Options: make(map[string]interface{})}
 
 	propertiesToExtract := make([]string, 0)
 
@@ -33,9 +33,22 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument, class *m
 		switch arg.Name.Value {
 		case "singleResult":
 			obj := arg.Value.(*ast.ObjectValue).Fields
-			out.Prompt = &obj[0].Value.(*ast.StringValue).Value
-			singlePropPrompts := ExtractPropsFromPrompt(out.Prompt)
-			propertiesToExtract = append(propertiesToExtract, singlePropPrompts...)
+			for _, field := range obj {
+				switch field.Name.Value {
+				case "prompt":
+					out.Prompt = &field.Value.(*ast.StringValue).Value
+					propertiesToExtract = append(propertiesToExtract, ExtractPropsFromPrompt(out.Prompt)...)
+
+				case "debug":
+					out.Debug = field.Value.(*ast.BooleanValue).Value
+				default:
+					if p.isDynamicRAGSyntaxEnabled {
+						if value := p.extractGenerativeParameter(field); value != nil {
+							out.Options[field.Name.Value] = value
+						}
+					}
+				}
+			}
 		case "groupedResult":
 			obj := arg.Value.(*ast.ObjectValue).Fields
 			propertiesProvided := false
@@ -52,6 +65,14 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument, class *m
 					}
 					propertiesToExtract = append(propertiesToExtract, out.Properties...)
 					propertiesProvided = true
+				case "debug":
+					out.Debug = field.Value.(*ast.BooleanValue).Value
+				default:
+					if p.isDynamicRAGSyntaxEnabled {
+						if value := p.extractGenerativeParameter(field); value != nil {
+							out.Options[field.Name.Value] = value
+						}
+					}
 				}
 			}
 			if !propertiesProvided {
@@ -67,6 +88,17 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument, class *m
 	out.PropertiesToExtract = propertiesToExtract
 
 	return out
+}
+
+func (p *GenerateProvider) extractGenerativeParameter(field *ast.ObjectField) interface{} {
+	if len(p.additionalGenerativeParameters) > 0 {
+		if generative, ok := p.additionalGenerativeParameters[field.Name.Value]; ok {
+			if extractFn := generative.ExtractRequestParamsFunction; extractFn != nil {
+				return extractFn(field)
+			}
+		}
+	}
+	return nil
 }
 
 func ExtractPropsFromPrompt(prompt *string) []string {
