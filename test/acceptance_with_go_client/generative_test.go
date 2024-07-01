@@ -90,7 +90,7 @@ func TestGenerative(t *testing.T) {
 
 		returnString := result.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["groupedResult"].(string)
 		require.NotNil(t, returnString)
-		expected := "Input: {first} and {second}:"
+		expected := "summarize"
 		require.True(t, strings.Contains(returnString, expected), "expected %s to contain %s", returnString, expected)
 
 		// order is not guaranteed
