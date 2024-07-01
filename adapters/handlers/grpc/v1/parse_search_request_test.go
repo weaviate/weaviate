@@ -1291,12 +1291,31 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
+				Properties: append(defaultTestClassProps, []search.SelectProperty{{Name: "one", IsPrimitive: true}, {Name: "two", IsPrimitive: true}}...),
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: false,
+					ModuleParams: map[string]interface{}{
+						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}, PropertiesToExtract: []string{"one", "two"}},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Generative without properties",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true}, Properties: &pb.PropertiesRequest{NonRefProperties: []string{}},
+				Generative: &pb.GenerativeSearch{GroupedResponseTask: someString2},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
 				Properties: defaultTestClassProps,
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
 					ModuleParams: map[string]interface{}{
-						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}},
+						"generate": &generate.Params{Task: &someString2, PropertiesToExtract: []string{"name", "number", "floats", "uuid"}},
 					},
 				},
 			},
@@ -1470,7 +1489,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
 					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1}},
@@ -1486,7 +1505,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
 					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1, Query: &someString2}},
@@ -1650,6 +1669,7 @@ func TestGRPCRequest(t *testing.T) {
 				// causing this test to be flaky. Sort first, no more flake
 				sortNamedVecs(tt.out.AdditionalProperties.Vectors)
 				sortNamedVecs(out.AdditionalProperties.Vectors)
+				require.EqualValues(t, tt.out.Properties, out.Properties)
 				require.EqualValues(t, tt.out, out)
 			}
 		})
@@ -1659,5 +1679,11 @@ func TestGRPCRequest(t *testing.T) {
 func sortNamedVecs(vecs []string) {
 	sort.Slice(vecs, func(i, j int) bool {
 		return vecs[i] < vecs[j]
+	})
+}
+
+func sortProperties(props search.SelectProperties) {
+	sort.Slice(props, func(i, j int) bool {
+		return props[i].Name < props[j].Name
 	})
 }
