@@ -16,12 +16,15 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/tailor-inc/graphql/language/ast"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument) *Params {
+func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument, class *models.Class) *Params {
 	out := &Params{}
 
 	propertiesToExtract := make([]string, 0)
@@ -35,6 +38,7 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument) *Params 
 			propertiesToExtract = append(propertiesToExtract, singlePropPrompts...)
 		case "groupedResult":
 			obj := arg.Value.(*ast.ObjectValue).Fields
+			propertiesProvided := false
 			for _, field := range obj {
 				switch field.Name.Value {
 				case "task":
@@ -47,8 +51,11 @@ func (p *GenerateProvider) parseGenerateArguments(args []*ast.Argument) *Params 
 						out.Properties[i] = value.(*ast.StringValue).Value
 					}
 					propertiesToExtract = append(propertiesToExtract, out.Properties...)
-
+					propertiesProvided = true
 				}
+			}
+			if !propertiesProvided {
+				propertiesToExtract = append(propertiesToExtract, schema.GetPropertyNamesFromClass(class, false)...)
 			}
 
 		default:

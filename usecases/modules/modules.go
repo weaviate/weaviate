@@ -528,7 +528,7 @@ func (p *Provider) ExtractAdditionalField(className, name string, params []*ast.
 			if arg, ok := module.(modulecapabilities.AdditionalProperties); ok {
 				if additionalProperties := arg.AdditionalProperties(); len(additionalProperties) > 0 {
 					if additionalProperty, ok := additionalProperties[name]; ok {
-						return additionalProperty.GraphQLExtractFunction(params)
+						return additionalProperty.GraphQLExtractFunction(params, class)
 					}
 				}
 			}
