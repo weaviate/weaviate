@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
+var grpcClient pb.WeaviateClient
+
 func SetupClient(uri string) {
 	host, port := "", ""
 	res := strings.Split(uri, ":")
@@ -36,6 +38,10 @@ func SetupClient(uri string) {
 	}
 	ServerHost = host
 	ServerPort = port
+}
+
+func SetupGRPCClient(t *testing.T, uri string) {
+	grpcClient = ClientGRPC(t, uri)
 }
 
 func CreateClass(t *testing.T, class *models.Class) {
@@ -299,7 +305,7 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 
 func GetTenantsGRPC(t *testing.T, class string) (*pb.TenantsGetReply, error) {
 	t.Helper()
-	return ClientGRPC(t).TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
+	return grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
 }
 
 func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {

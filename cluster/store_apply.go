@@ -131,7 +131,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		"cmd_schema_only": schemaOnly,
 	}).Debug("server.apply")
 
-	var f = func() {}
+	f := func() {}
 
 	switch cmd.Type {
 
