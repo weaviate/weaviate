@@ -472,9 +472,7 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 	})
 
 	t.Run("deserialize the first log", func(t *testing.T) {
-
 		nullLogger, _ := test.NewNullLogger()
-
 		commitLoggerPath := rootPath + "/tmpLogger.hnsw.commitlog.d"
 
 		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath)
@@ -495,5 +493,4 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 		require.Equal(t, 4*centroids*dimensions+10, deserializeSize)
 		t.Logf("deserializeSize: %v\n", deserializeSize)
 	})
-
 }
