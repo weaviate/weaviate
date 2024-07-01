@@ -193,3 +193,11 @@ func IsArrayDataType(dt []string) bool {
 	}
 	return false
 }
+
+func GetPropertyNamesFromClass(class *models.Class) []string {
+	var propertyNames []string
+	for _, prop := range class.Properties {
+		propertyNames = append(propertyNames, prop.Name)
+	}
+	return propertyNames
+}
