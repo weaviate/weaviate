@@ -67,7 +67,7 @@ func TestTokenise(t *testing.T) {
 
 	// Kagome tokenizer for Korean
 	_ = os.Setenv("ENABLE_KOREAN_TOKENIZER", "true")
-	_ = InitializeKagomeTokenizerKr()
+	_ = initializeKagomeTokenizerKr()
 
 	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "아버지가방에들어가신다")
 	assert.Equal(t, []string{"아버지", "가", "방", "에", "들어가", "신다"}, tokens)
@@ -154,7 +154,7 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 	}
 
 	_ = os.Setenv("ENABLE_KOREAN_TOKENIZER", "true")
-	_ = InitializeKagomeTokenizerKr()
+	_ = initializeKagomeTokenizerKr()
 
 	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
 
