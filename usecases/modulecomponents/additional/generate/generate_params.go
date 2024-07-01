@@ -15,16 +15,6 @@ type Params struct {
 	Prompt     *string
 	Task       *string
 	Properties []string
-}
-
-func (n Params) GetPrompt() string {
-	return *n.Prompt
-}
-
-func (n Params) GetTask() string {
-	return *n.Task
-}
-
-func (n Params) GetProperties() []string {
-	return n.Properties
+	Debug      bool
+	Options    map[string]interface{}
 }

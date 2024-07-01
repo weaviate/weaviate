@@ -241,12 +241,16 @@ func (d *Compose) WithRef2VecCentroid() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecOpenAI() *Compose {
+func (d *Compose) WithText2VecOpenAI(openAIApiKey, openAIOrganization, azureApiKey string) *Compose {
+	d.weaviateEnvs["OPENAI_APIKEY"] = openAIApiKey
+	d.weaviateEnvs["OPENAI_ORGANIZATION"] = openAIOrganization
+	d.weaviateEnvs["AZURE_APIKEY"] = azureApiKey
 	d.enableModules = append(d.enableModules, modopenai.Name)
 	return d
 }
 
-func (d *Compose) WithText2VecCohere() *Compose {
+func (d *Compose) WithText2VecCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modcohere.Name)
 	return d
 }
@@ -275,7 +279,10 @@ func (d *Compose) WithText2VecHuggingFace() *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativeOpenAI() *Compose {
+func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureApiKey string) *Compose {
+	d.weaviateEnvs["OPENAI_APIKEY"] = openAIApiKey
+	d.weaviateEnvs["OPENAI_ORGANIZATION"] = openAIOrganization
+	d.weaviateEnvs["AZURE_APIKEY"] = azureApiKey
 	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
 	return d
 }
@@ -288,7 +295,8 @@ func (d *Compose) WithGenerativeAWS(accessKey, secretKey, sessionToken string) *
 	return d
 }
 
-func (d *Compose) WithGenerativeCohere() *Compose {
+func (d *Compose) WithGenerativeCohere(apiKey string) *Compose {
+	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativecohere.Name)
 	return d
 }
