@@ -19,6 +19,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
+const dummyLimit = 10000000
+
 func GetRateLimitsFromHeader(header http.Header) *modulecomponents.RateLimits {
 	requestsReset, err := time.ParseDuration(header.Get("x-ratelimit-reset-requests"))
 	if err != nil {
@@ -28,11 +30,23 @@ func GetRateLimitsFromHeader(header http.Header) *modulecomponents.RateLimits {
 	if err != nil {
 		tokensReset = 0
 	}
+	limitRequests := getHeaderInt(header, "x-ratelimit-limit-requests")
+	limitTokens := getHeaderInt(header, "x-ratelimit-limit-tokens")
+	remainingRequests := getHeaderInt(header, "x-ratelimit-remaining-requests")
+	remainingTokens := getHeaderInt(header, "x-ratelimit-remaining-tokens")
+
+	// azure returns 0 as limit, make sure this does not block anything by setting a high value
+	if limitTokens == 0 && remainingTokens > 0 {
+		limitTokens = dummyLimit
+	}
+	if limitRequests == 0 && remainingRequests > 0 {
+		limitRequests = dummyLimit
+	}
 	return &modulecomponents.RateLimits{
-		LimitRequests:     getHeaderInt(header, "x-ratelimit-limit-requests"),
-		LimitTokens:       getHeaderInt(header, "x-ratelimit-limit-tokens"),
-		RemainingRequests: getHeaderInt(header, "x-ratelimit-remaining-requests"),
-		RemainingTokens:   getHeaderInt(header, "x-ratelimit-remaining-tokens"),
+		LimitRequests:     limitRequests,
+		LimitTokens:       limitTokens,
+		RemainingRequests: remainingRequests,
+		RemainingTokens:   remainingTokens,
 		ResetRequests:     time.Now().Add(requestsReset),
 		ResetTokens:       time.Now().Add(tokensReset),
 	}

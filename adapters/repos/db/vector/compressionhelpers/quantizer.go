@@ -20,23 +20,16 @@ type quantizerDistancer[T byte | uint64] interface {
 
 type quantizer[T byte | uint64] interface {
 	DistanceBetweenCompressedVectors(x, y []T) (float32, error)
-	DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []T) (float32, error)
 	Encode(vec []float32) []T
 	NewQuantizerDistancer(a []float32) quantizerDistancer[T]
 	NewCompressedQuantizerDistancer(a []T) quantizerDistancer[T]
 	ReturnQuantizerDistancer(distancer quantizerDistancer[T])
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
-	ExposeFields() PQData
+	PersistCompression(logger CommitLogger)
 }
 
-func (bq *BinaryQuantizer) ExposeFields() PQData {
-	return PQData{}
-}
-
-func (bq *BinaryQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, y []uint64) (float32, error) {
-	encoded := bq.Encode(x)
-	return bq.DistanceBetweenCompressedVectors(encoded, y)
+func (bq *BinaryQuantizer) PersistCompression(logger CommitLogger) {
 }
 
 func (pq *ProductQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[byte] {

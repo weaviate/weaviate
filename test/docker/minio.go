@@ -58,6 +58,7 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 	}
 	envSettings := make(map[string]string)
 	envSettings["BACKUP_S3_ENDPOINT"] = fmt.Sprintf("%s:%s", MinIO, port.Port())
+	envSettings["S3_ENDPOINT_URL"] = fmt.Sprintf("http://%s:%s", MinIO, port.Port())
 	envSettings["BACKUP_S3_USE_SSL"] = "false"
 	envSettings["AWS_ACCESS_KEY_ID"] = "aws_access_key"
 	envSettings["AWS_SECRET_KEY"] = "aws_secret_key"

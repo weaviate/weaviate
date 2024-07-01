@@ -34,6 +34,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 						DataType:        schema.DataTypeInt.PropString(),
 						IndexFilterable: &vFalse,
 						IndexSearchable: &vFalse,
+						IndexRangeable:  &vFalse,
 						Tokenization:    "",
 					},
 				}
@@ -45,6 +46,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						}
@@ -53,6 +55,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:        ndt.PropString(),
 							IndexFilterable: &vFalse,
 							IndexSearchable: &vFalse,
+							IndexRangeable:  &vFalse,
 							Tokenization:    "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -60,6 +63,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									DataType:         ndt.PropString(),
 									IndexFilterable:  &vFalse,
 									IndexSearchable:  &vFalse,
+									IndexRangeable:   &vFalse,
 									Tokenization:     "",
 									NestedProperties: nestedProperties,
 								},
@@ -98,6 +102,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				DataType:        pdt.PropString(),
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vFalse,
+				IndexRangeable:  &vFalse,
 				Tokenization:    tokenization,
 			})
 		}
@@ -109,6 +114,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:         ndt.PropString(),
 					IndexFilterable:  &vFalse,
 					IndexSearchable:  &vFalse,
+					IndexRangeable:   &vFalse,
 					Tokenization:     "",
 					NestedProperties: nestedProperties,
 				}
@@ -117,6 +123,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -124,6 +131,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						},
@@ -149,6 +157,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 						DataType:        pdt.PropString(),
 						IndexFilterable: &vFalse,
 						IndexSearchable: &vFalse,
+						IndexRangeable:  &vFalse,
 						Tokenization:    "",
 					},
 				}
@@ -160,6 +169,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						}
@@ -168,6 +178,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:        ndt.PropString(),
 							IndexFilterable: &vFalse,
 							IndexSearchable: &vFalse,
+							IndexRangeable:  &vFalse,
 							Tokenization:    "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -175,6 +186,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									DataType:         ndt.PropString(),
 									IndexFilterable:  &vFalse,
 									IndexSearchable:  &vFalse,
+									IndexRangeable:   &vFalse,
 									Tokenization:     "",
 									NestedProperties: nestedProperties,
 								},
@@ -203,6 +215,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 						DataType:        pdt.PropString(),
 						IndexFilterable: &vFalse,
 						IndexSearchable: &vFalse,
+						IndexRangeable:  &vFalse,
 						Tokenization:    "",
 					},
 				}
@@ -214,6 +227,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						}
@@ -222,6 +236,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:        ndt.PropString(),
 							IndexFilterable: &vFalse,
 							IndexSearchable: &vFalse,
+							IndexRangeable:  &vFalse,
 							Tokenization:    "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -229,6 +244,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									DataType:         ndt.PropString(),
 									IndexFilterable:  &vFalse,
 									IndexSearchable:  &vFalse,
+									IndexRangeable:   &vFalse,
 									Tokenization:     "",
 									NestedProperties: nestedProperties,
 								},
@@ -255,6 +271,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				DataType:        []string{"SomeClass"},
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vFalse,
+				IndexRangeable:  &vFalse,
 				Tokenization:    "",
 			},
 		}
@@ -266,6 +283,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:         ndt.PropString(),
 					IndexFilterable:  &vFalse,
 					IndexSearchable:  &vFalse,
+					IndexRangeable:   &vFalse,
 					Tokenization:     "",
 					NestedProperties: nestedProperties,
 				}
@@ -274,6 +292,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -281,6 +300,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						},
@@ -306,6 +326,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 				}
 				propLvl2Primitives := &models.Property{
@@ -313,6 +334,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -320,6 +342,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:        ndt.PropString(),
 							IndexFilterable: &vFalse,
 							IndexSearchable: &vFalse,
+							IndexRangeable:  &vFalse,
 							Tokenization:    "",
 						},
 					},
@@ -355,6 +378,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 						DataType:        pdt.PropString(),
 						IndexFilterable: &vFalse,
 						IndexSearchable: &vFalse,
+						IndexRangeable:  &vFalse,
 						Tokenization:    models.PropertyTokenizationWord,
 					},
 				}
@@ -366,6 +390,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						}
@@ -374,6 +399,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:        ndt.PropString(),
 							IndexFilterable: &vFalse,
 							IndexSearchable: &vFalse,
+							IndexRangeable:  &vFalse,
 							Tokenization:    "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -381,6 +407,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									DataType:         ndt.PropString(),
 									IndexFilterable:  &vFalse,
 									IndexSearchable:  &vFalse,
+									IndexRangeable:   &vFalse,
 									Tokenization:     "",
 									NestedProperties: nestedProperties,
 								},
@@ -407,6 +434,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				DataType:        schema.DataTypeInt.PropString(),
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vFalse,
+				IndexRangeable:  &vFalse,
 				Tokenization:    "",
 			},
 		}
@@ -418,6 +446,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -425,6 +454,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     models.PropertyTokenizationWord,
 							NestedProperties: nestedProperties,
 						},
@@ -464,6 +494,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				DataType:        pdt.PropString(),
 				IndexFilterable: &vTrue,
 				IndexSearchable: &vFalse,
+				IndexRangeable:  &vFalse,
 				Tokenization:    tokenization,
 			})
 		}
@@ -475,6 +506,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:         ndt.PropString(),
 					IndexFilterable:  &vFalse,
 					IndexSearchable:  &vFalse,
+					IndexRangeable:   &vFalse,
 					Tokenization:     "",
 					NestedProperties: nestedProperties,
 				}
@@ -483,6 +515,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -490,6 +523,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						},
@@ -513,6 +547,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				DataType:        schema.DataTypeBlob.PropString(),
 				IndexFilterable: &vTrue,
 				IndexSearchable: &vFalse,
+				IndexRangeable:  &vFalse,
 				Tokenization:    "",
 			},
 		}
@@ -524,6 +559,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:         ndt.PropString(),
 					IndexFilterable:  &vFalse,
 					IndexSearchable:  &vFalse,
+					IndexRangeable:   &vFalse,
 					Tokenization:     "",
 					NestedProperties: nestedProperties,
 				}
@@ -532,6 +568,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -539,6 +576,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						},
@@ -563,6 +601,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				DataType:        schema.DataTypeInt.PropString(),
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vFalse,
+				IndexRangeable:  &vFalse,
 				Tokenization:    "",
 			},
 		}
@@ -574,6 +613,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vTrue,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -581,6 +621,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						},
@@ -605,6 +646,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				DataType:        pdt.PropString(),
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vTrue,
+				IndexRangeable:  &vFalse,
 				Tokenization:    models.PropertyTokenizationWord,
 			})
 		}
@@ -616,6 +658,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:         ndt.PropString(),
 					IndexFilterable:  &vFalse,
 					IndexSearchable:  &vFalse,
+					IndexRangeable:   &vFalse,
 					Tokenization:     "",
 					NestedProperties: nestedProperties,
 				}
@@ -624,6 +667,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -631,6 +675,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						},
@@ -666,6 +711,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        pdt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vTrue,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 				})
 
@@ -676,6 +722,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vFalse,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						}
@@ -684,6 +731,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:        ndt.PropString(),
 							IndexFilterable: &vFalse,
 							IndexSearchable: &vFalse,
+							IndexRangeable:  &vFalse,
 							Tokenization:    "",
 							NestedProperties: []*models.NestedProperty{
 								{
@@ -691,6 +739,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 									DataType:         ndt.PropString(),
 									IndexFilterable:  &vFalse,
 									IndexSearchable:  &vFalse,
+									IndexRangeable:   &vFalse,
 									Tokenization:     "",
 									NestedProperties: nestedProperties,
 								},
@@ -717,6 +766,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 				DataType:        schema.DataTypeInt.PropString(),
 				IndexFilterable: &vFalse,
 				IndexSearchable: &vFalse,
+				IndexRangeable:  &vFalse,
 				Tokenization:    "",
 			},
 		}
@@ -728,6 +778,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 					DataType:        ndt.PropString(),
 					IndexFilterable: &vFalse,
 					IndexSearchable: &vFalse,
+					IndexRangeable:  &vFalse,
 					Tokenization:    "",
 					NestedProperties: []*models.NestedProperty{
 						{
@@ -735,6 +786,7 @@ func Test_Validation_NestedProperties(t *testing.T) {
 							DataType:         ndt.PropString(),
 							IndexFilterable:  &vFalse,
 							IndexSearchable:  &vTrue,
+							IndexRangeable:   &vFalse,
 							Tokenization:     "",
 							NestedProperties: nestedProperties,
 						},

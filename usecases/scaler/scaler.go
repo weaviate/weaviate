@@ -45,7 +45,7 @@ var (
 //
 // It scales out a class by replicating its shards on new replicas
 type Scaler struct {
-	schema          SchemaManager
+	schemaReader    SchemaReader
 	cluster         cluster
 	source          BackUpper // data source
 	client          client    // client for remote nodes
@@ -84,13 +84,13 @@ type cluster interface {
 	NodeHostname(name string) (string, bool)
 }
 
-// SchemaManager is used by the scaler to get and update sharding states
-type SchemaManager interface {
+// SchemaReader is used by the scaler to get and update sharding states
+type SchemaReader interface {
 	CopyShardingState(class string) *sharding.State
 }
 
-func (s *Scaler) SetSchemaManager(sm SchemaManager) {
-	s.schema = sm
+func (s *Scaler) SetSchemaReader(sr SchemaReader) {
+	s.schemaReader = sr
 }
 
 // Scale increase/decrease class replicas.
@@ -104,7 +104,7 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 	// First identify what the sharding state was before this change. This is
 	// mainly to be able to compare the diff later, so we know where we need to
 	// make changes
-	ssBefore := s.schema.CopyShardingState(className)
+	ssBefore := s.schemaReader.CopyShardingState(className)
 	if ssBefore == nil {
 		return nil, fmt.Errorf("no sharding state for class %q", className)
 	}

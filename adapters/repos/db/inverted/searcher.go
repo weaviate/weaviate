@@ -346,8 +346,9 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop)
 
-	if !hasFilterableIndex && !hasSearchableIndex {
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
 	}
 
@@ -357,6 +358,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		hasRangeableIndex:  hasRangeableIndex,
 		Class:              class,
 	}, nil
 }
@@ -369,10 +371,11 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		return nil, err
 	}
 
-	hasFilterableIndex := HasFilterableIndexMetaCount && HasInvertedIndex(prop)
-	hasSearchableIndex := HasSearchableIndexMetaCount && HasInvertedIndex(prop)
+	hasFilterableIndex := HasFilterableIndexMetaCount && HasAnyInvertedIndex(prop)
+	hasSearchableIndex := HasSearchableIndexMetaCount && HasAnyInvertedIndex(prop)
+	hasRangeableIndex := HasRangeableIndexMetaCount && HasAnyInvertedIndex(prop)
 
-	if !hasFilterableIndex && !hasSearchableIndex {
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableMetaCountIndexError(prop.Name)
 	}
 
@@ -382,6 +385,7 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		hasRangeableIndex:  hasRangeableIndex,
 		Class:              class,
 	}, nil
 }
@@ -403,6 +407,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
+		hasRangeableIndex:  HasRangeableIndex(prop),
 		Class:              class,
 	}, nil
 }
@@ -430,8 +435,9 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop)
 
-	if !hasFilterableIndex && !hasSearchableIndex {
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
 	}
 
@@ -441,6 +447,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		hasRangeableIndex:  hasRangeableIndex,
 		Class:              class,
 	}, nil
 }
@@ -556,8 +563,9 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
 	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop)
 
-	if !hasFilterableIndex && !hasSearchableIndex {
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
 	}
 
@@ -572,6 +580,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			operator:           operator,
 			hasFilterableIndex: hasFilterableIndex,
 			hasSearchableIndex: hasSearchableIndex,
+			hasRangeableIndex:  hasRangeableIndex,
 			Class:              class,
 		})
 	}

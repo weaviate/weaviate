@@ -8,6 +8,8 @@ function echo_yellow() {
   echo -e "${yellow}${*}${nc}"
 }
 
+export DISABLE_RECOVERY_ON_PANIC=true 
+
 includeslow=false
 
 for arg in "$@"; do

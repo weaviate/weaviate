@@ -61,8 +61,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
 	res, err := db.VectorSearch(ctx, dto.GetParams{
-		ClassName:    class,
-		SearchVector: vector,
+		ClassName: class,
 		Pagination: &filters.Pagination{
 			Limit: 1,
 		},
@@ -70,7 +69,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 		AdditionalProperties: additional.Properties{
 			Vector: true,
 		},
-	})
+	}, []string{""}, [][]float32{vector})
 
 	return res, err
 }
@@ -84,8 +83,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
 	res, err := db.VectorSearch(ctx, dto.GetParams{
-		ClassName:    class,
-		SearchVector: vector,
+		ClassName: class,
 		Pagination: &filters.Pagination{
 			Limit: k,
 		},
@@ -93,7 +91,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 		AdditionalProperties: additional.Properties{
 			Vector: true,
 		},
-	})
+	}, []string{""}, [][]float32{vector})
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate neighbors: search neighbors")
 	}
@@ -212,12 +210,12 @@ func (a *KnnAggregator) distances(beacons neighborBeacons,
 		mean := mean(losingDistances)
 		out.MeanLosingDistance = &mean
 
-		closest := min(losingDistances)
+		closest := min_custom(losingDistances)
 		out.ClosestLosingDistance = &closest
 	}
 
-	out.ClosestOverallDistance = min(append(winningDistances, losingDistances...))
-	out.ClosestWinningDistance = min(winningDistances)
+	out.ClosestOverallDistance = min_custom(append(winningDistances, losingDistances...))
+	out.ClosestWinningDistance = min_custom(winningDistances)
 	out.MeanWinningDistance = mean(winningDistances)
 
 	return out
@@ -281,7 +279,7 @@ func mean(in []float32) float32 {
 	return sum / float32(len(in))
 }
 
-func min(in []float32) float32 {
+func min_custom(in []float32) float32 {
 	min := float32(math.MaxFloat32)
 	for _, dist := range in {
 		if dist < min {

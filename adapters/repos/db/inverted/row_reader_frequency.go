@@ -103,7 +103,7 @@ func (rr *RowReaderFrequency) greaterThan(ctx context.Context, readFn ReadFn,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
+	for k, v := c.Seek(ctx, rr.value); k != nil; k, v = c.Next(ctx) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -134,7 +134,7 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 	c := rr.newCursor()
 	defer c.Close()
 
-	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next() {
+	for k, v := c.First(ctx); k != nil && bytes.Compare(k, rr.value) != 1; k, v = c.Next(ctx) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -173,12 +173,12 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 	)
 
 	if like.optimizable {
-		initialK, initialV = c.Seek(like.min)
+		initialK, initialV = c.Seek(ctx, like.min)
 	} else {
-		initialK, initialV = c.First()
+		initialK, initialV = c.First(ctx)
 	}
 
-	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
+	for k, v := initialK, initialV; k != nil; k, v = c.Next(ctx) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -310,13 +310,13 @@ func (rr *RowReaderFrequency) equalHelper(ctx context.Context) (v []lsmkv.MapPai
 	}
 
 	if rr.shardVersion < 2 {
-		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates(),
+		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates(),
 			lsmkv.MapListLegacySortingRequired())
 		if err != nil {
 			return
 		}
 	} else {
-		v, err = rr.bucket.MapList(rr.value, lsmkv.MapListAcceptDuplicates())
+		v, err = rr.bucket.MapList(ctx, rr.value, lsmkv.MapListAcceptDuplicates())
 		if err != nil {
 			return
 		}

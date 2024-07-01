@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"sort"
@@ -77,22 +78,22 @@ func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
 	return c
 }
 
-func (c *CursorMap) Seek(key []byte) ([]byte, []MapPair) {
+func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {
 	c.seekAll(key)
-	return c.serveCurrentStateAndAdvance()
+	return c.serveCurrentStateAndAdvance(ctx)
 }
 
-func (c *CursorMap) Next() ([]byte, []MapPair) {
+func (c *CursorMap) Next(ctx context.Context) ([]byte, []MapPair) {
 	// before := time.Now()
 	// defer func() {
 	// 	fmt.Printf("-- total next took %s\n", time.Since(before))
 	// }()
-	return c.serveCurrentStateAndAdvance()
+	return c.serveCurrentStateAndAdvance(ctx)
 }
 
-func (c *CursorMap) First() ([]byte, []MapPair) {
+func (c *CursorMap) First(ctx context.Context) ([]byte, []MapPair) {
 	c.firstAll()
-	return c.serveCurrentStateAndAdvance()
+	return c.serveCurrentStateAndAdvance(ctx)
 }
 
 func (c *CursorMap) Close() {
@@ -143,7 +144,7 @@ func (c *CursorMap) firstAll() {
 	c.state = state
 }
 
-func (c *CursorMap) serveCurrentStateAndAdvance() ([]byte, []MapPair) {
+func (c *CursorMap) serveCurrentStateAndAdvance(ctx context.Context) ([]byte, []MapPair) {
 	id, err := c.cursorWithLowestKey()
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
@@ -156,9 +157,9 @@ func (c *CursorMap) serveCurrentStateAndAdvance() ([]byte, []MapPair) {
 	// mergeDuplicatesInCurrentStateAndAdvance where we can be sure to act on
 	// segments in the correct order
 	if ids, ok := c.haveDuplicatesInState(id); ok {
-		return c.mergeDuplicatesInCurrentStateAndAdvance(ids)
+		return c.mergeDuplicatesInCurrentStateAndAdvance(ctx, ids)
 	} else {
-		return c.mergeDuplicatesInCurrentStateAndAdvance([]int{id})
+		return c.mergeDuplicatesInCurrentStateAndAdvance(ctx, []int{id})
 	}
 }
 
@@ -207,7 +208,7 @@ func (c *CursorMap) haveDuplicatesInState(idWithLowestKey int) ([]int, bool) {
 
 // if there are no duplicates present it will still work as returning the
 // latest result is the same as returning the only result
-func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, []MapPair) {
+func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ctx context.Context, ids []int) ([]byte, []MapPair) {
 	// take the key from any of the results, we have the guarantee that they're
 	// all the same
 	key := c.state[ids[0]].key
@@ -237,13 +238,13 @@ func (c *CursorMap) mergeDuplicatesInCurrentStateAndAdvance(ids []int) ([]byte, 
 		}
 	}
 
-	merged, err := newSortedMapMerger().do(perSegmentResults)
+	merged, err := newSortedMapMerger().do(ctx, perSegmentResults)
 	if err != nil {
 		panic(fmt.Errorf("unexpected error decoding map values: %w", err))
 	}
 	if len(merged) == 0 {
 		// all values deleted, skip key
-		return c.Next()
+		return c.Next(ctx)
 	}
 
 	// TODO remove keyOnly option, not used anyway

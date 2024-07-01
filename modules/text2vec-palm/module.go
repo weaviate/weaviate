@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-palm/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-palm/vectorizer"
+	"github.com/weaviate/weaviate/usecases/configbase"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
@@ -96,7 +97,9 @@ func (m *PalmModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	if apiKey == "" {
 		apiKey = os.Getenv("PALM_APIKEY")
 	}
-	client := clients.New(apiKey, timeout, logger)
+
+	useGoogleAuth := configbase.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
+	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client

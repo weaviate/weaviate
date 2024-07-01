@@ -421,7 +421,7 @@ func TestRFJourney(t *testing.T) {
 			},
 		}
 
-		prov := modules.NewProvider()
+		prov := modules.NewProvider(logger)
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -458,7 +458,7 @@ func TestRFJourney(t *testing.T) {
 			},
 		}
 
-		prov := modules.NewProvider()
+		prov := modules.NewProvider(logger)
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -497,7 +497,7 @@ func TestRFJourney(t *testing.T) {
 			},
 		}
 
-		prov := modules.NewProvider()
+		prov := modules.NewProvider(logger)
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -538,7 +538,7 @@ func TestRFJourney(t *testing.T) {
 			},
 		}
 
-		prov := modules.NewProvider()
+		prov := modules.NewProvider(logger)
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -663,7 +663,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			Filters: filter1,
 		}
 
-		prov := modules.NewProvider()
+		prov := modules.NewProvider(logger)
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -693,7 +693,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			},
 		}
 
-		prov := modules.NewProvider()
+		prov := modules.NewProvider(logger)
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -733,7 +733,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			Filters: filter,
 		}
 
-		prov := modules.NewProvider()
+		prov := modules.NewProvider(logger)
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -858,7 +858,7 @@ func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Re
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams) ([]search.Result, error) {
+func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, [][]float32) ([]search.Result, error) {
 	return nil, nil
 }
 
@@ -896,31 +896,6 @@ func (f *fakeObjectSearcher) SparseObjectSearch(ctx context.Context, params dto.
 	}
 
 	return out[:lim], []float32{0.008, 0.001}[:lim], nil
-}
-
-func (f *fakeObjectSearcher) DenseObjectSearch(ctx context.Context, class string, vector []float32, targetVector string, offset int, limit int, filters *filters.LocalFilter, additinal additional.Properties, tenant string) ([]*storobj.Object, []float32, error) {
-	out := []*storobj.Object{
-		{
-			Object: models.Object{
-				ID: "79a636c2-3314-442e-a4d1-e94d7c0afc3a",
-			},
-
-			Vector: []float32{4, 5, 6},
-		},
-		{
-			Object: models.Object{
-				ID: "9889a225-3b28-477d-b8fc-5f6071bb4731",
-			},
-
-			Vector: []float32{1, 2, 3},
-		},
-	}
-	lim := offset + limit
-	if lim > len(out) {
-		lim = len(out)
-	}
-
-	return out[:lim], []float32{0.009, 0.008}[:lim], nil
 }
 
 func CopyElems[T any](list1, list2 []T, pos int) bool {
@@ -981,7 +956,7 @@ func TestHybridOverSearch(t *testing.T) {
 			},
 		}
 
-		prov := modules.NewProvider()
+		prov := modules.NewProvider(logger)
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}

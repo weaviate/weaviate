@@ -116,7 +116,7 @@ func TestClient(t *testing.T) {
 		}
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-OctoAI-Api-Key", []string{"some-key"})
+			"X-Octoai-Api-Key", []string{"some-key"})
 
 		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},

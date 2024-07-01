@@ -153,7 +153,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, []float32{0.5}, nil, nil, 0)
 		require.Nil(t, err)
 
-		targetDimensionsBefore := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsBefore := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 
 		targets := []strfmt.UUID{target1, target2, target3, target4}
 
@@ -168,7 +168,7 @@ func Test_MergingObjects(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		targetDimensionsAfter := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsAfter := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 		require.Equal(t, targetDimensionsBefore+4, targetDimensionsAfter)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -182,7 +182,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, nil, nil, nil, 0)
 		require.Nil(t, err)
 
-		targetDimensionsAfterNoVec := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsAfterNoVec := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 		require.Equal(t, targetDimensionsAfter, targetDimensionsAfterNoVec)
 	})
 
@@ -662,7 +662,7 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 							Pagination: &filters.Pagination{Limit: 5},
 							Filters:    tc.filter,
 						}
-						res, err := repo.VectorSearch(context.Background(), params)
+						res, err := repo.VectorSearch(context.Background(), params, []string{""}, nil)
 						require.Nil(t, err)
 						require.Len(t, res, 1)
 
@@ -913,7 +913,7 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 							Pagination: &filters.Pagination{Limit: 5},
 							Filters:    tc.filter,
 						}
-						res, err := repo.VectorSearch(context.Background(), params)
+						res, err := repo.VectorSearch(context.Background(), params, []string{""}, nil)
 						require.Nil(t, err)
 						require.Len(t, res, 1)
 

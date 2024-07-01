@@ -207,7 +207,7 @@ func TestClient(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Cohere-Ratelimit-RequestPM-Embedding", []string{"50"})
 
-		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		rl := c.GetVectorizerRateLimit(ctxWithValue, fakeClassConfig{classConfig: map[string]interface{}{}})
 		assert.Equal(t, 50, rl.LimitRequests)
 		assert.Equal(t, 50, rl.RemainingRequests)
 	})

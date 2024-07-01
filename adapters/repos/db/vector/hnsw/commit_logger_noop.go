@@ -25,7 +25,11 @@ func (n *NoopCommitLogger) ID() string {
 	return ""
 }
 
-func (n *NoopCommitLogger) AddPQ(data compressionhelpers.PQData) error {
+func (n *NoopCommitLogger) AddPQCompression(data compressionhelpers.PQData) error {
+	return nil
+}
+
+func (n *NoopCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
 	return nil
 }
 

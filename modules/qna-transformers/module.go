@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
 )
 
+const Name = "qna-transformers"
+
 func New() *QnAModule {
 	return &QnAModule{}
 }
@@ -49,7 +51,7 @@ type qnaClient interface {
 }
 
 func (m *QnAModule) Name() string {
-	return "qna-transformers"
+	return Name
 }
 
 func (m *QnAModule) Type() modulecapabilities.ModuleType {

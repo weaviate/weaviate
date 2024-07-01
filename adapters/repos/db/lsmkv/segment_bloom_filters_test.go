@@ -225,6 +225,17 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
+
+	err = b2.Delete([]byte("hello"))
+	assert.Nil(t, err)
+
+	v, err := b2.Get([]byte("hello"))
+	assert.Nil(t, err)
+	assert.Nil(t, v)
+
+	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
+	assert.Nil(t, err)
+	assert.Nil(t, value)
 }
 
 func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {

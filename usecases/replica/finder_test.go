@@ -33,6 +33,21 @@ func object(id strfmt.UUID, lastTime int64) *storobj.Object {
 	}
 }
 
+func objectWithVectors(id strfmt.UUID, lastTime int64, vectors models.Vectors) *storobj.Object {
+	vectors2 := make(map[string][]float32, len(vectors))
+	for k, v := range vectors {
+		vectors2[k] = v
+	}
+	return &storobj.Object{
+		Object: models.Object{
+			ID:                 id,
+			LastUpdateTimeUnix: lastTime,
+			Vectors:            vectors,
+		},
+		Vectors: vectors2,
+	}
+}
+
 func replica(id strfmt.UUID, lastTime int64, deleted bool) objects.Replica {
 	x := objects.Replica{
 		Deleted: deleted,

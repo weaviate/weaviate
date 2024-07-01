@@ -70,9 +70,10 @@ func TestStorageObjectMarshalling(t *testing.T) {
 	})
 
 	t.Run("extract only doc id and compare", func(t *testing.T) {
-		id, err := DocIDFromBinary(asBinary)
+		id, updateTime, err := DocIDAndTimeFromBinary(asBinary)
 		require.Nil(t, err)
 		assert.Equal(t, uint64(7), id)
+		assert.Equal(t, before.LastUpdateTimeUnix(), updateTime)
 	})
 
 	t.Run("extract single text prop", func(t *testing.T) {
@@ -330,9 +331,10 @@ func TestStorageArrayObjectMarshalling(t *testing.T) {
 	})
 
 	t.Run("extract only doc id and compare", func(t *testing.T) {
-		id, err := DocIDFromBinary(asBinary)
+		id, updateTime, err := DocIDAndTimeFromBinary(asBinary)
 		require.Nil(t, err)
 		assert.Equal(t, uint64(7), id)
+		assert.Equal(t, before.LastUpdateTimeUnix(), updateTime)
 	})
 
 	t.Run("extract text array prop", func(t *testing.T) {
@@ -480,9 +482,10 @@ func TestStorageObjectMarshallingWithGroup(t *testing.T) {
 	})
 
 	t.Run("extract only doc id and compare", func(t *testing.T) {
-		id, err := DocIDFromBinary(asBinary)
+		id, updateTime, err := DocIDAndTimeFromBinary(asBinary)
 		require.Nil(t, err)
 		assert.Equal(t, uint64(7), id)
+		assert.Equal(t, before.LastUpdateTimeUnix(), updateTime)
 	})
 
 	t.Run("extract single text prop", func(t *testing.T) {

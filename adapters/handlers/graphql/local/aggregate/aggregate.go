@@ -14,6 +14,8 @@ package aggregate
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -26,7 +28,7 @@ import (
 
 type ModulesProvider interface {
 	AggregateArguments(class *models.Class) map[string]*graphql.ArgumentConfig
-	ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{}
+	ExtractSearchParams(arguments map[string]interface{}, className string) (map[string]interface{}, map[string]*dto.TargetCombination)
 }
 
 // Build the Aggregate Kinds schema

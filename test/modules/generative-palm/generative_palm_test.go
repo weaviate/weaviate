@@ -12,75 +12,33 @@
 package generative_palm_tests
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
 func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
-		planets := []struct {
-			ID                strfmt.UUID
-			Name, Description string
-		}{
-			{
-				ID:   strfmt.UUID("00000000-0000-0000-0000-000000000001"),
-				Name: "Earth",
-				Description: `
-				The Earth's surface is predominantly covered by oceans, accounting for about 71% of its total area, while continents provide 
-				the stage for bustling cities, towering mountains, and sprawling forests. Its atmosphere, composed mostly of nitrogen and oxygen, 
-				protects life from harmful solar radiation and regulates the planet's climate, creating the conditions necessary for life to flourish.
-
-				Humans, as the dominant species, have left an indelible mark on Earth, shaping its landscapes and ecosystems in profound ways. 
-				However, with this influence comes the responsibility to steward and preserve our planet for future generations.
-				`,
-			},
-			{
-				ID:   strfmt.UUID("00000000-0000-0000-0000-000000000002"),
-				Name: "Mars",
-				Description: `
-				Mars, often called the "Red Planet" due to its rusty reddish hue, is the fourth planet from the Sun in our solar system. 
-				It's a world of stark contrasts and mysterious allure, captivating the imaginations of scientists, explorers, and dreamers alike.
-
-				With its barren, rocky terrain and thin atmosphere primarily composed of carbon dioxide, Mars presents a harsh environment vastly 
-				different from Earth. Yet, beneath its desolate surface lie tantalizing clues about its past, including evidence of ancient rivers, 
-				lakes, and even the possibility of microbial life.
-				`,
-			},
-		}
+		data := planets.Planets
 		// Define class
-		className := "PlanetsGenerativeTest"
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					Name: "name", DataType: []string{schema.DataTypeText.String()},
-				},
-				{
-					Name: "description", DataType: []string{schema.DataTypeText.String()},
-				},
-			},
-			VectorConfig: map[string]models.VectorConfig{
-				"description": {
-					Vectorizer: map[string]interface{}{
-						"text2vec-palm": map[string]interface{}{
-							"properties":         []interface{}{"description"},
-							"vectorizeClassName": false,
-							"projectId":          gcpProject,
-							"modelId":            "textembedding-gecko@001",
-						},
+		class := planets.BaseClass("PlanetsGenerativeTest")
+		class.VectorConfig = map[string]models.VectorConfig{
+			"description": {
+				Vectorizer: map[string]interface{}{
+					"text2vec-palm": map[string]interface{}{
+						"properties":         []interface{}{"description"},
+						"vectorizeClassName": false,
+						"projectId":          gcpProject,
+						"modelId":            "textembedding-gecko@001",
 					},
-					VectorIndexType: "flat",
 				},
+				VectorIndexType: "flat",
 			},
 		}
 		tests := []struct {
@@ -145,21 +103,10 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					for _, company := range planets {
-						obj := &models.Object{
-							Class: class.Class,
-							ID:    company.ID,
-							Properties: map[string]interface{}{
-								"name":        company.Name,
-								"description": company.Description,
-							},
-						}
-						helper.CreateObject(t, obj)
-						helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
-					}
+					planets.InsertObjects(t, class.Class)
 				})
 				t.Run("check objects existence", func(t *testing.T) {
-					for _, company := range planets {
+					for _, company := range data {
 						t.Run(company.ID.String(), func(t *testing.T) {
 							obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
 							require.NoError(t, err)
@@ -171,46 +118,11 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				})
 				// generative task
 				t.Run("create a tweet", func(t *testing.T) {
-					prompt := "Write a short description about {name}"
-					query := fmt.Sprintf(`
-						{
-							Get {
-								%s{
-									name
-									_additional {
-										generate(
-											singleResult: {
-												prompt: """
-													%s
-												"""
-											}
-										) {
-											singleResult
-											error
-										}
-									}
-								}
-							}
-						}
-					`, class.Class, prompt)
-					result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-					objs := result.Get("Get", class.Class).AsSlice()
-					require.Len(t, objs, 2)
-					for _, obj := range objs {
-						name := obj.(map[string]interface{})["name"]
-						assert.NotEmpty(t, name)
-						additional, ok := obj.(map[string]interface{})["_additional"].(map[string]interface{})
-						require.True(t, ok)
-						require.NotNil(t, additional)
-						generate, ok := additional["generate"].(map[string]interface{})
-						require.True(t, ok)
-						require.NotNil(t, generate)
-						require.Nil(t, generate["error"])
-						require.NotNil(t, generate["singleResult"])
-						singleResult, ok := generate["singleResult"].(string)
-						require.True(t, ok)
-						require.NotEmpty(t, singleResult)
-					}
+					planets.CreateTweetTest(t, class.Class)
+				})
+				t.Run("create a tweet with params", func(t *testing.T) {
+					params := "google:{topP:0.1 topK:40}"
+					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
 			})
 		}

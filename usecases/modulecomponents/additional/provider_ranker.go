@@ -20,6 +20,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/ent"
 )
 
+const PropertyRerank = "rerank"
+
 type reRankerClient interface {
 	Rank(ctx context.Context, query string, documents []string, cfg moduletools.ClassConfig) (*ent.RankResult, error)
 }
@@ -34,13 +36,13 @@ func NewRankerProvider(client reRankerClient) *GraphQLAdditionalRankerProvider {
 
 func (p *GraphQLAdditionalRankerProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	additionalProperties := map[string]modulecapabilities.AdditionalProperty{}
-	additionalProperties["rerank"] = p.getReRanker()
+	additionalProperties[PropertyRerank] = p.getReRanker()
 	return additionalProperties
 }
 
 func (p *GraphQLAdditionalRankerProvider) getReRanker() modulecapabilities.AdditionalProperty {
 	return modulecapabilities.AdditionalProperty{
-		GraphQLNames:           []string{"rerank"},
+		GraphQLNames:           []string{PropertyRerank},
 		GraphQLFieldFunction:   p.ReRankerProvider.AdditionalFieldFn,
 		GraphQLExtractFunction: p.ReRankerProvider.ExtractAdditionalFn,
 		SearchFunctions: modulecapabilities.AdditionalSearch{

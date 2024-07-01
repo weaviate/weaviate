@@ -25,14 +25,14 @@ func TestText2VecAWS_SingleNode(t *testing.T) {
 	if accessKey == "" {
 		accessKey = os.Getenv("AWS_ACCESS_KEY_ID")
 		if accessKey == "" {
-			t.Skip("skipping, AWS_ACCESS_KEY environment variable not present")
+			t.Skip("skipping, AWS_ACCESS_KEY or AWS_ACCESS_KEY_ID environment variable not present")
 		}
 	}
 	secretKey := os.Getenv("AWS_SECRET_KEY")
 	if secretKey == "" {
 		secretKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
 		if secretKey == "" {
-			t.Skip("skipping, AWS_SECRET_KEY environment variable not present")
+			t.Skip("skipping, AWS_SECRET_KEY or AWS_SECRET_ACCESS_KEY environment variable not present")
 		}
 	}
 	sessionToken := os.Getenv("AWS_SESSION_TOKEN")

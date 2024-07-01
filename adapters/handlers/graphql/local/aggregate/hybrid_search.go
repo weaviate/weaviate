@@ -93,7 +93,7 @@ func hybridOperands(classObject *graphql.Object,
 									graphql.InputObjectConfig{
 										Name:        fmt.Sprintf("%sNearVectorInpObj", prefixName),
 										Description: "Near vector search",
-										Fields:      common_filters.NearVectorFields(prefixName),
+										Fields:      common_filters.NearVectorFields(prefixName, false),
 									},
 								),
 							},

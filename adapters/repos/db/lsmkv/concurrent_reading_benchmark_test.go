@@ -45,7 +45,7 @@ func BenchmarkConcurrentReading(b *testing.B) {
 			go func() {
 				defer wg.Done()
 				for _, key := range keys {
-					_, err := bucket.MapList(key)
+					_, err := bucket.MapList(context.Background(), key)
 					assert.Nil(b, err)
 				}
 			}()

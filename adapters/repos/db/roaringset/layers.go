@@ -100,6 +100,27 @@ func (bml BitmapLayers) Flatten() *sroar.Bitmap {
 	return merged
 }
 
+// FlattenMutate works as Flatten but mutates passed bitmaps:
+// bml[0].Additions and bml[!=0].Deletions.
+// It is important to provide cloned bitmaps if original ones
+// are expected not to change.
+func (bml BitmapLayers) FlattenMutate() *sroar.Bitmap {
+	if len(bml) == 0 {
+		return sroar.NewBitmap()
+	}
+
+	merged := bml[0].Additions
+	for i := 1; i < len(bml); i++ {
+		// AndNot of only common set seems to be faster than AndNot of bigger set
+		// therefore call to And first
+		bml[i].Deletions.And(merged)
+		merged.AndNot(bml[i].Deletions)
+		merged.Or(bml[i].Additions)
+	}
+
+	return merged
+}
+
 // Merge turns two successive layers into one. It does not flatten the segment,
 // but keeps additions and deletions separate. This is because there are no
 // guarantees that the first segment was the root segment. A merge could run on
@@ -116,8 +137,8 @@ func (bml BitmapLayers) Merge() (BitmapLayer, error) {
 	left, right := bml[0], bml[1]
 
 	additions := left.Additions.Clone()
-	additions.Or(right.Additions)
 	additions.AndNot(right.Deletions)
+	additions.Or(right.Additions)
 
 	deletions := left.Deletions.Clone()
 	deletions.AndNot(right.Additions)

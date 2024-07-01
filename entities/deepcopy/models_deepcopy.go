@@ -62,6 +62,7 @@ func Prop(p *models.Property) *models.Property {
 		Tokenization:    p.Tokenization,
 		IndexFilterable: ptrBoolCopy(p.IndexFilterable),
 		IndexSearchable: ptrBoolCopy(p.IndexSearchable),
+		IndexRangeable:  ptrBoolCopy(p.IndexRangeable),
 	}
 }
 

@@ -44,6 +44,9 @@ type Property struct {
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters, bm25 or hybrid search. This property has no affect on vectorization decisions done by modules (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)
 	IndexInverted *bool `json:"indexInverted,omitempty"`
 
+	// Optional. TODO roaring-set-range
+	IndexRangeable *bool `json:"indexRangeable,omitempty"`
+
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules
 	IndexSearchable *bool `json:"indexSearchable,omitempty"`
 

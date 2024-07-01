@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
@@ -25,13 +26,14 @@ import (
 )
 
 func TestSetClassDefaults(t *testing.T) {
+	logger, _ := test.NewNullLogger()
 	t.Run("no modules", func(t *testing.T) {
 		class := &models.Class{
 			Class:      "Foo",
 			Vectorizer: "none",
 		}
 
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.SetClassDefaults(class)
 
 		assert.Equal(t, &models.Class{Class: "Foo", Vectorizer: "none"}, class,
@@ -44,7 +46,7 @@ func TestSetClassDefaults(t *testing.T) {
 			Vectorizer: "my-module",
 		}
 
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.Register(&dummyText2VecModuleNoCapabilities{name: "my-module"})
 		p.SetClassDefaults(class)
 
@@ -84,7 +86,7 @@ func TestSetClassDefaults(t *testing.T) {
 			Vectorizer: "my-module",
 		}
 
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.Register(&dummyModuleClassConfigurator{
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
@@ -138,7 +140,7 @@ func TestSetClassDefaults(t *testing.T) {
 			Vectorizer: "my-module",
 		}
 
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.Register(&dummyModuleClassConfigurator{
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 				name: "my-module",
@@ -153,6 +155,7 @@ func TestSetClassDefaults(t *testing.T) {
 
 func TestValidateClass(t *testing.T) {
 	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
 	t.Run("when class has no vectorizer set, it does not check", func(t *testing.T) {
 		class := &models.Class{
 			Class: "Foo",
@@ -164,7 +167,7 @@ func TestValidateClass(t *testing.T) {
 			Vectorizer: "none",
 		}
 
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.Register(&dummyModuleClassConfigurator{
 			validateError: errors.Errorf("if I was used, you'd fail"),
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
@@ -188,7 +191,7 @@ func TestValidateClass(t *testing.T) {
 				Vectorizer: "my-module",
 			}
 
-			p := NewProvider()
+			p := NewProvider(logger)
 			p.Register(&dummyText2VecModuleNoCapabilities{
 				name: "my-module",
 			})
@@ -208,7 +211,7 @@ func TestValidateClass(t *testing.T) {
 			Vectorizer: "my-module",
 		}
 
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.Register(&dummyModuleClassConfigurator{
 			validateError: errors.Errorf("no can do!"),
 			dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
@@ -263,7 +266,8 @@ func TestSetSinglePropertyDefaults(t *testing.T) {
 		Name: "newProp",
 	}
 
-	p := NewProvider()
+	logger, _ := test.NewNullLogger()
+	p := NewProvider(logger)
 	p.Register(&dummyModuleClassConfigurator{
 		dummyText2VecModuleNoCapabilities: dummyText2VecModuleNoCapabilities{
 			name: "my-module",

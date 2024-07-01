@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
@@ -26,11 +27,27 @@ func TestGRPCTenants(t *testing.T) {
 	}{
 		{
 			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
-			activityStatus:     "HOT",
+			activityStatus:     models.TenantActivityStatusHOT,
 		},
 		{
 			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_COLD,
-			activityStatus:     "COLD",
+			activityStatus:     models.TenantActivityStatusCOLD,
+		},
+		{
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN,
+			activityStatus:     models.TenantActivityStatusFROZEN,
+		},
+		{
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FREEZING,
+			activityStatus:     types.TenantActivityStatusFREEZING,
+		},
+		{
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNFREEZING,
+			activityStatus:     types.TenantActivityStatusUNFREEZING,
+		},
+		{
+			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNFROZEN,
+			activityStatus:     types.TenantActivityStatusUNFROZEN,
 		},
 	}
 	for _, tt := range tests {

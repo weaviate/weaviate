@@ -96,3 +96,58 @@ func L2ByteAVX256(x []uint8, y []uint8) uint32 {
 
 	return res
 }
+
+func L2FloatByteAVX256(x []float32, y []uint8) float32 {
+	var res float32
+
+	switch len(x) {
+	case 1:
+		diff := x[0] - float32(y[0])
+		return diff * diff
+	case 2:
+		return l22FloatByte(x, y)
+	case 3:
+		return l23FloatByte(x, y)
+	case 4:
+		return l24FloatByte(x, y)
+	case 5:
+		return l25FloatByte(x, y)
+	case 6:
+		// manually inlined l26(x, y)
+		diff := x[5] - float32(y[5])
+		sum := diff * diff
+
+		diff = x[4] - float32(y[4])
+		sum += diff * diff
+
+		return l24FloatByte(x, y) + sum
+	case 8:
+		// manually inlined l28(x, y)
+		diff := x[7] - float32(y[7])
+		sum := diff * diff
+
+		diff = x[6] - float32(y[6])
+		sum += diff * diff
+
+		diff = x[5] - float32(y[5])
+		sum += diff * diff
+
+		diff = x[4] - float32(y[4])
+		sum += diff * diff
+
+		return l24FloatByte(x, y) + sum
+	case 10:
+		return l210FloatByte(x, y)
+	case 12:
+		return l212FloatByte(x, y)
+	}
+
+	l := len(x)
+	l2_float_byte_256(
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	return res
+}

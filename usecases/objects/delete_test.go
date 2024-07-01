@@ -50,32 +50,14 @@ func Test_DeleteObject(t *testing.T) {
 	)
 
 	manager, repo := newDeleteDependency()
-	repo.On("DeleteObject", cls, id).Return(nil).Once()
-	repo.On("Exists", cls, id).Return(true, nil).Once()
 
+	repo.On("DeleteObject", cls, id).Return(nil).Once()
 	err := manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
 	assert.Nil(t, err)
 	repo.AssertExpectations(t)
 
-	// delete non existing object
-	repo.On("Exists", cls, id).Return(false, nil).Once()
-	err = manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
-	if _, ok := err.(ErrNotFound); !ok {
-		t.Errorf("error type got: %T want: ErrNotFound", err)
-	}
-	repo.AssertExpectations(t)
-
-	// return internal error if exists() fails
-	repo.On("Exists", cls, id).Return(false, errNotFound).Once()
-	err = manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
-	if _, ok := err.(ErrInternal); !ok {
-		t.Errorf("error type got: %T want: ErrInternal", err)
-	}
-	repo.AssertExpectations(t)
-
 	// return internal error if deleteObject() fails
 	repo.On("DeleteObject", cls, id).Return(errNotFound).Once()
-	repo.On("Exists", cls, id).Return(true, nil).Once()
 	err = manager.DeleteObject(context.Background(), nil, cls, id, nil, "")
 	if _, ok := err.(ErrInternal); !ok {
 		t.Errorf("error type got: %T want: ErrInternal", err)

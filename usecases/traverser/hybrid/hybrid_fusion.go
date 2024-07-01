@@ -84,7 +84,7 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 //	Input score = [1, 8, 6, 11] => [0, 0.7, 0.5, 1]
 //
 // The normalized scores are then combined using their respective weight and the combined scores are sorted
-func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names []string) []*search.Result {
+func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names []string, descending bool) []*search.Result {
 	if len(resultSets) == 0 || len(resultSets[0]) == 0 && (len(resultSets) == 1 || len(resultSets[1]) == 0) {
 		return []*search.Result{}
 	}
@@ -145,13 +145,22 @@ func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names
 	for _, res := range mapResults {
 		concat = append(concat, res)
 	}
-
-	sort.Slice(concat, func(i, j int) bool {
-		a_b := float64(concat[j].Score - concat[i].Score)
-		if a_b*a_b < 1e-14 {
-			return concat[i].SecondarySortValue > concat[j].SecondarySortValue
-		}
-		return float64(concat[i].Score) > float64(concat[j].Score)
-	})
+	if descending {
+		sort.Slice(concat, func(i, j int) bool {
+			a_b := float64(concat[j].Score - concat[i].Score)
+			if a_b*a_b < 1e-14 {
+				return concat[i].SecondarySortValue > concat[j].SecondarySortValue
+			}
+			return float64(concat[i].Score) > float64(concat[j].Score)
+		})
+	} else {
+		sort.Slice(concat, func(i, j int) bool {
+			a_b := float64(concat[j].Score - concat[i].Score)
+			if a_b*a_b < 1e-14 {
+				return concat[i].SecondarySortValue < concat[j].SecondarySortValue
+			}
+			return float64(concat[i].Score) < float64(concat[j].Score)
+		})
+	}
 	return concat
 }

@@ -6,7 +6,7 @@ CWD=./tools/ci
 cd $CWD
 
 # Latest packages can be found here: https://cloud.google.com/sdk/docs/install
-GOOGLE_CLOUD_CLI_PKG=google-cloud-cli-466.0.0-linux-x86_64.tar.gz
+GOOGLE_CLOUD_CLI_PKG=google-cloud-cli-482.0.0-linux-x86_64.tar.gz
 
 # install gcloud
 sudo apt-get install apt-transport-https ca-certificates gnupg curl -y

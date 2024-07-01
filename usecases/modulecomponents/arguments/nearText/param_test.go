@@ -222,7 +222,7 @@ func Test_validateNearText(t *testing.T) {
 				Values:        []string{"foobar"},
 				TargetVectors: []string{"targetVector1", "targetVector2"},
 			},
-			true,
+			false,
 		},
 	}
 	for _, tt := range tests {

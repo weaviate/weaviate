@@ -14,6 +14,7 @@ package hnsw
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -21,6 +22,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -189,17 +191,51 @@ func (h *hnsw) copyTombstonesToAllowList(breakCleanUpTombstonedNodes breakCleanU
 	defer h.tombstoneLock.Unlock()
 
 	deleteList = helpers.NewAllowList()
+
+	// First of all, check if we even have enough tombstones to justify a
+	// cleanup.  Cleaning up tombstones requires iteration over every possible
+	// node in the graph which also includes locking portions of the graph, so we
+	// want to make sure we have enough tombstones to justify the cleanup.
+	numberOfTombstones := int64(len(h.tombstones))
+	if numberOfTombstones == 0 {
+		return false, nil
+	}
+
+	if numberOfTombstones < minTombstonesPerCycle() {
+		h.logger.WithFields(logrus.Fields{
+			"action":           "tombstone_cleanup_skipped",
+			"class":            h.className,
+			"shard":            h.shardName,
+			"tombstones_total": numberOfTombstones,
+			"tombstones_min":   minTombstonesPerCycle(),
+			"tombstones_max":   maxTombstonesPerCycle(),
+		}).Debugf("class %s: shard %s: skipping tombstone cleanup, not enough tombstones", h.className, h.shardName)
+		return false, nil
+	}
+
+	// If we have a very high number of tombstones, we run into scaling issues.
+	// Simply operations, such as copying lists require a lot of memory
+	// allocations, etc.
+	//
+	// In addition, the cycle would run too long, preventing feedback. With a
+	// hard limit like this, we do risk that we create connections that will need
+	// to be touched again in the next cycle, but this is a tradeoff we're
+	// willing to make.
+
+	elementsOnList := int64(0)
 	for id := range h.tombstones {
+		if elementsOnList >= maxTombstonesPerCycle() {
+			// we've reached the limit of tombstones we want to process in one
+			break
+		}
+
 		if lenOfNodes <= id {
 			// we're trying to delete an id outside the possible range, nothing to do
 			continue
 		}
 
 		deleteList.Insert(id)
-	}
-
-	if deleteList.IsEmpty() {
-		return false, nil
+		elementsOnList++
 	}
 
 	return true, deleteList
@@ -223,8 +259,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		}
 	}()
 
-	h.metrics.StartCleanup(1)
-	defer h.metrics.EndCleanup(1)
+	start := time.Now()
 
 	h.resetLock.Lock()
 	resetCtx := h.resetCtx
@@ -240,7 +275,22 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return executed, nil
 	}
 
+	h.metrics.StartCleanup(tombstoneDeletionConcurrency())
+	defer h.metrics.EndCleanup(tombstoneDeletionConcurrency())
+
 	h.metrics.SetTombstoneDeleteListSize(deleteList.Len())
+
+	h.tombstoneLock.Lock()
+	total_tombstones := len(h.tombstones)
+	h.tombstoneLock.Unlock()
+
+	h.logger.WithFields(logrus.Fields{
+		"action":              "tombstone_cleanup_begin",
+		"class":               h.className,
+		"shard":               h.shardName,
+		"tombstones_in_cycle": deleteList.Len(),
+		"tombstones_total":    total_tombstones,
+	}).Infof("class %s: shard %s: starting tombstone cleanup", h.className, h.shardName)
 
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
@@ -264,6 +314,18 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 
 	if _, err := h.resetIfEmpty(); err != nil {
 		return executed, err
+	}
+
+	if executed {
+		took := time.Since(start)
+		h.logger.WithFields(logrus.Fields{
+			"action":              "tombstone_cleanup_complete",
+			"class":               h.className,
+			"shard":               h.shardName,
+			"tombstones_in_cycle": deleteList.Len(),
+			"tombstones_total":    total_tombstones,
+			"duration":            took,
+		}).Infof("class %s: shard %s: completed tombstone cleanup in %s", h.className, h.shardName, took)
 	}
 
 	return executed, nil
@@ -297,6 +359,26 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 	}
 
 	return true, nil
+}
+
+func maxTombstonesPerCycle() int64 {
+	if v := os.Getenv("TOMBSTONE_DELETION_MAX_PER_CYCLE"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err == nil && asInt > 0 {
+			return int64(asInt)
+		}
+	}
+	return math.MaxInt64
+}
+
+func minTombstonesPerCycle() int64 {
+	if v := os.Getenv("TOMBSTONE_DELETION_MIN_PER_CYCLE"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err == nil && asInt > 0 {
+			return int64(asInt)
+		}
+	}
+	return 0
 }
 
 func tombstoneDeletionConcurrency() int {
@@ -336,7 +418,10 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
 					if h.getEntrypoint() != deletedID {
-						h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes)
+						if _, err := h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
+							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
+								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+						}
 					}
 				}
 			}
@@ -347,6 +432,19 @@ LOOP:
 	for i := 0; i < size; i++ {
 		select {
 		case ch <- uint64(i):
+			if i%1_000_000 == 0 {
+				// the interval of 1M is rather arbitrary, but if we have less than 1M
+				// nodes in the graph tombstones cleanup should be so fast, we don't
+				// need to log the progress.
+				h.logger.WithFields(logrus.Fields{
+					"action":          "tombstone_cleanup_progress",
+					"class":           h.className,
+					"shard":           h.shardName,
+					"total_nodes":     size,
+					"processed_nodes": i,
+				}).
+					Debugf("class %s: shard %s: %d/%d nodes processed", h.className, h.shardName, i, size)
+			}
 		case <-ctx.Done():
 			// before https://github.com/weaviate/weaviate/issues/4615 the context
 			// would not be canceled if a routine panicked. However, with the fix, it is
@@ -381,7 +479,6 @@ func (h *hnsw) reassignNeighbor(
 	h.shardedNodeLocks.RLock(neighbor)
 	neighborNode := h.nodes[neighbor]
 	h.shardedNodeLocks.RUnlock(neighbor)
-	currentEntrypoint := h.entryPointID
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
@@ -416,51 +513,12 @@ func (h *hnsw) reassignNeighbor(
 	}
 	neighborNode.Unlock()
 
-	entryPointID, err := h.findBestEntrypointForNode(currentMaximumLayer,
-		neighborLevel, currentEntrypoint, neighborVec, compressorDistancer)
-	if err != nil {
-		return false, errors.Wrap(err, "find best entrypoint")
-	}
-
-	if entryPointID == neighbor {
-		// if we use ourselves as entrypoint and delete all connections in the
-		// next step, we won't find any neighbors, so we need to use an
-		// alternative entryPoint in this round
-
-		if h.isOnlyNode(&vertex{id: neighbor}, deleteList) {
-			neighborNode.Lock()
-			// delete all existing connections before re-assigning
-			neighborLevel = neighborNode.level
-			neighborNode.connections = make([][]uint64, neighborLevel+1)
-			neighborNode.Unlock()
-
-			if err := h.commitLog.ClearLinks(neighbor); err != nil {
-				return false, err
-			}
-			return true, nil
-		}
-
-		tmpDenyList := deleteList.DeepCopy()
-		tmpDenyList.Insert(entryPointID)
-
-		alternative, level, err := h.findNewLocalEntrypoint(tmpDenyList, currentMaximumLayer,
-			entryPointID)
-		if err != nil {
-			return false, errors.Wrap(err, "find new local entrypoint")
-		}
-
-		if level > neighborLevel {
-			neighborNode.Lock()
-			// reset connections according to level
-			neighborNode.connections = make([][]uint64, level+1)
-			neighborNode.Unlock()
-			neighborLevel = level
-		}
-		entryPointID = alternative
-	}
-
 	neighborNode.markAsMaintenance()
-	if err := h.reconnectNeighboursOf(neighborNode, entryPointID, neighborVec, compressorDistancer,
+
+	// the new recursive implementation no longer needs an entrypoint, so we can
+	// just pass this dummy value to make the neighborFinderConnector happy
+	dummyEntrypoint := uint64(0)
+	if err := h.reconnectNeighboursOf(neighborNode, dummyEntrypoint, neighborVec, compressorDistancer,
 		neighborLevel, currentMaximumLayer, deleteList); err != nil {
 		return false, errors.Wrap(err, "find and connect neighbors")
 	}

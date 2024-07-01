@@ -25,6 +25,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/schema"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -44,15 +45,15 @@ type nodesStatusGetter interface {
 	LocalNodeStatus(ctx context.Context, className, output string) *models.NodeStatus
 }
 
-type modulesProvider interface {
-	GetMeta() (map[string]interface{}, error)
+type schemaManager interface {
+	GetSchemaSkipAuth() schema.Schema
 }
 
 // Telemeter is responsible for managing the transmission of telemetry data
 type Telemeter struct {
 	machineID         strfmt.UUID
 	nodesStatusGetter nodesStatusGetter
-	modulesProvider   modulesProvider
+	schemaManager     schemaManager
 	logger            logrus.FieldLogger
 	shutdown          chan struct{}
 	failedToStart     bool
@@ -61,13 +62,13 @@ type Telemeter struct {
 }
 
 // New creates a new Telemeter instance
-func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
+func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	logger logrus.FieldLogger,
 ) *Telemeter {
 	tel := &Telemeter{
 		machineID:         strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter: nodesStatusGetter,
-		modulesProvider:   modulesProvider,
+		schemaManager:     schemaManager,
 		logger:            logger,
 		shutdown:          make(chan struct{}),
 		consumer:          defaultConsumer,
@@ -172,9 +173,9 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 }
 
 func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Payload, error) {
-	mods, err := tel.getEnabledModules()
+	usedMods, err := tel.getUsedModules()
 	if err != nil {
-		return nil, fmt.Errorf("get enabled modules: %w", err)
+		return nil, fmt.Errorf("get used modules: %w", err)
 	}
 
 	var objs int64
@@ -189,30 +190,57 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 	}
 
 	return &Payload{
-		MachineID:  tel.machineID,
-		Type:       payloadType,
-		Version:    config.ServerVersion,
-		Modules:    mods,
-		NumObjects: objs,
-		OS:         runtime.GOOS,
-		Arch:       runtime.GOARCH,
+		MachineID:   tel.machineID,
+		Type:        payloadType,
+		Version:     config.ServerVersion,
+		NumObjects:  objs,
+		OS:          runtime.GOOS,
+		Arch:        runtime.GOARCH,
+		UsedModules: usedMods,
 	}, nil
 }
 
-func (tel *Telemeter) getEnabledModules() (string, error) {
-	modMeta, err := tel.modulesProvider.GetMeta()
-	if err != nil {
-		return "", fmt.Errorf("meta from modules provider: %w", err)
+func (tel *Telemeter) getUsedModules() ([]string, error) {
+	sch := tel.schemaManager.GetSchemaSkipAuth()
+	usedModulesMap := map[string]struct{}{}
+
+	if sch.Objects != nil {
+		for _, class := range sch.Objects.Classes {
+			if modCfg, ok := class.ModuleConfig.(map[string]interface{}); ok {
+				for name, cfg := range modCfg {
+					usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
+				}
+			}
+			for _, vectorConfig := range class.VectorConfig {
+				if modCfg, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
+					for name, cfg := range modCfg {
+						usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
+					}
+				}
+			}
+		}
 	}
-	if len(modMeta) == 0 {
-		return "", nil
+
+	var usedModules []string
+	for modName := range usedModulesMap {
+		usedModules = append(usedModules, modName)
 	}
-	mods, i := make([]string, len(modMeta)), 0
-	for name := range modMeta {
-		mods[i], i = name, i+1
+	sort.Strings(usedModules)
+	return usedModules, nil
+}
+
+func (tel *Telemeter) determineModule(name string, cfg interface{}) string {
+	if strings.Contains(name, "palm") || strings.Contains(name, "google") {
+		if settings, ok := cfg.(map[string]interface{}); ok {
+			if apiEndpoint, ok := settings["apiEndpoint"]; ok {
+				if apiEndpointStr, ok := apiEndpoint.(string); ok && apiEndpointStr == "generativelanguage.googleapis.com" {
+					return fmt.Sprintf("%s-ai-studio", strings.Replace(name, "palm", "google", 1))
+				}
+			}
+		}
+		return fmt.Sprintf("%s-vertex-ai", strings.Replace(name, "palm", "google", 1))
 	}
-	sort.Strings(mods)
-	return strings.Join(mods, ","), nil
+	return name
 }
 
 func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {

@@ -23,7 +23,7 @@ import (
 func TestBackupMutex(t *testing.T) {
 	l, _ := tlog.NewNullLogger()
 	t.Run("success first time", func(t *testing.T) {
-		m := backupMutex{log: l, retryDuration: time.Millisecond, notifyDuration: 5 * time.Millisecond}
+		m := shardTransfer{log: l, retryDuration: time.Millisecond, notifyDuration: 5 * time.Millisecond}
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Millisecond)
 		defer cancel()
 		if err := m.LockWithContext(ctx); err != nil {
@@ -31,7 +31,7 @@ func TestBackupMutex(t *testing.T) {
 		}
 	})
 	t.Run("success after retry", func(t *testing.T) {
-		m := backupMutex{log: l, retryDuration: 2 * time.Millisecond, notifyDuration: 5 * time.Millisecond}
+		m := shardTransfer{log: l, retryDuration: 2 * time.Millisecond, notifyDuration: 5 * time.Millisecond}
 		m.RLock()
 		go func() {
 			defer m.RUnlock()
@@ -44,7 +44,7 @@ func TestBackupMutex(t *testing.T) {
 		}
 	})
 	t.Run("cancelled context", func(t *testing.T) {
-		m := backupMutex{log: l, retryDuration: time.Millisecond, notifyDuration: 5 * time.Millisecond}
+		m := shardTransfer{log: l, retryDuration: time.Millisecond, notifyDuration: 5 * time.Millisecond}
 		m.RLock()
 		defer m.RUnlock()
 		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Millisecond)

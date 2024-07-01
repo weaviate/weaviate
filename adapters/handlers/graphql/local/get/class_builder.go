@@ -78,11 +78,12 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 			},
 		},
 	})
+
 	classFields := graphql.Fields{}
 	for _, class := range kindSchema.Classes {
 		classField, err := b.classField(class, fusionAlgoEnum)
 		if err != nil {
-			return nil, fmt.Errorf("Could not build class for %s", class.Class)
+			return nil, fmt.Errorf("could not build class for %s", class.Class)
 		}
 		classFields[class.Class] = classField
 	}

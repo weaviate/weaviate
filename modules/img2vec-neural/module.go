@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/modules/img2vec-neural/vectorizer"
 )
 
+const Name = "img2vec-neural"
+
 func New() *ImageModule {
 	return &ImageModule{}
 }
@@ -46,7 +48,7 @@ type imageVectorizer interface {
 }
 
 func (m *ImageModule) Name() string {
-	return "img2vec-neural"
+	return Name
 }
 
 func (m *ImageModule) Type() modulecapabilities.ModuleType {

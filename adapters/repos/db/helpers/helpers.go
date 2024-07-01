@@ -25,6 +25,11 @@ var (
 	DimensionsBucketLSM        = "dimensions"
 )
 
+const (
+	ObjectsBucketLSMDocIDSecondaryIndex int = iota
+	ObjectsBucketLSMTokenRangeSecondaryIndex
+)
+
 // MetaCountProp helps create an internally used propName for meta props that
 // don't explicitly exist in the user schema, but are required for proper
 // indexing, such as the count of arrays.
@@ -64,4 +69,8 @@ func TempBucketFromBucketName(bucketName string) string {
 
 func BucketSearchableFromPropNameLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + "_searchable")
+}
+
+func BucketRangeableFromPropNameLSM(propName string) string {
+	return BucketFromPropNameLSM(propName + "_rangeable")
 }

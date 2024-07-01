@@ -15,6 +15,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -25,10 +26,11 @@ import (
 func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	dir := t.TempDir()
 
+	logger, _ := test.NewNullLogger()
 	cl, err := newCommitLogger(dir)
 	require.NoError(t, err)
 
-	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil)
+	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger)
 	require.Nil(t, err)
 	t.Cleanup(func() {
 		require.Nil(t, m.commitlog.close())

@@ -148,7 +148,7 @@ func (cv *ConfigValidator) checkForPossibilityOfDuplicateVectors(
 
 	cv.logger.WithField("module", "text2vec-transformers").
 		WithField("class", class.Class).
-		Warnf("text2vec-contextionary: Class %q does not have any properties "+
+		Warnf("text2vec-transformers: Class %q does not have any properties "+
 			"indexed (or only non text-properties indexed) and the vector position is "+
 			"only determined by the class name. Each object will end up with the same "+
 			"vector which leads to a severe performance penalty on imports. Consider "+

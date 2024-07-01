@@ -31,8 +31,8 @@ import (
 // swagger:model Tenant
 type Tenant struct {
 
-	// activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. Allowed values are `HOT` - tenant is fully active, `WARM` - tenant is active, some restrictions are imposed (TBD; not supported yet), `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, `FROZEN` - as COLD, but files are stored on cloud storage (not supported yet)
-	// Enum: [HOT WARM COLD FROZEN]
+	// activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. Allowed values are `HOT` - tenant is fully active, `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, `FROZEN` - as COLD, but files are stored on cloud storage
+	// Enum: [HOT COLD FROZEN]
 	ActivityStatus string `json:"activityStatus,omitempty"`
 
 	// name of the tenant
@@ -57,7 +57,7 @@ var tenantTypeActivityStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["HOT","WARM","COLD","FROZEN"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["HOT","COLD","FROZEN"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -69,9 +69,6 @@ const (
 
 	// TenantActivityStatusHOT captures enum value "HOT"
 	TenantActivityStatusHOT string = "HOT"
-
-	// TenantActivityStatusWARM captures enum value "WARM"
-	TenantActivityStatusWARM string = "WARM"
 
 	// TenantActivityStatusCOLD captures enum value "COLD"
 	TenantActivityStatusCOLD string = "COLD"

@@ -22,11 +22,8 @@ type BucketOption func(b *Bucket) error
 
 func WithStrategy(strategy string) BucketOption {
 	return func(b *Bucket) error {
-		switch strategy {
-		case StrategyReplace, StrategyMapCollection, StrategySetCollection,
-			StrategyRoaringSet:
-		default:
-			return errors.Errorf("unrecognized strategy %q", strategy)
+		if err := CheckExpectedStrategy(strategy); err != nil {
+			return err
 		}
 
 		b.strategy = strategy

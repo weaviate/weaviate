@@ -51,6 +51,20 @@ func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *tim
 			if err := c.container.Stop(ctx, timeout); err != nil {
 				return fmt.Errorf("cannot stop %q: %w", c.name, err)
 			}
+			break
+		}
+	}
+	return nil
+}
+
+func (d *DockerCompose) TerminateContainer(ctx context.Context, container string) error {
+	for idx, c := range d.containers {
+		if c.name == container {
+			if err := c.container.Terminate(ctx); err != nil {
+				return fmt.Errorf("cannot stop %q: %w", c.name, err)
+			}
+			d.containers = append(d.containers[:idx], d.containers[idx+1:]...)
+			break
 		}
 	}
 	return nil
@@ -136,6 +150,13 @@ func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
 
 func (d *DockerCompose) GetWeaviateNode3() *DockerContainer {
 	return d.getContainerByName(Weaviate3)
+}
+
+func (d *DockerCompose) GetWeaviateNode(n int) *DockerContainer {
+	if n == 1 {
+		return d.GetWeaviate()
+	}
+	return d.getContainerByName(fmt.Sprintf("%s%d", Weaviate, n))
 }
 
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {

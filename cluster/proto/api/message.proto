@@ -50,6 +50,7 @@ message ApplyRequest {
     TYPE_ADD_TENANT = 16;
     TYPE_UPDATE_TENANT = 17;
     TYPE_DELETE_TENANT = 18;
+    TYPE_TENANT_PROCESS = 19;    
 
     TYPE_STORE_SCHEMA_V1 = 99;
   }
@@ -90,6 +91,30 @@ message AddTenantsRequest {
 
 message UpdateTenantsRequest {
   repeated Tenant tenants = 1;
+  repeated string cluster_nodes = 2;
+}
+
+message TenantsProcess {
+  enum Op {
+    OP_UNSPECIFIED = 0;
+    OP_START = 1;
+    OP_DONE = 2;
+    OP_ABORT = 3;
+  }
+
+  Op op = 1;  
+  Tenant tenant =2;
+}
+
+message TenantProcessRequest {
+  enum Action {
+    ACTION_UNSPECIFIED = 0;
+    ACTION_FREEZING = 1;
+    ACTION_UNFREEZING = 2;
+  }
+  string node = 1;
+  Action action = 2;
+  TenantsProcess process = 3;
 }
 
 message DeleteTenantsRequest {

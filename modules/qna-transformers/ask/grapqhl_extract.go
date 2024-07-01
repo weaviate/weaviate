@@ -11,7 +11,9 @@
 
 package ask
 
-func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) interface{} {
+import "github.com/weaviate/weaviate/entities/dto"
+
+func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 	var args AskParams
 
 	question, ok := source["question"].(string)
@@ -58,5 +60,5 @@ func (g *GraphQLArgumentsProvider) extractAskFn(source map[string]interface{}) i
 		args.Rerank = rerank.(bool)
 	}
 
-	return &args
+	return &args, nil, nil
 }

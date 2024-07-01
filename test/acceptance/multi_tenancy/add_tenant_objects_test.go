@@ -12,12 +12,12 @@
 package test
 
 import (
+	"fmt"
 	"testing"
-
-	"github.com/weaviate/weaviate/client/objects"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
@@ -85,7 +85,7 @@ func TestAddTenantObjects(t *testing.T) {
 
 	t.Run("add tenant objects", func(t *testing.T) {
 		for _, obj := range tenantObjects {
-			helper.CreateObject(t, obj)
+			assert.Nil(t, helper.CreateObject(t, obj))
 		}
 	})
 
@@ -163,4 +163,84 @@ func TestAddObjectWithNonexistentTenantToMultiClass(t *testing.T) {
 	params := objects.NewObjectsCreateParams().WithBody(objWithTenant)
 	_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
 	require.NotNil(t, err)
+}
+
+func TestAddTenantObjectsWithAutoTenantCreation(t *testing.T) {
+	className := "AutoTenantClass"
+	testClass := models.Class{
+		Class: className,
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled:            true,
+			AutoTenantCreation: true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		},
+	}
+	tenantObjectsWithID := []*models.Object{
+		{
+			ID:    "0927a1e0-398e-4e76-91fb-04a7a8f0405c",
+			Class: className,
+		},
+		{
+			ID:    "831ae1d0-f441-44b1-bb2a-46548048e26f",
+			Class: className,
+		},
+		{
+			ID:    "6f3363e0-c0a0-4618-bf1f-b6cad9cdff59",
+			Class: className,
+		},
+	}
+	tenantObjectsNoID := []*models.Object{
+		{Class: className},
+		{Class: className},
+		{Class: className},
+	}
+	objectsToCreate := append(tenantObjectsWithID, tenantObjectsNoID...)
+	tenantNames := func() []string {
+		names := make([]string, len(objectsToCreate))
+		for i := range objectsToCreate {
+			names[i] = fmt.Sprintf("NonExistentTenant%d", i)
+		}
+		return names
+	}()
+	for i := range objectsToCreate {
+		objectsToCreate[i].Properties = map[string]interface{}{
+			"name": fmt.Sprintf("obj-%d", i),
+		}
+		objectsToCreate[i].Tenant = tenantNames[i]
+	}
+
+	defer func() {
+		helper.DeleteClass(t, className)
+	}()
+
+	t.Run("create class with multi-tenancy and autoTenantCreation enabled", func(t *testing.T) {
+		helper.CreateClass(t, &testClass)
+	})
+
+	// Don't create the tenants first :)
+
+	t.Run("add tenant objects", func(t *testing.T) {
+		for i, obj := range objectsToCreate {
+			res, err := helper.CreateObjectWithResponse(t, obj)
+			require.Nil(t, err)
+			if obj.ID == "" {
+				// Some of the test objects were created without ID
+				objectsToCreate[i].ID = res.ID
+			}
+		}
+	})
+
+	t.Run("verify object creation", func(t *testing.T) {
+		for i, obj := range objectsToCreate {
+			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
+			require.Nil(t, err)
+			assert.Equal(t, obj.Class, resp.Class)
+			assert.Equal(t, obj.Properties, resp.Properties)
+		}
+	})
 }

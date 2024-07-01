@@ -59,6 +59,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Distribution: hnsw.DefaultPQEncoderDistribution,
 						},
 					},
+					SQ: hnsw.SQConfig{
+						Enabled:       hnsw.DefaultSQEnabled,
+						TrainingLimit: hnsw.DefaultSQTrainingLimit,
+						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -69,6 +74,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Cache:        flat.DefaultVectorCache,
 					},
 					BQ: flat.CompressionUserConfig{
+						Enabled:      flat.DefaultCompressionEnabled,
+						RescoreLimit: flat.DefaultCompressionRescore,
+						Cache:        flat.DefaultVectorCache,
+					},
+					SQ: flat.CompressionUserConfig{
 						Enabled:      flat.DefaultCompressionEnabled,
 						RescoreLimit: flat.DefaultCompressionRescore,
 						Cache:        flat.DefaultVectorCache,
@@ -106,6 +116,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Distribution: hnsw.DefaultPQEncoderDistribution,
 						},
 					},
+					SQ: hnsw.SQConfig{
+						Enabled:       hnsw.DefaultSQEnabled,
+						TrainingLimit: hnsw.DefaultSQTrainingLimit,
+						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -116,6 +131,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Cache:        flat.DefaultVectorCache,
 					},
 					BQ: flat.CompressionUserConfig{
+						Enabled:      flat.DefaultCompressionEnabled,
+						RescoreLimit: flat.DefaultCompressionRescore,
+						Cache:        flat.DefaultVectorCache,
+					},
+					SQ: flat.CompressionUserConfig{
 						Enabled:      flat.DefaultCompressionEnabled,
 						RescoreLimit: flat.DefaultCompressionRescore,
 						Cache:        flat.DefaultVectorCache,
@@ -172,6 +192,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Distribution: hnsw.DefaultPQEncoderDistribution,
 						},
 					},
+					SQ: hnsw.SQConfig{
+						Enabled:       hnsw.DefaultSQEnabled,
+						TrainingLimit: hnsw.DefaultSQTrainingLimit,
+						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -182,6 +207,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Cache:        flat.DefaultVectorCache,
 					},
 					BQ: flat.CompressionUserConfig{
+						Enabled:      flat.DefaultCompressionEnabled,
+						RescoreLimit: flat.DefaultCompressionRescore,
+						Cache:        flat.DefaultVectorCache,
+					},
+					SQ: flat.CompressionUserConfig{
 						Enabled:      flat.DefaultCompressionEnabled,
 						RescoreLimit: flat.DefaultCompressionRescore,
 						Cache:        flat.DefaultVectorCache,
@@ -227,6 +257,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 							Distribution: hnsw.DefaultPQEncoderDistribution,
 						},
 					},
+					SQ: hnsw.SQConfig{
+						Enabled:       hnsw.DefaultSQEnabled,
+						TrainingLimit: hnsw.DefaultSQTrainingLimit,
+						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: 100,
@@ -240,6 +275,11 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:      true,
 						RescoreLimit: 100,
 						Cache:        true,
+					},
+					SQ: flat.CompressionUserConfig{
+						Enabled:      flat.DefaultCompressionEnabled,
+						RescoreLimit: flat.DefaultCompressionRescore,
+						Cache:        flat.DefaultVectorCache,
 					},
 				},
 			},

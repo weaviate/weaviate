@@ -194,4 +194,4 @@ func (f fakeAllocChecker) CheckAlloc(sizeInBytes int64) error {
 func (f fakeAllocChecker) CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error {
 	return nil
 }
-func (f fakeAllocChecker) Refresh() {}
+func (f fakeAllocChecker) Refresh(updateMappings bool) {}

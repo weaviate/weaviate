@@ -18,6 +18,10 @@ import (
 
 func init() {
 	if cpu.ARM64.HasASIMD {
-		dotProductImplementation = asm.Dot
+		if cpu.ARM64.HasSVE {
+			dotProductImplementation = asm.Dot_SVE
+		} else {
+			dotProductImplementation = asm.Dot_Neon
+		}
 	}
 }

@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/modules/multi2vec-clip/vectorizer"
 )
 
+const Name = "multi2vec-clip"
+
 func New() *ClipModule {
 	return &ClipModule{}
 }
@@ -59,7 +61,7 @@ type textVectorizer interface {
 }
 
 func (m *ClipModule) Name() string {
-	return "multi2vec-clip"
+	return Name
 }
 
 func (m *ClipModule) Type() modulecapabilities.ModuleType {

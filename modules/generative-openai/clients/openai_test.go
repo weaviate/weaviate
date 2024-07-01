@@ -26,8 +26,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -91,11 +91,11 @@ func TestGetAnswer(t *testing.T) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
-		expected := generativemodels.GenerateResponse{
+		expected := modulecapabilities.GenerateResponse{
 			Result: ptString("John"),
 		}
 
-		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
+		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, *res)
@@ -117,7 +117,7 @@ func TestGetAnswer(t *testing.T) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
-		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
+		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
 
 		require.NotNil(t, err)
 		assert.Error(t, err, "connection to OpenAI failed with status: 500 error: some error from the server")

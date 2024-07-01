@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -74,8 +74,8 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 
 	migratePropertySettings(props...)
 
-	class.Properties = store.MergeProps(class.Properties, props)
-	version, err := h.metaWriter.AddProperty(class.Class, props...)
+	class.Properties = clusterSchema.MergeProps(class.Properties, props)
+	version, err := h.schemaManager.AddProperty(class.Class, props...)
 	if err != nil {
 		return nil, 0, err
 	}

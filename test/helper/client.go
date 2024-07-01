@@ -36,7 +36,9 @@ import (
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/require"
 	apiclient "github.com/weaviate/weaviate/client"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
 // Create a client that logs with t.Logf, if a *testing.T is provided.
@@ -68,4 +70,13 @@ func CreateAuth(apiKey strfmt.UUID, apiToken string) runtime.ClientAuthInfoWrite
 	}
 
 	return authWriter
+}
+
+func ClientGRPC(t *testing.T) pb.WeaviateClient {
+	conn, err := CreateGrpcConnectionClient(":50051")
+	require.NoError(t, err)
+	require.NotNil(t, conn)
+	grpcClient := CreateGrpcWeaviateClient(conn)
+	require.NotNil(t, grpcClient)
+	return grpcClient
 }

@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 
 	"github.com/buger/jsonparser"
@@ -471,7 +472,10 @@ func SearchResultsWithScore(in []*Object, scores []float32, additional additiona
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		score := scores[i]
+		score := float32(0.0)
+		if len(scores) > i {
+			score = scores[i]
+		}
 		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, tenant)
 	}
 
@@ -491,20 +495,43 @@ func SearchResultsWithDists(in []*Object, addl additional.Properties,
 }
 
 func DocIDFromBinary(in []byte) (uint64, error) {
-	var version uint8
+	if len(in) < 9 {
+		return 0, errors.Errorf("binary data too short")
+	}
+	// first by is kind, then 8 bytes for the docID
+	return binary.LittleEndian.Uint64(in[1:9]), nil
+}
+
+func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err error) {
 	r := bytes.NewReader(in)
+
+	var version uint8
+
 	le := binary.LittleEndian
+
 	if err := binary.Read(r, le, &version); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	if version != 1 {
-		return 0, errors.Errorf("unsupported binary marshaller version %d", version)
+		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	var docID uint64
-	err := binary.Read(r, le, &docID)
-	return docID, err
+	err = binary.Read(r, le, &docID)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var buf [1 + 16 + 8 + 8]byte // kind uuid createtime updatetime
+
+	_, err = io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, 0, err
+	}
+
+	updateTime = int64(binary.LittleEndian.Uint64(buf[1+16+8:]))
+
+	return docID, updateTime, nil
 }
 
 // MarshalBinary creates the binary representation of a kind object. Regardless

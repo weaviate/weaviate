@@ -135,13 +135,15 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object, override
 // Corpi takes any list of strings and builds a common vector for all of them
 func (v *Vectorizer) Corpi(ctx context.Context, corpi []string,
 ) ([]float32, error) {
+	// can be written to concurrently if multiple named vectors are used
+	corpiTmp := make([]string, len(corpi))
 	for i, corpus := range corpi {
-		corpi[i] = camelCaseToLower(corpus)
+		corpiTmp[i] = camelCaseToLower(corpus)
 	}
 
-	vector, _, err := v.client.VectorForCorpi(ctx, corpi, nil)
+	vector, _, err := v.client.VectorForCorpi(ctx, corpiTmp, nil)
 	if err != nil {
-		return nil, fmt.Errorf("vectorizing corpus '%+v': %v", corpi, err)
+		return nil, fmt.Errorf("vectorizing corpus '%+v': %v", corpiTmp, err)
 	}
 
 	return vector, nil

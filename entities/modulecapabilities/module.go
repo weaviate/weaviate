@@ -21,6 +21,7 @@ import (
 type ModuleType string
 
 const (
+	Offload             ModuleType = "Offload"
 	Backup              ModuleType = "Backup"
 	Extension           ModuleType = "Extension"
 	Img2Vec             ModuleType = "Img2Vec"

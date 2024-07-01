@@ -14,32 +14,41 @@ package generate
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/usecases/configbase"
 )
 
 const maximumNumberOfGoroutines = 10
 
-type generativeClient interface {
-	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error)
-}
-
 type GenerateProvider struct {
-	client                    generativeClient
-	maximumNumberOfGoroutines int
-	logger                    logrus.FieldLogger
+	additionalGenerativeParameters map[string]modulecapabilities.GenerativeProperty
+	defaultProviderName            string
+	maximumNumberOfGoroutines      int
+	logger                         logrus.FieldLogger
+	isDynamicRAGSyntaxEnabled      bool
 }
 
-func New(client generativeClient, logger logrus.FieldLogger) *GenerateProvider {
-	return &GenerateProvider{client, maximumNumberOfGoroutines, logger}
+func NewGeneric(
+	additionalGenerativeParameters map[string]modulecapabilities.GenerativeProperty,
+	defaultProviderName string,
+	logger logrus.FieldLogger,
+) *GenerateProvider {
+	return &GenerateProvider{
+		additionalGenerativeParameters: additionalGenerativeParameters,
+		defaultProviderName:            defaultProviderName,
+		maximumNumberOfGoroutines:      maximumNumberOfGoroutines,
+		logger:                         logger,
+		isDynamicRAGSyntaxEnabled:      configbase.Enabled(os.Getenv("EXPERIMENTAL_DYNAMIC_RAG_SYNTAX")),
+	}
 }
 
 func (p *GenerateProvider) AdditionalPropertyDefaultValue() interface{} {
@@ -59,6 +68,13 @@ func (p *GenerateProvider) AdditionalPropertyFn(ctx context.Context,
 	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	if parameters, ok := params.(*Params); ok {
+		if len(parameters.Options) > 1 {
+			var providerNames []string
+			for name := range parameters.Options {
+				providerNames = append(providerNames, name)
+			}
+			return nil, fmt.Errorf("multiple providers selected: %v, please choose only one", providerNames)
+		}
 		return p.generateResult(ctx, in, parameters, limit, argumentModuleParams, cfg)
 	}
 	return nil, errors.New("wrong parameters")

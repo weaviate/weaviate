@@ -13,6 +13,7 @@ package inverted
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"sync"
@@ -23,18 +24,20 @@ import (
 
 var MAX_BUCKETS = 64
 
-type PropLenData struct {
+type ShardMetaData struct {
 	BucketedData map[string]map[int]int
 	SumData      map[string]int
 	CountData    map[string]int
+	ObjectCount  int
 }
 
-type JsonPropertyLengthTracker struct {
+type JsonShardMetaData struct {
 	path string
-	data *PropLenData
+	data *ShardMetaData // Only this part is saved in the file
 	sync.Mutex
 	UnlimitedBuckets bool
 	logger           logrus.FieldLogger
+	closed           bool
 }
 
 // This class replaces the old PropertyLengthTracker.  It fixes a bug and provides a
@@ -61,23 +64,23 @@ type JsonPropertyLengthTracker struct {
 //
 // Note that some of the code in this file is forced by the need to be backwards-compatible with the old format.  Once we are confident that all users have migrated to the new format, we can remove the old format code and simplify this file.
 
-// NewJsonPropertyLengthTracker creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
-func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *JsonPropertyLengthTracker, err error) {
+// NewJsonShardMetaData creates a new tracker and loads the data from the given path.  If the file is in the old format, it will be converted to the new format.
+func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardMetaData, err error) {
 	// Recover and return empty tracker on panic
 	defer func() {
 		if r := recover(); r != nil {
-			t.logger.Printf("Recovered from panic in NewJsonPropertyLengthTracker, original error: %v", r)
-			t = &JsonPropertyLengthTracker{
-				data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
+			t.logger.Warnf("Recovered from panic in NewJsonShardMetaData, original error: %v", r)
+			t = &JsonShardMetaData{
+				data:             &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
 				path:             path,
 				UnlimitedBuckets: false,
 			}
-			err = errors.Errorf("Recovered from panic in NewJsonPropertyLengthTracker, original error: %v", r)
+			err = errors.Errorf("Recovered from panic in NewJsonShardMetaData, original error: %v", r)
 		}
 	}()
 
-	t = &JsonPropertyLengthTracker{
-		data:             &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)},
+	t = &JsonShardMetaData{
+		data:             &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
 		path:             path,
 		UnlimitedBuckets: false,
 		logger:           logger,
@@ -87,7 +90,8 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 	bytes, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) { // File doesn't exist, probably a new class(or a recount), return empty tracker
-			t.Flush(false)
+			logger.Warnf("prop len tracker file %s does not exist, creating new tracker", path)
+			t.Flush()
 			return t, nil
 		}
 		return nil, errors.Wrap(err, "read property length tracker file:"+path)
@@ -106,7 +110,7 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 		}
 
 		propertyNames := plt.PropertyNames()
-		data := &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+		data := &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 		// Loop over every page and bucket in the old tracker and add it to the new tracker
 		for _, name := range propertyNames {
 			data.BucketedData[name] = make(map[int]int, MAX_BUCKETS)
@@ -134,10 +138,9 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 			}
 		}
 		t.data = data
-		t.Flush(true)
 		plt.Close()
 		plt.Drop()
-		t.Flush(false)
+		t.Flush()
 	}
 	t.path = path
 
@@ -145,30 +148,64 @@ func NewJsonPropertyLengthTracker(path string, logger logrus.FieldLogger) (t *Js
 	if t.data == nil {
 		return nil, errors.Errorf("failed sanity check, prop len tracker file %s has nil data.  Delete file and set environment variable RECOUNT_PROPERTIES_AT_STARTUP to true", path)
 	}
+	t.Flush()
 	return t, nil
 }
 
-func (t *JsonPropertyLengthTracker) Clear() {
+func (t *JsonShardMetaData) Clear() {
+	if t == nil {
+		return
+	}
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return
+	}
 
-	t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+	t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
+	t.lockFreeFlush()
 }
 
 // Path to the file on disk
-func (t *JsonPropertyLengthTracker) FileName() string {
+func (t *JsonShardMetaData) FileName() string {
+	if t == nil {
+		return ""
+	}
+
 	return t.path
 }
 
-// Adds a new value to the tracker
-func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32) error {
+func (t *JsonShardMetaData) TrackObjects(delta int) error {
+	if t == nil {
+		return nil
+	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
+
+	t.data.ObjectCount = t.data.ObjectCount + delta
+	return nil
+}
+
+// Adds a new value to the tracker
+func (t *JsonShardMetaData) TrackProperty(propName string, value float32) error {
+	if t == nil {
+		return nil
+	}
+
+	t.Lock()
+	defer t.Unlock()
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
-		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] + int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] + 1
@@ -186,14 +223,21 @@ func (t *JsonPropertyLengthTracker) TrackProperty(propName string, value float32
 }
 
 // Removes a value from the tracker
-func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float32) error {
+func (t *JsonShardMetaData) UnTrackProperty(propName string, value float32) error {
+	if t == nil {
+		return nil
+	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return fmt.Errorf("tracker is closed")
+	}
 
 	// Remove this check once we are confident that all users have migrated to the new format
 	if t.data == nil {
 		t.logger.Print("WARNING: t.data is nil in TrackProperty, initializing to empty tracker")
-		t.data = &PropLenData{make(map[string]map[int]int), make(map[string]int), make(map[string]int)}
+		t.data = &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0}
 	}
 	t.data.SumData[propName] = t.data.SumData[propName] - int(value)
 	t.data.CountData[propName] = t.data.CountData[propName] - 1
@@ -209,7 +253,10 @@ func (t *JsonPropertyLengthTracker) UnTrackProperty(propName string, value float
 }
 
 // Returns the bucket that the given value belongs to
-func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
+func (t *JsonShardMetaData) bucketFromValue(value float32) int {
+	if t == nil {
+		return 0
+	}
 	if t.UnlimitedBuckets {
 		return int(value)
 	}
@@ -225,9 +272,16 @@ func (t *JsonPropertyLengthTracker) bucketFromValue(value float32) int {
 }
 
 // Returns the average length of the given property
-func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, error) {
+func (t *JsonShardMetaData) PropertyMean(propName string) (float32, error) {
+	if t == nil {
+		return 0, nil
+	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return 0, fmt.Errorf("tracker is closed")
+	}
 
 	sum, ok := t.data.SumData[propName]
 	if !ok {
@@ -242,9 +296,17 @@ func (t *JsonPropertyLengthTracker) PropertyMean(propName string) (float32, erro
 }
 
 // returns totalPropertyLength, totalCount, average propertyLength = sum / totalCount, total propertylength, totalCount, error
-func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, float64, error) {
+func (t *JsonShardMetaData) PropertyTally(propName string) (int, int, float64, error) {
+	if t == nil {
+		return 0, 0, 0, nil
+	}
+
 	t.Lock()
 	defer t.Unlock()
+	if t.closed {
+		return 0, 0, 0, fmt.Errorf("tracker is closed")
+	}
+
 	sum, ok := t.data.SumData[propName]
 	if !ok {
 		return 0, 0, 0, nil // Required to match the old prop tracker (for now)
@@ -256,14 +318,33 @@ func (t *JsonPropertyLengthTracker) PropertyTally(propName string) (int, int, fl
 	return sum, count, float64(sum) / float64(count), nil
 }
 
-// Writes the current state of the tracker to disk.  (flushBackup = true) will only write the backup file
-func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
-	if !flushBackup { // Write the backup file first
-		t.Flush(true)
+// Returns the number of documents stored in the shard
+func (t *JsonShardMetaData) ObjectTally() int {
+	if t == nil {
+		return 0
 	}
 
 	t.Lock()
 	defer t.Unlock()
+
+	return t.data.ObjectCount
+}
+
+func (t *JsonShardMetaData) Flush() error {
+	if t == nil {
+		return nil
+	}
+
+	t.Lock()
+	defer t.Unlock()
+
+	return t.lockFreeFlush()
+}
+
+func (t *JsonShardMetaData) lockFreeFlush() error {
+	if t.closed {
+		return fmt.Errorf("cannot flush closed tracker")
+	}
 
 	bytes, err := json.Marshal(t.data)
 	if err != nil {
@@ -271,14 +352,11 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	}
 
 	filename := t.path
-	if flushBackup {
-		filename = t.path + ".bak"
-	}
 
 	// Do a write+rename to avoid corrupting the file if we crash while writing
 	tempfile := filename + ".tmp"
 
-	err = WriteFile(tempfile, bytes, 0o666)
+	err = os.WriteFile(tempfile, bytes, 0o666)
 	if err != nil {
 		return err
 	}
@@ -291,27 +369,20 @@ func (t *JsonPropertyLengthTracker) Flush(flushBackup bool) error {
 	return nil
 }
 
-func WriteFile(name string, data []byte, perm os.FileMode) error {
-	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
-	if err != nil {
-		return err
+func (t *JsonShardMetaData) SetWantFlush(val bool) {
+	t.Lock()
+	defer t.Unlock()
+	if t.closed {
+		return
 	}
-	defer f.Close()
-
-	_, err = f.Write(data)
-	if err != nil {
-		return err
-	}
-
-	// TODO: f.Sync() is introducing performance penalization at this point
-	// it will be addressed as part of another PR
-
-	return nil
 }
 
 // Closes the tracker and removes the backup file
-func (t *JsonPropertyLengthTracker) Close() error {
-	if err := t.Flush(false); err != nil {
+func (t *JsonShardMetaData) Close() error {
+	if t == nil {
+		return nil
+	}
+	if err := t.Flush(); err != nil {
 		return errors.Wrap(err, "flush before closing")
 	}
 
@@ -319,12 +390,16 @@ func (t *JsonPropertyLengthTracker) Close() error {
 	defer t.Unlock()
 
 	clear(t.data.BucketedData)
+	t.closed = true
 
 	return nil
 }
 
 // Drop removes the tracker from disk
-func (t *JsonPropertyLengthTracker) Drop() error {
+func (t *JsonShardMetaData) Drop() error {
+	if t == nil {
+		return nil
+	}
 	t.Close()
 
 	t.Lock()
@@ -332,12 +407,13 @@ func (t *JsonPropertyLengthTracker) Drop() error {
 
 	clear(t.data.BucketedData)
 
-	if err := os.Remove(t.path); err != nil {
-		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path)
-	}
-	if err := os.Remove(t.path + ".bak"); err != nil {
-		return errors.Wrap(err, "remove prop length tracker state from disk:"+t.path+".bak")
-	}
+	os.Remove(t.path)
+	os.Remove(t.path + ".bak")
 
 	return nil
+}
+
+func (t *JsonShardMetaData) CycleFlush() bool {
+	err := t.Flush()
+	return err == nil
 }

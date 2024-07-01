@@ -17,6 +17,7 @@ import (
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/utils"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -24,7 +25,7 @@ import (
 
 type ModulesProvider interface {
 	GetArguments(class *models.Class) map[string]*graphql.ArgumentConfig
-	ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{}
+	ExtractSearchParams(arguments map[string]interface{}, className string) (map[string]interface{}, map[string]*dto.TargetCombination)
 	GetAdditionalFields(class *models.Class) map[string]*graphql.Field
 	ExtractAdditionalField(className, name string, params []*ast.Argument) interface{}
 	GraphQLAdditionalFieldNames() []string

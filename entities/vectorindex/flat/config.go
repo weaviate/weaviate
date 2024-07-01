@@ -37,6 +37,7 @@ type UserConfig struct {
 	VectorCacheMaxObjects int                   `json:"vectorCacheMaxObjects"`
 	PQ                    CompressionUserConfig `json:"pq"`
 	BQ                    CompressionUserConfig `json:"bq"`
+	SQ                    CompressionUserConfig `json:"sq"`
 }
 
 // IndexType returns the type of the underlying vector index, thus making sure
@@ -59,6 +60,8 @@ func (u *UserConfig) SetDefaults() {
 	u.PQ.RescoreLimit = DefaultCompressionRescore
 	u.BQ.Enabled = DefaultCompressionEnabled
 	u.BQ.RescoreLimit = DefaultCompressionRescore
+	u.SQ.Enabled = DefaultCompressionEnabled
+	u.SQ.RescoreLimit = DefaultCompressionRescore
 }
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
@@ -88,81 +91,91 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 		return uc, err
 	}
 
-	if err := parseCompressionMap(asMap, &uc); err != nil {
+	if err := parseCompression(asMap, &uc); err != nil {
 		return uc, err
 	}
 
 	return uc, nil
 }
 
-func parseCompressionMap(in map[string]interface{}, uc *UserConfig) error {
+func parseCompressionMap(in interface{}, cuc *CompressionUserConfig) error {
+	configMap, ok := in.(map[string]interface{})
+	if ok {
+		if err := vectorindexcommon.OptionalBoolFromMap(configMap, "enabled", func(v bool) {
+			cuc.Enabled = v
+		}); err != nil {
+			return err
+		}
+
+		if err := vectorindexcommon.OptionalBoolFromMap(configMap, "cache", func(v bool) {
+			cuc.Cache = v
+		}); err != nil {
+			return err
+		}
+
+		if err := vectorindexcommon.OptionalIntFromMap(configMap, "rescoreLimit", func(v int) {
+			cuc.RescoreLimit = v
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseCompression(in map[string]interface{}, uc *UserConfig) error {
 	pqConfigValue, pqOk := in["pq"]
 	bqConfigValue, bqOk := in["bq"]
-	if !pqOk && !bqOk {
+	sqConfigValue, sqOk := in["sq"]
+
+	if !pqOk && !bqOk && !sqOk {
 		return nil
 	}
 
 	if pqOk {
-		pqConfigMap, ok := pqConfigValue.(map[string]interface{})
-		if ok {
-			if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "enabled", func(v bool) {
-				uc.PQ.Enabled = v
-			}); err != nil {
-				return err
-			}
-
-			if err := vectorindexcommon.OptionalBoolFromMap(pqConfigMap, "cache", func(v bool) {
-				uc.PQ.Cache = v
-			}); err != nil {
-				return err
-			}
-
-			if err := vectorindexcommon.OptionalIntFromMap(pqConfigMap, "rescoreLimit", func(v int) {
-				uc.PQ.RescoreLimit = v
-			}); err != nil {
-				return err
-			}
+		err := parseCompressionMap(pqConfigValue, &uc.PQ)
+		if err != nil {
+			return err
 		}
 	}
 
 	if bqOk {
-		bqConfigMap, ok := bqConfigValue.(map[string]interface{})
-		if !ok {
-			return nil
-		}
-
-		if err := vectorindexcommon.OptionalBoolFromMap(bqConfigMap, "enabled", func(v bool) {
-			uc.BQ.Enabled = v
-		}); err != nil {
+		err := parseCompressionMap(bqConfigValue, &uc.BQ)
+		if err != nil {
 			return err
 		}
-
-		if err := vectorindexcommon.OptionalBoolFromMap(bqConfigMap, "cache", func(v bool) {
-			uc.BQ.Cache = v
-		}); err != nil {
-			return err
-		}
-
-		if err := vectorindexcommon.OptionalIntFromMap(bqConfigMap, "rescoreLimit", func(v int) {
-			uc.BQ.RescoreLimit = v
-		}); err != nil {
-			return err
-		}
-
 	}
-	// TODO: remove once PQ is supported
+
+	if sqOk {
+		err := parseCompressionMap(sqConfigValue, &uc.SQ)
+		if err != nil {
+			return err
+		}
+	}
+
+	compressionConfigs := []CompressionUserConfig{uc.PQ, uc.BQ, uc.SQ}
+	totalEnabled := 0
+
+	for _, compressionConfig := range compressionConfigs {
+		if compressionConfig.Cache && !compressionConfig.Enabled {
+			return errors.New("not possible to use the cache without compression")
+		}
+		if compressionConfig.Enabled {
+			totalEnabled++
+		}
+	}
+
+	if totalEnabled > 1 {
+		return errors.New("cannot enable multiple quantization methods at the same time")
+	}
+
+	// TODO: remove once PQ and SQ are supported
 	if uc.PQ.Enabled {
 		return errors.New("PQ is not currently supported for flat indices")
 	}
-	if uc.PQ.Cache && !uc.PQ.Enabled {
-		return errors.New("not possible to use the cache without compression")
+	if uc.SQ.Enabled {
+		return errors.New("SQ is not currently supported for flat indices")
 	}
-	if uc.BQ.Cache && !uc.BQ.Enabled {
-		return errors.New("not possible to use the cache without compression")
-	}
-	if uc.PQ.Enabled && uc.BQ.Enabled {
-		return errors.New("cannot activate dual compression. Select either PQ or BQ please")
-	}
+
 	return nil
 }
 

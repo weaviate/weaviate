@@ -106,6 +106,10 @@ func (e ErrMultiTenancy) Error() string {
 	return e.err.Error()
 }
 
+func (e ErrMultiTenancy) Unwrap() error {
+	return e.err
+}
+
 // NewErrMultiTenancy with error signature
 func NewErrMultiTenancy(err error) ErrMultiTenancy {
 	return ErrMultiTenancy{err}

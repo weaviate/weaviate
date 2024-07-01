@@ -243,7 +243,7 @@ func multiTenancyEnabled(t *testing.T) {
 
 	t.Run("DeleteObject", func(t *testing.T) {
 		t.Run("OnNode-1", func(t *testing.T) {
-			deleteTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String())
+			deleteTenantObject(t, compose.ContainerURI(1), "Article", articleIDs[0], tenantID.String(), replica.All)
 		})
 
 		t.Run("StopNode-3", func(t *testing.T) {
@@ -264,7 +264,7 @@ func multiTenancyEnabled(t *testing.T) {
 	t.Run("BatchAllObjects", func(t *testing.T) {
 		t.Run("OnNode-2", func(t *testing.T) {
 			deleteTenantObjects(t, compose.ContainerURI(2),
-				"Article", []string{"title"}, "Article#*", tenantID.String())
+				"Article", []string{"title"}, "Article#*", tenantID.String(), replica.All)
 		})
 
 		t.Run("StopNode-2", func(t *testing.T) {

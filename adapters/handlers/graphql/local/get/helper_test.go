@@ -164,6 +164,10 @@ func (n nearCustomTextParams) GetTargetVectors() []string {
 	return n.TargetVectors
 }
 
+func (n nearCustomTextParams) GetTargetCombination() *dto.TargetCombination {
+	return nil
+}
+
 type nearExploreMove struct {
 	Values  []string
 	Force   float32
@@ -304,7 +308,7 @@ func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *grap
 	}
 }
 
-func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) *nearCustomTextParams {
+func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) (*nearCustomTextParams, *dto.TargetCombination, error) {
 	var args nearCustomTextParams
 
 	concepts := source["concepts"].([]interface{})
@@ -337,7 +341,7 @@ func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]i
 		args.MoveAwayFrom = m.parseMoveParam(moveAwayFromMap)
 	}
 
-	return &args
+	return &args, nil, nil
 }
 
 func (m *nearCustomTextModule) parseMoveParam(source map[string]interface{}) nearExploreMove {
@@ -378,7 +382,7 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		GetArgumentsFunction: func(classname string) *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument(classname)
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 			return m.extractNearCustomTextArgument(source)
 		},
 		ValidateFunction: func(param interface{}) error {
@@ -541,12 +545,12 @@ func (fmp *fakeModulesProvider) GetArguments(class *models.Class) map[string]*gr
 	return args
 }
 
-func (fmp *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) map[string]interface{} {
+func (fmp *fakeModulesProvider) ExtractSearchParams(arguments map[string]interface{}, className string) (map[string]interface{}, map[string]*dto.TargetCombination) {
 	exractedParams := map[string]interface{}{}
 	if param, ok := arguments["nearCustomText"]; ok {
 		exractedParams["nearCustomText"] = extractNearTextParam(param.(map[string]interface{}))
 	}
-	return exractedParams
+	return exractedParams, nil
 }
 
 func (fmp *fakeModulesProvider) GetAdditionalFields(class *models.Class) map[string]*graphql.Field {
@@ -583,7 +587,8 @@ func (fmp *fakeModulesProvider) GraphQLAdditionalFieldNames() []string {
 func extractNearTextParam(param map[string]interface{}) interface{} {
 	nearCustomTextModule := newNearCustomTextModule()
 	argument := nearCustomTextModule.Arguments()["nearCustomText"]
-	return argument.ExtractFunction(param)
+	params, _, _ := argument.ExtractFunction(param)
+	return params
 }
 
 func createArg(name string, value string) *ast.Argument {

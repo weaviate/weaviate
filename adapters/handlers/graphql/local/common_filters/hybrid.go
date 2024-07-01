@@ -14,6 +14,8 @@ package common_filters
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
@@ -24,7 +26,7 @@ const (
 )
 const HybridFusionDefault = HybridRelativeScoreFusion
 
-func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, error) {
+func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*searchparams.HybridSearch, *dto.TargetCombination, error) {
 	var subsearches []interface{}
 	operandsI := source["operands"]
 	if operandsI != nil {
@@ -49,7 +51,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 
 		if namedSearches["nearVector"] != nil {
 			nearVector := namedSearches["nearVector"].(map[string]interface{})
-			arguments, _ := ExtractNearVector(nearVector)
+			arguments, _, _ := ExtractNearVector(nearVector)
 			args.NearVectorParams = &arguments
 
 		}
@@ -81,7 +83,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 
 		case subsearch["nearVector"] != nil:
 			nearVector := subsearch["nearVector"].(map[string]interface{})
-			arguments, _ := ExtractNearVector(nearVector)
+			arguments, _, _ := ExtractNearVector(nearVector)
 
 			weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
 				SearchParams: arguments,
@@ -90,7 +92,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 			})
 
 		default:
-			return nil, fmt.Errorf("unknown subsearch type: %+v", subsearch)
+			return nil, nil, fmt.Errorf("unknown subsearch type: %+v", subsearch)
 		}
 	}
 
@@ -104,7 +106,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	}
 
 	if args.Alpha < 0 || args.Alpha > 1 {
-		return nil, fmt.Errorf("alpha should be between 0.0 and 1.0")
+		return nil, nil, fmt.Errorf("alpha should be between 0.0 and 1.0")
 	}
 
 	query, ok := source["query"]
@@ -134,25 +136,23 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		}
 	}
 
-	if _, ok := source["targetVectors"]; ok {
-		targetVectors := source["targetVectors"].([]interface{})
-		args.TargetVectors = make([]string, len(targetVectors))
-		for i, value := range targetVectors {
-			args.TargetVectors[i] = value.(string)
-		}
+	targetVectors, combination, err := ExtractTargets(source)
+	if err != nil {
+		return &searchparams.HybridSearch{}, nil, err
 	}
+	args.TargetVectors = targetVectors
 
 	args.Type = "hybrid"
 
 	if args.NearTextParams != nil && args.NearVectorParams != nil {
-		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
+		return nil, nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
 	}
 	if args.Vector != nil && args.NearTextParams != nil {
-		return nil, fmt.Errorf("cannot have both vector and nearTextParams")
+		return nil, nil, fmt.Errorf("cannot have both vector and nearTextParams")
 	}
 	if args.Vector != nil && args.NearVectorParams != nil {
-		return nil, fmt.Errorf("cannot have both vector and nearVectorParams")
+		return nil, nil, fmt.Errorf("cannot have both vector and nearVectorParams")
 	}
 
-	return &args, nil
+	return &args, combination, nil
 }

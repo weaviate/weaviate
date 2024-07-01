@@ -369,29 +369,37 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		return nil, fmt.Errorf("could not extract filters: %s", err)
 	}
 
+	var targetVectorCombination *dto.TargetCombination
 	var nearVectorParams *searchparams.NearVector
 	if nearVector, ok := p.Args["nearVector"]; ok {
-		p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+		p, targetCombination, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
 		}
 		nearVectorParams = &p
+		targetVectorCombination = targetCombination
 	}
 
 	var nearObjectParams *searchparams.NearObject
 	if nearObject, ok := p.Args["nearObject"]; ok {
-		p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+		p, targetCombination, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearObject params: %s", err)
 		}
 		nearObjectParams = &p
+		targetVectorCombination = targetCombination
 	}
 
 	var moduleParams map[string]interface{}
 	if r.modulesProvider != nil {
-		extractedParams := r.modulesProvider.ExtractSearchParams(p.Args, className)
+		extractedParams, extractedCombinations := r.modulesProvider.ExtractSearchParams(p.Args, className)
 		if len(extractedParams) > 0 {
 			moduleParams = extractedParams
+		}
+		if len(extractedCombinations) == 1 {
+			for _, val := range extractedCombinations {
+				targetVectorCombination = val
+			}
 		}
 	}
 
@@ -413,11 +421,12 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		if len(sort) > 0 {
 			return nil, fmt.Errorf("hybrid search is not compatible with sort")
 		}
-		p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), addlProps.ExplainScore)
+		p, targetCombination, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), addlProps.ExplainScore)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 		}
 		hybridParams = p
+		targetVectorCombination = targetCombination
 	}
 
 	var replProps *additional.ReplicationProperties
@@ -441,22 +450,23 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	}
 
 	params := dto.GetParams{
-		Filters:               filters,
-		ClassName:             className,
-		Pagination:            pagination,
-		Cursor:                cursor,
-		Properties:            properties,
-		Sort:                  sort,
-		NearVector:            nearVectorParams,
-		NearObject:            nearObjectParams,
-		Group:                 group,
-		ModuleParams:          moduleParams,
-		AdditionalProperties:  addlProps,
-		KeywordRanking:        keywordRankingParams,
-		HybridSearch:          hybridParams,
-		ReplicationProperties: replProps,
-		GroupBy:               groupByParams,
-		Tenant:                tenant,
+		Filters:                 filters,
+		ClassName:               className,
+		Pagination:              pagination,
+		Cursor:                  cursor,
+		Properties:              properties,
+		Sort:                    sort,
+		NearVector:              nearVectorParams,
+		NearObject:              nearObjectParams,
+		Group:                   group,
+		ModuleParams:            moduleParams,
+		AdditionalProperties:    addlProps,
+		KeywordRanking:          keywordRankingParams,
+		HybridSearch:            hybridParams,
+		ReplicationProperties:   replProps,
+		GroupBy:                 groupByParams,
+		Tenant:                  tenant,
+		TargetVectorCombination: targetVectorCombination,
 	}
 
 	// need to perform vector search by distance

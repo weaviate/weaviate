@@ -26,9 +26,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-anyscale/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	anyscaleparams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -49,24 +50,44 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *anysc
 	}
 }
 
-func (v *anyscale) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *anyscale) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *anyscale) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *anyscale) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *anyscale) getParameters(cfg moduletools.ClassConfig, options interface{}) anyscaleparams.Params {
 	settings := config.NewClassSettings(cfg)
+
+	var params anyscaleparams.Params
+	if p, ok := options.(anyscaleparams.Params); ok {
+		params = p
+	}
+	if params.Model == "" {
+		model := settings.Model()
+		params.Model = model
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	return params
+}
+
+func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	settings := config.NewClassSettings(cfg)
+	params := v.getParameters(cfg, options)
+	debugInformation := v.getDebugInformation(debug, prompt)
 
 	anyscaleUrl := v.getAnyscaleUrl(ctx, settings.BaseURL())
 	anyscalePrompt := []map[string]string{
@@ -75,8 +96,8 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 	}
 	input := generateInput{
 		Messages:    anyscalePrompt,
-		Model:       settings.Model(),
-		Temperature: settings.Temperature(),
+		Model:       params.Model,
+		Temperature: params.Temperature,
 	}
 
 	body, err := json.Marshal(input)
@@ -121,8 +142,9 @@ func (v *anyscale) Generate(ctx context.Context, cfg moduletools.ClassConfig, pr
 
 	textResponse := resBody.Choices[0].Message.Content
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
+		Debug:  debugInformation,
 	}, nil
 }
 
@@ -184,10 +206,19 @@ func (v *anyscale) getApiKey(ctx context.Context) (string, error) {
 		"nor in environment variable under ANYSCALE_APIKEY")
 }
 
+func (v *anyscale) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
 type generateInput struct {
 	Model       string              `json:"model"`
 	Messages    []map[string]string `json:"messages"`
-	Temperature int                 `json:"temperature"`
+	Temperature *float64            `json:"temperature,omitempty"`
 }
 
 type Message struct {

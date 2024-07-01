@@ -75,7 +75,7 @@ func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
 func createClusterEnvironment(ctx context.Context, palmApiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(palmApiKey).
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		Start(ctx)
 	return
 }

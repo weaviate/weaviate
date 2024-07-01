@@ -203,9 +203,10 @@ func DeleteClassObject(t *testing.T, class string) (*schema.SchemaObjectsDeleteO
 	return Client(t).Schema.SchemaObjectsDelete(delParams, nil)
 }
 
-func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) {
+func DeleteTenantObject(t *testing.T, class string, id strfmt.UUID, tenant string, cl replica.ConsistencyLevel) {
+	cls := string(cl)
 	params := objects.NewObjectsClassDeleteParams().
-		WithClassName(class).WithID(id).WithTenant(&tenant)
+		WithClassName(class).WithID(id).WithTenant(&tenant).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }

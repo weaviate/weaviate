@@ -11,7 +11,12 @@
 
 package lsmkv
 
-import "github.com/weaviate/weaviate/entities/lsmkv"
+import (
+	"io"
+
+	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/lsmkv"
+)
 
 type segmentCursorMap struct {
 	segment    *segment
@@ -95,6 +100,11 @@ func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
 	// for the next cycle
 	s.nextOffset = s.nextOffset + uint64(parsed.offset)
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			// an empty map could have been generated due to an issue in compaction
+			return nil, nil, lsmkv.NotFound
+		}
+
 		return parsed.primaryKey, nil, err
 	}
 

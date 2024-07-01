@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
+const Name = "text2vec-transformers"
+
 func New() *TransformersModule {
 	return &TransformersModule{}
 }
@@ -44,7 +46,7 @@ type TransformersModule struct {
 }
 
 func (m *TransformersModule) Name() string {
-	return "text2vec-transformers"
+	return Name
 }
 
 func (m *TransformersModule) Type() modulecapabilities.ModuleType {
