@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/tailor-inc/graphql"
@@ -24,7 +26,13 @@ import (
 	"github.com/weaviate/weaviate/modules/qna-transformers/ent"
 )
 
-type Params struct{}
+type Params struct {
+	properties []string
+}
+
+func (n Params) GetPropertiesToExtract() []string {
+	return n.properties
+}
 
 type qnaClient interface {
 	Answer(ctx context.Context,
@@ -53,7 +61,7 @@ func (p *AnswerProvider) AdditionalPropertyDefaultValue() interface{} {
 }
 
 func (p *AnswerProvider) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
-	return &Params{}
+	return &Params{properties: schema.GetPropertyNamesFromClass(class, false)}
 }
 
 func (p *AnswerProvider) AdditionalFieldFn(classname string) *graphql.Field {
