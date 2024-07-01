@@ -185,16 +185,9 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	}
 
 	if generativeSearchEnabled {
-		var generateFmt *additionalModels.GenerateResult
-
-		generate, ok := additionalPropertiesMap["generate"]
-		if !ok {
-			generateFmt = &additionalModels.GenerateResult{}
-		} else {
-			generateFmt, ok = generate.(*additionalModels.GenerateResult)
-			if !ok {
-				return nil, "", errors.New("could not cast generative result additional prop")
-			}
+		generateFmt, err := extractGenerateResult(additionalPropertiesMap)
+		if err != nil {
+			return nil, "", err
 		}
 
 		if generateFmt.Error != nil {
@@ -391,16 +384,9 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 
 	groupedGenerativeResults := ""
 	if generativeSearchEnabled {
-		var generateFmt *additionalModels.GenerateResult
-
-		generate, ok := addProps["generate"]
-		if !ok {
-			generateFmt = &additionalModels.GenerateResult{}
-		} else {
-			generateFmt, ok = generate.(*additionalModels.GenerateResult)
-			if !ok {
-				return nil, "", errors.New("could not cast generative result additional prop")
-			}
+		generateFmt, err := extractGenerateResult(addProps)
+		if err != nil {
+			return nil, "", err
 		}
 
 		generativeSearch, ok := generativeSearchRaw.(*generative.Params)
@@ -870,4 +856,30 @@ func extractArrayTypes(rawProps map[string]interface{}, props *pb.ObjectProperti
 		}
 	}
 	return nil
+}
+
+func extractGenerateResult(additionalPropertiesMap map[string]interface{}) (*additionalModels.GenerateResult, error) {
+	generateFmt := &additionalModels.GenerateResult{}
+	if generate, ok := additionalPropertiesMap["generate"]; ok {
+		generateParams, ok := generate.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("could not cast generative result additional prop")
+		}
+		if generateParams["singleResult"] != nil {
+			if singleResult, ok := generateParams["singleResult"].(*string); ok {
+				generateFmt.SingleResult = singleResult
+			}
+		}
+		if generateParams["groupedResult"] != nil {
+			if groupedResult, ok := generateParams["groupedResult"].(*string); ok {
+				generateFmt.GroupedResult = groupedResult
+			}
+		}
+		if generateParams["error"] != nil {
+			if err, ok := generateParams["error"].(error); ok {
+				generateFmt.Error = err
+			}
+		}
+	}
+	return generateFmt, nil
 }
