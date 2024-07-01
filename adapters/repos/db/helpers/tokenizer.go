@@ -31,7 +31,7 @@ var (
 )
 
 // Optional tokenizers can be enabled with an environment variable like:
-// 'ENABLE_TOKENIZER_XXX', e.g. 'ENABLE_TOKENIZER_GSE', 'ENABLE_TOKENIZER_KOREAN'
+// 'ENABLE_TOKENIZER_XXX', e.g. 'ENABLE_TOKENIZER_GSE', 'ENABLE_TOKENIZER_KAGOME_KR'
 var Tokenizations []string = []string{
 	models.PropertyTokenizationWord,
 	models.PropertyTokenizationLowercase,
@@ -44,7 +44,7 @@ func init() {
 	if os.Getenv("USE_GSE") == "true" || os.Getenv("ENABLE_TOKENIZER_GSE") == "true" {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
 	}
-	if os.Getenv("ENABLE_TOKENIZER_KOREAN") == "true" {
+	if os.Getenv("ENABLE_TOKENIZER_KAGOME_KR") == "true" {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
 	}
 	init_gse()
@@ -195,7 +195,7 @@ func initializeKagomeTokenizerKr() error {
 	kagomeInitLock.Lock()
 	defer kagomeInitLock.Unlock()
 
-	if os.Getenv("ENABLE_TOKENIZER_KOREAN") == "true" {
+	if os.Getenv("ENABLE_TOKENIZER_KAGOME_KR") == "true" {
 		if tokenizers.Korean != nil {
 			return nil
 		}

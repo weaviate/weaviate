@@ -591,8 +591,8 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 					return nil
 				}
 			case models.PropertyTokenizationKagomeKr:
-				if os.Getenv("ENABLE_TOKENIZER_KOREAN") != "true" {
-					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KOREAN' to 'true' to enable")
+				if os.Getenv("ENABLE_TOKENIZER_KAGOME_KR") != "true" {
+					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
 				} else {
 					return nil
 				}
