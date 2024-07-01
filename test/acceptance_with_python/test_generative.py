@@ -2,7 +2,8 @@ from typing import List
 
 import pytest
 import weaviate
-import weaviate.classes as wvc
+from _pytest.fixtures import SubRequest
+from .conftest import _sanitize_collection_name
 
 
 # the dummy generative module is not supported in the python client => create collection from dict
@@ -15,9 +16,11 @@ import weaviate.classes as wvc
         ("show me {prop}", "combine these", ["prop"]),
     ],
 )
-def test_generative(single: str, grouped: str, grouped_properties: List[str]) -> None:
+def test_generative(
+    single: str, grouped: str, grouped_properties: List[str], request: SubRequest
+) -> None:
     client = weaviate.connect_to_local()
-    collection_name = "TestGenerativeDummy"
+    collection_name = _sanitize_collection_name(request.node.name)
     client.collections.delete(name=collection_name)
     collection = client.collections.create_from_dict(
         {
