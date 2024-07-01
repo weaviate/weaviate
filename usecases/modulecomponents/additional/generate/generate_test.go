@@ -19,17 +19,21 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 func TestAdditionalAnswerProvider(t *testing.T) {
 	t.Run("should answer", func(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
-		openaiClient := &fakeOpenAIClient{}
-		answerProvider := New(openaiClient, logger)
+		client := &fakeClient{}
+		defaultProviderName := "openai"
+		additionalGenerativeParameters := map[string]modulecapabilities.GenerativeProperty{
+			defaultProviderName: {Client: client},
+		}
+		answerProvider := NewGeneric(additionalGenerativeParameters, defaultProviderName, logger)
 		in := []search.Result{
 			{
 				ID: "some-uuid",
@@ -55,36 +59,38 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 		answer, answerOK := in[0].AdditionalProperties["generate"]
 		assert.True(t, answerOK)
 		assert.NotNil(t, answer)
-		answerAdditional, answerAdditionalOK := answer.(*generativemodels.GenerateResult)
+		answerAdditional, answerAdditionalOK := answer.(map[string]interface{})
 		assert.True(t, answerAdditionalOK)
-		assert.Equal(t, "this is a task", *answerAdditional.GroupedResult)
+		groupedResult, ok := answerAdditional["groupedResult"].(*string)
+		assert.True(t, ok)
+		assert.Equal(t, "this is a task", *groupedResult)
 	})
 }
 
-type fakeOpenAIClient struct{}
+type fakeClient struct{}
 
-func (c *fakeOpenAIClient) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (c *fakeClient) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, settings interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	return c.getResults(textProperties, task), nil
 }
 
-func (c *fakeOpenAIClient) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (c *fakeClient) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, settings interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	return c.getResult(textProperties, prompt), nil
 }
 
-func (c *fakeOpenAIClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
-	return &generativemodels.GenerateResponse{
+func (c *fakeClient) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, settings interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+	return &modulecapabilities.GenerateResponse{
 		Result: &prompt,
 	}, nil
 }
 
-func (c *fakeOpenAIClient) getResults(text []map[string]string, task string) *generativemodels.GenerateResponse {
-	return &generativemodels.GenerateResponse{
+func (c *fakeClient) getResults(text []map[string]string, task string) *modulecapabilities.GenerateResponse {
+	return &modulecapabilities.GenerateResponse{
 		Result: &task,
 	}
 }
 
-func (c *fakeOpenAIClient) getResult(text map[string]string, task string) *generativemodels.GenerateResponse {
-	return &generativemodels.GenerateResponse{
+func (c *fakeClient) getResult(text map[string]string, task string) *modulecapabilities.GenerateResponse {
+	return &modulecapabilities.GenerateResponse{
 		Result: &task,
 	}
 }

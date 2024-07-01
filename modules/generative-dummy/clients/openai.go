@@ -20,8 +20,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -36,25 +36,25 @@ func New(logger logrus.FieldLogger) *dummy {
 	}
 }
 
-func (v *dummy) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *dummy) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *dummy) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *dummy) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *dummy) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *dummy) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	result := "You want me to generate something based on the following prompt: " + prompt + ". I'm sorry, I'm just a dummy and can't generate anything."
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: &result,
 	}, nil
 }
