@@ -582,10 +582,20 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
 				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
-				models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
+				models.PropertyTokenizationTrigram:
 				return nil
+			case models.PropertyTokenizationGse:
+				if os.Getenv("USE_GSE") == "true" || os.Getenv("ENABLE_TOKENIZER_GSE") == "true" {
+					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
+				} else {
+					return nil
+				}
 			case models.PropertyTokenizationKagomeKr:
-				return nil
+				if os.Getenv("ENABLE_TOKENIZER_KOREAN") != "true" {
+					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KOREAN' to 'true' to enable")
+				} else {
+					return nil
+				}
 			}
 		default:
 			if tokenization == "" {
