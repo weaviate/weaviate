@@ -47,10 +47,11 @@ var defaultMaxTokens = map[string]int{
 }
 
 var (
-	DefaultBaseURL                = "https://api.anthropic.com"
-	DefaultAnthropicModel         = "claude-3-5-sonnet-20240620"
-	DefaultAnthropicTemperature   = 1.0
-	DefaultAnthropicMaxTokens     = 200000
+	DefaultBaseURL              = "https://api.anthropic.com"
+	DefaultAnthropicModel       = "claude-3-5-sonnet-20240620"
+	DefaultAnthropicTemperature = 1.0
+	// DefaultAnthropicMaxTokens - 4096 is the max output tokens, input tokens are typically much larger
+	DefaultAnthropicMaxTokens     = 4096
 	DefaultAnthropicK             = 0
 	DefaultAnthropicP             = 0.0
 	DefaultAnthropicStopSequences = []string{}
