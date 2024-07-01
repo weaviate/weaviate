@@ -82,8 +82,8 @@ func TestGenerative(t *testing.T) {
 		}
 	})
 
-	t.Run("grouped result", func(t *testing.T) {
-		gs := graphql.NewGenerativeSearch().GroupedResult("Input: {first} and {second}")
+	t.Run("grouped result with all properties", func(t *testing.T) {
+		gs := graphql.NewGenerativeSearch().GroupedResult("summarize")
 
 		result, err := c.GraphQL().Get().WithClassName(className).WithNearVector(nv.WithVector([]float32{1, 0})).WithGenerativeSearch(gs).Do(ctx)
 		require.Nil(t, err)
@@ -96,5 +96,23 @@ func TestGenerative(t *testing.T) {
 		// order is not guaranteed
 		require.True(t, strings.Contains(returnString, "{\"first\":\"one\",\"second\":\"two\"}"), "got &v", returnString)
 		require.True(t, strings.Contains(returnString, "{\"first\":\"three\",\"second\":\"four\"}"), "got &v", returnString)
+	})
+
+	t.Run("grouped result with selected properties", func(t *testing.T) {
+		gs := graphql.NewGenerativeSearch().GroupedResult("summarize", "first")
+
+		result, err := c.GraphQL().Get().WithClassName(className).WithNearVector(nv.WithVector([]float32{1, 0})).WithGenerativeSearch(gs).Do(ctx)
+		require.Nil(t, err)
+
+		returnString := result.Data["Get"].(map[string]interface{})[className].([]interface{})[0].(map[string]interface{})["_additional"].(map[string]interface{})["generate"].(map[string]interface{})["groupedResult"].(string)
+		require.NotNil(t, returnString)
+		expected := "summarize:"
+		require.True(t, strings.Contains(returnString, expected), "expected %s to contain %s", returnString, expected)
+
+		// order is not guaranteed
+		require.True(t, strings.Contains(returnString, "{\"first\":\"one\"}"), "got &v", returnString)
+		require.True(t, strings.Contains(returnString, "{\"first\":\"three\"}"), "got &v", returnString)
+		// only "first" was requested, so "second" should not be in the result
+		require.False(t, strings.Contains(returnString, "second"), "got &v", returnString)
 	})
 }
