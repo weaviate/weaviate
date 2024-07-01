@@ -690,7 +690,7 @@ func registerModules(appState *state.State) error {
 		WithField("action", "startup").
 		Debug("start registering modules")
 
-	appState.Modules = modules.NewProvider()
+	appState.Modules = modules.NewProvider(appState.Logger)
 
 	// Default modules
 	defaultVectorizers := []string{

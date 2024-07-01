@@ -12,81 +12,34 @@
 package generative_palm_tests
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
 func testGenerativeAWS(host, region string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
-		companies := []struct {
-			id                strfmt.UUID
-			name, description string
-		}{
-			{
-				id:   strfmt.UUID("00000000-0000-0000-0000-000000000001"),
-				name: "OpenAI",
-				description: `
-					OpenAI is a research organization and AI development company that focuses on artificial intelligence (AI) and machine learning (ML).
-					Founded in December 2015, OpenAI's mission is to ensure that artificial general intelligence (AGI) benefits all of humanity.
-					The organization has been at the forefront of AI research, producing cutting-edge advancements in natural language processing,
-					reinforcement learning, robotics, and other AI-related fields.
-
-					OpenAI has garnered attention for its work on various projects, including the development of the GPT (Generative Pre-trained Transformer)
-					series of models, such as GPT-2 and GPT-3, which have demonstrated remarkable capabilities in generating human-like text.
-					Additionally, OpenAI has contributed to advancements in reinforcement learning through projects like OpenAI Five, an AI system
-					capable of playing the complex strategy game Dota 2 at a high level.
-				`,
-			},
-			{
-				id:   strfmt.UUID("00000000-0000-0000-0000-000000000002"),
-				name: "SpaceX",
-				description: `
-					SpaceX, short for Space Exploration Technologies Corp., is an American aerospace manufacturer and space transportation company
-					founded by Elon Musk in 2002. The company's primary goal is to reduce space transportation costs and enable the colonization of Mars,
-					among other ambitious objectives.
-
-					SpaceX has made significant strides in the aerospace industry by developing advanced rocket technology, spacecraft,
-					and satellite systems. The company is best known for its Falcon series of rockets, including the Falcon 1, Falcon 9, 
-					and Falcon Heavy, which have been designed with reusability in mind. Reusability has been a key innovation pioneered by SpaceX,
-					aiming to drastically reduce the cost of space travel by reusing rocket components multiple times.
-				`,
-			},
-		}
+		data := planets.Planets
 		// Define class
-		className := "BooksGenerativeTest"
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					Name: "name", DataType: []string{schema.DataTypeText.String()},
-				},
-				{
-					Name: "description", DataType: []string{schema.DataTypeText.String()},
-				},
-			},
-			VectorConfig: map[string]models.VectorConfig{
-				"description": {
-					Vectorizer: map[string]interface{}{
-						"text2vec-aws": map[string]interface{}{
-							"properties":         []interface{}{"description"},
-							"vectorizeClassName": false,
-							"service":            "bedrock",
-							"region":             region,
-							"model":              "amazon.titan-embed-text-v2:0",
-						},
+		class := planets.BaseClass("PlanetsGenerativeTest")
+		class.VectorConfig = map[string]models.VectorConfig{
+			"description": {
+				Vectorizer: map[string]interface{}{
+					"text2vec-aws": map[string]interface{}{
+						"properties":         []interface{}{"description"},
+						"vectorizeClassName": false,
+						"service":            "bedrock",
+						"region":             region,
+						"model":              "amazon.titan-embed-text-v2:0",
 					},
-					VectorIndexType: "flat",
 				},
+				VectorIndexType: "flat",
 			},
 		}
 		tests := []struct {
@@ -182,10 +135,9 @@ func testGenerativeAWS(host, region string) func(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				class.ModuleConfig = map[string]interface{}{
 					"generative-aws": map[string]interface{}{
-						"projectId": "semi-random-dev",
-						"service":   "bedrock",
-						"region":    region,
-						"model":     tt.generativeModel,
+						"service": "bedrock",
+						"region":  region,
+						"model":   tt.generativeModel,
 					},
 				}
 				// create schema
@@ -193,23 +145,12 @@ func testGenerativeAWS(host, region string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					for _, company := range companies {
-						obj := &models.Object{
-							Class: class.Class,
-							ID:    company.id,
-							Properties: map[string]interface{}{
-								"name":        company.name,
-								"description": company.description,
-							},
-						}
-						helper.CreateObject(t, obj)
-						helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
-					}
+					planets.InsertObjects(t, class.Class)
 				})
 				t.Run("check objects existence", func(t *testing.T) {
-					for _, company := range companies {
-						t.Run(company.id.String(), func(t *testing.T) {
-							obj, err := helper.GetObject(t, class.Class, company.id, "vector")
+					for _, planet := range data {
+						t.Run(planet.ID.String(), func(t *testing.T) {
+							obj, err := helper.GetObject(t, class.Class, planet.ID, "vector")
 							require.NoError(t, err)
 							require.NotNil(t, obj)
 							require.Len(t, obj.Vectors, 1)
@@ -219,46 +160,11 @@ func testGenerativeAWS(host, region string) func(t *testing.T) {
 				})
 				// generative task
 				t.Run("create a tweet", func(t *testing.T) {
-					prompt := "Generate a funny tweet out of this content: {description}"
-					query := fmt.Sprintf(`
-						{
-							Get {
-								%s{
-									name
-									_additional {
-										generate(
-											singleResult: {
-												prompt: """
-													%s
-												"""
-											}
-										) {
-											singleResult
-											error
-										}
-									}
-								}
-							}
-						}
-					`, class.Class, prompt)
-					result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-					objs := result.Get("Get", class.Class).AsSlice()
-					require.Len(t, objs, 2)
-					for _, obj := range objs {
-						name := obj.(map[string]interface{})["name"]
-						assert.NotEmpty(t, name)
-						additional, ok := obj.(map[string]interface{})["_additional"].(map[string]interface{})
-						require.True(t, ok)
-						require.NotNil(t, additional)
-						generate, ok := additional["generate"].(map[string]interface{})
-						require.True(t, ok)
-						require.NotNil(t, generate)
-						require.Nil(t, generate["error"])
-						require.NotNil(t, generate["singleResult"])
-						singleResult, ok := generate["singleResult"].(string)
-						require.True(t, ok)
-						require.NotEmpty(t, singleResult)
-					}
+					planets.CreateTweetTest(t, class.Class)
+				})
+				t.Run("create a tweet with params", func(t *testing.T) {
+					params := "aws:{temperature:0.1}"
+					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
 			})
 		}
