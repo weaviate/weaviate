@@ -15,7 +15,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
-const NAME = "nearText"
+const Name = "nearText"
 
 type GraphQLArgumentsProvider struct {
 	nearTextTransformer modulecapabilities.TextTransform
@@ -27,7 +27,7 @@ func New(nearTextTransformer modulecapabilities.TextTransform) *GraphQLArguments
 
 func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	arguments := map[string]modulecapabilities.GraphQLArgument{}
-	arguments[NAME] = g.getNearText()
+	arguments[Name] = g.getNearText()
 	return arguments
 }
 

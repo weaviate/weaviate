@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type Replicator interface {
@@ -224,7 +225,7 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
-	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
+	return localShard.commitReplication(context.Background(), requestID, &i.shardTransferMutex)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {
@@ -419,6 +420,40 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
 ) (result []replica.RepairResponse, err error) {
 	return i.DigestObjects(ctx, shardName, ids)
+}
+
+func (i *Index) DigestObjectsInTokenRange(ctx context.Context,
+	shardName string, initialToken, finalToken uint64, limit int,
+) (result []replica.RepairResponse, lastTokenRead uint64, err error) {
+	shard, err := i.getOrInitLocalShard(ctx, shardName)
+	if err != nil {
+		return nil, 0, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	return shard.ObjectDigestsByTokenRange(ctx, initialToken, finalToken, limit)
+}
+
+func (i *Index) IncomingDigestObjectsInTokenRange(ctx context.Context,
+	shardName string, initialToken, finalToken uint64, limit int,
+) (result []replica.RepairResponse, lastTokenRead uint64, err error) {
+	return i.DigestObjectsInTokenRange(ctx, shardName, initialToken, finalToken, limit)
+}
+
+func (i *Index) HashTreeLevel(ctx context.Context,
+	shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	shard, err := i.getOrInitLocalShard(ctx, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+
+	return shard.HashTreeLevel(ctx, level, discriminant)
+}
+
+func (i *Index) IncomingHashTreeLevel(ctx context.Context,
+	shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	return i.HashTreeLevel(ctx, shardName, level, discriminant)
 }
 
 func (i *Index) FetchObject(ctx context.Context,

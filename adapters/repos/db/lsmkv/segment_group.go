@@ -163,16 +163,28 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		if !leftSegmentFound && rightSegmentFound {
+			// segment is initialized just to be erased
+			// there is no need of bloom filters nor net addition counter re-calculation
 			rightSegment, err := newSegment(rightSegmentPath, logger,
 				metrics, sg.makeExistsOnLower(segmentIndex),
-				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
 			if err != nil {
-				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+
+			err = rightSegment.close()
+			if err != nil {
+				return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
 			err = rightSegment.drop()
 			if err != nil {
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+
+			err = fsync(sg.dir)
+			if err != nil {
+				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}
 		}
 
@@ -353,7 +365,7 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMos
 	return nil, nil
 }
 
-func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
+func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -362,23 +374,23 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := len(sg.segments) - 1; i >= 0; i-- {
-		v, err, allocatedBuff := sg.segments[i].getBySecondaryIntoMemory(pos, key, buffer)
+		k, v, allocatedBuff, err := sg.segments[i].getBySecondaryIntoMemory(pos, key, buffer)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
 			if errors.Is(err, lsmkv.Deleted) {
-				return nil, nil, nil
+				return nil, nil, nil, nil
 			}
 
 			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
 		}
 
-		return v, allocatedBuff, nil
+		return k, v, allocatedBuff, nil
 	}
 
-	return nil, nil, nil
+	return nil, nil, nil, nil
 }
 
 func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {

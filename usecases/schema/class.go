@@ -40,7 +40,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, err
 	}
-	cl := h.metaReader.ReadOnlyClass(name)
+	cl := h.schemaReader.ReadOnlyClass(name)
 	return cl, nil
 }
 
@@ -51,10 +51,10 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		return nil, 0, err
 	}
 	if consistency {
-		vclasses, err := h.metaWriter.QueryReadOnlyClasses(name)
+		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
 		return vclasses[name].Class, vclasses[name].Version, err
 	}
-	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)
+	class, _ := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
 	return class, 0, nil
 }
 
@@ -66,7 +66,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
+		vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
 		if err != nil {
 			return nil, err
 		}
@@ -133,7 +133,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, fmt.Errorf("init sharding state: %w", err)
 	}
-	version, err := h.metaWriter.AddClass(cls, shardState)
+	version, err := h.schemaManager.AddClass(cls, shardState)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -182,7 +182,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 	shardingState.MigrateFromOldFormat()
 	shardingState.ApplyNodeMapping(m)
-	_, err = h.metaWriter.RestoreClass(class, &shardingState)
+	_, err = h.schemaManager.RestoreClass(class, &shardingState)
 	return err
 }
 
@@ -193,7 +193,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 		return err
 	}
 
-	_, err = h.metaWriter.DeleteClass(class)
+	_, err = h.schemaManager.DeleteClass(class)
 	return err
 }
 
@@ -212,7 +212,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	initial := h.metaReader.ReadOnlyClass(className)
+	initial := h.schemaReader.ReadOnlyClass(className)
 	var shardingState *sharding.State
 
 	// first layer of defense is basic validation if class already exists
@@ -226,7 +226,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		updatedRF := updated.ReplicationConfig.Factor
 
 		if initialRF != updatedRF {
-			ss, _, err := h.metaWriter.QueryShardingState(className)
+			ss, _, err := h.schemaManager.QueryShardingState(className)
 			if err != nil {
 				return fmt.Errorf("query sharding state for %q: %w", className, err)
 			}
@@ -243,7 +243,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	_, err = h.metaWriter.UpdateClass(updated, shardingState)
+	_, err = h.schemaManager.UpdateClass(updated, shardingState)
 	return err
 }
 
@@ -316,11 +316,13 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 		// migrate IndexInverted later.
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
-			prop.IndexSearchable == nil {
+			prop.IndexSearchable == nil &&
+			prop.IndexRangeable == nil {
 			continue
 		}
 
 		vTrue := true
+		vFalse := false
 		if prop.IndexFilterable == nil {
 			prop.IndexFilterable = &vTrue
 		}
@@ -333,9 +335,11 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				prop.IndexSearchable = &vTrue
 			default:
-				vFalse := false
 				prop.IndexSearchable = &vFalse
 			}
+		}
+		if prop.IndexRangeable == nil {
+			prop.IndexRangeable = &vFalse
 		}
 	}
 }
@@ -395,6 +399,10 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 			}
 		}
 	}
+
+	if property.IndexRangeable == nil {
+		property.IndexRangeable = &vFalse
+	}
 }
 
 func (h *Handler) migrateClassSettings(class *models.Class) {
@@ -437,20 +445,23 @@ func migratePropertyDataTypeAndTokenization(props ...*models.Property) {
 // and IndexSearchable (map inverted index with term frequencies;
 // therefore applicable only to text/text[] data types)
 func migratePropertyIndexInverted(props ...*models.Property) {
+	vFalse := false
+
 	for _, prop := range props {
 		// if none of new options is set, use inverted settings
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
-			prop.IndexSearchable == nil {
+			prop.IndexSearchable == nil &&
+			prop.IndexRangeable == nil {
 			prop.IndexFilterable = prop.IndexInverted
 			switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 			// string/string[] are already migrated into text/text[], can be skipped here
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				prop.IndexSearchable = prop.IndexInverted
 			default:
-				vFalse := false
 				prop.IndexSearchable = &vFalse
 			}
+			prop.IndexRangeable = &vFalse
 		}
 		// new options have precedence so inverted can be reset
 		prop.IndexInverted = nil
@@ -475,7 +486,7 @@ func (h *Handler) validateProperty(
 		}
 
 		// Validate data type of property.
-		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.metaReader.ReadOnlyClass, property.DataType,
+		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.schemaReader.ReadOnlyClass, property.DataType,
 			relaxCrossRefValidation, schema.ClassName(class.Class))
 		if err != nil {
 			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
@@ -605,22 +616,37 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 
 func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	if prop.IndexInverted != nil {
-		if prop.IndexFilterable != nil || prop.IndexSearchable != nil {
-			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.")
+		if prop.IndexFilterable != nil || prop.IndexSearchable != nil || prop.IndexRangeable != nil {
+			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable`, " + "`indexSearchable` or `indexRangeable`")
 		}
 	}
 
+	dataType, _ := schema.AsPrimitive(prop.DataType)
 	if prop.IndexSearchable != nil {
-		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		switch dataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
 			// string/string[] are migrated to text/text[] later,
-			// at this point they are still valid data types, therefore should be handled here
+			// at this point they are still valid data types, therefore should be handled here.
 			// true or false allowed
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			// true or false allowed
 		default:
 			if *prop.IndexSearchable {
 				return fmt.Errorf("`indexSearchable` is allowed only for text/text[] data types. " +
+					"For other data types set false or leave empty")
+			}
+		}
+	}
+	if prop.IndexRangeable != nil {
+		switch dataType {
+		case schema.DataTypeNumber, schema.DataTypeInt, schema.DataTypeDate:
+			// true or false allowed
+		case schema.DataTypeNumberArray, schema.DataTypeIntArray, schema.DataTypeDateArray:
+			// not supported (yet?)
+			fallthrough
+		default:
+			if *prop.IndexRangeable {
+				return fmt.Errorf("`indexRangeable` is allowed only for number/int/date data types. " +
 					"For other data types set false or leave empty")
 			}
 		}

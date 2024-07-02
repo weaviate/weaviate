@@ -310,6 +310,10 @@ func FromEnv(config *Config) error {
 		config.EnableModules = v
 	}
 
+	if configbase.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
+		config.EnableApiBasedModules = true
+	}
+
 	config.AutoSchema.Enabled = true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
 		config.AutoSchema.Enabled = !(strings.ToLower(v) == "false")
@@ -394,6 +398,10 @@ func FromEnv(config *Config) error {
 	config.DisableTelemetry = false
 	if configbase.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
+	}
+
+	if configbase.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
+		config.HNSWStartupWaitForVectorCache = true
 	}
 
 	return nil

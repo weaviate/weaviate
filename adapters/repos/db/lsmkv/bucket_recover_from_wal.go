@@ -65,7 +65,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		cl.pause()
 		defer cl.unpause()
 
-		mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics)
+		mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics, b.logger)
 		if err != nil {
 			return err
 		}

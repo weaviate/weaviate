@@ -22,6 +22,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
@@ -235,8 +237,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
 	// However, we believe that 1 day should be more than sufficient.
-	go st.onLeaderFound(time.Hour * 24)
-
+	f := func() { st.onLeaderFound(time.Hour * 24) }
+	enterrors.GoWrapper(f, st.log)
 	return nil
 }
 

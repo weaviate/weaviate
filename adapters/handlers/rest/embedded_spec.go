@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.2"
+    "version": "1.26.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -4123,6 +4123,10 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "type": "boolean",
           "x-nullable": true
@@ -4548,6 +4552,11 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "description": "Optional. TODO roaring-set-range",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules",
           "type": "boolean",
@@ -4709,6 +4718,11 @@ func init() {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
@@ -4932,11 +4946,10 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage",
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
             "FROZEN"
           ]
@@ -5299,7 +5312,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.2"
+    "version": "1.26.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -9655,6 +9668,10 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "type": "boolean",
           "x-nullable": true
@@ -10098,6 +10115,11 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "description": "Optional. TODO roaring-set-range",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules",
           "type": "boolean",
@@ -10259,6 +10281,11 @@ func init() {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
@@ -10482,11 +10509,10 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage",
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
             "FROZEN"
           ]

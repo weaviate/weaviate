@@ -35,12 +35,12 @@ var availableCohereModels = []string{
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultBaseURL             = "https://api.cohere.ai"
-	DefaultCohereModel         = "command-r"
-	DefaultCohereTemperature   = 0
-	DefaultCohereMaxTokens     = 2048
-	DefaultCohereK             = 0
-	DefaultCohereStopSequences = []string{}
+	DefaultBaseURL                     = "https://api.cohere.ai"
+	DefaultCohereModel                 = "command-r"
+	DefaultCohereTemperature   float64 = 0
+	DefaultCohereMaxTokens             = 2048
+	DefaultCohereK                     = 0
+	DefaultCohereStopSequences         = []string{}
 )
 
 type classSettings struct {
@@ -75,6 +75,11 @@ func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
+func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) *float64 {
+	var wrongVal float64 = -1
+	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
+}
+
 func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
@@ -98,7 +103,7 @@ func (ic *classSettings) GetMaxTokensForModel(model string) int {
 }
 
 func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableCohereModels, model)
+	return basesettings.ValidateSetting(model, availableCohereModels)
 }
 
 func (ic *classSettings) BaseURL() string {
@@ -113,8 +118,8 @@ func (ic *classSettings) MaxTokens() int {
 	return *ic.getIntProperty(maxTokensProperty, &DefaultCohereMaxTokens)
 }
 
-func (ic *classSettings) Temperature() int {
-	return *ic.getIntProperty(temperatureProperty, &DefaultCohereTemperature)
+func (ic *classSettings) Temperature() float64 {
+	return *ic.getFloat64Property(temperatureProperty, &DefaultCohereTemperature)
 }
 
 func (ic *classSettings) K() int {
@@ -123,13 +128,4 @@ func (ic *classSettings) K() int {
 
 func (ic *classSettings) StopSequences() []string {
 	return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultCohereStopSequences)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }

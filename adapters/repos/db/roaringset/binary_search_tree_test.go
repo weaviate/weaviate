@@ -12,8 +12,13 @@
 package roaringset
 
 import (
+	"bytes"
+	"encoding/binary"
+	"math/rand"
 	"testing"
+	"time"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -203,4 +208,88 @@ func TestBSTRoaringSet_Flatten(t *testing.T) {
 			}
 		})
 	})
+}
+
+func BenchmarkBinarySearchTreeInsert(b *testing.B) {
+	count := uint64(100_000)
+	keys := make([][]byte, count)
+
+	// generate
+	for i := range keys {
+		bytes, err := lexicographicallySortableFloat64(float64(i) / 3)
+		require.NoError(b, err)
+		keys[i] = bytes
+	}
+
+	// shuffle
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := range keys {
+		j := r.Intn(i + 1)
+		keys[i], keys[j] = keys[j], keys[i]
+	}
+
+	insert := Insert{Additions: make([]uint64, 1)}
+	for i := 0; i < b.N; i++ {
+		m := &BinarySearchTree{}
+		for value := uint64(0); value < count; value++ {
+			insert.Additions[0] = value
+			m.Insert(keys[value], insert)
+		}
+	}
+}
+
+func BenchmarkBinarySearchTreeFlatten(b *testing.B) {
+	count := uint64(100_000)
+	keys := make([][]byte, count)
+
+	// generate
+	for i := range keys {
+		bytes, err := lexicographicallySortableFloat64(float64(i) / 3)
+		require.NoError(b, err)
+		keys[i] = bytes
+	}
+
+	// shuffle
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	for i := range keys {
+		j := r.Intn(i + 1)
+		keys[i], keys[j] = keys[j], keys[i]
+	}
+
+	// insert
+	insert := Insert{Additions: make([]uint64, 1)}
+	m := &BinarySearchTree{}
+	for value := uint64(0); value < count; value++ {
+		insert.Additions[0] = value
+		m.Insert(keys[value], insert)
+	}
+
+	for i := 0; i < b.N; i++ {
+		m.FlattenInOrder()
+	}
+}
+
+func lexicographicallySortableFloat64(in float64) ([]byte, error) {
+	buf := bytes.NewBuffer(nil)
+
+	err := binary.Write(buf, binary.BigEndian, in)
+	if err != nil {
+		return nil, errors.Wrap(err, "serialize float64 value as big endian")
+	}
+
+	var out []byte
+	if in >= 0 {
+		// on positive numbers only flip the sign
+		out = buf.Bytes()
+		firstByte := out[0] ^ 0x80
+		out = append([]byte{firstByte}, out[1:]...)
+	} else {
+		// on negative numbers flip every bit
+		out = make([]byte, 8)
+		for i, b := range buf.Bytes() {
+			out[i] = b ^ 0xFF
+		}
+	}
+
+	return out, nil
 }

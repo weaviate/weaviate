@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func startWorker(t testing.TB, n int, retryInterval ...time.Duration) chan job {
@@ -141,6 +142,63 @@ func TestIndexQueue(t *testing.T) {
 		}
 	}
 
+	t.Run("bad vector lengths", func(t *testing.T) {
+		var idx mockBatchIndexer
+		idx.addBatchFn = func(ids []uint64, vector [][]float32) error {
+			t.Fatal("should not have been called")
+			return nil
+		}
+
+		q, err := NewIndexQueue("1", "", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize: 3,
+		}, monitoring.GetMetrics())
+		require.NoError(t, err)
+		defer q.Close()
+
+		// inconsistent vector lengths
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		}, vectorDescriptor{
+			id:     2,
+			vector: []float32{4, 5},
+		})
+		require.EqualError(t, err, "inconsistent vector lengths: 2 != 3")
+
+		// empty vectors
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{},
+		}, vectorDescriptor{
+			id:     2,
+			vector: []float32{4, 5},
+		})
+		require.EqualError(t, err, "vector is empty")
+
+		// inconsistent vector lengths between batches
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		})
+		require.NoError(t, err)
+		err = q.Push(ctx, vectorDescriptor{
+			id:     2,
+			vector: []float32{1, 2},
+		})
+		require.EqualError(t, err, "inconsistent vector lengths: 2 != 3")
+
+		// calls ValidateBeforeInsert
+		idx.validateBeforeInsertFn = func(vector []float32) error {
+			return fmt.Errorf("validation error")
+		}
+
+		err = q.Push(ctx, vectorDescriptor{
+			id:     1,
+			vector: []float32{1, 2, 3},
+		})
+		require.EqualError(t, err, "validation error")
+	})
+
 	t.Run("pushes to indexer if batch is full", func(t *testing.T) {
 		var idx mockBatchIndexer
 		idsCh := make(chan []uint64, 1)
@@ -149,9 +207,9 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 2,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -175,10 +233,10 @@ func TestIndexQueue(t *testing.T) {
 			called <- struct{}{}
 			return nil
 		}
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     100,
 			IndexInterval: time.Microsecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -212,9 +270,9 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 1,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -230,10 +288,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     3,
 			IndexInterval: 100 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -253,9 +311,9 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("search with empty index", func(t *testing.T) {
 		var idx mockBatchIndexer
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 6,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -276,9 +334,9 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 5,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -303,10 +361,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     4,
 			IndexInterval: 100 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -361,10 +419,10 @@ func TestIndexQueue(t *testing.T) {
 	t.Run("brute force upper limit", func(t *testing.T) {
 		var idx mockBatchIndexer
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:             1000,
 			BruteForceSearchLimit: 2,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -384,10 +442,10 @@ func TestIndexQueue(t *testing.T) {
 		var idx mockBatchIndexer
 
 		dir := t.TempDir()
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManagerWithDir(t, dir), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManagerWithDir(t, dir), IndexQueueOptions{
 			BatchSize:     5,
 			IndexInterval: time.Hour,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -431,11 +489,11 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     5,
 			StaleTimeout:  100 * time.Millisecond,
 			IndexInterval: 10 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -468,10 +526,10 @@ func TestIndexQueue(t *testing.T) {
 			},
 		}
 
-		q, err := NewIndexQueue("1", "", &shard, &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", &shard, &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 100 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -509,9 +567,9 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize: 5,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -529,10 +587,10 @@ func TestIndexQueue(t *testing.T) {
 		var idx mockBatchIndexer
 		idx.distancerProvider = distancer.NewCosineDistanceProvider()
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     7, // 300 is not divisible by 7
 			IndexInterval: 100 * time.Second,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -561,10 +619,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 10 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -615,10 +673,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 10 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -675,10 +733,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 10 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -715,10 +773,10 @@ func TestIndexQueue(t *testing.T) {
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), newDummyStore(t))
 		defer index.Shutdown(context.Background())
 
-		q, err := NewIndexQueue("1", "", new(mockShard), index, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), index, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 10 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -735,10 +793,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 100 * time.Second,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -768,11 +826,11 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 2), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 2), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 500 * time.Millisecond,
 			Throttle:      true,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -805,10 +863,10 @@ func TestIndexQueue(t *testing.T) {
 			return nil
 		}
 
-		q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(t, 2), newCheckpointManager(t), IndexQueueOptions{
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 2), newCheckpointManager(t), IndexQueueOptions{
 			BatchSize:     2,
 			IndexInterval: 200 * time.Millisecond,
-		})
+		}, nil)
 		require.NoError(t, err)
 		defer q.Close()
 
@@ -840,10 +898,10 @@ func BenchmarkPush(b *testing.B) {
 		return nil
 	}
 
-	q, err := NewIndexQueue("1", "", new(mockShard), &idx, startWorker(b, 1), newCheckpointManager(b), IndexQueueOptions{
+	q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(b, 1), newCheckpointManager(b), IndexQueueOptions{
 		BatchSize:     1000,
 		IndexInterval: 1 * time.Millisecond,
-	})
+	}, nil)
 	require.NoError(b, err)
 	defer q.Close()
 
@@ -876,19 +934,24 @@ func (m *mockShard) compareAndSwapStatus(old, new string) (storagestate.Status, 
 	return m.compareAndSwapStatusFn(old, new)
 }
 
+func (m *mockShard) Name() string {
+	return "mock"
+}
+
 type mockBatchIndexer struct {
 	sync.Mutex
-	addBatchFn            func(id []uint64, vector [][]float32) error
-	vectors               map[uint64][]float32
-	containsNodeFn        func(id uint64) bool
-	deleteFn              func(ids ...uint64) error
-	distancerProvider     distancer.Provider
-	shouldCompress        bool
-	threshold             int
-	compressed            atomic.Bool
-	alreadyIndexed        atomic.Uint64
-	onCompressionTurnedOn func(func()) error
-	noLock                bool
+	addBatchFn             func(id []uint64, vector [][]float32) error
+	vectors                map[uint64][]float32
+	containsNodeFn         func(id uint64) bool
+	deleteFn               func(ids ...uint64) error
+	distancerProvider      distancer.Provider
+	shouldCompress         bool
+	threshold              int
+	compressed             atomic.Bool
+	alreadyIndexed         atomic.Uint64
+	onCompressionTurnedOn  func(func()) error
+	noLock                 bool
+	validateBeforeInsertFn func(vector []float32) error
 }
 
 func (m *mockBatchIndexer) AddBatch(ctx context.Context, ids []uint64, vector [][]float32) (err error) {
@@ -1085,6 +1148,14 @@ func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
 func (m *mockBatchIndexer) Upgrade(callback func()) error {
 	if m.onCompressionTurnedOn != nil {
 		return m.onCompressionTurnedOn(callback)
+	}
+
+	return nil
+}
+
+func (m *mockBatchIndexer) ValidateBeforeInsert(vector []float32) error {
+	if m.validateBeforeInsertFn != nil {
+		return m.validateBeforeInsertFn(vector)
 	}
 
 	return nil
