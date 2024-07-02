@@ -108,9 +108,6 @@ type ShardLike interface {
 	ObjectDigestsByTokenRange(ctx context.Context, initialToken, finalToken uint64, limit int) (objs []replica.RepairResponse, lastTokenRead uint64, err error)
 	ID() string // Get the shard id
 	drop() error
-	addIDProperty(ctx context.Context) error
-	addDimensionsProperty(ctx context.Context) error
-	addTimestampProperties(ctx context.Context) error
 	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
 	HaltForTransfer(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
@@ -876,8 +873,6 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	}
 
 	s.stopHashBeater()
-	s.hashtree = nil
-	s.hashtreeInitialized.Store(false)
 
 	return nil
 }
