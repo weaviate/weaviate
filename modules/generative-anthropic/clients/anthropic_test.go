@@ -37,7 +37,6 @@ func TestGenerate(t *testing.T) {
 	tests := []struct {
 		name           string
 		answer         generateResponse
-		errorResponse  *anthropicApiError
 		timeout        time.Duration
 		expectedResult string
 	}{
@@ -51,24 +50,13 @@ func TestGenerate(t *testing.T) {
 		{
 			name: "when the server has an error",
 			answer: generateResponse{
-				Content: []content{},
+				Error: errorMessage{Type: "error", Message: "some error from the server"},
 			},
 		},
 		{
 			name:    "when the server does not respond in time",
 			answer:  generateResponse{},
 			timeout: time.Millisecond,
-		},
-		{
-			name:   "when the server returns a specific API error",
-			answer: generateResponse{},
-			errorResponse: &anthropicApiError{
-				Type: "error",
-				Error: errorMessage{
-					Type:    "invalid_request_error",
-					Message: "Invalid API key",
-				},
-			},
 		},
 	}
 
@@ -85,7 +73,7 @@ func TestGenerate(t *testing.T) {
 			a := New("apiKey", test.timeout, nullLogger())
 
 			settings := &fakeClassConfig{baseURL: server.URL}
-			res, err := a.GenerateAllResults(context.Background(), textProperties, "What is my name?", settings)
+			res, err := a.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, settings)
 
 			if test.answer.Content == nil || len(test.answer.Content) == 0 {
 				assert.Error(t, err)
@@ -115,10 +103,9 @@ func TestGenerate(t *testing.T) {
 }
 
 type testAnthropicHandler struct {
-	t             *testing.T
-	answer        generateResponse
-	errorResponse *anthropicApiError
-	timeout       time.Duration
+	t       *testing.T
+	answer  generateResponse
+	timeout time.Duration
 }
 
 func (f *testAnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -129,14 +116,6 @@ func (f *testAnthropicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request)
 
 	if f.answer.Content == nil || len(f.answer.Content) == 0 {
 		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-
-	if f.errorResponse != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		outBytes, err := json.Marshal(f.errorResponse)
-		require.Nil(f.t, err)
-		w.Write(outBytes)
 		return
 	}
 

@@ -27,9 +27,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-anthropic/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	anthropicparams "github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -50,24 +51,26 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *anthr
 	}
 }
 
-func (a *anthropic) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (a *anthropic) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := a.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return a.Generate(ctx, cfg, forPrompt)
+	return a.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forTask, err := a.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
 	}
-	return a.Generate(ctx, cfg, forTask)
+	return a.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
+	params := a.getParameters(cfg, options)
+	debugInformation := a.getDebugInformation(debug, prompt)
 
 	anthropicURL, err := a.getAnthropicURL(ctx, settings.BaseURL())
 	if err != nil {
@@ -81,12 +84,12 @@ func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 				Content: prompt,
 			},
 		},
-		Model:         settings.Model(),
-		MaxTokens:     settings.MaxTokens(),
-		StopSequences: settings.StopSequences(),
-		Temperature:   settings.Temperature(),
-		TopK:          settings.K(),
-		TopP:          settings.P(),
+		Model:         params.Model,
+		MaxTokens:     params.MaxTokens,
+		StopSequences: params.StopSequences,
+		Temperature:   params.Temperature,
+		TopK:          params.TopK,
+		TopP:          params.TopP,
 	}
 
 	body, err := json.Marshal(input)
@@ -116,41 +119,77 @@ func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, p
 
 	defer res.Body.Close()
 
-	// errors from the API are identifiable by the status code
-	if res.StatusCode != 200 {
-		bodyBytes, err := io.ReadAll(res.Body)
-		if err != nil {
-			return nil, errors.Wrap(err, "read response body")
-		}
-
-		var resBody anthropicApiError
-		if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-			return nil, errors.Wrap(err, "unmarshal response body")
-		}
-
-		return nil, fmt.Errorf("Anthropic API error: %s - %s", resBody.Error.Type, resBody.Error.Message)
-
-	}
-
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
 	}
 
 	var resBody generateResponse
+
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	textResponse := resBody.Content[0].Text
-	if len(resBody.Content) > 0 && textResponse != "" {
-		trimmedResponse := strings.Trim(textResponse, "\n")
-		return &generativemodels.GenerateResponse{
-			Result: &trimmedResponse,
-		}, nil
+	if res.StatusCode != 200 && resBody.Type == "error" {
+		return nil, fmt.Errorf("Anthropic API error: %s - %s", resBody.Error.Type, resBody.Error.Message)
 	}
 
-	return nil, errors.New("no response from Anthropic")
+	textResponse := resBody.Content[0].Text
+	return &modulecapabilities.GenerateResponse{
+		Result: &textResponse,
+		Debug:  debugInformation,
+		Params: a.getResponseParams(resBody.Usage),
+	}, nil
+}
+
+func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface{}) anthropicparams.Params {
+	settings := config.NewClassSettings(cfg)
+
+	var params anthropicparams.Params
+	if p, ok := options.(anthropicparams.Params); ok {
+		params = p
+	}
+
+	if params.Model == "" {
+		model := settings.Model()
+		params.Model = model
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	if params.TopK == nil {
+		k := settings.K()
+		params.TopK = &k
+	}
+	if params.TopP == nil {
+		p := settings.P()
+		params.TopP = &p
+	}
+	if len(params.StopSequences) == 0 {
+		params.StopSequences = settings.StopSequences()
+	}
+	if params.MaxTokens == nil {
+		maxTokens := settings.GetMaxTokensForModel(params.Model)
+		params.MaxTokens = &maxTokens
+	}
+	return params
+}
+
+func (a *anthropic) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
+func (a *anthropic) getResponseParams(usage *usage) map[string]interface{} {
+	if usage != nil {
+		return map[string]interface{}{"anthropic": map[string]interface{}{"usage": usage}}
+	}
+	return nil
 }
 
 func (a *anthropic) getAnthropicURL(ctx context.Context, baseURL string) (string, error) {
@@ -206,13 +245,13 @@ func (a *anthropic) getAPIKey(ctx context.Context) (string, error) {
 }
 
 type generateInput struct {
-	Messages      []message `json:"messages"`
-	Model         string    `json:"model"`
-	MaxTokens     int       `json:"max_tokens"`
-	StopSequences []string  `json:"stop_sequences"`
-	Temperature   float64   `json:"temperature"`
-	TopK          int       `json:"top_k"`
-	TopP          float64   `json:"top_p"`
+	Messages      []message `json:"messages,omitempty"`
+	Model         string    `json:"model,omitempty"`
+	MaxTokens     *int      `json:"max_tokens,omitempty"`
+	StopSequences []string  `json:"stop_sequences,omitempty"`
+	Temperature   *float64  `json:"temperature,omitempty"`
+	TopK          *int      `json:"top_k,omitempty"`
+	TopP          *float64  `json:"top_p,omitempty"`
 }
 
 type message struct {
@@ -221,14 +260,15 @@ type message struct {
 }
 
 type generateResponse struct {
-	Id           string     `json:"id"`
-	Type         string     `json:"type"`
-	Role         string     `json:"role"`
-	Content      []content  `json:"content"`
-	Model        string     `json:"model"`
-	StopReason   StopReason `json:"stop_reason"`
-	StopSequence string     `json:"stop_sequence"`
-	Usage        usage      `json:"usage"`
+	Type         string       `json:"type"`
+	Error        errorMessage `json:"error,omitempty"`
+	ID           string       `json:"id,omitempty"`
+	Role         string       `json:"role,omitempty"`
+	Content      []content    `json:"content,omitempty"`
+	Model        string       `json:"model,omitempty"`
+	StopReason   StopReason   `json:"stop_reason,omitempty"`
+	StopSequence string       `json:"stop_sequence,omitempty"`
+	Usage        *usage       `json:"usage,omitempty"`
 }
 
 type content struct {
@@ -246,13 +286,8 @@ const (
 )
 
 type usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
-}
-
-type anthropicApiError struct {
-	Type  string       `json:"type"`
-	Error errorMessage `json:"error"`
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
 }
 
 type errorMessage struct {

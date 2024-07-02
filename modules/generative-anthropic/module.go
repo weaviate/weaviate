@@ -22,8 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-anthropic/clients"
-	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/modules/generative-anthropic/parameters"
 )
 
 const Name = "generative-anthropic"
@@ -34,13 +33,11 @@ func New() *GenerativeAnthropicModule {
 
 type GenerativeAnthropicModule struct {
 	generative                   generativeClient
-	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	additionalPropertiesProvider map[string]modulecapabilities.GenerativeProperty
 }
 
 type generativeClient interface {
-	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error)
+	modulecapabilities.GenerativeClient
 	MetaInfo() (map[string]interface{}, error)
 }
 
@@ -70,8 +67,7 @@ func (m *GenerativeAnthropicModule) initAdditional(ctx context.Context, timeout 
 	client := clients.New(apiKey, timeout, logger)
 
 	m.generative = client
-
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative, logger)
+	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
 	return nil
 }
@@ -80,13 +76,17 @@ func (m *GenerativeAnthropicModule) MetaInfo() (map[string]interface{}, error) {
 	return m.generative.MetaInfo()
 }
 
+func (m *GenerativeAnthropicModule) AdditionalGenerativeProperties() map[string]modulecapabilities.GenerativeProperty {
+	return m.additionalPropertiesProvider
+}
+
 func (m *GenerativeAnthropicModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
 func (m *GenerativeAnthropicModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return m.additionalPropertiesProvider.AdditionalProperties()
+	return m.AdditionalProperties()
 }
 
 // verify we implement the modules.Module interface
