@@ -1235,14 +1235,18 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"id":       UUID1,                                               // different place for generative
-						"generate": &addModels.GenerateResult{SingleResult: &refClass1}, // just use some string
+						"id": UUID1, // different place for generative
+						"generate": map[string]interface{}{
+							"singleResult": &refClass1, // just use some string
+						},
 					},
 				},
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"id":       UUID2,
-						"generate": &addModels.GenerateResult{SingleResult: &refClass2},
+						"id": UUID2,
+						"generate": map[string]interface{}{
+							"singleResult": &refClass2, // just use some string
+						},
 					},
 				},
 			},
@@ -1280,12 +1284,16 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{ // different place for generative
-						"generate": &addModels.GenerateResult{SingleResult: &refClass1}, // just use some string
+						"generate": map[string]interface{}{
+							"singleResult": &refClass1, // just use some string
+						},
 					},
 				},
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"generate": &addModels.GenerateResult{SingleResult: &refClass2},
+						"generate": map[string]interface{}{
+							"singleResult": &refClass2, // just use some string
+						},
 					},
 				},
 			},
@@ -1318,7 +1326,9 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{ // different place for generative
-						"generate": &addModels.GenerateResult{Error: errors.New("error")},
+						"generate": map[string]interface{}{
+							"error": errors.New("error"),
+						},
 					},
 				},
 			},
@@ -1336,14 +1346,16 @@ func TestGRPCReply(t *testing.T) {
 			res: []interface{}{
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
-						"id":       UUID1,                                                // different place for generative
-						"generate": &addModels.GenerateResult{GroupedResult: &refClass1}, // just use some string
+						"id": UUID1, // different place for generative
+						"generate": map[string]interface{}{
+							"groupedResult": &refClass1, // just use some string
+						},
 					},
 				},
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
 						"id":       UUID2,
-						"generate": &addModels.GenerateResult{},
+						"generate": map[string]interface{}{},
 					},
 				},
 			},
@@ -1483,9 +1495,9 @@ func TestGRPCReply(t *testing.T) {
 				map[string]interface{}{
 					"_additional": map[string]interface{}{
 						"id": UUID2,
-						"generate": &addModels.GenerateResult{
-							SingleResult:  &refClass1,
-							GroupedResult: &refClass2,
+						"generate": map[string]interface{}{
+							"singleResult":  &refClass1,
+							"groupedResult": &refClass2,
 						},
 						"rerank": []*addModels.RankResult{{Score: &someFloat64}},
 						"group": &additional.Group{
