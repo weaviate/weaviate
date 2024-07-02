@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -24,11 +25,13 @@ import (
 	"github.com/peak/s5cmd/v2/log"
 	"github.com/peak/s5cmd/v2/log/stat"
 	"github.com/peak/s5cmd/v2/parallel"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -232,12 +235,25 @@ func (m *Module) create(ctx context.Context) error {
 func (m *Module) Upload(ctx context.Context, className, shardName, nodeName string) error {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
+
+	localPath := fmt.Sprintf("%s/%s/%s", m.DataPath, strings.ToLower(className), shardName)
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
 		fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", m.Concurrency)),
-		fmt.Sprintf("%s/%s/%s/*", m.DataPath, strings.ToLower(className), shardName),
+		fmt.Sprintf("%s/*", localPath),
 		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
+	}
+
+	dmetric, err := monitoring.GetMetrics().TenantCloudOffloadDataTransferred.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
+	if err == nil {
+		size, _ := dirSize(localPath)
+		dmetric.Add(float64(size))
+	}
+	metric, err := monitoring.GetMetrics().TenantCloudOffloadDurations.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
+	if err == nil {
+		timer := prometheus.NewTimer(metric)
+		defer timer.ObserveDuration()
 	}
 
 	return m.app.RunContext(ctx, cmd)
@@ -249,12 +265,29 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 func (m *Module) Download(ctx context.Context, className, shardName, nodeName string) error {
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
+
+	localPath := fmt.Sprintf("%s/%s/%s", m.DataPath, strings.ToLower(className), shardName)
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
 		fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", m.Concurrency)),
 		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName),
-		fmt.Sprintf("%s/%s/%s/", m.DataPath, strings.ToLower(className), shardName),
+		fmt.Sprintf("%s/", localPath),
+	}
+
+	defer func() {
+		// data will exists after download
+		dmetric, err := monitoring.GetMetrics().TenantCloudOffloadDataTransferred.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
+		if err == nil {
+			size, _ := dirSize(localPath)
+			dmetric.Add(float64(size))
+		}
+	}()
+
+	metric, err := monitoring.GetMetrics().TenantCloudLoadDurations.GetMetricWithLabelValues("s3", className, shardName, nodeName)
+	if err == nil {
+		timer := prometheus.NewTimer(metric)
+		defer timer.ObserveDuration()
 	}
 	return m.app.RunContext(ctx, cmd)
 }
@@ -275,4 +308,18 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 		return err
 	}
 	return nil
+}
+
+func dirSize(path string) (int64, error) {
+	var size int64
+	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			size += info.Size()
+		}
+		return err
+	})
+	return size, err
 }
