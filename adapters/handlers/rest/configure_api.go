@@ -54,6 +54,7 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
@@ -711,6 +712,7 @@ func registerModules(appState *state.State) error {
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
 		modgenerativepalm.Name,
+		modgenerativeanthropic.Name,
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
@@ -944,6 +946,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativeanthropic.Name]; ok {
+		appState.Modules.Register(modgenerativeanthropic.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeanthropic.Name).
+			Debug("enabled module")
+
+	}
 	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
 		appState.Modules.Register(modtext2vecpalm.New())
 		appState.Logger.
