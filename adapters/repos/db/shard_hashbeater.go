@@ -222,6 +222,10 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 	s.hashtreeRWMux.RLock()
 	defer s.hashtreeRWMux.RUnlock()
 
+	if s.hashtree == nil {
+		return
+	}
+
 	diffCalculationStart := time.Now()
 
 	replyCh, hosts, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, s.hashtree)
