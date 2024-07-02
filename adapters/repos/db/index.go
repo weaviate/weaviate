@@ -264,16 +264,15 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		invertedIndexConfig:    invertedIndexConfig,
 		stopwords:              sd,
 		replicator:             repl,
-		remote: sharding.NewRemoteIndex(cfg.ClassName.String(), sg,
-			nodeResolver, remoteClient),
-		metrics:             NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
-		centralJobQueue:     jobQueueCh,
-		partitioningEnabled: shardState.PartitioningEnabled,
-		backupMutex:         backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
-		indexCheckpoints:    indexCheckpoints,
-		allocChecker:        allocChecker,
-		shardCreateLocks:    esync.NewKeyLocker(),
-		shardInUseLocks:     esync.NewKeyRWLocker(),
+		remote:                 sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		metrics:                NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
+		centralJobQueue:        jobQueueCh,
+		partitioningEnabled:    shardState.PartitioningEnabled,
+		backupMutex:            backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		indexCheckpoints:       indexCheckpoints,
+		allocChecker:           allocChecker,
+		shardCreateLocks:       esync.NewKeyLocker(),
+		shardInUseLocks:        esync.NewKeyRWLocker(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -451,34 +450,6 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 		return errors.Wrapf(err, "extend idx '%s' with properties '%v", i.ID(), props)
 	}
 	return nil
-}
-
-func (i *Index) addUUIDProperty(ctx context.Context) error {
-	return i.ForEachShard(func(name string, shard ShardLike) error {
-		err := shard.addIDProperty(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "add id property to shard %q", name)
-		}
-		return nil
-	})
-}
-
-func (i *Index) addDimensionsProperty(ctx context.Context) error {
-	return i.ForEachShard(func(name string, shard ShardLike) error {
-		if err := shard.addDimensionsProperty(ctx); err != nil {
-			return errors.Wrapf(err, "add dimensions property to shard %q", name)
-		}
-		return nil
-	})
-}
-
-func (i *Index) addTimestampProperties(ctx context.Context) error {
-	return i.ForEachShard(func(name string, shard ShardLike) error {
-		if err := shard.addTimestampProperties(ctx); err != nil {
-			return errors.Wrapf(err, "add timestamp properties to shard %q", name)
-		}
-		return nil
-	})
 }
 
 func (i *Index) updateVectorIndexConfig(ctx context.Context,
