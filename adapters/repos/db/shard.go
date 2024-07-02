@@ -96,9 +96,6 @@ type ShardLike interface {
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ID() string // Get the shard id
 	drop() error
-	addIDProperty(ctx context.Context) error
-	addDimensionsProperty(ctx context.Context) error
-	addTimestampProperties(ctx context.Context) error
 	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
