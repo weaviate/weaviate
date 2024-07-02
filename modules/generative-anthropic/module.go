@@ -85,13 +85,9 @@ func (m *GenerativeAnthropicModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *GenerativeAnthropicModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return m.AdditionalProperties()
-}
-
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.AdditionalGenerativeProperties(New())
 )
