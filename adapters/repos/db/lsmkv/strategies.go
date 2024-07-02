@@ -19,11 +19,12 @@ import (
 
 const (
 	// StrategyReplace allows for idem-potent PUT where the latest takes presence
-	StrategyReplace       = "replace"
-	StrategySetCollection = "setcollection"
-	StrategyMapCollection = "mapcollection"
-	StrategyRoaringSet    = "roaringset"
-	StrategyInverted      = "inverted"
+	StrategyReplace         = "replace"
+	StrategySetCollection   = "setcollection"
+	StrategyMapCollection   = "mapcollection"
+	StrategyRoaringSet      = "roaringset"
+	StrategyRoaringSetRange = "roaringsetrange"
+  StrategyInverted        = "inverted"
 )
 
 func SegmentStrategyFromString(in string) segmentindex.Strategy {
@@ -36,7 +37,9 @@ func SegmentStrategyFromString(in string) segmentindex.Strategy {
 		return segmentindex.StrategyMapCollection
 	case StrategyRoaringSet:
 		return segmentindex.StrategyRoaringSet
-	case StrategyInverted:
+	case StrategyRoaringSetRange:
+		return segmentindex.StrategyRoaringSetRange
+  case StrategyInverted:
 		return segmentindex.StrategyInverted
 	default:
 		panic("unsupported strategy")
@@ -45,7 +48,14 @@ func SegmentStrategyFromString(in string) segmentindex.Strategy {
 
 func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
 	if len(expectedStrategies) == 0 {
-		expectedStrategies = []string{StrategyReplace, StrategySetCollection, StrategyMapCollection, StrategyRoaringSet}
+		expectedStrategies = []string{
+			StrategyReplace,
+			StrategySetCollection,
+			StrategyMapCollection,
+			StrategyRoaringSet,
+			StrategyRoaringSetRange,
+			StrategyInverted,
+		}
 	}
 
 	for _, s := range expectedStrategies {
@@ -56,8 +66,26 @@ func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
 	return false
 }
 
-func CheckExpectedStrategy(strategy string, expectedStrategies ...string) {
-	if !IsExpectedStrategy(strategy, expectedStrategies...) {
-		panic(fmt.Sprintf("one of strategies %v expected, strategy '%s' found", expectedStrategies, strategy))
+func CheckExpectedStrategy(strategy string, expectedStrategies ...string) error {
+	if IsExpectedStrategy(strategy, expectedStrategies...) {
+		return nil
 	}
+	if len(expectedStrategies) == 1 {
+		return fmt.Errorf("strategy %q expected, got %q", expectedStrategies[0], strategy)
+	}
+	return fmt.Errorf("one of strategies %v expected, got %q", expectedStrategies, strategy)
+}
+
+func MustBeExpectedStrategy(strategy string, expectedStrategies ...string) {
+	if err := CheckExpectedStrategy(strategy, expectedStrategies...); err != nil {
+		panic(err)
+	}
+}
+
+func CheckStrategyRoaringSet(strategy string) error {
+	return CheckExpectedStrategy(strategy, StrategyRoaringSet)
+}
+
+func CheckStrategyRoaringSetRange(strategy string) error {
+	return CheckExpectedStrategy(strategy, StrategyRoaringSetRange)
 }

@@ -11,6 +11,8 @@
 
 package segmentindex
 
+import "fmt"
+
 type Strategy uint16
 
 const (
@@ -18,5 +20,42 @@ const (
 	StrategySetCollection
 	StrategyMapCollection
 	StrategyRoaringSet
-	StrategyInverted
+	StrategyRoaringSetRange
+  StrategyInverted
 )
+
+func IsExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) bool {
+	if len(expectedStrategies) == 0 {
+		expectedStrategies = []Strategy{
+			StrategyReplace,
+			StrategySetCollection,
+			StrategyMapCollection,
+			StrategyRoaringSet,
+			StrategyRoaringSetRange,
+      StrategyInverted,
+		}
+	}
+
+	for _, s := range expectedStrategies {
+		if s == strategy {
+			return true
+		}
+	}
+	return false
+}
+
+func CheckExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) error {
+	if IsExpectedStrategy(strategy, expectedStrategies...) {
+		return nil
+	}
+	if len(expectedStrategies) == 1 {
+		return fmt.Errorf("strategy %v expected, got %v", expectedStrategies[0], strategy)
+	}
+	return fmt.Errorf("one of strategies %v expected, got %v", expectedStrategies, strategy)
+}
+
+func MustBeExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) {
+	if err := CheckExpectedStrategy(strategy, expectedStrategies...); err != nil {
+		panic(err)
+	}
+}

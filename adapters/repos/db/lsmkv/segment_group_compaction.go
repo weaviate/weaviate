@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -259,7 +260,6 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 				sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
 				defer sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Dec()
 			}
-
 			if err := c.do(); err != nil {
 				return false, err
 			}
@@ -274,6 +274,21 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			if sg.metrics != nil {
 				sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
 				defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(0)
+			}
+
+			if err := c.Do(); err != nil {
+				return false, err
+			}
+		case segmentindex.StrategyRoaringSetRange:
+			leftCursor := leftSegment.newRoaringSetRangeCursor()
+			rightCursor := rightSegment.newRoaringSetRangeCursor()
+
+			c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
+				level, cleanupTombstones)
+
+			if sg.metrics != nil {
+				sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)
+				defer sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(0)
 			}
 
 			if err := c.Do(); err != nil {
@@ -368,6 +383,11 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	if err := rightSegment.drop(); err != nil {
 		return errors.Wrap(err, "drop disk segment")
+	}
+
+	err = fsync(sg.dir)
+	if err != nil {
+		return fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 	}
 
 	sg.segments[old1] = nil

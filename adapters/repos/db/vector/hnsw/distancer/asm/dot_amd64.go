@@ -60,15 +60,15 @@ func DotByteAVX256(x []uint8, y []uint8) uint32 {
 		return dot7[uint8, uint32](x, y)
 	case 8:
 		// manually inlined dot8(x, y)
-		sum := x[7]*y[7] + x[6]*y[6]
+		sum := uint32(x[7])*uint32(y[7]) + uint32(x[6])*uint32(y[6])
 		return dot6[uint8, uint32](x, y) + uint32(sum)
 	case 10:
 		// manually inlined dot10(x, y)
-		sum := x[9]*y[9] + x[8]*y[8] + x[7]*y[7] + x[6]*y[6]
+		sum := uint32(x[9])*uint32(y[9]) + uint32(x[8])*uint32(y[8]) + uint32(x[7])*uint32(y[7]) + uint32(x[6])*uint32(y[6])
 		return dot6[uint8, uint32](x, y) + uint32(sum)
 	case 12:
 		// manually inlined dot12(x, y)
-		sum := x[11]*y[11] + x[10]*y[10] + x[9]*y[9] + x[8]*y[8] + x[7]*y[7] + x[6]*y[6]
+		sum := uint32(x[11])*uint32(y[11]) + uint32(x[10])*uint32(y[10]) + uint32(x[9])*uint32(y[9]) + uint32(x[8])*uint32(y[8]) + uint32(x[7])*uint32(y[7]) + uint32(x[6])*uint32(y[6])
 		return dot6[uint8, uint32](x, y) + uint32(sum)
 	}
 
@@ -76,6 +76,19 @@ func DotByteAVX256(x []uint8, y []uint8) uint32 {
 
 	l := len(x)
 	dot_byte_256(
+		unsafe.Pointer(unsafe.SliceData(x)),
+		unsafe.Pointer(unsafe.SliceData(y)),
+		unsafe.Pointer(&res),
+		unsafe.Pointer(&l))
+
+	return res
+}
+
+func DotFloatByteAVX256(x []float32, y []uint8) float32 {
+	var res float32
+
+	l := len(x)
+	dot_float_byte_256(
 		unsafe.Pointer(unsafe.SliceData(x)),
 		unsafe.Pointer(unsafe.SliceData(y)),
 		unsafe.Pointer(&res),

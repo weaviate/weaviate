@@ -25,6 +25,7 @@ const weaviateEndpoint = "WEAVIATE_ENDPOINT"
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
+		WithWeaviate().
 		WithWeaviateAuth().
 		Start(ctx)
 	if err != nil {

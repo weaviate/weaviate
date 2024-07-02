@@ -14,6 +14,8 @@ package nearThermal
 import (
 	"reflect"
 	"testing"
+
+	"github.com/weaviate/weaviate/entities/dto"
 )
 
 func Test_extractNearThermalFn(t *testing.T) {
@@ -21,9 +23,10 @@ func Test_extractNearThermalFn(t *testing.T) {
 		source map[string]interface{}
 	}
 	tests := []struct {
-		name string
-		args args
-		want interface{}
+		name       string
+		args       args
+		want       interface{}
+		wantTarget *dto.TargetCombination
 	}{
 		{
 			name: "should extract properly with distance and thermal params set",
@@ -75,11 +78,31 @@ func Test_extractNearThermalFn(t *testing.T) {
 				Thermal:       "base64;encoded",
 				TargetVectors: []string{"targetVector1", "targetVector2"},
 			},
+			wantTarget: &dto.TargetCombination{Type: dto.Minimum},
+		},
+		{
+			name: "should extract properly with thermal and targets set",
+			args: args{
+				source: map[string]interface{}{
+					"thermal": "base64;encoded",
+					"targets": map[string]interface{}{
+						"targetVectors":     []interface{}{"targetVector1", "targetVector2"},
+						"combinationMethod": dto.ManualWeights,
+						"weights":           map[string]float64{"targetVector1": 0.5, "targetVector2": 0.5},
+					},
+				},
+			},
+			want: &NearThermalParams{
+				Thermal:       "base64;encoded",
+				TargetVectors: []string{"targetVector1", "targetVector2"},
+			},
+			wantTarget: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := extractNearThermalFn(tt.args.source); !reflect.DeepEqual(got, tt.want) {
+			got, target, err := extractNearThermalFn(tt.args.source)
+			if !reflect.DeepEqual(got, tt.want) || !reflect.DeepEqual(target, tt.wantTarget) || err != nil {
 				t.Errorf("extractNearThermalFn() = %v, want %v", got, tt.want)
 			}
 		})

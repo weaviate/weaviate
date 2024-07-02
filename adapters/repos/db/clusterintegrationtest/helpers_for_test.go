@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -23,6 +22,11 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/filters"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -155,6 +159,25 @@ func class() *models.Class {
 				DataType: schema.DataTypePhoneNumber.PropString(),
 			},
 		},
+	}
+}
+
+func multiVectorClass(asyncIndexing bool) *models.Class {
+	namedVectors := map[string]models.VectorConfig{
+		"custom1": {VectorIndexConfig: enthnsw.UserConfig{}},
+		"custom2": {VectorIndexType: "hnsw", VectorIndexConfig: enthnsw.UserConfig{}},
+		"custom3": {VectorIndexType: "flat", VectorIndexConfig: flatent.UserConfig{}},
+	}
+
+	if asyncIndexing {
+		namedVectors["custom4"] = models.VectorConfig{VectorIndexType: "dynamic", VectorIndexConfig: dynamicent.UserConfig{}}
+	}
+
+	return &models.Class{
+		Class:               "Test",
+		InvertedIndexConfig: invertedConfig(),
+		VectorConfig:        namedVectors,
+		Properties:          []*models.Property{},
 	}
 }
 
@@ -362,4 +385,16 @@ func refsAsBatch(in []*models.Object, propName string) objects.BatchReferences {
 	}
 
 	return out
+}
+
+func createParams(className string, weights map[string]float32) dto.GetParams {
+	targetCombination := &dto.TargetCombination{Type: dto.Minimum}
+	if weights != nil {
+		targetCombination = &dto.TargetCombination{Type: dto.Sum, Weights: weights}
+	}
+	return dto.GetParams{
+		Pagination:              &filters.Pagination{Limit: 100},
+		ClassName:               className,
+		TargetVectorCombination: targetCombination,
+	}
 }

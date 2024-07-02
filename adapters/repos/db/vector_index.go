@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
@@ -42,4 +43,5 @@ type VectorIndex interface {
 	ContainsNode(id uint64) bool
 	AlreadyIndexed() uint64
 	DistancerProvider() distancer.Provider
+	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 }

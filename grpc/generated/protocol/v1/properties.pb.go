@@ -71,6 +71,7 @@ type Value struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Kind:
+	//
 	//	*Value_NumberValue
 	//	*Value_StringValue
 	//	*Value_BoolValue
@@ -133,7 +134,7 @@ func (x *Value) GetNumberValue() float64 {
 	return 0
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/properties.proto.
 func (x *Value) GetStringValue() string {
 	if x, ok := x.GetKind().(*Value_StringValue); ok {
 		return x.StringValue
@@ -208,7 +209,7 @@ func (x *Value) GetNullValue() structpb.NullValue {
 	if x, ok := x.GetKind().(*Value_NullValue); ok {
 		return x.NullValue
 	}
-	return structpb.NullValue_NULL_VALUE
+	return structpb.NullValue(0)
 }
 
 func (x *Value) GetTextValue() string {
@@ -227,7 +228,7 @@ type Value_NumberValue struct {
 }
 
 type Value_StringValue struct {
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/properties.proto.
 	StringValue string `protobuf:"bytes,2,opt,name=string_value,json=stringValue,proto3,oneof"`
 }
 
@@ -306,9 +307,10 @@ type ListValue struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/properties.proto.
 	Values []*Value `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	// Types that are assignable to Kind:
+	//
 	//	*ListValue_NumberValues
 	//	*ListValue_BoolValues
 	//	*ListValue_ObjectValues
@@ -351,7 +353,7 @@ func (*ListValue) Descriptor() ([]byte, []int) {
 	return file_v1_properties_proto_rawDescGZIP(), []int{2}
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/properties.proto.
 func (x *ListValue) GetValues() []*Value {
 	if x != nil {
 		return x.Values
@@ -466,7 +468,7 @@ type NumberValues struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//*
+	// *
 	// The values are stored as a byte array, where each 8 bytes represent a single float64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
 	Values []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`
@@ -751,7 +753,7 @@ type IntValues struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	//*
+	// *
 	// The values are stored as a byte array, where each 8 bytes represent a single int64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
 	Values []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`

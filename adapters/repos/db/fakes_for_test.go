@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -31,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -215,9 +218,9 @@ func (f *fakeRemoteClient) MultiGetObjects(ctx context.Context, hostName, indexN
 }
 
 func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
-	shardName string, vector []float32, targetVector string, limit int,
+	shardName string, vector [][]float32, targetVector []string, limit int,
 	filters *filters.LocalFilter, _ *searchparams.KeywordRanking, sort []filters.Sort,
-	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties,
+	cursor *filters.Cursor, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
 ) ([]*storobj.Object, []float32, error) {
 	return nil, nil, nil
 }
@@ -272,6 +275,10 @@ func (f *fakeRemoteClient) PutFile(ctx context.Context, hostName, indexName, sha
 
 type fakeNodeResolver struct{}
 
+func (f *fakeNodeResolver) AllHostnames() []string {
+	return nil
+}
+
 func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 	return "", false
 }
@@ -287,6 +294,8 @@ func (f *fakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName strin
 }
 
 type fakeReplicationClient struct{}
+
+var _ replica.Client = (*fakeReplicationClient)(nil)
 
 func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
 	obj *storobj.Object, schemaVersion uint64,
@@ -360,5 +369,23 @@ func (*fakeReplicationClient) FetchObjects(ctx context.Context, host,
 func (*fakeReplicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, objects []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
+	return nil, nil
+}
+
+func (*fakeReplicationClient) FindUUIDs(ctx context.Context,
+	hostName, indexName, shardName string, filters *filters.LocalFilter,
+) (result []strfmt.UUID, err error) {
+	return nil, nil
+}
+
+func (c *fakeReplicationClient) DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
+	initialToken, finalToken uint64, limit int,
+) ([]replica.RepairResponse, uint64, error) {
+	return nil, 0, nil
+}
+
+func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
+	discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
 	return nil, nil
 }

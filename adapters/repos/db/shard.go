@@ -12,18 +12,27 @@
 package db
 
 import (
+	"bufio"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path"
+	"path/filepath"
+	"runtime/debug"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -60,6 +69,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const IdLockPoolSize = 128
@@ -86,29 +97,32 @@ type ShardLike interface {
 	ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVector []float32, targetVector string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
+	UpdateAsyncReplication(ctx context.Context, enabled bool) error
 	AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
+	ObjectDigestsByTokenRange(ctx context.Context, initialToken, finalToken uint64, limit int) (objs []replica.RepairResponse, lastTokenRead uint64, err error)
 	ID() string // Get the shard id
 	drop() error
 	addIDProperty(ctx context.Context) error
 	addDimensionsProperty(ctx context.Context) error
 	addTimestampProperties(ctx context.Context) error
 	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
-	BeginBackup(ctx context.Context) error
+	HaltForTransfer(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
-
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
+	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
+	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error)
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
@@ -131,7 +145,7 @@ type ShardLike interface {
 	prepareDeleteObjects(context.Context, string, []strfmt.UUID, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
 
-	commitReplication(context.Context, string, *backupMutex) interface{}
+	commitReplication(context.Context, string, *shardTransfer) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
@@ -144,7 +158,10 @@ type ShardLike interface {
 	publishDimensionMetrics(ctx context.Context)
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
@@ -152,8 +169,8 @@ type ShardLike interface {
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
+	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
@@ -172,25 +189,41 @@ type ShardLike interface {
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
-	index            *Index // a reference to the underlying index, which in turn contains schema information
-	queue            *IndexQueue
-	queues           map[string]*IndexQueue
-	name             string
-	store            *lsmkv.Store
-	counter          *indexcounter.Counter
-	indexCheckpoints *indexcheckpoint.Checkpoints
-	vectorIndex      VectorIndex
-	vectorIndexes    map[string]VectorIndex
-	metrics          *Metrics
-	promMetrics      *monitoring.PrometheusMetrics
-	propertyIndices  propertyspecific.Indices
-	propLenTracker   *inverted.JsonShardMetaData
-	versioner        *shardVersioner
+	index             *Index // a reference to the underlying index, which in turn contains schema information
+	class             *models.Class
+	queue             *IndexQueue
+	queues            map[string]*IndexQueue
+	name              string
+	store             *lsmkv.Store
+	counter           *indexcounter.Counter
+	indexCheckpoints  *indexcheckpoint.Checkpoints
+	vectorIndex       VectorIndex
+	vectorIndexes     map[string]VectorIndex
+	metrics           *Metrics
+	promMetrics       *monitoring.PrometheusMetrics
+	slowQueryReporter helpers.SlowQueryReporter
+	propertyIndices   propertyspecific.Indices
+	propLenTracker    *inverted.JsonShardMetaData
+	versioner         *shardVersioner
+
+	hashtree             hashtree.AggregatedHashTree
+	hashtreeRWMux        sync.RWMutex
+	hashtreeInitialized  atomic.Bool
+	hashBeaterCtx        context.Context
+	hashBeaterCancelFunc context.CancelFunc
+
+	objectPropagationNeededCond *sync.Cond
+	objectPropagationNeeded     bool
+
+	lastComparedHosts    []string
+	lastComparedHostsMux sync.RWMutex
 
 	status              storagestate.Status
 	statusLock          sync.Mutex
 	propertyIndicesLock sync.RWMutex
-	stopMetrics         chan struct{}
+
+	stopDimensionTracking        chan struct{}
+	dimensionTrackingInitialized atomic.Bool
 
 	centralJobQueue chan job // reference to queue used by all shards
 
@@ -225,25 +258,49 @@ type Shard struct {
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
-) (*Shard, error) {
+) (_ *Shard, err error) {
 	before := time.Now()
-	var err error
+
 	s := &Shard{
 		index:       index,
+		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		stopMetrics:      make(chan struct{}),
-		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:  jobQueueCh,
-		indexCheckpoints: indexCheckpoints,
+		slowQueryReporter:     helpers.NewSlowQueryReporterFromEnv(index.logger),
+		stopDimensionTracking: make(chan struct{}),
+		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:       jobQueueCh,
+		indexCheckpoints:      indexCheckpoints,
 
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
 		status: storagestate.StatusLoading,
 	}
+
+	defer func() {
+		p := recover()
+		if p != nil {
+			err = fmt.Errorf("unexpected error initializing shard %q of index %q: %v", shardName, index.ID(), p)
+			index.logger.WithError(err).WithFields(logrus.Fields{
+				"index": index.ID(),
+				"shard": shardName,
+			}).Error("panic during shard initialization")
+			debug.PrintStack()
+		}
+
+		if err != nil {
+			// spawn a new context as we cannot guarantee that the init context is
+			// still valid, but we want to make sure that we have enough time to clean
+			// up the partial init
+			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer cancel()
+
+			s.cleanupPartialInit(ctx)
+		}
+	}()
 
 	s.activityTracker.Store(1) // initial state
 	s.initCycleCallbacks()
@@ -261,6 +318,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
+
+	mux := sync.Mutex{}
+	s.objectPropagationNeededCond = sync.NewCond(&mux)
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
@@ -282,7 +342,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 	}
 
-	s.initDimensionTracking(ctx)
+	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {
@@ -310,6 +370,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
 	}
+
 	return s, nil
 }
 
@@ -338,8 +399,8 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 func (s *Shard) initTargetQueues() error {
 	s.queues = make(map[string]*IndexQueue)
 	for targetVector, vectorIndex := range s.vectorIndexes {
-		queue, err := NewIndexQueue(s.ID(), targetVector, s, vectorIndex, s.centralJobQueue,
-			s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
+		queue, err := NewIndexQueue(s.index.Config.ClassName.String(), s.ID(), targetVector, s, vectorIndex, s.centralJobQueue,
+			s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger}, s.promMetrics)
 		if err != nil {
 			return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 		}
@@ -358,8 +419,8 @@ func (s *Shard) initLegacyVector(ctx context.Context) error {
 }
 
 func (s *Shard) initLegacyQueue() error {
-	queue, err := NewIndexQueue(s.ID(), "", s, s.vectorIndex, s.centralJobQueue,
-		s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger})
+	queue, err := NewIndexQueue(s.index.Config.ClassName.String(), s.ID(), "", s, s.vectorIndex, s.centralJobQueue,
+		s.indexCheckpoints, IndexQueueOptions{Logger: s.index.logger}, s.promMetrics)
 	if err != nil {
 		return err
 	}
@@ -432,7 +493,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
 					)
 				},
-				AllocChecker: s.index.allocChecker,
+				AllocChecker:        s.index.allocChecker,
+				WaitForCachePrefill: s.index.Config.HNSWWaitForCachePrefill,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 				s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, s.store)
 			if err != nil {
@@ -518,6 +580,15 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
 	}
 
+	if s.index.asyncReplicationEnabled() {
+		err = s.initHashTree(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
+		}
+	} else if s.index.replicationEnabled() {
+		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+	}
+
 	counter, err := indexcounter.New(s.path())
 	if err != nil {
 		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
@@ -567,6 +638,10 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 	return "main"
 }
 
+func (s *Shard) pathHashTree() string {
+	return path.Join(s.path(), "hashtree")
+}
+
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	// use the last byte of the uuid to determine which locking-pool a given object should use. The last byte is used
 	// as uuids probably often have some kind of order and the last byte will in general be the one that changes the most
@@ -592,7 +667,7 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndices(1),
+		lsmkv.WithSecondaryIndices(2),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),
@@ -618,6 +693,312 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 	return nil
 }
 
+func (s *Shard) initHashTree(ctx context.Context) error {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	if bucket.GetSecondaryIndices() < 2 {
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Warn("secondary index for token ranges is not available")
+		return nil
+	}
+
+	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
+
+	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
+		return err
+	}
+
+	partitioningEnabled := s.index.partitioningEnabled
+
+	// load the most recent hashtree file
+	dirEntries, err := os.ReadDir(s.pathHashTree())
+	if err != nil {
+		return err
+	}
+
+	for i := len(dirEntries) - 1; i >= 0; i-- {
+		dirEntry := dirEntries[i]
+
+		if dirEntry.IsDir() || filepath.Ext(dirEntry.Name()) != ".ht" {
+			continue
+		}
+
+		hashtreeFilename := filepath.Join(s.pathHashTree(), dirEntry.Name())
+
+		if s.hashtree != nil {
+			err := os.Remove(hashtreeFilename)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("deleting older hashtree file %q: %v", hashtreeFilename, err)
+			continue
+		}
+
+		f, err := os.OpenFile(hashtreeFilename, os.O_RDONLY, os.ModePerm)
+		if err != nil {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
+			continue
+		}
+
+		// attempt to load hashtree from file
+		var ht hashtree.AggregatedHashTree
+
+		if partitioningEnabled {
+			ht, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+		} else {
+			ht, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
+		}
+		if err != nil {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
+		} else {
+			s.hashtree = ht
+		}
+
+		f.Close()
+		os.Remove(hashtreeFilename)
+	}
+
+	if s.hashtree != nil {
+		s.hashtreeInitialized.Store(true)
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Info("hashtree successfully initialized")
+		s.initHashBeater()
+		return nil
+	}
+
+	var ht hashtree.AggregatedHashTree
+
+	if partitioningEnabled {
+		ht, err = s.buildCompactHashTree()
+	} else {
+		ht, err = s.buildMultiSegmentHashTree(ctx)
+	}
+	if err != nil {
+		return err
+	}
+
+	s.hashtree = ht
+
+	// sync hashtree with current object states
+
+	enterrors.GoWrapper(func() {
+		prevContextEvaluation := time.Now()
+
+		objCount := 0
+
+		err := bucket.IterateObjects(ctx, func(object *storobj.Object) error {
+			if time.Since(prevContextEvaluation) > time.Second {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+
+				prevContextEvaluation = time.Now()
+
+				s.index.logger.
+					WithField("action", "async_replication").
+					WithField("class_name", s.class.Class).
+					WithField("shard_name", s.name).
+					WithField("objectCount", objCount).
+					Infof("hashtree initialization is progress...")
+			}
+
+			uuid, err := uuid.MustParse(object.ID().String()).MarshalBinary()
+			if err != nil {
+				return err
+			}
+
+			err = s.upsertObjectHashTree(object, uuid, objectInsertStatus{})
+			if err != nil {
+				return err
+			}
+
+			objCount++
+
+			return nil
+		})
+		if err != nil {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Errorf("iterating objects during hashtree initialization: %v", err)
+			return
+		}
+
+		s.hashtreeInitialized.Store(true)
+
+		s.index.logger.
+			WithField("action", "async_replication").
+			WithField("class_name", s.class.Class).
+			WithField("shard_name", s.name).
+			Info("hashtree successfully initialized")
+
+		s.initHashBeater()
+	}, s.index.logger)
+
+	return nil
+}
+
+func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error {
+	s.hashtreeRWMux.Lock()
+	defer s.hashtreeRWMux.Unlock()
+
+	if enabled {
+		if s.hashtree != nil {
+			return nil
+		}
+
+		err := s.initHashTree(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
+		}
+
+		return nil
+	}
+
+	if s.hashtree == nil {
+		return nil
+	}
+
+	s.stopHashBeater()
+	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
+
+	return nil
+}
+
+func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
+	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
+}
+
+func (s *Shard) shardState(ctx context.Context) (*sharding.State, error) {
+	// when a class was just created, the shard state may not be already updated
+	// specially when an incoming request is trigering the shard creation or loading
+	// ideally the shard state obtained should already include the current shard
+	// the shard state is obtained by calling CopyShardingState, currently it's not
+	// waiting for it to be fully up to date thus the need of this approach
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		shardState := s.index.shardState()
+
+		_, ok := shardState.Physical[s.name]
+		if ok {
+			return shardState, nil
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (s *Shard) buildMultiSegmentHashTree(ctx context.Context) (hashtree.AggregatedHashTree, error) {
+	shardState, err := s.shardState(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	virtualNodes := make([]sharding.Virtual, len(shardState.Virtual))
+	copy(virtualNodes, shardState.Virtual)
+
+	sort.SliceStable(virtualNodes, func(a, b int) bool {
+		return virtualNodes[a].Upper < virtualNodes[b].Upper
+	})
+
+	virtualNodesPos := make(map[string]int, len(virtualNodes))
+	for i, v := range virtualNodes {
+		virtualNodesPos[v.Name] = i
+	}
+
+	physical := shardState.Physical[s.name]
+
+	segments := make([]hashtree.Segment, len(physical.OwnsVirtual))
+
+	for i, v := range physical.OwnsVirtual {
+		var segmentStart uint64
+		var segmentSize uint64
+
+		vi := virtualNodesPos[v]
+
+		if vi == 0 {
+			segmentStart = virtualNodes[len(virtualNodes)-1].Upper
+			segmentSize = virtualNodes[0].Upper + (math.MaxUint64 - segmentStart)
+		} else {
+			segmentStart = virtualNodes[vi-1].Upper
+			segmentSize = virtualNodes[vi].Upper - segmentStart
+		}
+
+		segments[i] = hashtree.NewSegment(segmentStart, segmentSize)
+	}
+
+	return hashtree.NewMultiSegmentHashTree(segments, 16)
+}
+
+func (s *Shard) closeHashTree() error {
+	var b [8]byte
+	binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
+
+	hashtreeFilename := filepath.Join(s.pathHashTree(), fmt.Sprintf("hashtree-%x.ht", string(b[:])))
+
+	f, err := os.OpenFile(hashtreeFilename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+	}
+	defer f.Close()
+
+	w := bufio.NewWriter(f)
+
+	_, err = s.hashtree.Serialize(w)
+	if err != nil {
+		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+	}
+
+	err = w.Flush()
+	if err != nil {
+		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+	}
+
+	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
+
+	return nil
+}
+
+func (s *Shard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
+	s.hashtreeRWMux.RLock()
+	defer s.hashtreeRWMux.RUnlock()
+
+	if !s.hashtreeInitialized.Load() {
+		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
+	}
+
+	// TODO (jeroiraz): reusable pool of digests slices
+	digests = make([]hashtree.Digest, hashtree.LeavesCount(level+1))
+
+	n, err := s.hashtree.Level(level, discriminant, digests)
+	if err != nil {
+		return nil, err
+	}
+
+	return digests[:n], nil
+}
+
 // IMPORTANT:
 // Be advised there exists LazyLoadShard::drop() implementation intended
 // to drop shard that was not loaded (instantiated) yet.
@@ -633,10 +1014,18 @@ func (s *Shard) drop() (err error) {
 	if s.index.Config.TrackVectorDimensions {
 		// tracking vector dimensions goroutine only works when tracking is enabled
 		// that's why we are trying to stop it only in this case
-		s.stopMetrics <- struct{}{}
+		s.stopDimensionTracking <- struct{}{}
 		// send 0 in when index gets dropped
 		s.clearDimensionMetrics()
 	}
+
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.stopHashBeater()
+		s.hashtree = nil
+		s.hashtreeInitialized.Store(false)
+	}
+	s.hashtreeRWMux.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
@@ -803,7 +1192,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 
 func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	for _, prop := range props {
-		if !inverted.HasInvertedIndex(prop) {
+		if !inverted.HasAnyInvertedIndex(prop) {
 			continue
 		}
 
@@ -875,8 +1264,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		searchableBucketOpts := append(bucketOpts,
-			lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithPread(s.index.Config.AvoidMMap))
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
@@ -884,6 +1272,19 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketSearchableFromPropNameLSM(prop.Name),
 			searchableBucketOpts...,
+		); err != nil {
+			return err
+		}
+	}
+
+	if inverted.HasRangeableIndex(prop) {
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name),
+			append(bucketOpts,
+				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
+				lsmkv.WithUseBloomFilter(false),
+				lsmkv.WithCalcCountNetAdditions(false),
+			)...,
 		); err != nil {
 			return err
 		}
@@ -979,8 +1380,6 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		true
 			fail request
 
-
-
 	shutdown
 		loop + time:
 		if shut == true
@@ -988,19 +1387,15 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 		in_use == 0 && shut == false
 			shut = true
 
-
-
 */
-
+// Shutdown needs to be idempotent, so it can also deal with a partial
+// initialization. In some parts, it relies on the underlying structs to have
+// idempotent Shutdown methods. In other parts, it explicitly checks if a
+// component was initialized. If not, it turns it into a noop to prevent
+// blocking.
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	if err = s.waitForShutdown(ctx); err != nil {
 		return
-	}
-
-	if s.index.Config.TrackVectorDimensions {
-		// tracking vector dimensions goroutine only works when tracking is enabled
-		// that's why we are trying to stop it only in this case
-		s.stopMetrics <- struct{}{}
 	}
 
 	if err = s.GetPropertyLengthTracker().Close(); err != nil {
@@ -1017,6 +1412,13 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		return err
 	}
 
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.stopHashBeater()
+		s.closeHashTree()
+	}
+	s.hashtreeRWMux.Unlock()
+
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
@@ -1025,6 +1427,12 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 			}
 		}
 		for targetVector, vectorIndex := range s.vectorIndexes {
+			if vectorIndex == nil {
+				// a nil-vector index during shutdown would indicate that the shard was not
+				// fully initialized, the vector index shutdown becomes a no-op
+				continue
+			}
+
 			if err = vectorIndex.Flush(); err != nil {
 				return fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err)
 			}
@@ -1036,24 +1444,61 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		if err = s.queue.Close(); err != nil {
 			return errors.Wrap(err, "shut down vector index queue")
 		}
-		// to ensure that all commitlog entries are written to disk.
-		// otherwise in some cases the tombstone cleanup process'
-		// 'RemoveTombstone' entry is not picked up on restarts
-		// resulting in perpetually attempting to remove a tombstone
-		// which doesn't actually exist anymore
-		if err = s.vectorIndex.Flush(); err != nil {
-			return errors.Wrap(err, "flush vector index commitlog")
-		}
-		if err = s.vectorIndex.Shutdown(ctx); err != nil {
-			return errors.Wrap(err, "shut down vector index")
+		if s.vectorIndex != nil {
+			// a nil-vector index during shutdown would indicate that the shard was not
+			// fully initialized, the vector index shutdown becomes a no-op
+
+			// to ensure that all commitlog entries are written to disk.
+			// otherwise in some cases the tombstone cleanup process'
+			// 'RemoveTombstone' entry is not picked up on restarts
+			// resulting in perpetually attempting to remove a tombstone
+			// which doesn't actually exist anymore
+			if err = s.vectorIndex.Flush(); err != nil {
+				return errors.Wrap(err, "flush vector index commitlog")
+			}
+			if err = s.vectorIndex.Shutdown(ctx); err != nil {
+				return errors.Wrap(err, "shut down vector index")
+			}
 		}
 	}
 
-	if err = s.store.Shutdown(ctx); err != nil {
-		return errors.Wrap(err, "stop lsmkv store")
+	// unregister all callbacks at once, in parallel
+	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
+		s.cycleCallbacks.compactionCallbacksCtrl,
+		s.cycleCallbacks.flushCallbacksCtrl,
+		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
+		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
+	).Unregister(ctx); err != nil {
+		return err
+	}
+
+	if s.store != nil {
+		// store would be nil if loading the objects bucket failed, as we would
+		// only return the store on success from s.initLSMStore()
+		if err = s.store.Shutdown(ctx); err != nil {
+			return errors.Wrap(err, "stop lsmkv store")
+		}
+	}
+
+	if s.dimensionTrackingInitialized.Load() {
+		// tracking vector dimensions goroutine only works when tracking is enabled
+		// _and_ when initialization completed, that's why we are trying to stop it
+		// only in this case
+		s.stopDimensionTracking <- struct{}{}
 	}
 
 	return nil
+}
+
+// cleanupPartialInit is called when the shard was only partially initialized.
+// Internally it just uses [Shutdown], but also adds some logging.
+func (s *Shard) cleanupPartialInit(ctx context.Context) {
+	log := s.index.logger.WithField("action", "cleanup_partial_initialization")
+	if err := s.Shutdown(ctx); err != nil {
+		log.WithError(err).Error("failed to shutdown store")
+	}
+
+	log.Debug("successfully cleaned up partially initialized shard")
 }
 
 func (s *Shard) preventShutdown() (release func(), err error) {

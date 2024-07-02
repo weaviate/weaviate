@@ -12,6 +12,7 @@
 package helper
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
@@ -102,6 +104,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
 
+func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		}).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
 func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, err error) {
 	t.Helper()
 	AssertRequestOk(t, resp, err, nil)
@@ -154,9 +167,18 @@ func DeleteObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
+func DeleteObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl replica.ConsistencyLevel) {
 	t.Helper()
-	params := batch.NewBatchObjectsDeleteParams().WithBody(body)
+	cls := string(cl)
+	params := batch.NewBatchObjectsDeleteParams().WithBody(body).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
@@ -167,6 +189,19 @@ func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
 	t.Helper()
 	params := batch.NewBatchObjectsDeleteParams().
 		WithBody(body).WithTenant(&tenant)
+	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func DeleteTenantObjectsBatchCL(t *testing.T, body *models.BatchDelete,
+	tenant string, cl replica.ConsistencyLevel,
+) (*models.BatchDeleteResponse, error) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsDeleteParams().
+		WithBody(body).WithTenant(&tenant).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	if err != nil {
 		return nil, err
@@ -241,6 +276,13 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
@@ -253,6 +295,11 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
 	return resp, err
+}
+
+func GetTenantsGRPC(t *testing.T, class string) (*pb.TenantsGetReply, error) {
+	t.Helper()
+	return ClientGRPC(t).TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
 }
 
 func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {
