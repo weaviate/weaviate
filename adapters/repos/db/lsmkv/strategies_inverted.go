@@ -40,7 +40,7 @@ func NewInvertedPairFromDocIdAndTf(docID uint64, tf float32, propLength float32,
 
 // Size() returns the exact size in bytes that will be used when Bytes() is
 // called
-func (kv InvertedPair) Size() int {
+func (kv *InvertedPair) Size() int {
 	return len(kv.Key) + len(kv.Value)
 }
 
@@ -50,7 +50,7 @@ func (kv *InvertedPair) UpdateTf(tf float32, propLength float32) {
 	binary.LittleEndian.PutUint32(kv.Value[4:8], math.Float32bits(propLength))
 }
 
-func (kv InvertedPair) EncodeBytes(buf []byte) error {
+func (kv *InvertedPair) EncodeBytes(buf []byte) error {
 	if len(buf) != kv.Size() {
 		return errors.Errorf("buffer has size %d, but InvertedPair has size %d",
 			len(buf), kv.Size())
@@ -64,7 +64,7 @@ func (kv InvertedPair) EncodeBytes(buf []byte) error {
 	return nil
 }
 
-func (kv InvertedPair) Bytes() ([]byte, error) {
+func (kv *InvertedPair) Bytes() ([]byte, error) {
 	// make sure the 2 byte length indicators will never overflow:
 	if len(kv.Key) >= math.MaxUint16 {
 		return nil, errors.Errorf("mapCollection key must be smaller than %d",
@@ -194,6 +194,14 @@ func (kv *InvertedPair) FromBytesReusable(in []byte, keyOnly bool, invertedKeyLe
 	}
 
 	return nil
+}
+
+func (kv *InvertedPair) toMapPair() MapPair {
+	return MapPair{
+		Key:       kv.Key,
+		Value:     kv.Value,
+		Tombstone: kv.Tombstone,
+	}
 }
 
 type invertedEncoder struct {

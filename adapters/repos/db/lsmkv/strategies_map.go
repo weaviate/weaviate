@@ -350,6 +350,14 @@ func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
 	return nil
 }
 
+func (kv *MapPair) toInvertedPair() InvertedPair {
+	return InvertedPair{
+		Key:       kv.Key,
+		Value:     kv.Value,
+		Tombstone: kv.Tombstone,
+	}
+}
+
 type mapEncoder struct {
 	pairBuf []value
 }

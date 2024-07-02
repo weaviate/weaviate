@@ -338,11 +338,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 	t.Run("import and flush previous segments", func(t *testing.T) {
 		for _, kvs := range previous1 {
 			for _, pair := range kvs.values {
-				err := bucket.MapSet(kvs.key, MapPair{
-					Key:       pair.Key,
-					Value:     pair.Value,
-					Tombstone: pair.Tombstone,
-				})
+				err := bucket.MapSet(kvs.key, pair.toMapPair())
 
 				require.Nil(t, err)
 			}
@@ -352,11 +348,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 
 		for _, kvs := range previous2 {
 			for _, pair := range kvs.values {
-				err := bucket.MapSet(kvs.key, MapPair{
-					Key:       pair.Key,
-					Value:     pair.Value,
-					Tombstone: pair.Tombstone,
-				})
+				err := bucket.MapSet(kvs.key, pair.toMapPair())
 				require.Nil(t, err)
 			}
 		}
@@ -367,11 +359,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 	t.Run("import segment 1", func(t *testing.T) {
 		for _, kvs := range segment1 {
 			for _, pair := range kvs.values {
-				err := bucket.MapSet(kvs.key, MapPair{
-					Key:       pair.Key,
-					Value:     pair.Value,
-					Tombstone: pair.Tombstone,
-				})
+				err := bucket.MapSet(kvs.key, pair.toMapPair())
 				require.Nil(t, err)
 			}
 		}
@@ -384,11 +372,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 	t.Run("import segment 2", func(t *testing.T) {
 		for _, kvs := range segment2 {
 			for _, pair := range kvs.values {
-				err := bucket.MapSet(kvs.key, MapPair{
-					Key:       pair.Key,
-					Value:     pair.Value,
-					Tombstone: pair.Tombstone,
-				})
+				err := bucket.MapSet(kvs.key, pair.toMapPair())
 				require.Nil(t, err)
 			}
 		}
@@ -420,21 +404,17 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 
 			mkvs := make([]InvertedPair, len(kvs))
 			for i := range kvs {
-				mkvs[i] = InvertedPair{
-					Key:       kvs[i].Key,
-					Value:     kvs[i].Value,
-					Tombstone: kvs[i].Tombstone,
+				mkvs[i] = kvs[i].toInvertedPair()
+				if len(kvs) > 0 {
+					retrieved = append(retrieved, kv{
+						key:    k,
+						values: mkvs,
+					})
 				}
 			}
-			if len(kvs) > 0 {
-				retrieved = append(retrieved, kv{
-					key:    k,
-					values: mkvs,
-				})
-			}
-		}
 
-		assert.Equal(t, expected, retrieved)
+			assert.Equal(t, expected, retrieved)
+		}
 	})
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
@@ -467,11 +447,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 
 			mkvs := make([]InvertedPair, len(kvs))
 			for i := range kvs {
-				mkvs[i] = InvertedPair{
-					Key:       kvs[i].Key,
-					Value:     kvs[i].Value,
-					Tombstone: kvs[i].Tombstone,
-				}
+				mkvs[i] = kvs[i].toInvertedPair()
 			}
 
 			if len(kvs) > 0 {
@@ -499,11 +475,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 
 				retrieved := make([]InvertedPair, len(kvs))
 				for i := range kvs {
-					retrieved[i] = InvertedPair{
-						Key:       kvs[i].Key,
-						Value:     kvs[i].Value,
-						Tombstone: kvs[i].Tombstone,
-					}
+					retrieved[i] = kvs[i].toInvertedPair()
 				}
 
 				assert.Equal(t, pair.values, retrieved)
@@ -544,11 +516,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			if i != 0 {
 				// we can only update an existing value if this isn't the first write
 				pair := NewInvertedPairFromDocIdAndTf(uint64(i-1), float32(i), float32(i), false)
-				err := bucket.MapSet(key, MapPair{
-					Key:       pair.Key,
-					Value:     pair.Value,
-					Tombstone: pair.Tombstone,
-				})
+				err := bucket.MapSet(key, pair.toMapPair())
 				require.Nil(t, err)
 			}
 
@@ -556,18 +524,12 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 				// we can only delete two back an existing value if this isn't the
 				// first or second write
 				pair := NewInvertedPairFromDocIdAndTf(uint64(i-2), float32(i), float32(i), true)
-				err := bucket.MapSet(key, MapPair{
-					Key:       pair.Key,
-					Tombstone: pair.Tombstone,
-				})
+				err := bucket.MapSet(key, pair.toMapPair())
 				require.Nil(t, err)
 			}
 
 			pair := NewInvertedPairFromDocIdAndTf(uint64(i), float32(i), float32(i), false)
-			err := bucket.MapSet(key, MapPair{
-				Key:   pair.Key,
-				Value: pair.Value,
-			})
+			err := bucket.MapSet(key, pair.toMapPair())
 			require.Nil(t, err)
 			require.Nil(t, bucket.FlushAndSwitch())
 		}
@@ -601,11 +563,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 			vals := make([]InvertedPair, len(kvs))
 			for i := range kvs {
-				vals[i] = InvertedPair{
-					Key:       kvs[i].Key,
-					Value:     kvs[i].Value,
-					Tombstone: kvs[i].Tombstone,
-				}
+				vals[i] = kvs[i].toInvertedPair()
 			}
 			retrieved = append(retrieved, kv{
 				key:    k,
@@ -637,11 +595,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 			vals := make([]InvertedPair, len(kvs))
 			for i := range kvs {
-				vals[i] = InvertedPair{
-					Key:       kvs[i].Key,
-					Value:     kvs[i].Value,
-					Tombstone: kvs[i].Tombstone,
-				}
+				vals[i] = kvs[i].toInvertedPair()
 			}
 			retrieved = append(retrieved, kv{
 				key:    k,
@@ -665,11 +619,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 
 				mkvs := make([]InvertedPair, len(kvs))
 				for i := range kvs {
-					mkvs[i] = InvertedPair{
-						Key:       kvs[i].Key,
-						Value:     kvs[i].Value,
-						Tombstone: kvs[i].Tombstone,
-					}
+					mkvs[i] = kvs[i].toInvertedPair()
 				}
 
 				assert.Equal(t, pair.values, mkvs)
@@ -705,11 +655,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 				for i := 0; i < size; i++ {
 					pair := NewInvertedPairFromDocIdAndTf(0, float32(i), float32(i), false)
 
-					err := bucket.MapSet(key, MapPair{
-						Key:       mapKey,
-						Value:     pair.Value,
-						Tombstone: pair.Tombstone,
-					})
+					err := bucket.MapSet(key, pair.toMapPair())
 					require.Nil(t, err)
 
 					if size == 5 || size == 6 {
