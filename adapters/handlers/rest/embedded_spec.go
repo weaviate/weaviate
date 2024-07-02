@@ -4587,7 +4587,8 @@ func init() {
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr"
           ]
         }
       }
@@ -10150,7 +10151,8 @@ func init() {
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr"
           ]
         }
       }
