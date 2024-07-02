@@ -73,8 +73,8 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 			docId1 := uint64(i)
 			docId2 := uint64(i + 10000)
 
-			pair1 := NewInvertedPairFromDocIdAndTf(docId1, float32(i+1), float32(i+2))
-			pair2 := NewInvertedPairFromDocIdAndTf(docId2, float32(i+1), float32(i+2))
+			pair1 := NewInvertedPairFromDocIdAndTf(docId1, float32(i+1), float32(i+2), false)
+			pair2 := NewInvertedPairFromDocIdAndTf(docId2, float32(i+1), float32(i+2), false)
 
 			pairs := []InvertedPair{pair1, pair2}
 
@@ -543,7 +543,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		for i := 0; i < size; i++ {
 			if i != 0 {
 				// we can only update an existing value if this isn't the first write
-				pair := NewInvertedPairFromDocIdAndTf(uint64(i-1), float32(i), float32(i))
+				pair := NewInvertedPairFromDocIdAndTf(uint64(i-1), float32(i), float32(i), false)
 				err := bucket.MapSet(key, MapPair{
 					Key:       pair.Key,
 					Value:     pair.Value,
@@ -555,15 +555,15 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 			if i > 1 {
 				// we can only delete two back an existing value if this isn't the
 				// first or second write
-				pair := NewInvertedPairFromDocIdAndTf(uint64(i-2), float32(i), float32(i))
+				pair := NewInvertedPairFromDocIdAndTf(uint64(i-2), float32(i), float32(i), true)
 				err := bucket.MapSet(key, MapPair{
 					Key:       pair.Key,
-					Tombstone: true,
+					Tombstone: pair.Tombstone,
 				})
 				require.Nil(t, err)
 			}
 
-			pair := NewInvertedPairFromDocIdAndTf(uint64(i), float32(i), float32(i))
+			pair := NewInvertedPairFromDocIdAndTf(uint64(i), float32(i), float32(i), false)
 			err := bucket.MapSet(key, MapPair{
 				Key:   pair.Key,
 				Value: pair.Value,
@@ -573,9 +573,9 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		}
 	})
 
-	expectedPair := NewInvertedPairFromDocIdAndTf(uint64(size-2), float32(size-1), float32(size-1))
+	expectedPair := NewInvertedPairFromDocIdAndTf(uint64(size-2), float32(size-1), float32(size-1), false)
 
-	expectedPair2 := NewInvertedPairFromDocIdAndTf(uint64(size-1), float32(size-1), float32(size-1))
+	expectedPair2 := NewInvertedPairFromDocIdAndTf(uint64(size-1), float32(size-1), float32(size-1), false)
 
 	expected := []kv{
 		{
@@ -703,7 +703,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 
 			t.Run("write segments", func(t *testing.T) {
 				for i := 0; i < size; i++ {
-					pair := NewInvertedPairFromDocIdAndTf(0, float32(i), float32(i))
+					pair := NewInvertedPairFromDocIdAndTf(0, float32(i), float32(i), false)
 
 					err := bucket.MapSet(key, MapPair{
 						Key:       mapKey,

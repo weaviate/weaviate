@@ -51,6 +51,25 @@ func (s *sortedInvertedMerger) do(segments [][]InvertedPair) ([]InvertedPair, er
 	return s.output[:i], nil
 }
 
+func (s *sortedInvertedMerger) doKeepTombstones(segments [][]InvertedPair) ([]InvertedPair, error) {
+	if err := s.init(segments); err != nil {
+		return nil, errors.Wrap(err, "init sorted map decoder")
+	}
+
+	i := 0
+	for {
+		match, ok := s.findSegmentWithLowestKey()
+		if !ok {
+			break
+		}
+
+		s.output[i] = match
+		i++
+	}
+
+	return s.output[:i], nil
+}
+
 // same as .doKeepTombstone() but requires initialization from the outside and
 // can thus reuse state from previous rounds without having to allocate again.
 // must be pre-faced by a call of reset()

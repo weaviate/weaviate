@@ -25,7 +25,7 @@ type InvertedPair struct {
 	Tombstone bool
 }
 
-func NewInvertedPairFromDocIdAndTf(docID uint64, tf float32, propLength float32) InvertedPair {
+func NewInvertedPairFromDocIdAndTf(docID uint64, tf float32, propLength float32, tombstone bool) InvertedPair {
 	kv := InvertedPair{}
 	kv.Key = make([]byte, 8)
 	binary.BigEndian.PutUint64(kv.Key, docID)
@@ -33,6 +33,8 @@ func NewInvertedPairFromDocIdAndTf(docID uint64, tf float32, propLength float32)
 	kv.Value = make([]byte, 8)
 	binary.LittleEndian.PutUint32(kv.Value[0:4], math.Float32bits(tf))
 	binary.LittleEndian.PutUint32(kv.Value[4:8], math.Float32bits(propLength))
+
+	kv.Tombstone = tombstone
 	return kv
 }
 
@@ -50,7 +52,7 @@ func (kv *InvertedPair) UpdateTf(tf float32, propLength float32) {
 
 func (kv InvertedPair) EncodeBytes(buf []byte) error {
 	if len(buf) != kv.Size() {
-		return errors.Errorf("buffer has size %d, but MapPair has size %d",
+		return errors.Errorf("buffer has size %d, but InvertedPair has size %d",
 			len(buf), kv.Size())
 	}
 
@@ -105,6 +107,23 @@ func (kv *InvertedPair) FromBytesLegacy(in []byte, keyOnly bool) error {
 
 	kv.Value = in[read : read+valueLen]
 	read += valueLen
+
+	if read != uint16(len(in)) {
+		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
+			read, len(in))
+	}
+
+	return nil
+}
+
+func (kv *InvertedPair) FromBytesTest(in []byte, isTombstone bool) error {
+	var read uint16
+
+	kv.Key = in[read : read+defaultInvertedKeyLength]
+	read += defaultInvertedKeyLength
+
+	kv.Value = in[read : read+defaultInvertedValueLength]
+	read += defaultInvertedValueLength
 
 	if read != uint16(len(in)) {
 		return errors.Errorf("inconsistent map pair: read %d out of %d bytes",
@@ -193,7 +212,8 @@ func (m *invertedEncoder) Do(kv InvertedPair) ([]value, error) {
 
 	out := make([]value, 1)
 	out[0] = value{
-		value: v,
+		value:     v,
+		tombstone: kv.Tombstone,
 	}
 
 	return out, nil
@@ -218,7 +238,7 @@ func (m *invertedEncoder) DoMulti(kvs []InvertedPair) ([]value, error) {
 	return out, nil
 }
 
-// DoMultiReusable reuses a MapPair buffer that it exposes to the caller on
+// DoMultiReusable reuses a InvertedPair buffer that it exposes to the caller on
 // this request. Warning: The caller must make sure that they no longer access
 // the return value once they call this method a second time, otherwise they
 // risk overwriting a previous result. The intended usage for example in a loop
@@ -276,4 +296,146 @@ func (kv MapPair) BytesInverted() ([]byte, error) {
 	}
 
 	return out.Bytes(), nil
+}
+
+type invertedDecoder struct{}
+
+func newInvertedDecoder() *invertedDecoder {
+	return &invertedDecoder{}
+}
+
+func (m *invertedDecoder) Do(in []value, acceptDuplicates bool) ([]InvertedPair, error) {
+	// if acceptDuplicates {
+	// 	return m.doSimplified(in)
+	// }
+
+	seenKeys := map[string]uint{}
+	kvs := make([]InvertedPair, len(in))
+
+	// unmarshalling := time.Duration(0)
+
+	// beforeFirst := time.Now()
+	for i, pair := range in {
+		kv := InvertedPair{}
+		// beforeUnmarshal := time.Now()
+		err := kv.FromBytesTest(pair.value, pair.tombstone)
+		if err != nil {
+			return nil, err
+		}
+		// unmarshalling += time.Since(beforeUnmarshal)
+		kv.Tombstone = pair.tombstone
+		kvs[i] = kv
+		count := seenKeys[string(kv.Key)]
+		seenKeys[string(kv.Key)] = count + 1
+	}
+	// fmt.Printf("first decoder loop took %s\n", time.Since(beforeFirst))
+	// fmt.Printf("unmarshalling in first loop took %s\n", unmarshalling)
+
+	// beforeSecond := time.Now()
+	out := make([]InvertedPair, len(in))
+	i := 0
+	for _, pair := range kvs {
+		count := seenKeys[string(pair.Key)]
+		if count != 1 {
+			seenKeys[string(pair.Key)] = count - 1
+			continue
+
+		}
+
+		if pair.Tombstone {
+			continue
+		}
+
+		out[i] = pair
+		i++
+	}
+	// fmt.Printf("second decoder loop took %s\n", time.Since(beforeSecond))
+
+	return out[:i], nil
+}
+
+func (m *invertedDecoder) doSimplified(in []value) ([]InvertedPair, error) {
+	out := make([]InvertedPair, len(in))
+
+	var tombstones []tombstone
+
+	i := 0
+	for _, raw := range in {
+		if raw.tombstone {
+			mp := InvertedPair{}
+			mp.FromBytesTest(raw.value, true)
+			tombstones = append(tombstones, tombstone{pos: i, key: mp.Key})
+			continue
+		}
+
+		out[i].FromBytesTest(raw.value, raw.tombstone)
+		i++
+	}
+
+	out = out[:i]
+
+	if len(tombstones) > 0 {
+		out = m.removeTombstonesFromResults(out, tombstones)
+	}
+
+	return out, nil
+}
+
+func (m *invertedDecoder) removeTombstonesFromResults(candidates []InvertedPair,
+	tombstones []tombstone,
+) []InvertedPair {
+	after := make([]InvertedPair, len(candidates))
+	newPos := 0
+	for origPos, candidate := range candidates {
+
+		skip := false
+		for _, tombstone := range tombstones {
+			if tombstone.pos > origPos && bytes.Equal(tombstone.key, candidate.Key) {
+				skip = true
+			}
+		}
+
+		if skip {
+			continue
+		}
+
+		after[newPos] = candidate
+		newPos++
+	}
+
+	return after[:newPos]
+}
+
+// DoPartial keeps "unused" tombstones
+func (m *invertedDecoder) DoPartial(in []value) ([]InvertedPair, error) {
+	seenKeys := map[string]uint{}
+	kvs := make([]InvertedPair, len(in))
+
+	for i, pair := range in {
+		kv := InvertedPair{}
+		err := kv.FromBytesTest(pair.value, pair.tombstone)
+		if err != nil {
+			return nil, err
+		}
+		kv.Tombstone = pair.tombstone
+		kvs[i] = kv
+		count := seenKeys[string(kv.Key)]
+		seenKeys[string(kv.Key)] = count + 1
+	}
+
+	out := make([]InvertedPair, len(in))
+	i := 0
+	for _, pair := range kvs {
+		count := seenKeys[string(pair.Key)]
+		if count != 1 {
+			seenKeys[string(pair.Key)] = count - 1
+			continue
+
+		}
+
+		out[i] = pair
+		i++
+	}
+
+	return out[:i], nil
 }
