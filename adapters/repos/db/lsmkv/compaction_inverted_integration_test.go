@@ -9,6 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build integrationTest
+// +build integrationTest
+
 package lsmkv
 
 import (
@@ -17,34 +20,13 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
-
-func TestCompactionInvertedStrategy(t *testing.T) {
-	t.Run("compactionInvertedStrategy", func(t *testing.T) {
-		compactionInverted(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)}, 7076, 7076)
-	})
-
-	t.Run("compactionInvertedStrategy_KeepTombstones", func(t *testing.T) {
-		compactionInverted(context.Background(), t, []BucketOption{WithKeepTombstones(true), WithStrategy(StrategyInverted)}, 7380, 7380)
-	})
-
-	t.Run("compactionInvertedStrategy_RemoveUnnecessary", func(t *testing.T) {
-		compactionInvertedStrategy_RemoveUnnecessary(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
-	})
-
-	t.Run("compactionInvertedStrategy_FrequentPutDeleteOperations", func(t *testing.T) {
-		compactionInvertedStrategy_FrequentPutDeleteOperations(context.Background(), t, []BucketOption{WithStrategy(StrategyInverted)})
-	})
-}
 
 func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 	expectedMinSize, expectedMaxSize int64,
@@ -347,8 +329,7 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		logger, _ := test.NewNullLogger()
-		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logger, nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -552,8 +533,7 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		logger, _ := test.NewNullLogger()
-		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logger, nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithStrategy(StrategyInverted))
 		require.Nil(t, err)
 
@@ -724,9 +704,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				logger, _ := test.NewNullLogger()
-
-				b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logger, nil,
+				b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 				require.Nil(t, err)
 
@@ -793,40 +771,4 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 			})
 		})
 	}
-}
-
-func assertSingleSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
-	files, err := bucket.ListFiles(context.Background(), bucket.dir)
-	require.NoError(t, err)
-
-	dbFiles := make([]string, 0, len(files))
-	for _, f := range files {
-		if filepath.Ext(f) == ".db" {
-			dbFiles = append(dbFiles, f)
-		}
-	}
-	require.Len(t, dbFiles, 1)
-
-	fi, err := os.Stat(dbFiles[0])
-	require.NoError(t, err)
-	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
-}
-
-func assertSecondSegmentOfSize(t *testing.T, bucket *Bucket, expectedMinSize, expectedMaxSize int64) {
-	files, err := bucket.ListFiles(context.Background(), bucket.dir)
-	require.NoError(t, err)
-
-	dbFiles := make([]string, 0, len(files))
-	for _, f := range files {
-		if filepath.Ext(f) == ".db" {
-			dbFiles = append(dbFiles, f)
-		}
-	}
-	require.Len(t, dbFiles, 2)
-
-	fi, err := os.Stat(dbFiles[1])
-	require.NoError(t, err)
-	assert.LessOrEqual(t, expectedMinSize, fi.Size())
-	assert.GreaterOrEqual(t, expectedMaxSize, fi.Size())
 }
