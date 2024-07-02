@@ -131,7 +131,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		"cmd_schema_only": schemaOnly,
 	}).Debug("server.apply")
 
-	var f func()
+	f := func() {}
 
 	switch cmd.Type {
 
@@ -181,7 +181,9 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 
 	case api.ApplyRequest_TYPE_TENANT_PROCESS:
-		ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		f = func() {

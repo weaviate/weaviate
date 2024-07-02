@@ -119,24 +119,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return errors.Wrap(err, "create index")
 	}
 
-	err = idx.addUUIDProperty(ctx)
-	if err != nil {
-		return errors.Wrapf(err, "extend idx '%s' with uuid property", idx.ID())
-	}
-
-	if class.InvertedIndexConfig.IndexTimestamps {
-		err = idx.addTimestampProperties(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "extend idx '%s' with timestamp properties", idx.ID())
-		}
-	}
-
-	if m.db.config.TrackVectorDimensions {
-		if err := idx.addDimensionsProperty(context.TODO()); err != nil {
-			return errors.Wrap(err, "init id property")
-		}
-	}
-
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	idx.notifyReady()
