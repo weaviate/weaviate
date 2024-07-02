@@ -45,9 +45,6 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
-		// so big it effectively never triggers as part of this test
-		b.SetMemtableThreshold(1e9)
-
 		key1 := []byte("test1-key-1")
 		key2 := []byte("test1-key-2")
 		key3 := []byte("test1-key-3")
