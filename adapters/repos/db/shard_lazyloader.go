@@ -341,27 +341,6 @@ func (l *LazyLoadShard) drop() error {
 	return l.shard.drop()
 }
 
-func (l *LazyLoadShard) addIDProperty(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.addIDProperty(ctx)
-}
-
-func (l *LazyLoadShard) addDimensionsProperty(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.addDimensionsProperty(ctx)
-}
-
-func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.addTimestampProperties(ctx)
-}
-
 func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	l.mustLoad()
 	return l.shard.createPropertyIndex(ctx, eg, props...)

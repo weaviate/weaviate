@@ -643,23 +643,20 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList, targetLevel i
 }
 
 // returns entryPointID, level and whether a change occurred
-func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel int,
-	oldEntrypoint uint64,
-) (uint64, int, error) {
-	if h.getEntrypoint() != oldEntrypoint {
+func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint uint64) (uint64, error) {
+	if entryPointID := h.getEntrypoint(); entryPointID != oldEntrypoint {
 		// the current global entrypoint is different from our local entrypoint, so
 		// we can just use the global one, as the global one is guaranteed to be
 		// present on every level, i.e. it is always chosen from the highest
 		// currently available level
-		h.RLock()
-		defer h.RUnlock()
-		return h.entryPointID, h.currentMaximumLayer, nil
+		return entryPointID, nil
 	}
 
 	h.metrics.TombstoneFindLocalEntrypoint()
 
 	h.RLock()
 	maxNodes := len(h.nodes)
+	targetLevel := h.currentMaximumLayer
 	h.RUnlock()
 
 	for l := targetLevel; l >= 0; l-- {
@@ -690,19 +687,19 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, targetLevel in
 			}
 
 			// we have a node that matches
-			return uint64(i), l, nil
+			return uint64(i), nil
 		}
 	}
 
 	if h.isEmpty() {
-		return 0, 0, nil
+		return 0, nil
 	}
 
 	if h.isOnlyNode(&vertex{id: oldEntrypoint}, denyList) {
-		return 0, 0, nil
+		return 0, nil
 	}
 
-	return 0, 0, fmt.Errorf("class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph", h.className, h.shardName)
+	return 0, fmt.Errorf("class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph", h.className, h.shardName)
 }
 
 func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {

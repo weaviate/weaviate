@@ -38,6 +38,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 			WithOffloadS3("offloading").
 			WithText2VecContextionary().
 			With3NodeCluster().
+			WithWeaviateGRPC().
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -48,6 +49,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		}()
 
 		helper.SetupClient(compose.GetWeaviate().URI())
+		helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 
 		className := "MultiTenantClass"
 		testClass := models.Class{
@@ -205,6 +207,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 			WithOffloadS3("offloading").
 			WithText2VecContextionary().
 			With3NodeCluster().
+			WithWeaviateGRPC().
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -215,6 +218,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		}()
 
 		helper.SetupClient(compose.GetWeaviate().URI())
+		helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
 
 		className := "MultiTenantClass"
 		testClass := models.Class{
