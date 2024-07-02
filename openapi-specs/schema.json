@@ -742,7 +742,8 @@
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr"
           ]
         },
         "nestedProperties": {
