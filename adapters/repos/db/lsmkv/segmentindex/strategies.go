@@ -21,7 +21,7 @@ const (
 	StrategyMapCollection
 	StrategyRoaringSet
 	StrategyRoaringSetRange
-  StrategyInverted
+	StrategyInverted
 )
 
 func IsExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) bool {
@@ -32,7 +32,7 @@ func IsExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) bool 
 			StrategyMapCollection,
 			StrategyRoaringSet,
 			StrategyRoaringSetRange,
-      StrategyInverted,
+			StrategyInverted,
 		}
 	}
 

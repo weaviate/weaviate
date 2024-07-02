@@ -12,8 +12,9 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"io"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"

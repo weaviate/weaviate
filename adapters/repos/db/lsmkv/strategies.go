@@ -24,7 +24,7 @@ const (
 	StrategyMapCollection   = "mapcollection"
 	StrategyRoaringSet      = "roaringset"
 	StrategyRoaringSetRange = "roaringsetrange"
-  StrategyInverted        = "inverted"
+	StrategyInverted        = "inverted"
 )
 
 func SegmentStrategyFromString(in string) segmentindex.Strategy {
@@ -39,7 +39,7 @@ func SegmentStrategyFromString(in string) segmentindex.Strategy {
 		return segmentindex.StrategyRoaringSet
 	case StrategyRoaringSetRange:
 		return segmentindex.StrategyRoaringSetRange
-  case StrategyInverted:
+	case StrategyInverted:
 		return segmentindex.StrategyInverted
 	default:
 		panic("unsupported strategy")
