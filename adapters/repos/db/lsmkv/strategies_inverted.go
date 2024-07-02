@@ -25,19 +25,21 @@ type InvertedPair struct {
 	Tombstone bool
 }
 
-// Size() returns the exact size in bytes that will be used when Bytes() is
-// called
-func (kv InvertedPair) Size() int {
-	return len(kv.Key) + len(kv.Value)
-}
-
-func (kv *InvertedPair) FromDocIdAndTf(docID uint64, tf float32, propLength float32) {
+func NewInvertedPairFromDocIdAndTf(docID uint64, tf float32, propLength float32) InvertedPair {
+	kv := InvertedPair{}
 	kv.Key = make([]byte, 8)
 	binary.BigEndian.PutUint64(kv.Key, docID)
 
 	kv.Value = make([]byte, 8)
 	binary.LittleEndian.PutUint32(kv.Value[0:4], math.Float32bits(tf))
 	binary.LittleEndian.PutUint32(kv.Value[4:8], math.Float32bits(propLength))
+	return kv
+}
+
+// Size() returns the exact size in bytes that will be used when Bytes() is
+// called
+func (kv InvertedPair) Size() int {
+	return len(kv.Key) + len(kv.Value)
 }
 
 func (kv *InvertedPair) UpdateTf(tf float32, propLength float32) {
