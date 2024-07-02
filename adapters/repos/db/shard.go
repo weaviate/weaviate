@@ -873,6 +873,8 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	}
 
 	s.stopHashBeater()
+	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
 
 	return nil
 }
