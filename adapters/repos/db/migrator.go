@@ -86,7 +86,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
-	idx.notifyReady()
 	m.db.indexLock.Unlock()
 
 	return nil
@@ -210,7 +209,8 @@ func (m *Migrator) updateIndexAddMissingProperties(ctx context.Context, idx *Ind
 		// that the property needs to be added to the index, and
 		// don't need to continue iterating over all shards
 		errMissingProp := errors.New("missing prop")
-		err := idx.ForEachShard(func(name string, shard ShardLike) error {
+		// Ensure we iterate over loaded shard to avoid force loading a lazy loaded shard
+		err := idx.ForEachLoadedShard(func(name string, shard ShardLike) error {
 			bucket := shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name))
 			if bucket == nil {
 				return errMissingProp
