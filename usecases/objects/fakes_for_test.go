@@ -172,9 +172,9 @@ func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *mod
 
 func (f *fakeSchemaManager) AddTenants(ctx context.Context,
 	principal *models.Principal, class string, tenants []*models.Tenant,
-) (uint64, error) {
+) ([]*models.Tenant, error) {
 	f.tenantsEnabled = true
-	return 0, nil
+	return nil, nil
 }
 
 func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {
