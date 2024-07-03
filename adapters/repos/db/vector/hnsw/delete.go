@@ -298,7 +298,11 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	} else if !ok {
 		return executed, nil
 	}
-	h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
+	if ok, err := h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes); err != nil {
+		return false, err
+	} else if !ok {
+		return false, nil
+	}
 
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -418,9 +422,10 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
 					if h.getEntrypoint() != deletedID {
-						if _, err := h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
-							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
-								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
+						if ok, err := h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
+							return err
+						} else if !ok {
+							return errors.Errorf("Could not reassign node with id: %d", deletedID)
 						}
 					}
 				}
