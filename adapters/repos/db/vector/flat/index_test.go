@@ -14,6 +14,7 @@
 package flat
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -59,6 +60,8 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	if err != nil {
 		return 0, 0, err
 	}
+
+	defer store.Shutdown(context.Background())
 
 	pq := flatent.CompressionUserConfig{
 		Enabled: false,
