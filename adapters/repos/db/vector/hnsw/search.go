@@ -571,8 +571,8 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		}
 		res.Reset()
 		for _, id := range ids {
-			dist, _, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
-			if err != nil {
+			dist, found, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+			if found && err == nil {
 				res.Insert(id, dist)
 				if res.Len() > ef {
 					res.Pop()
