@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
@@ -1980,6 +1981,28 @@ func (i *Index) dropShards(names []string) error {
 					WithField("shard", shard.ID()).Error(err)
 			}
 			return nil
+		})
+	}
+
+	eg.Wait()
+	return ec.ToError()
+}
+
+func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
+
+	ec := &errorcompounder.ErrorCompounder{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU * 2)
+
+	for _, name := range names {
+		name := name
+		eg.Go(func() error {
+			i.shardCreateLocks.Lock(name)
+			defer i.shardCreateLocks.Unlock(name)
+
+			return cloud.Delete(ctx, i.ID(), name, nodeId)
 		})
 	}
 

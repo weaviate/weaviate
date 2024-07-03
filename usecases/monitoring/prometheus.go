@@ -57,6 +57,7 @@ type PrometheusMetrics struct {
 	// offload metric
 	TenantCloudOffloadDurations       *prometheus.SummaryVec
 	TenantCloudLoadDurations          *prometheus.SummaryVec
+	TenantCloudDeleteDurations        *prometheus.SummaryVec
 	TenantCloudOffloadDataTransferred *prometheus.CounterVec
 	TenantCloudLoadDataTransferred    *prometheus.CounterVec
 
@@ -191,6 +192,7 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	// delete offload metric
 	pm.TenantCloudOffloadDurations.DeletePartialMatch(labels)
 	pm.TenantCloudLoadDurations.DeletePartialMatch(labels)
+	pm.TenantCloudDeleteDurations.DeletePartialMatch(labels)
 	pm.TenantCloudOffloadDataTransferred.DeletePartialMatch(labels)
 	pm.TenantCloudLoadDataTransferred.DeletePartialMatch(labels)
 
@@ -447,6 +449,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
 		TenantCloudLoadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "tenant_offload_down_durations_ms",
+			Help: "tenant onload durations",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
+		TenantCloudDeleteDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "tenant_offload_delete_durations_ms",
 			Help: "tenant onload durations",
 		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
 		TenantCloudOffloadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
