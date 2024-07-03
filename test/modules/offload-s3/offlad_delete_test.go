@@ -30,7 +30,6 @@ import (
 )
 
 func Test_DeleteClassS3Journey(t *testing.T) {
-
 	t.Run("delete class, deleting frozen tenants", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		defer cancel()
