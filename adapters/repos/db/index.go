@@ -426,6 +426,18 @@ func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
 
+func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
+	return i.shards.Range(func(name string, shard ShardLike) error {
+		// Skip lazy loaded shard which are not loaded
+		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
+			if !asLazyLoadShard.isLoaded() {
+				return nil
+			}
+		}
+		return f(name, shard)
+	})
+}
+
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
 	return i.shards.RangeConcurrently(i.logger, f)
 }
@@ -2136,13 +2148,6 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 	defer release()
 
 	return shard.UpdateStatus(targetStatus)
-}
-
-func (i *Index) notifyReady() {
-	i.ForEachShard(func(name string, shard ShardLike) error {
-		shard.NotifyReady()
-		return nil
-	})
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
