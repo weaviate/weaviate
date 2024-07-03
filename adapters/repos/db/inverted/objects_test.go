@@ -14,6 +14,7 @@ package inverted
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -911,6 +912,60 @@ func TestIndexInverted(t *testing.T) {
 				assert.Equal(t, tc.expextedSearchable, hasSearchableIndex)
 			})
 		}
+	})
+
+	t.Run("has rangeable index", func(t *testing.T) {
+		b2s := func(b *bool) string {
+			if b == nil {
+				return "nil"
+			}
+			return strconv.FormatBool(*b)
+		}
+		rangeableDataTypes := map[schema.DataType]struct{}{
+			schema.DataTypeInt:    {},
+			schema.DataTypeNumber: {},
+			schema.DataTypeDate:   {},
+		}
+
+		t.Run("supported types", func(t *testing.T) {
+			for dataType := range rangeableDataTypes {
+				for indexRangeable, expectedRangeable := range map[*bool]bool{
+					nil:     false, // turned off by default
+					&vFalse: false,
+					&vTrue:  true,
+				} {
+					t.Run(fmt.Sprintf("rangeable_%s_%v", dataType, b2s(indexRangeable)), func(t *testing.T) {
+						hasRangeableIndex := HasRangeableIndex(&models.Property{
+							Name:           "prop",
+							DataType:       dataType.PropString(),
+							IndexRangeable: indexRangeable,
+						})
+
+						assert.Equal(t, expectedRangeable, hasRangeableIndex)
+					})
+				}
+			}
+		})
+
+		t.Run("not supported types", func(t *testing.T) {
+			for _, dataType := range schema.PrimitiveDataTypes {
+				if _, ok := rangeableDataTypes[dataType]; ok {
+					continue
+				}
+
+				for _, indexRangeable := range []*bool{nil, &vFalse, &vTrue} {
+					t.Run(fmt.Sprintf("rangeable_%s_%v", dataType, b2s(indexRangeable)), func(t *testing.T) {
+						hasRangeableIndex := HasRangeableIndex(&models.Property{
+							Name:           "prop",
+							DataType:       dataType.PropString(),
+							IndexRangeable: indexRangeable,
+						})
+
+						assert.False(t, hasRangeableIndex)
+					})
+				}
+			}
+		})
 	})
 }
 

@@ -59,7 +59,6 @@ require (
 	github.com/hashicorp/go-hclog v1.6.2
 	github.com/hashicorp/raft v1.5.0
 	github.com/hashicorp/raft-boltdb/v2 v2.2.2
-	github.com/ikawaha/kagome-dict v1.1.0
 	github.com/ikawaha/kagome-dict-ko v0.2.1
 	github.com/ikawaha/kagome/v2 v2.9.11
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
@@ -67,7 +66,7 @@ require (
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	github.com/weaviate/sroar v0.0.1
+	github.com/weaviate/sroar v0.0.2
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
 	golang.org/x/text v0.16.0
@@ -143,6 +142,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
+	github.com/ikawaha/kagome-dict v1.1.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/karrick/godirwalk v1.15.3 // indirect
