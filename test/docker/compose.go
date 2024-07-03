@@ -24,6 +24,7 @@ import (
 	modstgfilesystem "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
@@ -322,6 +323,11 @@ func (d *Compose) WithGenerativeOctoAI(apiKey string) *Compose {
 	d.withOctoAIApiKey = apiKey
 	d.withOctoAIGenerative = true
 	d.enableModules = append(d.enableModules, modgenerativeoctoai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeAnthropic() *Compose {
+	d.enableModules = append(d.enableModules, modgenerativeanthropic.Name)
 	return d
 }
 
