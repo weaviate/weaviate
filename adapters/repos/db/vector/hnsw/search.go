@@ -580,6 +580,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			} else {
 				h.logger.
 					WithField("action", "rescore").
+					WithError(err).
 					Warnf("could not rescore node %d", id)
 			}
 		}
