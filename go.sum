@@ -578,8 +578,8 @@ github.com/vmihailenco/tagparser/v2 v2.0.0 h1:y09buUbR+b5aycVFQs/g70pqKVZNBmxwAh
 github.com/vmihailenco/tagparser/v2 v2.0.0/go.mod h1:Wri+At7QHww0WTrCBeu4J6bNtoV6mEfg5OIWRZA9qds=
 github.com/weaviate/contextionary v1.2.1 h1:mmxHVc1mWpqivLHEA/ITHUiAOZziIDluYfKysIgEmnM=
 github.com/weaviate/contextionary v1.2.1/go.mod h1:nIEM3Gq1BzTZLuY+Pl7t8hD3eR6VAU43fRdZTEZ9LRY=
-github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d h1:bULMGmIS786YSmm/SssAmwu86y4saMoHhvuL0u7pWLc=
-github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d/go.mod h1:bJUcu8a/7XKOeaCWZtSjuBogUGReUiwJTyGSvcAjDzQ=
+github.com/weaviate/sroar v0.0.1 h1:a39wT/IcoOog7ZkA1rnzIo6gLEtfm+xpiXfR+augdXA=
+github.com/weaviate/sroar v0.0.1/go.mod h1:bJUcu8a/7XKOeaCWZtSjuBogUGReUiwJTyGSvcAjDzQ=
 github.com/weaviate/tiktoken-go v0.0.2 h1:lkwTMEoXSFSXxYvw1c44/xz3OOAh27L3+3vvNN/TSSg=
 github.com/weaviate/tiktoken-go v0.0.2/go.mod h1:u47qSckEGSi4sOcVJmUnd3xoHpDV9/5FDDi3KUCFUq4=
 github.com/willf/bitset v1.1.10/go.mod h1:RjeCKbqT1RxIR/KWY6phxZiaY1IyutSBfGjNPySAYV4=
