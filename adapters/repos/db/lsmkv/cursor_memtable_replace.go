@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sort"
 
@@ -81,6 +82,14 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 		key := secondaryToPrimary[skey]
 		data[i], err = m.key.getNode(key)
 		if err != nil {
+			if errors.Is(err, lsmkv.Deleted) {
+				// this special case is currently needed because secondary keys
+				// are not being labeled as deleted
+				data[i] = &binarySearchNode{
+					key:       key,
+					tombstone: true,
+				}
+			}
 			panic(fmt.Errorf("secondaryToPrimary[%s] unexpected: %w)", skey, err))
 		}
 	}
