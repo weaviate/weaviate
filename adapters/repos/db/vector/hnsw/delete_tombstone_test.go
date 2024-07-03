@@ -17,7 +17,9 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -203,11 +205,14 @@ func TestPhantom_Tombstones(t *testing.T) {
 			require.Nil(t, vectorIndex.Delete(uint64(i)))
 		}
 		require.Equal(t, 50, len(vectorIndex.tombstones))
-		i := 0
-		vectorIndex.cleanUpTombstonedNodes(func() bool {
-			i++
-			return i > 20 && i < 30
+		var i atomic.Int32
+		ok, err := vectorIndex.cleanUpTombstonedNodes(func() bool {
+			v := i.Add(1)
+			return v > 20 && v < 30
 		})
+		require.Error(t, err)
+		require.True(t, strings.HasPrefix("Could not reassign node with id: ", err.Error()))
+		require.True(t, ok)
 		require.Equal(t, 50, len(vectorIndex.tombstones))
 	})
 }
