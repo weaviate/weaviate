@@ -38,32 +38,44 @@ func (h *Handler) AddTenants(ctx context.Context,
 	principal *models.Principal,
 	class string,
 	tenants []*models.Tenant,
-) (uint64, error) {
+) ([]*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	validated, err := validateTenants(tenants)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	if err = validateActivityStatuses(validated, true); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	request := api.AddTenantsRequest{
 		ClusterNodes: h.clusterState.Candidates(),
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
+	tNames := make([]string, len(validated))
 	for i, tenant := range validated {
+		tNames[i] = tenant.Name
 		request.Tenants = append(request.Tenants, &api.Tenant{
 			Name:   tenant.Name,
 			Status: schema.ActivityStatus(validated[i].ActivityStatus),
 		})
 	}
 
-	return h.schemaManager.AddTenants(class, &request)
+	if _, err = h.schemaManager.AddTenants(class, &request); err != nil {
+		return nil, err
+	}
+
+	// we get the new state to return correct status
+	// specially in FREEZING and UNFREEZING
+	uTenants, _, err := h.schemaManager.QueryTenants(class, tNames)
+	if err != nil {
+		return nil, err
+	}
+	return uTenants, err
 }
 
 func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {

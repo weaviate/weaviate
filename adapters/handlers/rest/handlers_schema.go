@@ -209,7 +209,7 @@ func (s *schemaHandlers) updateShardStatus(params schema.SchemaObjectsShardsUpda
 func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	_, err := s.manager.AddTenants(
+	addedTenants, err := s.manager.AddTenants(
 		params.HTTPRequest.Context(), principal, params.ClassName, params.Body)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.ClassName, err)
@@ -224,7 +224,7 @@ func (s *schemaHandlers) createTenants(params schema.TenantsCreateParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsCreateOK().WithPayload(params.Body)
+	return schema.NewTenantsCreateOK().WithPayload(addedTenants)
 }
 
 func (s *schemaHandlers) updateTenants(params schema.TenantsUpdateParams,
