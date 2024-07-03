@@ -128,7 +128,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 }
 
 func (m *Migrator) DropClass(ctx context.Context, className string) error {
-	return m.db.DeleteIndex(schema.ClassName(className))
+	if err := m.db.DeleteIndex(schema.ClassName(className)); err != nil {
+		return err
+	}
+
+	if m.cloud != nil {
+		return m.cloud.Delete(ctx, className, "", "")
+	}
+	return nil
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
@@ -217,11 +224,22 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 		return nil
 	})
 
-	if len(toRemove) > 0 {
-		if err := idx.dropShards(toRemove); err != nil {
+	if len(toRemove) == 0 {
+		return nil
+	}
+
+	if err := idx.dropShards(toRemove); err != nil {
+		return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
+	}
+
+	if m.cloud != nil {
+		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
+		// better to filter the passed shards and get the frozen only
+		if err := idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId); err != nil {
 			return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
 		}
 	}
+
 	return nil
 }
 
@@ -457,9 +475,23 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 // DeleteTenants deletes tenants
 // CAUTION: will not delete inactive tenants (shard files will not be removed)
 func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []string) error {
-	if idx := m.db.GetIndex(schema.ClassName(class)); idx != nil {
-		return idx.dropShards(tenants)
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return nil
 	}
+
+	if err := idx.dropShards(tenants); err != nil {
+		return err
+	}
+
+	if m.cloud != nil {
+		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
+		// better to filter the passed shards and get the frozen only
+		if err := idx.dropCloudShards(ctx, m.cloud, tenants, m.nodeId); err != nil {
+			return fmt.Errorf("drop tenant shards %v during update index: %w", tenants, err)
+		}
+	}
+
 	return nil
 }
 
