@@ -54,6 +54,12 @@ type PrometheusMetrics struct {
 	BackupRestoreDataTransferred      *prometheus.CounterVec
 	BackupStoreDataTransferred        *prometheus.CounterVec
 
+	// offload metric
+	TenantCloudOffloadDurations       *prometheus.SummaryVec
+	TenantCloudLoadDurations          *prometheus.SummaryVec
+	TenantCloudOffloadDataTransferred *prometheus.CounterVec
+	TenantCloudLoadDataTransferred    *prometheus.CounterVec
+
 	IndexQueuePushDuration    *prometheus.SummaryVec
 	IndexQueueDeleteDuration  *prometheus.SummaryVec
 	IndexQueuePreloadDuration *prometheus.SummaryVec
@@ -181,6 +187,12 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	pm.BackupRestoreDataTransferred.DeletePartialMatch(labels)
 	pm.BackupStoreDataTransferred.DeletePartialMatch(labels)
 	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
+
+	// delete offload metric
+	pm.TenantCloudOffloadDurations.DeletePartialMatch(labels)
+	pm.TenantCloudLoadDurations.DeletePartialMatch(labels)
+	pm.TenantCloudOffloadDataTransferred.DeletePartialMatch(labels)
+	pm.TenantCloudLoadDataTransferred.DeletePartialMatch(labels)
 
 	return nil
 }
@@ -427,6 +439,24 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+
+		// Offload metrics
+		TenantCloudOffloadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "tenant_offload_up_durations_ms",
+			Help: "tenant offload durations",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
+		TenantCloudLoadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "tenant_offload_down_durations_ms",
+			Help: "tenant onload durations",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
+		TenantCloudOffloadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tenant_offload_up_data_bytes",
+			Help: "Total number of bytes transferred during a tenant offload to cloud",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
+		TenantCloudLoadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tenant_offload_down_data_bytes",
+			Help: "Total number of bytes transferred during a tenant load from cloud",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
