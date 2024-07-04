@@ -4123,7 +4123,7 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
-        "indexRangeable": {
+        "indexRangeFilters": {
           "type": "boolean",
           "x-nullable": true
         },
@@ -4552,8 +4552,8 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
-        "indexRangeable": {
-          "description": "Optional. TODO roaring-set-range",
+        "indexRangeFilters": {
+          "description": "Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.",
           "type": "boolean",
           "x-nullable": true
         },
@@ -9671,7 +9671,7 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
-        "indexRangeable": {
+        "indexRangeFilters": {
           "type": "boolean",
           "x-nullable": true
         },
@@ -10118,8 +10118,8 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
-        "indexRangeable": {
-          "description": "Optional. TODO roaring-set-range",
+        "indexRangeFilters": {
+          "description": "Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.",
           "type": "boolean",
           "x-nullable": true
         },

@@ -929,19 +929,19 @@ func TestIndexInverted(t *testing.T) {
 
 		t.Run("supported types", func(t *testing.T) {
 			for dataType := range rangeableDataTypes {
-				for indexRangeable, expectedRangeable := range map[*bool]bool{
+				for indexRangeFilters, expectedRangeFilters := range map[*bool]bool{
 					nil:     false, // turned off by default
 					&vFalse: false,
 					&vTrue:  true,
 				} {
-					t.Run(fmt.Sprintf("rangeable_%s_%v", dataType, b2s(indexRangeable)), func(t *testing.T) {
+					t.Run(fmt.Sprintf("rangeable_%s_%v", dataType, b2s(indexRangeFilters)), func(t *testing.T) {
 						hasRangeableIndex := HasRangeableIndex(&models.Property{
-							Name:           "prop",
-							DataType:       dataType.PropString(),
-							IndexRangeable: indexRangeable,
+							Name:              "prop",
+							DataType:          dataType.PropString(),
+							IndexRangeFilters: indexRangeFilters,
 						})
 
-						assert.Equal(t, expectedRangeable, hasRangeableIndex)
+						assert.Equal(t, expectedRangeFilters, hasRangeableIndex)
 					})
 				}
 			}
@@ -953,12 +953,12 @@ func TestIndexInverted(t *testing.T) {
 					continue
 				}
 
-				for _, indexRangeable := range []*bool{nil, &vFalse, &vTrue} {
-					t.Run(fmt.Sprintf("rangeable_%s_%v", dataType, b2s(indexRangeable)), func(t *testing.T) {
+				for _, indexRangeFilters := range []*bool{nil, &vFalse, &vTrue} {
+					t.Run(fmt.Sprintf("rangeable_%s_%v", dataType, b2s(indexRangeFilters)), func(t *testing.T) {
 						hasRangeableIndex := HasRangeableIndex(&models.Property{
-							Name:           "prop",
-							DataType:       dataType.PropString(),
-							IndexRangeable: indexRangeable,
+							Name:              "prop",
+							DataType:          dataType.PropString(),
+							IndexRangeFilters: indexRangeFilters,
 						})
 
 						assert.False(t, hasRangeableIndex)
