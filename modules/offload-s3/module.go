@@ -86,7 +86,7 @@ func New() *Module {
 				&cli.StringFlag{
 					Name:    "endpoint-url",
 					Usage:   "override default S3 host for custom services",
-					EnvVars: []string{"S3_ENDPOINT_URL"},
+					EnvVars: []string{"OFFLOAD_S3_ENDPOINT"},
 				},
 				&cli.BoolFlag{
 					Name:  "no-verify-ssl",
@@ -322,6 +322,7 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 
 	cloudPath := fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName)
 
+	// update cloud path on deleting a class
 	if shardName == "" && nodeName == "" {
 		cloudPath = fmt.Sprintf("s3://%s/%s/*", m.Bucket, strings.ToLower(className))
 	}
