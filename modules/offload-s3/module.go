@@ -233,6 +233,10 @@ func (m *Module) create(ctx context.Context) error {
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
 // {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Upload(ctx context.Context, className, shardName, nodeName string) error {
+	if err := validate(className, shardName, nodeName); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
@@ -263,6 +267,10 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
 // {dataPath}/{className}/{shardName}/{content}
 func (m *Module) Download(ctx context.Context, className, shardName, nodeName string) error {
+	if err := validate(className, shardName, nodeName); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
@@ -294,16 +302,43 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 
 // Delete deletes content of a shard assigned to specific node in
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
+// Careful: if shardName and nodeName is passed empty it will delete all class frozen shards in cloud storage
 // {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Delete(ctx context.Context, className, shardName, nodeName string) error {
+	if className == "" {
+		return fmt.Errorf("can't pass empty class name")
+	}
+
+	if shardName == "" && nodeName != "" {
+		return fmt.Errorf("can't pass empty shard name")
+	}
+
+	if nodeName == "" && shardName != "" {
+		return fmt.Errorf("can't pass empty node name")
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
+
+	cloudPath := fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName)
+
+	if shardName == "" && nodeName == "" {
+		cloudPath = fmt.Sprintf("s3://%s/%s/*", m.Bucket, strings.ToLower(className))
+	}
+
 	cmd := []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"rm",
-		fmt.Sprintf("s3://%s/%s/%s/%s/*", m.Bucket, strings.ToLower(className), shardName, nodeName),
+		cloudPath,
 	}
-	err := m.app.RunContext(ctx, cmd)
+
+	metric, err := monitoring.GetMetrics().TenantCloudDeleteDurations.GetMetricWithLabelValues("s3", className, shardName, nodeName)
+	if err == nil {
+		timer := prometheus.NewTimer(metric)
+		defer timer.ObserveDuration()
+	}
+
+	err = m.app.RunContext(ctx, cmd)
 	if err != nil && !strings.Contains(err.Error(), "no object found") {
 		return err
 	}
@@ -322,4 +357,20 @@ func dirSize(path string) (int64, error) {
 		return err
 	})
 	return size, err
+}
+
+func validate(className, shardName, nodeName string) error {
+	if className == "" {
+		return fmt.Errorf("can't pass empty class name")
+	}
+
+	if shardName == "" {
+		return fmt.Errorf("can't pass empty tenant name")
+	}
+
+	if nodeName == "" {
+		return fmt.Errorf("can't pass empty node name")
+	}
+
+	return nil
 }
