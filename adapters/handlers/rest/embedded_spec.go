@@ -4947,7 +4947,7 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage, ` + "`" + `FREEZING` + "`" + ` - tenant is transitioning from HOT/COLD to FROZEN, ` + "`" + `UNFREEZING` + "`" + ` - tenant is transitioning from FROZEN to HOT/COLD, ` + "`" + `UNFROZEN` + "`" + ` - tenant is no longer FROZEN but not yet HOT/COLD",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active and ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `HOT` + "`" + `, ` + "`" + `COLD` + "`" + ` and also ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `FREEZING` + "`" + ` - tenant is transitioning from HOT/COLD to FROZEN, ` + "`" + `UNFREEZING` + "`" + ` - tenant is transitioning from FROZEN to HOT/COLD, ` + "`" + `UNFROZEN` + "`" + ` - tenant is no longer FROZEN but not yet HOT/COLD",
           "type": "string",
           "enum": [
             "HOT",
@@ -10514,7 +10514,7 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage, ` + "`" + `FREEZING` + "`" + ` - tenant is transitioning from HOT/COLD to FROZEN, ` + "`" + `UNFREEZING` + "`" + ` - tenant is transitioning from FROZEN to HOT/COLD, ` + "`" + `UNFROZEN` + "`" + ` - tenant is no longer FROZEN but not yet HOT/COLD",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active and ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `HOT` + "`" + `, ` + "`" + `COLD` + "`" + ` and also ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `FREEZING` + "`" + ` - tenant is transitioning from HOT/COLD to FROZEN, ` + "`" + `UNFREEZING` + "`" + ` - tenant is transitioning from FROZEN to HOT/COLD, ` + "`" + `UNFROZEN` + "`" + ` - tenant is no longer FROZEN but not yet HOT/COLD",
           "type": "string",
           "enum": [
             "HOT",
