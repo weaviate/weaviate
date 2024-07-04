@@ -2002,7 +2002,12 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
-			return cloud.Delete(ctx, i.ID(), name, nodeId)
+			if err := cloud.Delete(ctx, i.ID(), name, nodeId); err != nil {
+				ec.Add(err)
+				i.logger.WithField("action", "cloud_drop_shard").
+					WithField("shard", name).Error(err)
+			}
+			return nil
 		})
 	}
 
