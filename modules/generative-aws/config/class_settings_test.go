@@ -156,12 +156,12 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantEndpoint, ic.Endpoint())
 				assert.Equal(t, tt.wantTargetModel, ic.TargetModel())
 				assert.Equal(t, tt.wantTargetVariant, ic.TargetVariant())
-				if ic.Temperature() != nil {
-					assert.Equal(t, tt.wantTemperature, *ic.Temperature())
+				if ic.Temperature(ic.Service(), ic.Model()) != nil {
+					assert.Equal(t, tt.wantTemperature, *ic.Temperature(ic.Service(), ic.Model()))
 				}
-				assert.Equal(t, tt.wantStopSequences, ic.StopSequences())
-				if ic.TopP() != nil {
-					assert.Equal(t, tt.wantTopP, *ic.TopP())
+				assert.Equal(t, tt.wantStopSequences, ic.StopSequences(ic.Service(), ic.Model()))
+				if ic.TopP(ic.Service(), ic.Model()) != nil {
+					assert.Equal(t, tt.wantTopP, *ic.TopP(ic.Service(), ic.Model()))
 				}
 			}
 		})
