@@ -63,10 +63,10 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds, blockList help
 	}
 
 	postM := make([]MapPair, 0, len(preM))
-	if filterDocIds != nil || blockList != nil {
+	if filterDocIds != nil || (blockList != nil && blockList.Len() > 0) {
 		for _, val := range preM {
 			docID := binary.BigEndian.Uint64(val.Key)
-			if filterDocIds != nil && filterDocIds.Contains(docID) && blockList != nil && blockList.Contains(docID) {
+			if ((filterDocIds != nil && filterDocIds.Contains(docID)) || filterDocIds == nil) && (blockList == nil || blockList.Len() == 0 || blockList.Contains(docID)) {
 				postM = append(postM, val)
 			}
 		}

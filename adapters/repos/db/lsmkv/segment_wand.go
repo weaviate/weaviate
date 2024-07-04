@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 var (
@@ -315,9 +314,14 @@ func (s *segment) GetTermTombstoneNonTombstone(key []byte) (uint64, uint64, uint
 	}
 }
 
-func (store *Store) GetSegmentsForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[string][]*segment, error) {
-	segments := make(map[string][]*segment, 100)
-	for _, propNameTokens := range propNamesByTokenization {
+type SegmentTokenization struct {
+	Segment      *segment
+	Tokenization string
+}
+
+func (store *Store) GetSegmentsForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[string][]SegmentTokenization, error) {
+	segments := make(map[string][]SegmentTokenization, 100)
+	for tokenization, propNameTokens := range propNamesByTokenization {
 		for _, propName := range propNameTokens {
 
 			bucket := store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
@@ -333,7 +337,7 @@ func (store *Store) GetSegmentsForTerms(propNamesByTokenization map[string][]str
 					defer currentSegment.CompactionMutex.RUnlock()
 					return store.GetSegmentsForTerms(propNamesByTokenization, queryTermsByTokenization)
 				}
-				for _, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+				for _, term := range queryTermsByTokenization[tokenization] {
 					_, err := currentSegment.index.Get([]byte(term))
 					// segment does not contain term
 					if err != nil {
@@ -343,9 +347,9 @@ func (store *Store) GetSegmentsForTerms(propNamesByTokenization map[string][]str
 				}
 				if hasTerm {
 					if _, ok := segments[propName]; !ok {
-						segments[propName] = make([]*segment, 0, len(bucketSegments))
+						segments[propName] = make([]SegmentTokenization, 0, len(bucketSegments))
 					}
-					segments[propName] = append(segments[propName], currentSegment)
+					segments[propName] = append(segments[propName], SegmentTokenization{Segment: currentSegment, Tokenization: tokenization})
 				}
 			}
 		}
@@ -353,9 +357,14 @@ func (store *Store) GetSegmentsForTerms(propNamesByTokenization map[string][]str
 	return segments, nil
 }
 
-func (store *Store) GetMemtablesForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[string][]*Memtable, error) {
-	memtables := make(map[string][]*Memtable, 100)
-	for _, propNameTokens := range propNamesByTokenization {
+type MemtableTokenization struct {
+	Memtable     *Memtable
+	Tokenization string
+}
+
+func (store *Store) GetMemtablesForTerms(propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[string][]MemtableTokenization, error) {
+	memtables := make(map[string][]MemtableTokenization, len(propNamesByTokenization)*len(queryTermsByTokenization))
+	for tokenization, propNameTokens := range propNamesByTokenization {
 		for _, propName := range propNameTokens {
 			bucket := store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 			bucketMemtables := []*Memtable{}
@@ -369,7 +378,7 @@ func (store *Store) GetMemtablesForTerms(propNamesByTokenization map[string][]st
 					continue
 				}
 				hasTerm := false
-				for _, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+				for _, term := range queryTermsByTokenization[tokenization] {
 					_, err := memtable.getMap([]byte(term))
 					if err != nil {
 						continue
@@ -378,9 +387,9 @@ func (store *Store) GetMemtablesForTerms(propNamesByTokenization map[string][]st
 				}
 				if hasTerm {
 					if _, ok := memtables[propName]; !ok {
-						memtables[propName] = make([]*Memtable, 0, len(bucketMemtables))
+						memtables[propName] = make([]MemtableTokenization, 0, len(bucketMemtables))
 					}
-					memtables[propName] = append(memtables[propName], memtable)
+					memtables[propName] = append(memtables[propName], MemtableTokenization{Memtable: memtable, Tokenization: tokenization})
 				}
 			}
 		}
@@ -388,13 +397,15 @@ func (store *Store) GetMemtablesForTerms(propNamesByTokenization map[string][]st
 	return memtables, nil
 }
 
-func (store *Store) GetAllSegmentStats(segments map[string][]*segment, memTables map[string][]*Memtable, propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[string]map[string]int64, bool, error) {
-	propertySizes := make(map[string]map[string]int64, 100)
+func (store *Store) GetAllSegmentStats(segments map[string][]SegmentTokenization, memTables map[string][]MemtableTokenization, propNamesByTokenization map[string][]string, queryTermsByTokenization map[string][]string) (map[string]map[string]int64, bool, error) {
+	propertySizes := make(map[string]map[string]int64, len(propNamesByTokenization)*len(queryTermsByTokenization))
 	hasTombstones := false
 	for propName := range segments {
-		for _, segment := range segments[propName] {
-			propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
-			for _, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+		for _, segmentAndTokenization := range segments[propName] {
+			segment := segmentAndTokenization.Segment
+			tokenization := segmentAndTokenization.Tokenization
+			propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[tokenization]))
+			for _, term := range queryTermsByTokenization[tokenization] {
 				nonTombstones, tombstones, _, _, err := segment.GetTermTombstoneNonTombstone([]byte(term))
 				// segment does not contain term
 				if err != nil {
@@ -410,29 +421,31 @@ func (store *Store) GetAllSegmentStats(segments map[string][]*segment, memTables
 	}
 
 	for propName := range memTables {
-		for _, memtable := range memTables[propName] {
+		for _, memtableAndTokenization := range memTables[propName] {
+			memTable := memtableAndTokenization.Memtable
+			tokenization := memtableAndTokenization.Tokenization
 			if _, ok := propertySizes[propName]; !ok {
-				propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[models.PropertyTokenizationWord]))
+				propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[tokenization]))
 			}
-			if memtable != nil && memtable.Size() > 0 {
-				for _, term := range queryTermsByTokenization[models.PropertyTokenizationWord] {
+			if memTable != nil && memTable.Size() > 0 {
+				for _, term := range queryTermsByTokenization[tokenization] {
 					termBytes := []byte(term)
-					memtable.RLock()
-					_, err := memtable.getMap(termBytes)
+					memTable.RLock()
+					_, err := memTable.getMap(termBytes)
 					if err != nil {
-						memtable.RUnlock()
+						memTable.RUnlock()
 						continue
 					}
 
-					tombstone, nonTombstone, err := memtable.countTombstones(termBytes)
+					tombstone, nonTombstone, err := memTable.countTombstones(termBytes)
 					if err != nil {
-						memtable.RUnlock()
+						memTable.RUnlock()
 						continue
 					}
 
 					propertySizes[propName][term] += int64(nonTombstone)
 					propertySizes[propName][term] -= int64(tombstone)
-					memtable.RUnlock()
+					memTable.RUnlock()
 				}
 			}
 		}
