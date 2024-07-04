@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -192,18 +191,18 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				if err != nil {
 					ec.Add(fmt.Errorf("downloading error: %w", err))
 					// one success will be sufficient for changing the status
+					// no status provided here it will be detected which status
+					// requested by RAFT processes
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
-							Name:   name,
-							Status: types.TenantActivityStatusUNFROZEN,
+							Name: name,
 						},
 						Op: command.TenantsProcess_OP_ABORT,
 					}
 				} else {
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
-							Name:   name,
-							Status: types.TenantActivityStatusUNFROZEN,
+							Name: name,
 						},
 						Op: command.TenantsProcess_OP_DONE,
 					}
