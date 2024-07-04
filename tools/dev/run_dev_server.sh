@@ -524,8 +524,7 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
-      OFFLOAD_S3_ENDPOINT="localhost:9001" \
-      S3_ENDPOINT_URL="http://localhost:9000"\
+      OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
       go_run ./cmd/weaviate-server \
@@ -552,8 +551,7 @@ case $CONFIG in
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
       RAFT_BOOTSTRAP_EXPECT=3 \
-      OFFLOAD_S3_ENDPOINT="localhost:9000" \
-      S3_ENDPOINT_URL="http://localhost:9000"\
+      OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
@@ -584,8 +582,7 @@ case $CONFIG in
         RAFT_BOOTSTRAP_EXPECT=3 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
         ENABLE_MODULES="text2vec-contextionary,backup-filesystem,offload-s3" \
-        OFFLOAD_S3_ENDPOINT="localhost:9000" \
-        S3_ENDPOINT_URL="http://localhost:9000"\
+        OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
         AWS_ACCESS_KEY_ID="aws_access_key"\
         AWS_SECRET_KEY="aws_secret_key"\
         go_run ./cmd/weaviate-server \
