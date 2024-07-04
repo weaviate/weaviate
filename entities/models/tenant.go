@@ -31,8 +31,8 @@ import (
 // swagger:model Tenant
 type Tenant struct {
 
-	// activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. For creation, allowed values are `HOT` - tenant is fully active and `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `HOT`, `COLD` and also `FROZEN` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `FREEZING` - tenant is transitioning from HOT/COLD to FROZEN, `UNFREEZING` - tenant is transitioning from FROZEN to HOT/COLD, `UNFROZEN` - tenant is no longer FROZEN but not yet HOT/COLD
-	// Enum: [HOT COLD FROZEN FREEZING UNFREEZING UNFROZEN]
+	// activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. For creation, allowed values are `HOT` - tenant is fully active and `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `HOT`, `COLD` and also `FROZEN` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `FREEZING` - tenant is transitioning from HOT/COLD to FROZEN, `UNFREEZING` - tenant is transitioning from FROZEN to HOT/COLD
+	// Enum: [HOT COLD FROZEN FREEZING UNFREEZING]
 	ActivityStatus string `json:"activityStatus,omitempty"`
 
 	// name of the tenant
@@ -57,7 +57,7 @@ var tenantTypeActivityStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["HOT","COLD","FROZEN","FREEZING","UNFREEZING","UNFROZEN"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["HOT","COLD","FROZEN","FREEZING","UNFREEZING"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -81,9 +81,6 @@ const (
 
 	// TenantActivityStatusUNFREEZING captures enum value "UNFREEZING"
 	TenantActivityStatusUNFREEZING string = "UNFREEZING"
-
-	// TenantActivityStatusUNFROZEN captures enum value "UNFROZEN"
-	TenantActivityStatusUNFROZEN string = "UNFROZEN"
 )
 
 // prop value enum
