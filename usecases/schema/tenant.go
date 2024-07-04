@@ -38,18 +38,18 @@ func (h *Handler) AddTenants(ctx context.Context,
 	principal *models.Principal,
 	class string,
 	tenants []*models.Tenant,
-) ([]*models.Tenant, error) {
+) (uint64, error) {
 	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	validated, err := validateTenants(tenants)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
-	if err = validateActivityStatuses(validated, true); err != nil {
-		return nil, err
+	if err = validateActivityStatuses(validated, true, false); err != nil {
+		return 0, err
 	}
 
 	request := api.AddTenantsRequest{
@@ -65,17 +65,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		})
 	}
 
-	if _, err = h.schemaManager.AddTenants(class, &request); err != nil {
-		return nil, err
-	}
-
-	// we get the new state to return correct status
-	// specially in FREEZING and UNFREEZING
-	uTenants, _, err := h.schemaManager.QueryTenants(class, tNames)
-	if err != nil {
-		return nil, err
-	}
-	return uTenants, err
+	return h.schemaManager.AddTenants(class, &request)
 }
 
 func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {
@@ -106,21 +96,24 @@ func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err 
 	return
 }
 
-func validateActivityStatuses(tenants []*models.Tenant, allowEmpty bool) error {
+func validateActivityStatuses(tenants []*models.Tenant, allowEmpty, allowFrozen bool) error {
 	msgs := make([]string, 0, len(tenants))
 
 	for _, tenant := range tenants {
 		switch status := tenant.ActivityStatus; status {
-		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD, models.TenantActivityStatusFROZEN:
+		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
 			continue
-
+		case models.TenantActivityStatusFROZEN:
+			if allowFrozen {
+				continue
+			}
 		default:
 			if status == "" && allowEmpty {
 				continue
 			}
-			msgs = append(msgs, fmt.Sprintf(
-				"invalid activity status '%s' for tenant %q", status, tenant.Name))
 		}
+		msgs = append(msgs, fmt.Sprintf(
+			"invalid activity status '%s' for tenant %q", tenant.ActivityStatus, tenant.Name))
 	}
 
 	if len(msgs) != 0 {
@@ -148,7 +141,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	if err := validateActivityStatuses(validated, false); err != nil {
+	if err := validateActivityStatuses(validated, false, true); err != nil {
 		return nil, err
 	}
 
