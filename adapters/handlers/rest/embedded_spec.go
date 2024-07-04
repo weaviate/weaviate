@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.26.0-preview0"
+    "version": "1.26.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -4123,6 +4123,10 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "type": "boolean",
           "x-nullable": true
@@ -4548,6 +4552,11 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "description": "Optional. TODO roaring-set-range",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules",
           "type": "boolean",
@@ -4578,7 +4587,8 @@ func init() {
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr"
           ]
         }
       }
@@ -5303,7 +5313,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.26.0-preview0"
+    "version": "1.26.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -9659,6 +9669,10 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "type": "boolean",
           "x-nullable": true
@@ -10102,6 +10116,11 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeable": {
+          "description": "Optional. TODO roaring-set-range",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules",
           "type": "boolean",
@@ -10132,7 +10151,8 @@ func init() {
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr"
           ]
         }
       }

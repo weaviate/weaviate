@@ -252,6 +252,7 @@ func TestCompaction(t *testing.T) {
 			},
 		},
 
+		// RoaringSet
 		{
 			name: "compactionRoaringSetStrategy_Random",
 			f:    compactionRoaringSetStrategy_Random,
@@ -313,6 +314,72 @@ func TestCompaction(t *testing.T) {
 			f:    compactionRoaringSetStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSet),
+				WithKeepTombstones(true),
+			},
+		},
+
+		// RoaringSetRange
+		{
+			name: "compactionRoaringSetRangeStrategy_Random",
+			f:    compactionRoaringSetRangeStrategy_Random,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_Random_KeepTombstones",
+			f:    compactionRoaringSetRangeStrategy_Random,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy",
+			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
+				compactionRoaringSetRangeStrategy(ctx, t, opts, 1824, 1824)
+			},
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_KeepTombstones",
+			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
+				compactionRoaringSetRangeStrategy(ctx, t, opts, 2384, 2384)
+			},
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_RemoveUnnecessary",
+			f:    compactionRoaringSetRangeStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_RemoveUnnecessary_KeepTombstones",
+			f:    compactionRoaringSetRangeStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+				WithKeepTombstones(true),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations",
+			f:    compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
+		{
+			name: "compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations_KeepTombstones",
+			f:    compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
 				WithKeepTombstones(true),
 			},
 		},

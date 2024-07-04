@@ -13,20 +13,20 @@ package lsmkv
 
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	roaringset2 "github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (s *segment) newRoaringSetCursor() *roaringset2.SegmentCursor {
+func (s *segment) newRoaringSetCursor() *roaringset.SegmentCursor {
 	contentReader, err := s.contentReader.NewWithOffsetStartEnd(s.dataStartPos, s.dataEndPos)
 	if err != nil {
 		return nil
 	}
-	return roaringset2.NewSegmentCursor(contentReader, &roaringSetSeeker{s.index})
+	return roaringset.NewSegmentCursor(contentReader, &roaringSetSeeker{s.index})
 }
 
-func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset2.InnerCursor, func()) {
+func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
 	sg.maintenanceLock.RLock()
-	out := make([]roaringset2.InnerCursor, len(sg.segments))
+	out := make([]roaringset.InnerCursor, len(sg.segments))
 
 	for i, segment := range sg.segments {
 		out[i] = segment.newRoaringSetCursor()

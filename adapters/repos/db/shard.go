@@ -21,6 +21,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -96,7 +97,7 @@ type ShardLike interface {
 	ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, id strfmt.UUID) (bool, error)
 	ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties) ([]*storobj.Object, []float32, error)
-	ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, multiTargetCombination *dto.TargetCombination) ([]*storobj.Object, []float32, error)
+	ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination) ([]*storobj.Object, []float32, error)
 	UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error
 	UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error
 	UpdateAsyncReplication(ctx context.Context, enabled bool) error
@@ -107,11 +108,8 @@ type ShardLike interface {
 	ObjectDigestsByTokenRange(ctx context.Context, initialToken, finalToken uint64, limit int) (objs []replica.RepairResponse, lastTokenRead uint64, err error)
 	ID() string // Get the shard id
 	drop() error
-	addIDProperty(ctx context.Context) error
-	addDimensionsProperty(ctx context.Context) error
-	addTimestampProperties(ctx context.Context) error
 	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
-	BeginBackup(ctx context.Context) error
+	HaltForTransfer(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
@@ -121,7 +119,7 @@ type ShardLike interface {
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
-	VectorDistanceForQuery(ctx context.Context, id strfmt.UUID, searchVectors [][]float32, targets []string) ([]float32, error)
+	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error)
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
@@ -144,7 +142,7 @@ type ShardLike interface {
 	prepareDeleteObjects(context.Context, string, []strfmt.UUID, bool) replica.SimpleResponse
 	prepareAddReferences(context.Context, string, []objects.BatchReference) replica.SimpleResponse
 
-	commitReplication(context.Context, string, *backupMutex) interface{}
+	commitReplication(context.Context, string, *shardTransfer) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
@@ -157,7 +155,10 @@ type ShardLike interface {
 	publishDimensionMetrics(ctx context.Context)
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
+	deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
@@ -167,7 +168,6 @@ type ShardLike interface {
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mayUpsertObjectHashTree(object *storobj.Object, idBytes []byte, status objectInsertStatus) error
 	mutableMergeObjectLSM(merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
-	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket, item inverted.MergeItem) error
 	updatePropertySpecificIndices(object *storobj.Object, status objectInsertStatus) error
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
@@ -278,6 +278,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	defer func() {
+		p := recover()
+		if p != nil {
+			err = fmt.Errorf("unexpected error initializing shard %q of index %q: %v", shardName, index.ID(), p)
+			index.logger.WithError(err).WithFields(logrus.Fields{
+				"index": index.ID(),
+				"shard": shardName,
+			}).Error("panic during shard initialization")
+			debug.PrintStack()
+		}
+
 		if err != nil {
 			// spawn a new context as we cannot guarantee that the init context is
 			// still valid, but we want to make sure that we have enough time to clean
@@ -698,7 +708,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return err
 	}
 
-	partitioningEnabled := s.index.shardState.PartitioningEnabled
+	partitioningEnabled := s.index.partitioningEnabled
 
 	// load the most recent hashtree file
 	dirEntries, err := os.ReadDir(s.pathHashTree())
@@ -736,10 +746,12 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		}
 
 		// attempt to load hashtree from file
+		var ht hashtree.AggregatedHashTree
+
 		if partitioningEnabled {
-			s.hashtree, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
+			ht, err = hashtree.DeserializeCompactHashTree(bufio.NewReader(f))
 		} else {
-			s.hashtree, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
+			ht, err = hashtree.DeserializeMultiSegmentHashTree(bufio.NewReader(f))
 		}
 		if err != nil {
 			s.index.logger.
@@ -747,6 +759,8 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
 				Warnf("reading hashtree file %q: %v", hashtreeFilename, err)
+		} else {
+			s.hashtree = ht
 		}
 
 		f.Close()
@@ -764,14 +778,18 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
+	var ht hashtree.AggregatedHashTree
+
 	if partitioningEnabled {
-		s.hashtree, err = s.buildCompactHashTree()
+		ht, err = s.buildCompactHashTree()
 	} else {
-		s.hashtree, err = s.buildMultiSegmentHashTree()
+		ht, err = s.buildMultiSegmentHashTree(ctx)
 	}
 	if err != nil {
 		return err
 	}
+
+	s.hashtree = ht
 
 	// sync hashtree with current object states
 
@@ -855,8 +873,6 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	}
 
 	s.stopHashBeater()
-	s.hashtree = nil
-	s.hashtreeInitialized.Store(false)
 
 	return nil
 }
@@ -865,8 +881,33 @@ func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
 	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
 }
 
-func (s *Shard) buildMultiSegmentHashTree() (hashtree.AggregatedHashTree, error) {
-	shardState := s.index.shardState
+func (s *Shard) shardState(ctx context.Context) (*sharding.State, error) {
+	// when a class was just created, the shard state may not be already updated
+	// specially when an incoming request is trigering the shard creation or loading
+	// ideally the shard state obtained should already include the current shard
+	// the shard state is obtained by calling CopyShardingState, currently it's not
+	// waiting for it to be fully up to date thus the need of this approach
+	for {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		shardState := s.index.shardState()
+
+		_, ok := shardState.Physical[s.name]
+		if ok {
+			return shardState, nil
+		}
+
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func (s *Shard) buildMultiSegmentHashTree(ctx context.Context) (hashtree.AggregatedHashTree, error) {
+	shardState, err := s.shardState(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	virtualNodes := make([]sharding.Virtual, len(shardState.Virtual))
 	copy(virtualNodes, shardState.Virtual)
@@ -928,6 +969,9 @@ func (s *Shard) closeHashTree() error {
 		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
 	}
 
+	s.hashtree = nil
+	s.hashtreeInitialized.Store(false)
+
 	return nil
 }
 
@@ -973,6 +1017,8 @@ func (s *Shard) drop() (err error) {
 	s.hashtreeRWMux.Lock()
 	if s.hashtree != nil {
 		s.stopHashBeater()
+		s.hashtree = nil
+		s.hashtreeInitialized.Store(false)
 	}
 	s.hashtreeRWMux.Unlock()
 
@@ -1141,7 +1187,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 
 func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	for _, prop := range props {
-		if !inverted.HasInvertedIndex(prop) {
+		if !inverted.HasAnyInvertedIndex(prop) {
 			continue
 		}
 
@@ -1213,8 +1259,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		searchableBucketOpts := append(bucketOpts,
-			lsmkv.WithStrategy(lsmkv.StrategyMapCollection), lsmkv.WithPread(s.index.Config.AvoidMMap))
+		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyMapCollection))
 		if s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
@@ -1222,6 +1267,19 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketSearchableFromPropNameLSM(prop.Name),
 			searchableBucketOpts...,
+		); err != nil {
+			return err
+		}
+	}
+
+	if inverted.HasRangeableIndex(prop) {
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name),
+			append(bucketOpts,
+				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
+				lsmkv.WithUseBloomFilter(false),
+				lsmkv.WithCalcCountNetAdditions(false),
+			)...,
 		); err != nil {
 			return err
 		}
@@ -1531,7 +1589,7 @@ func (s *Shard) isFallbackToSearchable() bool {
 
 func (s *Shard) tenant() string {
 	// TODO provide better impl
-	if s.index.shardState.PartitioningEnabled {
+	if s.index.partitioningEnabled {
 		return s.name
 	}
 	return ""

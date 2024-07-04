@@ -10,7 +10,7 @@ from weaviate.collections.classes.grpc import (
 
 from .conftest import CollectionFactory, NamedCollection
 
-GQL_RETURNS = "{_additional {distance}"
+GQL_RETURNS = "{_additional {distance id}"
 GQL_TARGETS = 'targets: {targetVectors: ["title1", "title2", "title3"], combinationMethod: sum}'
 
 
@@ -412,6 +412,74 @@ def test_named_vectors_missing_entries(
         assert nt.objects[1].uuid == uuid2
 
 
+def test_multi_target_near_vector(collection_factory: CollectionFactory) -> None:
+    collection = collection_factory(
+        vectorizer_config=[
+            wvc.config.Configure.NamedVectors.none(
+                name=entry,
+            )
+            for entry in ["first", "second", "third"]
+        ]
+    )
+
+    collection.data.insert(
+        properties={}, vector={"first": [1, 0], "second": [0, 0, 1], "third": [0, 0, 0, 1]}
+    )
+    uuid2 = collection.data.insert(
+        properties={}, vector={"first": [0, 1], "second": [0, 1, 0], "third": [0, 0, 1, 0]}
+    )
+
+    nt = collection.query.near_vector(
+        {"first": [0, 1], "second": [0, 1, 0], "third": [0, 0, 1, 0]},
+        return_metadata=wvc.query.MetadataQuery.full(),
+        target_vector=TargetVectors.sum(["first", "second", "third"]),
+        distance=0.1,
+    )
+    assert len(nt.objects) == 1
+    assert nt.objects[0].uuid == uuid2
+    assert nt.objects[0].metadata.distance == 0
+
+
+def test_multi_target_with_filter(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[
+            wvc.config.Property(name="first", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="second", data_type=wvc.config.DataType.TEXT),
+            wvc.config.Property(name="int", data_type=wvc.config.DataType.INT),
+        ],
+        vectorizer_config=[
+            wvc.config.Configure.NamedVectors.text2vec_contextionary(
+                name=entry, source_properties=[entry], vectorize_collection_name=False
+            )
+            for entry in ["first", "second"]
+        ],
+    )
+
+    uuid1 = collection.data.insert(
+        properties={"first": "apple", "second": "mountain", "int": 3},
+    )
+    collection.data.insert(
+        properties={"first": "banana", "second": "blueberry", "int": 1},
+    )
+    uuid3 = collection.data.insert(
+        properties={"first": "backpack", "second": "orange", "int": 2},
+    )
+
+    objs = collection.query.near_text(
+        "fruit",
+        return_metadata=wvc.query.MetadataQuery.full(),
+        target_vector=wvc.query.TargetVectors.sum(["first", "second"]),
+        limit=5,
+        filters=wvc.query.Filter.by_property("int").greater_or_equal(2),
+    ).objects
+
+    # second object should not be part of results
+    assert len(objs) == 2
+    assert sorted(obj.uuid for obj in objs) == sorted(
+        [uuid1, uuid3]
+    )  # order is not guaranteed and does not matter for this test
+
+
 def test_gql_near_text(named_collection: NamedCollection):
     collection = named_collection()
     collection.data.insert(properties={"title1": "apple", "title2": "car", "title3": "kale"})
@@ -527,3 +595,45 @@ def test_gql_near_object(named_collection: NamedCollection):
 
     assert gql.get[collection.name][0]["_additional"]["distance"] == 1
     assert gql.get[collection.name][1]["_additional"]["distance"] == 2
+
+
+def test_test_multi_target_near_vector_gql(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        vectorizer_config=[
+            wvc.config.Configure.NamedVectors.none(
+                name=entry,
+            )
+            for entry in ["title1", "title2", "title3"]
+        ]
+    )
+
+    collection.data.insert(
+        properties={}, vector={"title1": [1, 0], "title2": [0, 0, 1], "title3": [0, 0, 0, 1]}
+    )
+    uuid2 = collection.data.insert(
+        properties={}, vector={"title1": [0, 1], "title2": [0, 1, 0], "title3": [0, 0, 1, 0]}
+    )
+
+    client = weaviate.connect_to_local()
+    gql = client.graphql_raw_query(
+        """{
+      Get {
+        """
+        + collection.name
+        + """(
+          nearVector: {
+            vectorPerTarget: {title1: [0, 1], title2: [0, 1, 0], title3: [0, 0, 1, 0]}
+            distance: 0.1
+            """
+        + GQL_TARGETS
+        + """
+          }
+        ) """
+        + GQL_RETURNS
+        + """
+        }
+      }
+    }"""
+    )
+    assert gql.get[collection.name][0]["_additional"]["distance"] == 0
+    assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid2)

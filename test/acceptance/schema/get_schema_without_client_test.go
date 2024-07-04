@@ -44,7 +44,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"efConstruction":         float64(128),
 					"flatSearchCutoff":       float64(40000),
 					"ef":                     float64(-1),
-					"maxConnections":         float64(64),
+					"maxConnections":         float64(32),
 					"vectorCacheMaxObjects":  float64(1e12),
 					"dynamicEfMin":           float64(100),
 					"dynamicEfMax":           float64(500),
@@ -63,6 +63,11 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						},
 						"segments":      float64(0),
 						"trainingLimit": float64(100000),
+					},
+					"sq": map[string]interface{}{
+						"enabled":       false,
+						"trainingLimit": float64(100000),
+						"rescoreLimit":  float64(20),
 					},
 				},
 				"shardingConfig": map[string]interface{}{

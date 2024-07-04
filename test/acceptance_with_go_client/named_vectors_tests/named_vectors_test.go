@@ -129,9 +129,9 @@ func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecContextionary().
 		WithText2VecTransformers().
-		WithText2VecOpenAI().
-		WithText2VecCohere().
-		WithGenerativeOpenAI().
-		WithGenerativeCohere()
+		WithText2VecOpenAI("", "", "").
+		WithText2VecCohere("").
+		WithGenerativeOpenAI("", "", "").
+		WithGenerativeCohere("")
 	return
 }

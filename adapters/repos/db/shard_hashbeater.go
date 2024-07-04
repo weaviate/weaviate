@@ -46,6 +46,7 @@ func (s *Shard) initHashBeater() {
 		}()
 
 		t := time.NewTicker(50 * time.Millisecond)
+		defer t.Stop()
 
 		backoffs := []time.Duration{
 			1 * time.Second,
@@ -59,8 +60,6 @@ func (s *Shard) initHashBeater() {
 
 		firstFailure := true
 
-		defer t.Stop()
-
 		for {
 			select {
 			case <-s.hashBeaterCtx.Done():
@@ -68,6 +67,10 @@ func (s *Shard) initHashBeater() {
 			case <-t.C:
 				s.objectPropagationNeededCond.L.Lock()
 				for !s.objectPropagationNeeded {
+					if s.hashBeaterCtx.Err() != nil {
+						s.objectPropagationNeededCond.L.Unlock()
+						return
+					}
 					s.objectPropagationNeededCond.Wait()
 				}
 				s.objectPropagationNeeded = false
@@ -154,10 +157,12 @@ func (s *Shard) initHashBeater() {
 
 	enterrors.GoWrapper(func() {
 		t := time.NewTicker(100 * time.Millisecond)
+		defer t.Stop()
 
 		for {
 			select {
 			case <-s.hashBeaterCtx.Done():
+				s.objectPropagationNeededCond.Signal()
 				return
 			case <-t.C:
 				comparedHosts := s.getLastComparedHosts()
@@ -216,6 +221,10 @@ type hashBeatHostStats struct {
 func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 	s.hashtreeRWMux.RLock()
 	defer s.hashtreeRWMux.RUnlock()
+
+	if s.hashtree == nil {
+		return
+	}
 
 	diffCalculationStart := time.Now()
 
