@@ -5,7 +5,7 @@ import math
 from weaviate.collections.classes.grpc import (
     _MultiTargetVectorJoin,
     TargetVectors,
-    _MultiTargetVectorJoinEnum,
+    _MultiTargetVectorJoinEnum
 )
 
 from .conftest import CollectionFactory, NamedCollection
@@ -210,6 +210,32 @@ def test_near_vector(named_collection: NamedCollection) -> None:
     assert len(near_vector2.objects) == 2
     # order is not guaranteed
     assert sorted([obj.uuid for obj in near_vector2.objects]) == sorted([uuid1, uuid2])
+
+
+@pytest.mark.parametrize("target_vector", [None, "title"])
+def test_near_vector_with_single_named_vector(named_collection: NamedCollection, target_vector: str | None) -> None:
+    collection = named_collection(props=["title"])
+
+    uuid1 = collection.data.insert(
+        properties={"title": "alpha"},
+    )
+    uuid2 = collection.data.insert(
+        properties={"title": "beta"},
+    )
+    collection.data.insert(
+        properties={"title": "gamma"},
+    )
+
+    obj1 = collection.query.fetch_object_by_id(uuid1, include_vector=True)
+    near_vector1 = collection.query.near_vector(
+        obj1.vector["title"],
+        target_vector=target_vector,
+        distance=0.1,
+        return_metadata=wvc.query.MetadataQuery.full(),
+    )
+
+    assert len(near_vector1.objects) == 1
+    assert near_vector1.objects[0].uuid == uuid1
 
 
 CAR_DISTANCE = 0.7892138957977295
