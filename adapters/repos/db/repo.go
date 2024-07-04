@@ -50,6 +50,7 @@ type DB struct {
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
 	memMonitor        *memwatch.Monitor
+	inMaintenanceMode bool
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -85,6 +86,10 @@ type DB struct {
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
 	metricsObserver *nodeWideMetricsObserver
+}
+
+func (db *DB) IsInMaintenanceMode() bool {
+	return db.inMaintenanceMode
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -134,6 +139,7 @@ func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
+	inMaintenanceMode bool,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -152,6 +158,7 @@ func New(logger logrus.FieldLogger, config Config,
 		maxNumberGoroutines:     int(math.Round(config.MaxImportGoroutinesFactor * float64(runtime.GOMAXPROCS(0)))),
 		resourceScanState:       newResourceScanState(),
 		memMonitor:              memMonitor,
+		inMaintenanceMode:       inMaintenanceMode,
 	}
 
 	if db.maxNumberGoroutines == 0 {

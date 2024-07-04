@@ -212,6 +212,10 @@ func (i *Index) GetShards() []ShardLike {
 	return out
 }
 
+func (i *Index) GetShard(name string) ShardLike {
+	return i.shards.Load(name)
+}
+
 func (i *Index) ID() string {
 	return indexID(i.Config.ClassName)
 }

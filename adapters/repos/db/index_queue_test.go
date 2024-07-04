@@ -112,7 +112,7 @@ func TestIndexQueue(t *testing.T) {
 	}
 
 	getLastUpdate := func(q *IndexQueue) time.Time {
-		fi, err := os.Stat(q.checkpoints.Filename())
+		fi, err := os.Stat(q.Checkpoints.Filename())
 		require.NoError(t, err)
 		return fi.ModTime()
 	}
@@ -454,14 +454,14 @@ func TestIndexQueue(t *testing.T) {
 		writeIDs(q, 9, 13) // [5, 6, 9, 10, 11], [12]
 		writeIDs(q, 0, 5)  // [5, 6, 9, 10, 11], [12, 0, 1, 2, 3], [4]
 		time.Sleep(100 * time.Millisecond)
-		_, exists, err := q.checkpoints.Get("1", "")
+		_, exists, err := q.Checkpoints.Get("1", "")
 		require.NoError(t, err)
 		require.False(t, exists)
 		q.pushToWorkers(-1, false)
 		// the checkpoint should be: 0, then 1
 		// the cursor should not be updated
 		wait(100 * time.Millisecond)
-		after, exists, err := q.checkpoints.Get("1", "")
+		after, exists, err := q.Checkpoints.Get("1", "")
 		require.NoError(t, err)
 		require.True(t, exists)
 		require.EqualValues(t, 1, after)
@@ -475,7 +475,7 @@ func TestIndexQueue(t *testing.T) {
 		wait()
 		wait()
 		wait()
-		v, exists, err := q.checkpoints.Get("1", "")
+		v, exists, err := q.Checkpoints.Get("1", "")
 		require.NoError(t, err)
 		require.True(t, exists)
 		require.Equal(t, 4, int(v))
@@ -633,7 +633,7 @@ func TestIndexQueue(t *testing.T) {
 		<-called
 
 		// pause indexing: this will block until the batch is indexed
-		q.pauseIndexing()
+		q.PauseIndexing()
 
 		// add more vectors
 		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
@@ -649,7 +649,7 @@ func TestIndexQueue(t *testing.T) {
 		}
 
 		// resume indexing
-		q.resumeIndexing()
+		q.ResumeIndexing()
 
 		// wait for the indexing to be done
 		<-called

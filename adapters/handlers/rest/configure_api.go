@@ -19,6 +19,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
 	"strings"
@@ -108,6 +109,16 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 		appState.ServerConfig.Scheme = scheme
 	}
 }
+func checkMaintenanceFile(appState *state.State) bool {
+	path := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "MAINTENANCE")
+	_, err := os.Stat(path)
+	if err == nil {
+		appState.Logger.WithField("path", path).Warn("maintenance mode enabled. Delete the maintenance file to disable it")
+		return true
+	}
+
+	return false
+}
 
 type vectorRepo interface {
 	objects.BatchVectorRepo
@@ -131,7 +142,6 @@ func getCores() (int, error) {
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := startupRoutine(ctx, options)
-	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		// only monitoring tool supported at the moment is prometheus
@@ -202,7 +212,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
 		Replication: replication.GlobalConfig{MinimumFactor: 1},
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, checkMaintenanceFile(appState)) // TODO client
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -210,6 +220,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
+	setupDebugHandlers(appState)
+	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
+
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -251,7 +264,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").WithError(err).
 			Fatal("could not open tx repo")
 		os.Exit(1)
-
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
