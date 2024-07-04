@@ -22,6 +22,8 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -403,10 +405,11 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	additional additional.Properties,
+	targetCombination *dto.TargetCombination,
 ) ([]*storobj.Object, []float32, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional)
+		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}

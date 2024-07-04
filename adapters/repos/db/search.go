@@ -73,7 +73,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 	// if this is reference search and tenant is given (as origin class is MT)
 	// but searched class is non-MT, then skip tenant to pass validation
 	tenant := params.Tenant
-	if !idx.partitioningEnabled() && params.IsRefOrigin {
+	if !idx.partitioningEnabled && params.IsRefOrigin {
 		tenant = ""
 	}
 
@@ -106,7 +106,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 func (db *DB) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
 ) ([]search.Result, error) {
-	if searchVectors == nil {
+	if len(searchVectors) == 0 || len(searchVectors) == 1 && len(searchVectors[0]) == 0 {
 		results, err := db.Search(ctx, params)
 		return results, err
 	}

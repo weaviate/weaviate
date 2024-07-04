@@ -81,17 +81,18 @@ func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecContextionary().
 		WithText2VecTransformers().
-		WithText2VecOpenAI().
-		WithText2VecCohere().
+		WithText2VecOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
+		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
 		WithText2VecVoyageAI().
 		WithText2VecPaLM(os.Getenv("PALM_APIKEY")).
 		WithText2VecHuggingFace().
 		WithText2VecAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
-		WithGenerativeOpenAI().
-		WithGenerativeCohere().
+		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
+		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
 		WithGenerativePaLM(os.Getenv("PALM_APIKEY")).
 		WithGenerativeAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeAnyscale().
+		WithGenerativeAnthropic().
 		WithQnAOpenAI().
 		WithRerankerCohere().
 		WithRerankerVoyageAI()

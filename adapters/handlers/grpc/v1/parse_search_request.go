@@ -55,21 +55,21 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 
 	out.Tenant = req.Tenant
 
-	targetVectors, targetCombination, err := extractTargetVectors(req, class)
+	targetVectors, targetCombination, vectorSearch, err := extractTargetVectors(req, class)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract target vectors")
 	}
 	out.TargetVectorCombination = targetCombination
 
 	if req.Metadata != nil {
-		addProps, err := extractAdditionalPropsFromMetadata(class, req.Metadata, targetVectors)
+		addProps, err := extractAdditionalPropsFromMetadata(class, req.Metadata, targetVectors, vectorSearch)
 		if err != nil {
 			return dto.GetParams{}, errors.Wrap(err, "extract additional props")
 		}
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, getClass, req.Collection, req.Uses_123Api, targetVectors)
+	out.Properties, err = extractPropertiesRequest(req.Properties, getClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -82,18 +82,9 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if nv := req.NearVector; nv != nil {
-		var vector []float32
-		// bytes vector has precedent for being more efficient
-		if len(nv.VectorBytes) > 0 {
-			vector = byteops.Float32FromByteVector(nv.VectorBytes)
-		} else if len(nv.Vector) > 0 {
-			vector = nv.Vector
-		} else {
-			return dto.GetParams{}, fmt.Errorf("near_vector: vector is required")
-		}
-		out.NearVector = &searchparams.NearVector{
-			Vector:        vector,
-			TargetVectors: targetVectors,
+		out.NearVector, err = parseNearVec(nv, targetVectors)
+		if err != nil {
+			return dto.GetParams{}, err
 		}
 
 		// The following business logic should not sit in the API. However, it is
@@ -250,10 +241,11 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		}
 
 		if nearVec != nil {
-			out.HybridSearch.NearVectorParams = &searchparams.NearVector{
-				Vector:        byteops.Float32FromByteVector(nearVec.VectorBytes),
-				TargetVectors: targetVectors,
+			out.HybridSearch.NearVectorParams, err = parseNearVec(nearVec, targetVectors)
+			if err != nil {
+				return dto.GetParams{}, err
 			}
+
 			if nearVec.Distance != nil {
 				out.HybridSearch.NearVectorParams.Distance = *nearVec.Distance
 				out.HybridSearch.NearVectorParams.WithDistance = true
@@ -365,7 +357,7 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 	return groupOut, nil
 }
 
-func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string, *dto.TargetCombination, error) {
+func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string, *dto.TargetCombination, bool, error) {
 	var targetVectors []string
 	var targets *pb.Targets
 	vectorSearch := false
@@ -412,26 +404,32 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	if targets != nil {
 		var err error
 		if combination, err = extractTargets(targets); err != nil {
-			return nil, nil, err
+			return nil, nil, false, err
 		}
 	} else if len(targetVectors) > 1 {
 		// here weights need to be added if the default combination requires it
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if vectorSearch && len(targetVectors) == 0 && len(class.VectorConfig) > 1 {
-		return nil, nil, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
+	if vectorSearch && len(targetVectors) == 0 {
+		if len(class.VectorConfig) > 1 {
+			return nil, nil, false, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
+		} else if len(class.VectorConfig) == 1 {
+			for targetVector := range class.VectorConfig {
+				targetVectors = append(targetVectors, targetVector)
+			}
+		}
 	}
 
 	if vectorSearch {
 		for _, target := range targetVectors {
 			if _, ok := class.VectorConfig[target]; !ok {
-				return nil, nil, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
+				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
 			}
 		}
 	}
 
-	return targetVectors, combination, nil
+	return targetVectors, combination, vectorSearch, nil
 }
 
 func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
@@ -567,7 +565,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors []string) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, usesNewDefaultLogic bool, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
@@ -582,7 +580,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 
 	if !usesNewDefaultLogic {
 		// Old stubs being used, use deprecated method
-		return extractPropertiesRequestDeprecated(reqProps, getClass, className, targetVectors)
+		return extractPropertiesRequestDeprecated(reqProps, getClass, className, targetVectors, vectorSearch)
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
@@ -635,13 +633,13 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, getClass, linkedClassName, usesNewDefaultLogic, targetVectors)
+				refProperties, err = extractPropertiesRequest(prop.Properties, getClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors)
+				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
@@ -679,7 +677,7 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, getClass func(stri
 	return props, nil
 }
 
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors []string) ([]search.SelectProperty, error) {
+func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass func(string) *models.Class, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	if reqProps == nil {
 		return nil, nil
 	}
@@ -723,13 +721,13 @@ func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, getClass
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, getClass, linkedClassName, targetVectors)
+				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, getClass, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
 			}
 			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors)
+				addProps, err = extractAdditionalPropsFromMetadata(class, prop.Metadata, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract additional props for refs")
 				}
@@ -793,7 +791,7 @@ func extractNestedProperties(props []*pb.ObjectPropertiesRequest) []search.Selec
 	return selectProps
 }
 
-func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest, targetVectors []string) (additional.Properties, error) {
+func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRequest, targetVectors []string, vectorSearch bool) (additional.Properties, error) {
 	props := additional.Properties{
 		Vector:             prop.Vector,
 		ID:                 prop.Uuid,
@@ -815,7 +813,7 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 
 	}
 
-	if targetVectors != nil {
+	if vectorSearch {
 		vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
 		if err != nil {
 			return props, errors.Wrap(err, "get vector index config from class")
@@ -1073,4 +1071,48 @@ func parseNearIMU(n *pb.NearIMUSearch, targetVectors []string) (*nearImu.NearIMU
 	}
 
 	return out, nil
+}
+
+func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.NearVector, error) {
+	var vector []float32
+	// bytes vector has precedent for being more efficient
+	if len(nv.VectorBytes) > 0 {
+		vector = byteops.Float32FromByteVector(nv.VectorBytes)
+	} else if len(nv.Vector) > 0 {
+		vector = nv.Vector
+	}
+
+	if vector != nil && nv.VectorPerTarget != nil {
+		return nil, fmt.Errorf("near_vector: either vector or VectorPerTarget must be provided, not both")
+	}
+
+	targetVectorsTmp := targetVectors
+	if len(targetVectors) == 0 {
+		targetVectorsTmp = []string{""}
+	}
+
+	targetsPerVector := make(map[string][]float32, len(targetVectorsTmp))
+	if vector != nil {
+		for _, target := range targetVectorsTmp {
+			targetsPerVector[target] = vector
+		}
+	} else if nv.VectorPerTarget != nil {
+		if len(nv.VectorPerTarget) != len(targetVectorsTmp) {
+			return nil, fmt.Errorf("near_vector: vector per target must be provided for all targets")
+		}
+		for _, target := range targetVectorsTmp {
+			if vec, ok := nv.VectorPerTarget[target]; ok {
+				targetsPerVector[target] = byteops.Float32FromByteVector(vec)
+			} else {
+				return nil, fmt.Errorf("near_vector: vector for target %s is required", target)
+			}
+		}
+	} else {
+		return nil, fmt.Errorf("near_vector: vector is required")
+	}
+
+	return &searchparams.NearVector{
+		VectorPerTarget: targetsPerVector,
+		TargetVectors:   targetVectors,
+	}, nil
 }

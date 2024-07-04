@@ -45,6 +45,11 @@ func Test_FlatUserConfig(t *testing.T) {
 					RescoreLimit: DefaultCompressionRescore,
 					Cache:        DefaultVectorCache,
 				},
+				SQ: CompressionUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
 			},
 		},
 		{
@@ -71,7 +76,26 @@ func Test_FlatUserConfig(t *testing.T) {
 					RescoreLimit: 100,
 					Cache:        true,
 				},
+				SQ: CompressionUserConfig{
+					Enabled:      DefaultCompressionEnabled,
+					RescoreLimit: DefaultCompressionRescore,
+					Cache:        DefaultVectorCache,
+				},
 			},
+		},
+		{
+			name: "sq enabled",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"sq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(20),
+					"cache":        true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "SQ is not currently supported for flat indices",
 		},
 		{
 			name: "pq enabled",
@@ -86,20 +110,25 @@ func Test_FlatUserConfig(t *testing.T) {
 			},
 			expectErr:    true,
 			expectErrMsg: "PQ is not currently supported for flat indices",
-			// expected: UserConfig{
-			// 	VectorCacheMaxObjects: 100,
-			// 	Distance:              common.DefaultDistanceMetric,
-			// 	PQ: CompressionUserConfig{
-			// 		Enabled:      true,
-			// 		RescoreLimit: 100,
-			// 		Cache:        true,
-			// 	},
-			// 	BQ: CompressionUserConfig{
-			// 		Enabled:      false,
-			// 		RescoreLimit: DefaultCompressionRescore,
-			// 		Cache:        DefaultVectorCache,
-			// 	},
-			// },
+		},
+		{
+			name: "sq and bq enabled",
+			input: map[string]interface{}{
+				"vectorCacheMaxObjects": float64(100),
+				"distance":              "cosine",
+				"sq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+				"bq": map[string]interface{}{
+					"enabled":      true,
+					"rescoreLimit": float64(100),
+					"cache":        true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "cannot enable multiple quantization methods at the same time",
 		},
 	}
 

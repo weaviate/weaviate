@@ -14,18 +14,20 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	st.log.WithFields(logrus.Fields{
-		"type":  req.Type,
+		"type":  api.ApplyRequest_Type_name[int32(req.Type)],
 		"class": req.Class,
 	}).Debug("server.execute")
 
@@ -128,37 +130,65 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		"cmd_class":       cmd.Class,
 		"cmd_schema_only": schemaOnly,
 	}).Debug("server.apply")
+
+	f := func() {}
+
 	switch cmd.Type {
 
 	case api.ApplyRequest_TYPE_ADD_CLASS:
-		ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.AddClass(&cmd, st.cfg.NodeID, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_RESTORE_CLASS:
-		ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.RestoreClass(&cmd, st.cfg.NodeID, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_UPDATE_CLASS:
-		ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.UpdateClass(&cmd, st.cfg.NodeID, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_DELETE_CLASS:
-		ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.DeleteClass(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_ADD_PROPERTY:
-		ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
-		ret.Error = st.schemaManager.UpdateShardStatus(&cmd, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.UpdateShardStatus(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
-		ret.Error = st.schemaManager.AddTenants(&cmd, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.AddTenants(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
-		ret.Data, ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
+		f = func() {
+			ret.Data, ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
-		ret.Error = st.schemaManager.DeleteTenants(&cmd, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.DeleteTenants(&cmd, schemaOnly)
+		}
+
+	case api.ApplyRequest_TYPE_TENANT_PROCESS:
+		f = func() {
+			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
-		ret.Error = st.StoreSchemaV1()
+		f = func() {
+			ret.Error = st.StoreSchemaV1()
+		}
 
 	default:
 		// This could occur when a new command has been introduced in a later app version
@@ -171,6 +201,17 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}).Error("unknown command")
 		panic(fmt.Sprintf("unknown command type=%d class=%s more=%s", cmd.Type, cmd.Class, msg))
 	}
+
+	// Wrap the function in a go routine to ensure panic recovery. This is necessary as this function is run in an
+	// unwrapped goroutine in the raft library
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	g := func() {
+		f()
+		wg.Done()
+	}
+	enterrors.GoWrapper(g, st.log)
+	wg.Wait()
 
 	return ret
 }

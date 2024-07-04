@@ -16,20 +16,26 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
 
-type metaClass struct {
-	sync.RWMutex
-	Class        models.Class
-	ClassVersion uint64
-	Sharding     sharding.State
-	ShardVersion uint64
-}
+type (
+	NodeShardProcess map[string]*api.TenantsProcess
+	metaClass        struct {
+		sync.RWMutex
+		Class          models.Class
+		ClassVersion   uint64
+		Sharding       sharding.State
+		ShardVersion   uint64
+		ShardProcesses map[string]NodeShardProcess
+	}
+)
 
 func (m *metaClass) ClassInfo() (ci ClassInfo) {
 	if m == nil {
@@ -238,6 +244,45 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) e
 	return nil
 }
 
+func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProcessRequest, v uint64) error {
+	m.Lock()
+	defer m.Unlock()
+
+	name := req.Process.Tenant.Name
+	if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
+		// on unfreezing get the requested status from the shard process
+		if status := m.findRequestedStatus(nodeID, name, req.Action); status != "" {
+			req.Process.Tenant.Status = status
+		}
+	}
+
+	process := m.shardProcess(name, req.Action)
+	process[req.Node] = req.Process
+
+	shard, ok := m.Sharding.Physical[name]
+	if !ok {
+		return fmt.Errorf("shard %s not found", name)
+	}
+
+	if m.allShardProcessExecuted(name, req.Action) {
+		m.applyShardProcess(name, req, &shard)
+	} else {
+		// ignore applying in case of aborts (upload action only)
+		if !m.updateShardProcess(name, req, &shard) {
+			req.Process = nil
+			return nil
+		}
+	}
+
+	m.ShardVersion = v
+	m.Sharding.Physical[shard.Name] = shard
+	if !slices.Contains(shard.BelongsToNodes, nodeID) {
+		req.Process = nil
+		return nil
+	}
+	return nil
+}
+
 func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (n int, err error) {
 	m.Lock()
 	defer m.Unlock()
@@ -251,13 +296,44 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			req.Tenants[i] = nil
 			continue
 		}
-		if p.ActivityStatus() == u.Status {
+
+		// validate status
+		switch p.ActivityStatus() {
+		case req.Tenants[i].Status:
 			req.Tenants[i] = nil
 			continue
+		case types.TenantActivityStatusFREEZING:
+			if u.Status != models.TenantActivityStatusFROZEN {
+				req.Tenants[i] = nil
+				return n, fmt.Errorf("freezing is in progress, requested status: %s for tenant: %s", u.Status, u.Name)
+			}
+		case types.TenantActivityStatusUNFREEZING:
+			if u.Status != models.TenantActivityStatusFROZEN {
+				req.Tenants[i] = nil
+				return n, fmt.Errorf("unfreezing is in progress, requested status: %s for tenant: %s", u.Status, u.Name)
+			}
 		}
+
+		frozenShard := p.ActivityStatus() == models.TenantActivityStatusFROZEN
+		toFrozen := u.Status == models.TenantActivityStatusFROZEN
+
+		switch {
+		case !toFrozen && frozenShard:
+			if p, err = m.unfreeze(nodeID, i, req, p); err != nil {
+				return n, err
+			}
+			if req.Tenants[i] != nil {
+				u.Status = req.Tenants[i].Status
+			}
+		case toFrozen && !frozenShard:
+			m.freeze(i, req, p)
+		default:
+			// do nothing
+		}
+
 		copy := p.DeepCopy()
 		copy.Status = u.Status
-		ps[u.Name] = copy
+		ps[copy.Name] = copy
 		if !slices.Contains(copy.BelongsToNodes, nodeID) {
 			req.Tenants[i] = nil
 		}
@@ -284,4 +360,168 @@ func (m *metaClass) RLockGuard(reader func(*models.Class, *sharding.State) error
 	m.RLock()
 	defer m.RUnlock()
 	return reader(&m.Class, &m.Sharding)
+}
+
+func shardProcessID(name string, action command.TenantProcessRequest_Action) string {
+	return fmt.Sprintf("%s-%s", name, action)
+}
+
+func (m *metaClass) findRequestedStatus(nodeID, name string, action command.TenantProcessRequest_Action) string {
+	processes, pExists := m.ShardProcesses[shardProcessID(name, action)]
+	if _, tExists := processes[nodeID]; pExists && tExists {
+		return processes[nodeID].Tenant.Status
+	}
+	return ""
+}
+
+func (m *metaClass) allShardProcessExecuted(name string, action command.TenantProcessRequest_Action) bool {
+	name = shardProcessID(name, action)
+	expectedCount := len(m.ShardProcesses[name])
+	i := 0
+	for _, p := range m.ShardProcesses[name] {
+		if p.Op > command.TenantsProcess_OP_START { // DONE or ABORT
+			i++
+		}
+	}
+	return i != 0 && i == expectedCount
+}
+
+func (m *metaClass) updateShardProcess(name string, req *command.TenantProcessRequest, copy *sharding.Physical) bool {
+	processes := m.ShardProcesses[shardProcessID(name, req.Action)]
+	switch req.Action {
+	case command.TenantProcessRequest_ACTION_UNFREEZING:
+		for _, sp := range processes {
+			if sp.Op == command.TenantsProcess_OP_DONE {
+				copy.Status = sp.Tenant.Status
+				break
+			}
+		}
+		return false
+	case command.TenantProcessRequest_ACTION_FREEZING:
+		for _, sp := range processes {
+			if sp.Op == command.TenantsProcess_OP_ABORT {
+				copy.Status = req.Process.Tenant.Status
+				req.Process.Tenant.Status = sp.Tenant.Status
+				return true
+			}
+		}
+	default:
+		return false
+	}
+
+	return false
+}
+
+func (m *metaClass) applyShardProcess(name string, req *command.TenantProcessRequest, copy *sharding.Physical) {
+	processes := m.ShardProcesses[shardProcessID(name, req.Action)]
+
+	switch req.Action {
+	case command.TenantProcessRequest_ACTION_UNFREEZING:
+		for _, sp := range processes {
+			if sp.Op == command.TenantsProcess_OP_DONE {
+				copy.Status = sp.Tenant.Status
+				req.Process.Tenant.Status = sp.Tenant.Status
+				break
+			}
+		}
+	case command.TenantProcessRequest_ACTION_FREEZING:
+		count := 0
+		onAbortStatus := copy.Status
+		for _, sp := range processes {
+			if sp.Op == command.TenantsProcess_OP_DONE {
+				count++
+			} else {
+				count--
+				onAbortStatus = sp.Tenant.Status
+			}
+		}
+
+		if count == len(processes) {
+			copy.Status = req.Process.Tenant.Status
+		} else {
+			copy.Status = onAbortStatus
+			req.Process.Tenant.Status = onAbortStatus
+		}
+	default:
+		// do nothing
+		return
+	}
+	delete(m.ShardProcesses, shardProcessID(name, req.Action))
+}
+
+func (m *metaClass) shardProcess(name string, action command.TenantProcessRequest_Action) map[string]*api.TenantsProcess {
+	if len(m.ShardProcesses) == 0 {
+		m.ShardProcesses = make(map[string]NodeShardProcess)
+	}
+
+	process, ok := m.ShardProcesses[shardProcessID(name, action)]
+	if !ok {
+		process = make(map[string]*api.TenantsProcess)
+	}
+	return process
+}
+
+func (m *metaClass) freeze(i int, req *command.UpdateTenantsRequest, shard sharding.Physical) {
+	process := m.shardProcess(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_FREEZING)
+
+	for _, node := range shard.BelongsToNodes {
+		process[node] = &api.TenantsProcess{
+			Op: command.TenantsProcess_OP_START,
+		}
+	}
+	// to be proceed in the db layer
+	req.Tenants[i].Status = types.TenantActivityStatusFREEZING
+	m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_FREEZING)] = process
+}
+
+func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsRequest, p sharding.Physical) (sharding.Physical, error) {
+	name := req.Tenants[i].Name
+	process := m.shardProcess(name, command.TenantProcessRequest_ACTION_UNFREEZING)
+
+	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, []string{name}, m.Class.ReplicationConfig.Factor)
+	if err != nil {
+		req.Tenants[i] = nil
+		return p, fmt.Errorf("get partitions: %w", err)
+	}
+
+	newNodes, ok := partitions[name]
+	if !ok {
+		req.Tenants[i] = nil
+		return p, fmt.Errorf("can not assign new nodes to shard %s: %w", name, err)
+	}
+
+	oldNodes := p.BelongsToNodes
+	p.Status = types.TenantActivityStatusUNFREEZING
+	p.BelongsToNodes = newNodes
+
+	newToOld := map[string]string{}
+	slices.Sort(newNodes)
+	slices.Sort(oldNodes)
+
+	for idx, node := range newNodes {
+		if idx >= len(oldNodes) {
+			// ignore new nodes if the replication factor increase
+			// and relay on replication client will replicate the data
+			// after it's downloaded
+			continue
+		}
+		newToOld[node] = oldNodes[idx]
+		process[node] = &api.TenantsProcess{
+			Op: command.TenantsProcess_OP_START,
+			Tenant: &command.Tenant{
+				Name:   name,
+				Status: req.Tenants[i].Status, // requested status HOT, COLD
+			},
+		}
+	}
+
+	if _, exists := newToOld[nodeID]; !exists {
+		// it does not belong to the new partitions
+		req.Tenants[i] = nil
+		return p, nil
+	}
+	m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)] = process
+	req.Tenants[i].Name = fmt.Sprintf("%s#%s", req.Tenants[i].Name, newToOld[nodeID])
+	req.Tenants[i].Status = p.Status
+	return p, nil
 }

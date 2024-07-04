@@ -317,6 +317,22 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 	)
 }
 
+func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := &command.TenantProcessRequest{}
+	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return s.schema.updateTenantsProcess(cmd.Class, cmd.Version, req) },
+			updateStore:  func() error { return s.db.UpdateTenantsProcess(cmd.Class, req) },
+			schemaOnly:   schemaOnly,
+		},
+	)
+}
+
 type applyOp struct {
 	op                    string
 	updateSchema          func() error

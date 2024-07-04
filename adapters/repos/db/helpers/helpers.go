@@ -70,3 +70,7 @@ func TempBucketFromBucketName(bucketName string) string {
 func BucketSearchableFromPropNameLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + "_searchable")
 }
+
+func BucketRangeableFromPropNameLSM(propName string) string {
+	return BucketFromPropNameLSM(propName + "_rangeable")
+}

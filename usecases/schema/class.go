@@ -19,6 +19,8 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/configbase"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -316,11 +318,13 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 		// migrate IndexInverted later.
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
-			prop.IndexSearchable == nil {
+			prop.IndexSearchable == nil &&
+			prop.IndexRangeable == nil {
 			continue
 		}
 
 		vTrue := true
+		vFalse := false
 		if prop.IndexFilterable == nil {
 			prop.IndexFilterable = &vTrue
 		}
@@ -333,9 +337,11 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				prop.IndexSearchable = &vTrue
 			default:
-				vFalse := false
 				prop.IndexSearchable = &vFalse
 			}
+		}
+		if prop.IndexRangeable == nil {
+			prop.IndexRangeable = &vFalse
 		}
 	}
 }
@@ -395,6 +401,10 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 			}
 		}
 	}
+
+	if property.IndexRangeable == nil {
+		property.IndexRangeable = &vFalse
+	}
 }
 
 func (h *Handler) migrateClassSettings(class *models.Class) {
@@ -437,20 +447,23 @@ func migratePropertyDataTypeAndTokenization(props ...*models.Property) {
 // and IndexSearchable (map inverted index with term frequencies;
 // therefore applicable only to text/text[] data types)
 func migratePropertyIndexInverted(props ...*models.Property) {
+	vFalse := false
+
 	for _, prop := range props {
 		// if none of new options is set, use inverted settings
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
-			prop.IndexSearchable == nil {
+			prop.IndexSearchable == nil &&
+			prop.IndexRangeable == nil {
 			prop.IndexFilterable = prop.IndexInverted
 			switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 			// string/string[] are already migrated into text/text[], can be skipped here
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				prop.IndexSearchable = prop.IndexInverted
 			default:
-				vFalse := false
 				prop.IndexSearchable = &vFalse
 			}
+			prop.IndexRangeable = &vFalse
 		}
 		// new options have precedence so inverted can be reset
 		prop.IndexInverted = nil
@@ -581,7 +594,18 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
+				models.PropertyTokenizationTrigram:
+				return nil
+			case models.PropertyTokenizationGse:
+				if !configbase.Enabled(os.Getenv("USE_GSE")) && !configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
+				}
+				return nil
+			case models.PropertyTokenizationKagomeKr:
+				if !configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
+				}
 				return nil
 			}
 		default:
@@ -605,22 +629,37 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 
 func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	if prop.IndexInverted != nil {
-		if prop.IndexFilterable != nil || prop.IndexSearchable != nil {
-			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.")
+		if prop.IndexFilterable != nil || prop.IndexSearchable != nil || prop.IndexRangeable != nil {
+			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable`, " + "`indexSearchable` or `indexRangeable`")
 		}
 	}
 
+	dataType, _ := schema.AsPrimitive(prop.DataType)
 	if prop.IndexSearchable != nil {
-		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		switch dataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
 			// string/string[] are migrated to text/text[] later,
-			// at this point they are still valid data types, therefore should be handled here
+			// at this point they are still valid data types, therefore should be handled here.
 			// true or false allowed
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			// true or false allowed
 		default:
 			if *prop.IndexSearchable {
 				return fmt.Errorf("`indexSearchable` is allowed only for text/text[] data types. " +
+					"For other data types set false or leave empty")
+			}
+		}
+	}
+	if prop.IndexRangeable != nil {
+		switch dataType {
+		case schema.DataTypeNumber, schema.DataTypeInt, schema.DataTypeDate:
+			// true or false allowed
+		case schema.DataTypeNumberArray, schema.DataTypeIntArray, schema.DataTypeDateArray:
+			// not supported (yet?)
+			fallthrough
+		default:
+			if *prop.IndexRangeable {
+				return fmt.Errorf("`indexRangeable` is allowed only for number/int/date data types. " +
 					"For other data types set false or leave empty")
 			}
 		}

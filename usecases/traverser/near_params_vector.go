@@ -95,7 +95,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearVector != nil {
-		return nearVector.Vector, nil
+		return nearVector.VectorPerTarget[targetVector], nil
 	}
 
 	if nearObject != nil {

@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -235,18 +237,28 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	var err error
 	searchVectors := make([][]float32, len(targetVectors))
+	eg := enterrors.NewErrorGroupWrapper(e.logger)
+	eg.SetLimit(2 * _NUMCPU)
 	for i := range targetVectors {
-		var searchVectorParam *searchparams.NearVector
-		if params.NearVector != nil {
-			searchVectorParam = params.NearVector
-		} else if searchVectorParams != nil {
-			searchVectorParam = searchVectorParams[i]
-		}
+		i := i
+		eg.Go(func() error {
+			var searchVectorParam *searchparams.NearVector
+			if params.NearVector != nil {
+				searchVectorParam = params.NearVector
+			} else if searchVectorParams != nil {
+				searchVectorParam = searchVectorParams[i]
+			}
 
-		searchVectors[i], err = e.vectorFromParamsForTaget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
-		if err != nil {
-			return nil, nil, errors.Errorf("explorer: get class: vectorize search vector: %v", err)
-		}
+			searchVectors[i], err = e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
+			if err != nil {
+				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
+			}
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
 	}
 
 	if len(params.AdditionalProperties.ModuleParams) > 0 || params.Group != nil {
@@ -667,7 +679,7 @@ func (e *Explorer) targetFromParams(ctx context.Context,
 		params.NearObject, params.ModuleParams, params.ClassName, params.Tenant)
 }
 
-func (e *Explorer) vectorFromParamsForTaget(ctx context.Context,
+func (e *Explorer) vectorFromParamsForTarget(ctx context.Context,
 	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string,
 ) ([]float32, error) {
 	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target)
@@ -692,7 +704,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 		if len(params.NearVector.TargetVectors) == 1 {
 			targetVector = params.NearVector.TargetVectors[0]
 		}
-		return params.NearVector.Vector, targetVector, nil
+		return params.NearVector.VectorPerTarget[targetVector], targetVector, nil
 	}
 
 	if params.NearObject != nil {
@@ -776,6 +788,19 @@ func ExtractDistanceFromParams(params dto.GetParams) (distance float64, withDist
 		distance = params.NearObject.Distance
 		withDistance = params.NearObject.WithDistance
 		return
+	}
+
+	if params.HybridSearch != nil {
+		if params.HybridSearch.NearTextParams != nil {
+			distance = params.HybridSearch.NearTextParams.Distance
+			withDistance = params.HybridSearch.NearTextParams.WithDistance
+			return
+		}
+		if params.HybridSearch.NearVectorParams != nil {
+			distance = params.HybridSearch.NearVectorParams.Distance
+			withDistance = params.HybridSearch.NearVectorParams.WithDistance
+			return
+		}
 	}
 
 	if len(params.ModuleParams) == 1 {

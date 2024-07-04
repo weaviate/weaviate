@@ -225,7 +225,7 @@ func (i *Index) CommitReplication(shard, requestID string) interface{} {
 			{Code: replica.StatusShardNotFound, Msg: shard, Err: err},
 		}}
 	}
-	return localShard.commitReplication(context.Background(), requestID, &i.backupMutex)
+	return localShard.commitReplication(context.Background(), requestID, &i.shardTransferMutex)
 }
 
 func (i *Index) AbortReplication(shard, requestID string) interface{} {

@@ -57,8 +57,16 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	c.newLog = NewWriterSize(c.newLogFile, 1*1024*1024)
 
 	if res.Compressed {
-		if err := c.AddPQ(res.PQData); err != nil {
-			return fmt.Errorf("write pq data: %w", err)
+		if res.CompressionPQData != nil {
+			if err := c.AddPQCompression(*res.CompressionPQData); err != nil {
+				return fmt.Errorf("write pq data: %w", err)
+			}
+		} else if res.CompressionSQData != nil {
+			if err := c.AddSQCompression(*res.CompressionSQData); err != nil {
+				return fmt.Errorf("write sq data: %w", err)
+			}
+		} else {
+			return errors.Wrap(err, "unavailable compression data")
 		}
 	}
 
@@ -263,7 +271,7 @@ func (c *MemoryCondensor) RemoveTombstone(nodeid uint64) error {
 	return ec.ToError()
 }
 
-func (c *MemoryCondensor) AddPQ(data compressionhelpers.PQData) error {
+func (c *MemoryCondensor) AddPQCompression(data compressionhelpers.PQData) error {
 	toWrite := make([]byte, 10)
 	toWrite[0] = byte(AddPQ)
 	binary.LittleEndian.PutUint16(toWrite[1:3], data.Dimensions)
@@ -280,6 +288,16 @@ func (c *MemoryCondensor) AddPQ(data compressionhelpers.PQData) error {
 	for _, encoder := range data.Encoders {
 		toWrite = append(toWrite, encoder.ExposeDataForRestore()...)
 	}
+	_, err := c.newLog.Write(toWrite)
+	return err
+}
+
+func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error {
+	toWrite := make([]byte, 11)
+	toWrite[0] = byte(AddSQ)
+	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
+	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
+	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
 	_, err := c.newLog.Write(toWrite)
 	return err
 }

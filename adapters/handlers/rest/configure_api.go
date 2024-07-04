@@ -54,9 +54,11 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
@@ -72,6 +74,7 @@ import (
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
@@ -307,6 +310,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.ClusterService = rCluster.New(rConfig)
+	migrator.SetCluster(appState.ClusterService.Raft)
+
 	executor := schema.NewExecutor(migrator,
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, backup.RestoreClassDir(dataPath),
@@ -686,7 +691,7 @@ func registerModules(appState *state.State) error {
 		WithField("action", "startup").
 		Debug("start registering modules")
 
-	appState.Modules = modules.NewProvider()
+	appState.Modules = modules.NewProvider(appState.Logger)
 
 	// Default modules
 	defaultVectorizers := []string{
@@ -707,6 +712,7 @@ func registerModules(appState *state.State) error {
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
 		modgenerativepalm.Name,
+		modgenerativeanthropic.Name,
 	}
 	defaultOthers := []string{
 		modrerankercohere.Name,
@@ -785,6 +791,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankercohere.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankerdummy.Name]; ok {
+		appState.Modules.Register(modrerankerdummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankerdummy.Name).
 			Debug("enabled module")
 	}
 
@@ -892,6 +906,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativedummy.Name]; ok {
+		appState.Modules.Register(modgenerativedummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedummy.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modgenerativeaws.Name]; ok {
 		appState.Modules.Register(modgenerativeaws.New())
 		appState.Logger.
@@ -924,6 +946,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativeanthropic.Name]; ok {
+		appState.Modules.Register(modgenerativeanthropic.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeanthropic.Name).
+			Debug("enabled module")
+
+	}
 	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
 		appState.Modules.Register(modtext2vecpalm.New())
 		appState.Logger.
