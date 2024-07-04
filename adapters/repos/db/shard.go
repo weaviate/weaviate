@@ -61,11 +61,12 @@ import (
 const IdLockPoolSize = 128
 
 type ShardLike interface {
-	Index() *Index                                                                      // Get the parent index
-	Name() string                                                                       // Get the shard name
-	Store() *lsmkv.Store                                                                // Get the underlying store
-	NotifyReady()                                                                       // Set shard status to ready
-	GetStatus() storagestate.Status                                                     // Return the shard status
+	Index() *Index                  // Get the parent index
+	Name() string                   // Get the shard name
+	Store() *lsmkv.Store            // Get the underlying store
+	NotifyReady()                   // Set shard status to ready
+	GetStatus() storagestate.Status // Return the shard status
+	GetStatusNoLoad() storagestate.Status
 	UpdateStatus(status string) error                                                   // Set shard status
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
