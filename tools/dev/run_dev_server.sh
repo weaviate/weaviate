@@ -550,7 +550,7 @@ case $CONFIG in
       RAFT_PORT="8302" \
       RAFT_INTERNAL_RPC_PORT="8303" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
-      RAFT_BOOTSTRAP_EXPECT=3 \      
+      RAFT_BOOTSTRAP_EXPECT=3 \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
