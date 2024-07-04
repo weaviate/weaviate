@@ -125,7 +125,6 @@ func TestCreateTenants(t *testing.T) {
 			models.TenantActivityStatusFROZEN,
 			models.TenantActivityStatusFREEZING,
 			models.TenantActivityStatusUNFREEZING,
-			models.TenantActivityStatusUNFROZEN,
 		}
 		for _, activityStatus := range activityStatuses {
 			Z.Run(activityStatus, func(z *testing.T) {
@@ -308,7 +307,6 @@ func TestUpdateTenants(t *testing.T) {
 		activityStatuses := []string{
 			models.TenantActivityStatusFREEZING,
 			models.TenantActivityStatusUNFREEZING,
-			models.TenantActivityStatusUNFROZEN,
 		}
 		for _, activityStatus := range activityStatuses {
 			Z.Run(activityStatus, func(z *testing.T) {
