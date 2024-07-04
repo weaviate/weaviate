@@ -56,9 +56,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		ClusterNodes: h.clusterState.Candidates(),
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
-	tNames := make([]string, len(validated))
 	for i, tenant := range validated {
-		tNames[i] = tenant.Name
 		request.Tenants = append(request.Tenants, &api.Tenant{
 			Name:   tenant.Name,
 			Status: schema.ActivityStatus(validated[i].ActivityStatus),
