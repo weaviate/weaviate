@@ -50,6 +50,7 @@ func TestGRPCRequest(t *testing.T) {
 	dotClass := "DotClass"
 	objClass := "ObjClass"
 	multiVecClass := "MultiVecClass"
+	singleNamedVecClass := "SingleNamedVecClass"
 	one := float64(1.0)
 
 	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
@@ -149,6 +150,19 @@ func TestGRPCRequest(t *testing.T) {
 							VectorIndexType:   "flat",
 							VectorIndexConfig: flat.UserConfig{},
 							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+					},
+				},
+				{
+					Class: singleNamedVecClass,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"default": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{},
+							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 					},
 				},
@@ -1655,6 +1669,24 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out:   dto.GetParams{},
 			error: true,
+		},
+		{
+			name: "Near vector with single named vector config and no target",
+			req: &pb.SearchRequest{
+				Collection: singleNamedVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+				},
+			},
+			out: dto.GetParams{
+				ClassName: singleNamedVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"default": {1, 2, 3}}, TargetVectors: []string{"default"}},
+			},
+			error: false,
 		},
 	}
 

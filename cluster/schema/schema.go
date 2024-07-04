@@ -228,10 +228,10 @@ func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo,
 	s.RLock()
 	defer s.RUnlock()
 	meta := s.Classes[class]
-	info := s.Classes[class].ClassInfo()
 	if meta == nil {
 		return false, nil, ClassInfo{}, ErrClassNotFound
 	}
+	info := s.Classes[class].ClassInfo()
 	if !info.MultiTenancy.Enabled {
 		return false, nil, ClassInfo{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}

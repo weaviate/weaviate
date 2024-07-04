@@ -122,9 +122,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		{"name": "two"},
 	}
 
-	err = index.addUUIDProperty(context.TODO())
-	require.Nil(t, err)
-
 	err = index.addProperty(context.TODO(), &models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
@@ -174,8 +171,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil)
 	require.Nil(t, err)
 
-	err = index.addUUIDProperty(context.TODO())
-	require.Nil(t, err)
 	err = index.addProperty(context.TODO(), &models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
@@ -293,9 +288,6 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		{"name": "one"},
 		{"name": "two"},
 	}
-
-	err = index.addUUIDProperty(ctx)
-	require.Nil(t, err)
 
 	err = index.addProperty(ctx, &models.Property{
 		Name:         "name",
