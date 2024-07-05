@@ -89,6 +89,7 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 					key:       key,
 					tombstone: true,
 				}
+				continue
 			}
 			panic(fmt.Errorf("secondaryToPrimary[%s] unexpected: %w)", skey, err))
 		}
