@@ -164,7 +164,7 @@ func TestUpdateTenants(t *testing.T) {
 		ctx     = context.Background()
 		tenants = []*models.Tenant{
 			{Name: "USER1", ActivityStatus: models.TenantActivityStatusHOT},
-			{Name: "USER2", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER2", ActivityStatus: models.TenantActivityStatusACTIVE},
 		}
 		properties = []*models.Property{
 			{
