@@ -94,6 +94,7 @@ func setupDebugHandlers(appState *state.State) {
 		q := shard.Queue()
 		q.PauseIndexing()
 
+		// TODO: use Drop
 		commitLogPath := fmt.Sprintf("%s/%s/%s/%s.hnsw.commitlog.d", idx.Config.RootPath, idx.ID(), shardName, vecIdxID)
 
 		if _, err := os.Stat(commitLogPath); os.IsNotExist(err) {
@@ -109,12 +110,15 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
+		// TODO use the target vector if provided
 		err = q.Checkpoints.Update(shard.ID(), "", 0)
 		if err != nil {
 			logger.WithField("shard", shardName).WithError(err).Error("failed to update checkpoint")
 			http.Error(w, "failed to update checkpoint", http.StatusInternalServerError)
 			return
 		}
+
+		// TODO: reindex here
 
 		logger.WithField("shard", shardName).Info("index commit log removed successfully. Reindexing will start on next restart.")
 

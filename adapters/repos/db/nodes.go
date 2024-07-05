@@ -100,9 +100,7 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, output string) *mo
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
-	if db.inMaintenanceMode {
-		clusterHealthStatus = models.NodeStatusStatusUNAVAILABLE
-	} else if db.schemaGetter.ClusterHealthScore() > 0 {
+	if db.schemaGetter.ClusterHealthScore() > 0 {
 		clusterHealthStatus = models.NodeStatusStatusUNHEALTHY
 	}
 

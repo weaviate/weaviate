@@ -19,7 +19,6 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
-	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
 	"strings"
@@ -108,16 +107,6 @@ func makeConfigureServer(appState *state.State) func(*http.Server, string, strin
 		appState.ServerConfig.Hostname = addr
 		appState.ServerConfig.Scheme = scheme
 	}
-}
-func checkMaintenanceFile(appState *state.State) bool {
-	path := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "MAINTENANCE")
-	_, err := os.Stat(path)
-	if err == nil {
-		appState.Logger.WithField("path", path).Warn("maintenance mode enabled. Delete the maintenance file to disable it")
-		return true
-	}
-
-	return false
 }
 
 type vectorRepo interface {
@@ -212,7 +201,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
 		Replication: replication.GlobalConfig{MinimumFactor: 1},
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, checkMaintenanceFile(appState)) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
