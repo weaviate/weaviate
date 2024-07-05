@@ -98,6 +98,7 @@ func validateActivityStatuses(tenants []*models.Tenant, allowEmpty, allowFrozen 
 	msgs := make([]string, 0, len(tenants))
 
 	for _, tenant := range tenants {
+		tenant.ActivityStatus = convertNewTenantNames(tenant.ActivityStatus)
 		switch status := tenant.ActivityStatus; status {
 		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
 			continue
@@ -301,4 +302,18 @@ func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Ten
 		return nil
 	}
 	return ts, h.schemaReader.Read(class, f)
+}
+
+// convert the new tenant names (that are only used as input) to the old tenant names that are used throughout the code
+func convertNewTenantNames(status string) string {
+	if status == models.TenantActivityStatusACTIVE {
+		return models.TenantActivityStatusHOT
+	}
+	if status == models.TenantActivityStatusINACTIVE {
+		return models.TenantActivityStatusCOLD
+	}
+	if status == models.TenantActivityStatusOFFLOADED {
+		return models.TenantActivityStatusFROZEN
+	}
+	return status
 }
