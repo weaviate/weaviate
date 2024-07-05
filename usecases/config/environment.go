@@ -92,10 +92,10 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = asInt
 	}
 
-	if v := os.Getenv("PROFILING_PORT"); v != "" {
+	if v := os.Getenv("GO_PROFILING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("parse PROFILING_PORT as int: %w", err)
+			return fmt.Errorf("parse GO_PROFILING_PORT as int: %w", err)
 		}
 
 		config.Profiling.Port = asInt
@@ -171,7 +171,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	config.Profiling.Disabled = configbase.Enabled(os.Getenv("DISABLE_GO_PROFILING"))
+	config.Profiling.Disabled = configbase.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
