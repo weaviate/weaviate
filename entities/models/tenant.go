@@ -31,8 +31,8 @@ import (
 // swagger:model Tenant
 type Tenant struct {
 
-	// activity status of the tenant's shard. Optional for creating tenant (implicit `ACTIVE`) and required for updating tenant. For creation, allowed values are `ACTIVE` - tenant is fully active and `INACTIVE` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `ACTIVE`, `INACTIVE` and also `OFFLOADED` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `OFFLOADING` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, `ACTIVATING` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names `HOT` (now `ACTIVE`), `COLD` (now `INACTIVE`), `FROZEN` (now `OFFLOADED`), `FREEZING` (now `OFFLOADING`), `UNFREEZING` (now `ACTIVATING`).
-	// Enum: [ACTIVE INACTIVE OFFLOADED OFFLOADING ACTIVATING HOT COLD FROZEN FREEZING UNFREEZING]
+	// activity status of the tenant's shard. Optional for creating tenant (implicit `ACTIVE`) and required for updating tenant. For creation, allowed values are `ACTIVE` - tenant is fully active and `INACTIVE` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `ACTIVE`, `INACTIVE` and also `OFFLOADED` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `OFFLOADING` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, `ONLOADING` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names `HOT` (now `ACTIVE`), `COLD` (now `INACTIVE`), `FROZEN` (now `OFFLOADED`), `FREEZING` (now `OFFLOADING`), `UNFREEZING` (now `ONLOADING`).
+	// Enum: [ACTIVE INACTIVE OFFLOADED OFFLOADING ONLOADING HOT COLD FROZEN FREEZING UNFREEZING]
 	ActivityStatus string `json:"activityStatus,omitempty"`
 
 	// name of the tenant
@@ -57,7 +57,7 @@ var tenantTypeActivityStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["ACTIVE","INACTIVE","OFFLOADED","OFFLOADING","ACTIVATING","HOT","COLD","FROZEN","FREEZING","UNFREEZING"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ACTIVE","INACTIVE","OFFLOADED","OFFLOADING","ONLOADING","HOT","COLD","FROZEN","FREEZING","UNFREEZING"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -79,8 +79,8 @@ const (
 	// TenantActivityStatusOFFLOADING captures enum value "OFFLOADING"
 	TenantActivityStatusOFFLOADING string = "OFFLOADING"
 
-	// TenantActivityStatusACTIVATING captures enum value "ACTIVATING"
-	TenantActivityStatusACTIVATING string = "ACTIVATING"
+	// TenantActivityStatusONLOADING captures enum value "ONLOADING"
+	TenantActivityStatusONLOADING string = "ONLOADING"
 
 	// TenantActivityStatusHOT captures enum value "HOT"
 	TenantActivityStatusHOT string = "HOT"

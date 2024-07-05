@@ -129,7 +129,6 @@ var (
 		(*SearchReply)(nil),   // 1: weaviategrpc.SearchReply
 	}
 )
-
 var file_v0_search_get_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
