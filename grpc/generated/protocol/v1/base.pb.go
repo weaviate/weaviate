@@ -1662,7 +1662,6 @@ var (
 		(*structpb.Struct)(nil),             // 20: google.protobuf.Struct
 	}
 )
-
 var file_v1_base_proto_depIdxs = []int32{
 	20, // 0: weaviate.v1.ObjectPropertiesValue.non_ref_properties:type_name -> google.protobuf.Struct
 	2,  // 1: weaviate.v1.ObjectPropertiesValue.number_array_properties:type_name -> weaviate.v1.NumberArrayProperties

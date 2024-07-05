@@ -321,7 +321,6 @@ var (
 		(ConsistencyLevel)(0),      // 4: weaviate.v1.ConsistencyLevel
 	}
 )
-
 var file_v1_batch_delete_proto_depIdxs = []int32{
 	3, // 0: weaviate.v1.BatchDeleteRequest.filters:type_name -> weaviate.v1.Filters
 	4, // 1: weaviate.v1.BatchDeleteRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel

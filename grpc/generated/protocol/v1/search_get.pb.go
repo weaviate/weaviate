@@ -3452,7 +3452,6 @@ var (
 		(*Properties)(nil),              // 44: weaviate.v1.Properties
 	}
 )
-
 var file_v1_search_get_proto_depIdxs = []int32{
 	34, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	7,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest

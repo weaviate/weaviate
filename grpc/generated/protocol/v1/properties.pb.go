@@ -1114,7 +1114,6 @@ var (
 		(structpb.NullValue)(0), // 13: google.protobuf.NullValue
 	}
 )
-
 var file_v1_properties_proto_depIdxs = []int32{
 	12, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0,  // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties
