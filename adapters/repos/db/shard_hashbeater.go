@@ -405,15 +405,20 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local objects: %w", err)
 		}
 
-		mergeObjs := make([]*objects.VObject, len(replicaObjs))
+		mergeObjs := make([]*objects.VObject, 0, len(replicaObjs))
 
-		for i, replicaObj := range replicaObjs {
+		for _, replicaObj := range replicaObjs {
+			if replicaObj.Deleted {
+				continue
+			}
+
 			obj := &objects.VObject{
 				LatestObject:    &replicaObj.Object.Object,
 				Vector:          replicaObj.Object.Vector,
 				StaleUpdateTime: remoteStaleUpdateTime[replicaObj.ID.String()],
 			}
-			mergeObjs[i] = obj
+
+			mergeObjs = append(mergeObjs, obj)
 		}
 
 		_, err = s.index.replicator.Overwrite(ctx, host, s.class.Class, shardName, mergeObjs)
