@@ -350,6 +350,7 @@ func NewHNSWSQCompressor(
 		compressedStore: store,
 		storeId:         binary.BigEndian.PutUint64,
 		loadId:          binary.BigEndian.Uint64,
+		logger:          logger,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -377,6 +378,7 @@ func RestoreHNSWSQCompressor(
 		compressedStore: store,
 		storeId:         binary.BigEndian.PutUint64,
 		loadId:          binary.BigEndian.Uint64,
+		logger:          logger,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
