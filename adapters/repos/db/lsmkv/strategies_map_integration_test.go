@@ -60,6 +60,8 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
+		defer b.Shutdown(ctx)
+
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
 
@@ -149,6 +151,8 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -243,6 +247,8 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -340,6 +346,8 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -445,6 +453,8 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
+		defer b.Shutdown(ctx)
+
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
 
@@ -538,6 +548,8 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -640,6 +652,8 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -747,6 +761,8 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
