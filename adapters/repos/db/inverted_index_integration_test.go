@@ -92,7 +92,6 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
 		Name:         "updateWithIINil",

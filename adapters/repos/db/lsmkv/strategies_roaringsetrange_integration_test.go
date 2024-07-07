@@ -39,12 +39,13 @@ func TestRoaringSetRangeStrategy(t *testing.T) {
 }
 
 func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketOption) {
-	dirName := t.TempDir()
-
 	t.Run("memtable-only", func(t *testing.T) {
+		dirName := t.TempDir()
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		key1 := uint64(1)
 		key2 := uint64(2)
@@ -103,9 +104,12 @@ func roaringsetrangeInsertAndSetAdd(ctx context.Context, t *testing.T, opts []Bu
 	})
 
 	t.Run("with a single flush in between updates", func(t *testing.T) {
+		dirName := t.TempDir()
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		key1 := uint64(1)
 		key2 := uint64(2)

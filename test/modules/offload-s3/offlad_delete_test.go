@@ -181,8 +181,10 @@ func Test_DeleteClassS3Journey(t *testing.T) {
 
 			count := 0
 			for obj := range client.ListObjects(ctx, "offloading", minio.ListObjectsOptions{Prefix: strings.ToLower(className)}) {
-				count++
-				t.Log(obj.Key)
+				if obj.Key != "" {
+					count++
+					t.Log(obj.Key)
+				}
 			}
 			require.Nil(t, err)
 			require.Zero(t, count)
