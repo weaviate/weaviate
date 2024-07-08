@@ -27,8 +27,9 @@ func searchResultDedup(out []*storobj.Object, dists []float32) ([]*storobj.Objec
 	filteredObjects := make([]*storobj.Object, 0, len(out))
 	filteredScores := make([]float32, 0, len(dists))
 
+	i := 0
 	// Iterate over all the objects, the corresponding score is always dists[i] for object at index i
-	for i, obj := range out {
+	for _, obj := range out {
 		// If we have encountered the object before lookup the score of the current object vs the previous one. If
 		// the score is better then we keep this one by replacing it in filtered arrays in place, if not we ignore
 		// it and move on
@@ -47,7 +48,8 @@ func searchResultDedup(out []*storobj.Object, dists []float32) ([]*storobj.Objec
 			// We have never seen that object before, append to the filtered arrays and add the tracking map
 			filteredObjects = append(filteredObjects, obj)
 			filteredScores = append(filteredScores, dists[i])
-			allKeys[obj.ID()] = indexAndScore{i, dists[i]}
+			allKeys[obj.ID()] = indexAndScore{i: i, score: dists[i]}
+			i++
 		}
 	}
 	if len(filteredObjects) != len(filteredScores) {
