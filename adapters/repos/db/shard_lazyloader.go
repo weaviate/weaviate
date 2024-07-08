@@ -305,9 +305,9 @@ func (l *LazyLoadShard) drop() error {
 	// - remove entire shard directory
 	// use lock to prevent eventual concurrent droping and loading
 	l.mutex.Lock()
-	if !l.loaded {
-		defer l.mutex.Unlock()
+	defer l.mutex.Unlock()
 
+	if !l.loaded {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -336,7 +336,6 @@ func (l *LazyLoadShard) drop() error {
 
 		return nil
 	}
-	l.mutex.Unlock()
 
 	return l.shard.drop()
 }
@@ -424,9 +423,13 @@ func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, s
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.isLoaded() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
 		return nil
 	}
+
 	return l.shard.Shutdown(ctx)
 }
 
