@@ -194,7 +194,9 @@ func (r *ShardInvertedReindexer) pauseStoreActivity(ctx context.Context) error {
 	if err := r.shard.Store().FlushMemtables(ctx); err != nil {
 		return errors.Wrapf(err, "failed flushing memtables for shard '%s'", r.shard.Name())
 	}
-	r.shard.Store().UpdateBucketsStatus(storagestate.StatusReadOnly)
+	if err := r.shard.Store().UpdateBucketsStatus(storagestate.StatusReadOnly); err != nil {
+		return errors.Wrapf(err, "failed pausing compaction for shard '%s'", r.shard.ID())
+	}
 
 	r.logger.
 		WithField("action", "inverted reindex").
@@ -208,7 +210,9 @@ func (r *ShardInvertedReindexer) resumeStoreActivity(ctx context.Context, task S
 	if err := r.shard.Store().ResumeCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", r.shard.Name())
 	}
-	r.shard.Store().UpdateBucketsStatus(storagestate.StatusReady)
+	if err := r.shard.Store().UpdateBucketsStatus(storagestate.StatusReady); err != nil {
+		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", r.shard.ID())
+	}
 	if err := task.OnPostResumeStore(ctx, r.shard); err != nil {
 		return errors.Wrap(err, "failed OnPostResumeStore")
 	}
