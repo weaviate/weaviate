@@ -85,7 +85,12 @@ func TestVectorDistanceQuery(t *testing.T) {
 		{0, 0, 0, 1},
 	}
 	index := repo.GetIndex(schema.ClassName(class.Class))
-	shards := index.GetShards()
+
+	var shards []ShardLike
+	index.shards.Range(func(_ string, shard ShardLike) error {
+		shards = append(shards, shard)
+		return nil
+	})
 
 	t.Run("error cases", func(t *testing.T) {
 		require.Nil(t, repo.PutObject(

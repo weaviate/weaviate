@@ -90,7 +90,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		pool:              newPools(),
 		store:             store,
 	}
-	index.initBuckets(context.Background())
+	if err := index.initBuckets(context.Background()); err != nil {
+		return nil, fmt.Errorf("init flat index buckets: %w", err)
+	}
+
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)

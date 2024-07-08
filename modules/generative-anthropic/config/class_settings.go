@@ -24,16 +24,9 @@ const (
 	maxTokensProperty     = "maxTokens"
 	stopSequencesProperty = "stopSequences"
 	temperatureProperty   = "temperature"
-	topKProperty          = "k"
-	topPProperty          = "p"
+	topKProperty          = "topK"
+	topPProperty          = "topP"
 )
-
-var availableAnthropicModels = []string{
-	"claude-3-5-sonnet-20240620",
-	"claude-3-opus-20240229",
-	"claude-3-sonnet-20240229",
-	"claude-3-haiku-20240307",
-}
 
 // todo: anthropic make a distinction between input and output tokens
 // so have a context window and a max output tokens, while the max
@@ -52,8 +45,8 @@ var (
 	DefaultAnthropicTemperature = 1.0
 	// DefaultAnthropicMaxTokens - 4096 is the max output tokens, input tokens are typically much larger
 	DefaultAnthropicMaxTokens     = 4096
-	DefaultAnthropicK             = 0
-	DefaultAnthropicP             = 0.0
+	DefaultAnthropicTopK          = 0
+	DefaultAnthropicTopP          = 0.0
 	DefaultAnthropicStopSequences = []string{}
 )
 
@@ -72,12 +65,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.Model()
-
-	if !basesettings.ValidateSetting[string](model, availableAnthropicModels) {
-		return errors.Errorf("wrong Anthropic model name, available model names are: %v", availableAnthropicModels)
-	}
-
 	return nil
 }
 
@@ -134,12 +121,12 @@ func (ic *classSettings) Temperature() float64 {
 	return *ic.getFloatProperty(temperatureProperty, &DefaultAnthropicTemperature)
 }
 
-func (ic *classSettings) K() int {
-	return *ic.getIntProperty(topKProperty, &DefaultAnthropicK)
+func (ic *classSettings) TopK() int {
+	return *ic.getIntProperty(topKProperty, &DefaultAnthropicTopK)
 }
 
-func (ic *classSettings) P() float64 {
-	return *ic.getFloatProperty(topPProperty, &DefaultAnthropicP)
+func (ic *classSettings) TopP() float64 {
+	return *ic.getFloatProperty(topPProperty, &DefaultAnthropicTopP)
 }
 
 func (ic *classSettings) StopSequences() []string {

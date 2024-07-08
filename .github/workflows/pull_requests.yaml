@@ -189,7 +189,8 @@ jobs:
           "--only-module-generative-palm",
           "--only-module-text2vec-palm",
           "--only-module-text2vec-aws",
-          "--only-module-generative-aws"
+          "--only-module-generative-aws",
+          "--only-module-many-generative"
         ]
     steps:
       - uses: actions/checkout@v4
