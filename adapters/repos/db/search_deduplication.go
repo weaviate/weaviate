@@ -27,8 +27,9 @@ func searchResultDedup(out []*storobj.Object, dists []float32) ([]*storobj.Objec
 	filteredObjects := make([]*storobj.Object, 0, len(out))
 	filteredScores := make([]float32, 0, len(dists))
 
+	i := 0
 	// Iterate over all the objects, the corresponding score is always dists[i] for object at index i
-	for i, obj := range out {
+	for j, obj := range out {
 		// If we have encountered the object before lookup the score of the current object vs the previous one. If
 		// the score is better then we keep this one by replacing it in filtered arrays in place, if not we ignore
 		// it and move on
@@ -36,18 +37,19 @@ func searchResultDedup(out []*storobj.Object, dists []float32) ([]*storobj.Objec
 		if ok {
 			// If the store distance is bigger than the current object distance we want to replace the object we
 			// have in the filtered array
-			if val.score > dists[i] {
+			if val.score > dists[j] {
 				// Update in place in the filtered arrays
 				filteredObjects[val.i] = obj
-				filteredScores[val.i] = dists[i]
+				filteredScores[val.i] = dists[j]
 				// Update the score stored in the map tracking what we have seen so far
-				allKeys[obj.ID()] = indexAndScore{val.i, dists[i]}
+				allKeys[obj.ID()] = indexAndScore{val.i, dists[j]}
 			}
 		} else {
 			// We have never seen that object before, append to the filtered arrays and add the tracking map
 			filteredObjects = append(filteredObjects, obj)
-			filteredScores = append(filteredScores, dists[i])
-			allKeys[obj.ID()] = indexAndScore{i, dists[i]}
+			filteredScores = append(filteredScores, dists[j])
+			allKeys[obj.ID()] = indexAndScore{i: i, score: dists[j]}
+			i++
 		}
 	}
 	if len(filteredObjects) != len(filteredScores) {
