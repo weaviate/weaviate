@@ -98,6 +98,9 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 	return &memtableCursor{
 		data: data,
 		keyFn: func(n *binarySearchNode) []byte {
+			if pos >= len(n.secondaryKeys) {
+				return nil
+			}
 			return n.secondaryKeys[pos]
 		},
 		lock:   m.RLock,
