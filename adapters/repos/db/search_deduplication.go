@@ -28,7 +28,7 @@ func searchResultDedup(out []*storobj.Object, dists []float32) ([]*storobj.Objec
 	filteredScores := make([]float32, 0, len(dists))
 
 	i := 0
-	// Iterate over all the objects, the corresponding score is always dists[i] for object at index i
+	// Iterate over all the objects, the corresponding score is always dists[j] for object at index j
 	for j, obj := range out {
 		// If we have encountered the object before lookup the score of the current object vs the previous one. If
 		// the score is better then we keep this one by replacing it in filtered arrays in place, if not we ignore
