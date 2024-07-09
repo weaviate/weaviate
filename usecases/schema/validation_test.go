@@ -30,42 +30,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				nestedProperties := []*models.NestedProperty{
 					{
-						Name:            name,
-						DataType:        schema.DataTypeInt.PropString(),
-						IndexFilterable: &vFalse,
-						IndexSearchable: &vFalse,
-						IndexRangeable:  &vFalse,
-						Tokenization:    "",
+						Name:              name,
+						DataType:          schema.DataTypeInt.PropString(),
+						IndexFilterable:   &vFalse,
+						IndexSearchable:   &vFalse,
+						IndexRangeFilters: &vFalse,
+						Tokenization:      "",
 					},
 				}
 
 				for _, ndt := range schema.NestedDataTypes {
 					t.Run(ndt.String(), func(t *testing.T) {
 						propPrimitives := &models.Property{
-							Name:             "objectProp",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "objectProp",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						}
 						propLvl2Primitives := &models.Property{
-							Name:            "objectPropLvl2",
-							DataType:        ndt.PropString(),
-							IndexFilterable: &vFalse,
-							IndexSearchable: &vFalse,
-							IndexRangeable:  &vFalse,
-							Tokenization:    "",
+							Name:              "objectPropLvl2",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
-									Name:             "nested_object",
-									DataType:         ndt.PropString(),
-									IndexFilterable:  &vFalse,
-									IndexSearchable:  &vFalse,
-									IndexRangeable:   &vFalse,
-									Tokenization:     "",
-									NestedProperties: nestedProperties,
+									Name:              "nested_object",
+									DataType:          ndt.PropString(),
+									IndexFilterable:   &vFalse,
+									IndexSearchable:   &vFalse,
+									IndexRangeFilters: &vFalse,
+									Tokenization:      "",
+									NestedProperties:  nestedProperties,
 								},
 							},
 						}
@@ -98,42 +98,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			}
 
 			nestedProperties = append(nestedProperties, &models.NestedProperty{
-				Name:            "nested_" + pdt.AsName(),
-				DataType:        pdt.PropString(),
-				IndexFilterable: &vFalse,
-				IndexSearchable: &vFalse,
-				IndexRangeable:  &vFalse,
-				Tokenization:    tokenization,
+				Name:              "nested_" + pdt.AsName(),
+				DataType:          pdt.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      tokenization,
 			})
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propPrimitives := &models.Property{
-					Name:             "objectProp",
-					DataType:         ndt.PropString(),
-					IndexFilterable:  &vFalse,
-					IndexSearchable:  &vFalse,
-					IndexRangeable:   &vFalse,
-					Tokenization:     "",
-					NestedProperties: nestedProperties,
+					Name:              "objectProp",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
+					NestedProperties:  nestedProperties,
 				}
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:             "nested_object",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						},
 					},
 				}
@@ -153,42 +153,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			t.Run(pdt.String(), func(t *testing.T) {
 				nestedProperties := []*models.NestedProperty{
 					{
-						Name:            "nested_" + pdt.AsName(),
-						DataType:        pdt.PropString(),
-						IndexFilterable: &vFalse,
-						IndexSearchable: &vFalse,
-						IndexRangeable:  &vFalse,
-						Tokenization:    "",
+						Name:              "nested_" + pdt.AsName(),
+						DataType:          pdt.PropString(),
+						IndexFilterable:   &vFalse,
+						IndexSearchable:   &vFalse,
+						IndexRangeFilters: &vFalse,
+						Tokenization:      "",
 					},
 				}
 
 				for _, ndt := range schema.NestedDataTypes {
 					t.Run(ndt.String(), func(t *testing.T) {
 						propPrimitives := &models.Property{
-							Name:             "objectProp",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "objectProp",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						}
 						propLvl2Primitives := &models.Property{
-							Name:            "objectPropLvl2",
-							DataType:        ndt.PropString(),
-							IndexFilterable: &vFalse,
-							IndexSearchable: &vFalse,
-							IndexRangeable:  &vFalse,
-							Tokenization:    "",
+							Name:              "objectPropLvl2",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
-									Name:             "nested_object",
-									DataType:         ndt.PropString(),
-									IndexFilterable:  &vFalse,
-									IndexSearchable:  &vFalse,
-									IndexRangeable:   &vFalse,
-									Tokenization:     "",
-									NestedProperties: nestedProperties,
+									Name:              "nested_object",
+									DataType:          ndt.PropString(),
+									IndexFilterable:   &vFalse,
+									IndexSearchable:   &vFalse,
+									IndexRangeFilters: &vFalse,
+									Tokenization:      "",
+									NestedProperties:  nestedProperties,
 								},
 							},
 						}
@@ -211,42 +211,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			t.Run(pdt.String(), func(t *testing.T) {
 				nestedProperties := []*models.NestedProperty{
 					{
-						Name:            "nested_" + pdt.AsName(),
-						DataType:        pdt.PropString(),
-						IndexFilterable: &vFalse,
-						IndexSearchable: &vFalse,
-						IndexRangeable:  &vFalse,
-						Tokenization:    "",
+						Name:              "nested_" + pdt.AsName(),
+						DataType:          pdt.PropString(),
+						IndexFilterable:   &vFalse,
+						IndexSearchable:   &vFalse,
+						IndexRangeFilters: &vFalse,
+						Tokenization:      "",
 					},
 				}
 
 				for _, ndt := range schema.NestedDataTypes {
 					t.Run(ndt.String(), func(t *testing.T) {
 						propPrimitives := &models.Property{
-							Name:             "objectProp",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "objectProp",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						}
 						propLvl2Primitives := &models.Property{
-							Name:            "objectPropLvl2",
-							DataType:        ndt.PropString(),
-							IndexFilterable: &vFalse,
-							IndexSearchable: &vFalse,
-							IndexRangeable:  &vFalse,
-							Tokenization:    "",
+							Name:              "objectPropLvl2",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
-									Name:             "nested_object",
-									DataType:         ndt.PropString(),
-									IndexFilterable:  &vFalse,
-									IndexSearchable:  &vFalse,
-									IndexRangeable:   &vFalse,
-									Tokenization:     "",
-									NestedProperties: nestedProperties,
+									Name:              "nested_object",
+									DataType:          ndt.PropString(),
+									IndexFilterable:   &vFalse,
+									IndexSearchable:   &vFalse,
+									IndexRangeFilters: &vFalse,
+									Tokenization:      "",
+									NestedProperties:  nestedProperties,
 								},
 							},
 						}
@@ -267,42 +267,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 	t.Run("does not validate ref types", func(t *testing.T) {
 		nestedProperties := []*models.NestedProperty{
 			{
-				Name:            "nested_ref",
-				DataType:        []string{"SomeClass"},
-				IndexFilterable: &vFalse,
-				IndexSearchable: &vFalse,
-				IndexRangeable:  &vFalse,
-				Tokenization:    "",
+				Name:              "nested_ref",
+				DataType:          []string{"SomeClass"},
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      "",
 			},
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propPrimitives := &models.Property{
-					Name:             "objectProp",
-					DataType:         ndt.PropString(),
-					IndexFilterable:  &vFalse,
-					IndexSearchable:  &vFalse,
-					IndexRangeable:   &vFalse,
-					Tokenization:     "",
-					NestedProperties: nestedProperties,
+					Name:              "objectProp",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
+					NestedProperties:  nestedProperties,
 				}
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:             "nested_object",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						},
 					},
 				}
@@ -322,28 +322,28 @@ func Test_Validation_NestedProperties(t *testing.T) {
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propPrimitives := &models.Property{
-					Name:            "objectProp",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectProp",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 				}
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:            "nested_object",
-							DataType:        ndt.PropString(),
-							IndexFilterable: &vFalse,
-							IndexSearchable: &vFalse,
-							IndexRangeable:  &vFalse,
-							Tokenization:    "",
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
 						},
 					},
 				}
@@ -374,42 +374,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			t.Run(pdt.String(), func(t *testing.T) {
 				nestedProperties := []*models.NestedProperty{
 					{
-						Name:            "nested_" + pdt.AsName(),
-						DataType:        pdt.PropString(),
-						IndexFilterable: &vFalse,
-						IndexSearchable: &vFalse,
-						IndexRangeable:  &vFalse,
-						Tokenization:    models.PropertyTokenizationWord,
+						Name:              "nested_" + pdt.AsName(),
+						DataType:          pdt.PropString(),
+						IndexFilterable:   &vFalse,
+						IndexSearchable:   &vFalse,
+						IndexRangeFilters: &vFalse,
+						Tokenization:      models.PropertyTokenizationWord,
 					},
 				}
 
 				for _, ndt := range schema.NestedDataTypes {
 					t.Run(ndt.String(), func(t *testing.T) {
 						propPrimitives := &models.Property{
-							Name:             "objectProp",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "objectProp",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						}
 						propLvl2Primitives := &models.Property{
-							Name:            "objectPropLvl2",
-							DataType:        ndt.PropString(),
-							IndexFilterable: &vFalse,
-							IndexSearchable: &vFalse,
-							IndexRangeable:  &vFalse,
-							Tokenization:    "",
+							Name:              "objectPropLvl2",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
-									Name:             "nested_object",
-									DataType:         ndt.PropString(),
-									IndexFilterable:  &vFalse,
-									IndexSearchable:  &vFalse,
-									IndexRangeable:   &vFalse,
-									Tokenization:     "",
-									NestedProperties: nestedProperties,
+									Name:              "nested_object",
+									DataType:          ndt.PropString(),
+									IndexFilterable:   &vFalse,
+									IndexSearchable:   &vFalse,
+									IndexRangeFilters: &vFalse,
+									Tokenization:      "",
+									NestedProperties:  nestedProperties,
 								},
 							},
 						}
@@ -430,33 +430,33 @@ func Test_Validation_NestedProperties(t *testing.T) {
 	t.Run("does not validate tokenization on nested data types", func(t *testing.T) {
 		nestedProperties := []*models.NestedProperty{
 			{
-				Name:            "nested_int",
-				DataType:        schema.DataTypeInt.PropString(),
-				IndexFilterable: &vFalse,
-				IndexSearchable: &vFalse,
-				IndexRangeable:  &vFalse,
-				Tokenization:    "",
+				Name:              "nested_int",
+				DataType:          schema.DataTypeInt.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      "",
 			},
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:             "nested_object",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     models.PropertyTokenizationWord,
-							NestedProperties: nestedProperties,
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      models.PropertyTokenizationWord,
+							NestedProperties:  nestedProperties,
 						},
 					},
 				}
@@ -490,42 +490,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 			}
 
 			nestedProperties = append(nestedProperties, &models.NestedProperty{
-				Name:            "nested_" + pdt.AsName(),
-				DataType:        pdt.PropString(),
-				IndexFilterable: &vTrue,
-				IndexSearchable: &vFalse,
-				IndexRangeable:  &vFalse,
-				Tokenization:    tokenization,
+				Name:              "nested_" + pdt.AsName(),
+				DataType:          pdt.PropString(),
+				IndexFilterable:   &vTrue,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      tokenization,
 			})
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propPrimitives := &models.Property{
-					Name:             "objectProp",
-					DataType:         ndt.PropString(),
-					IndexFilterable:  &vFalse,
-					IndexSearchable:  &vFalse,
-					IndexRangeable:   &vFalse,
-					Tokenization:     "",
-					NestedProperties: nestedProperties,
+					Name:              "objectProp",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
+					NestedProperties:  nestedProperties,
 				}
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:             "nested_object",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						},
 					},
 				}
@@ -543,42 +543,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 	t.Run("does not validate indexFilterable on blob data type", func(t *testing.T) {
 		nestedProperties := []*models.NestedProperty{
 			{
-				Name:            "nested_blob",
-				DataType:        schema.DataTypeBlob.PropString(),
-				IndexFilterable: &vTrue,
-				IndexSearchable: &vFalse,
-				IndexRangeable:  &vFalse,
-				Tokenization:    "",
+				Name:              "nested_blob",
+				DataType:          schema.DataTypeBlob.PropString(),
+				IndexFilterable:   &vTrue,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      "",
 			},
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propPrimitives := &models.Property{
-					Name:             "objectProp",
-					DataType:         ndt.PropString(),
-					IndexFilterable:  &vFalse,
-					IndexSearchable:  &vFalse,
-					IndexRangeable:   &vFalse,
-					Tokenization:     "",
-					NestedProperties: nestedProperties,
+					Name:              "objectProp",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
+					NestedProperties:  nestedProperties,
 				}
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:             "nested_object",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						},
 					},
 				}
@@ -597,33 +597,33 @@ func Test_Validation_NestedProperties(t *testing.T) {
 	t.Run("validates indexFilterable on nested data types", func(t *testing.T) {
 		nestedProperties := []*models.NestedProperty{
 			{
-				Name:            "nested_int",
-				DataType:        schema.DataTypeInt.PropString(),
-				IndexFilterable: &vFalse,
-				IndexSearchable: &vFalse,
-				IndexRangeable:  &vFalse,
-				Tokenization:    "",
+				Name:              "nested_int",
+				DataType:          schema.DataTypeInt.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      "",
 			},
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vTrue,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vTrue,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:             "nested_object",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						},
 					},
 				}
@@ -642,42 +642,42 @@ func Test_Validation_NestedProperties(t *testing.T) {
 		nestedProperties := []*models.NestedProperty{}
 		for _, pdt := range []schema.DataType{schema.DataTypeText, schema.DataTypeTextArray} {
 			nestedProperties = append(nestedProperties, &models.NestedProperty{
-				Name:            "nested_" + pdt.AsName(),
-				DataType:        pdt.PropString(),
-				IndexFilterable: &vFalse,
-				IndexSearchable: &vTrue,
-				IndexRangeable:  &vFalse,
-				Tokenization:    models.PropertyTokenizationWord,
+				Name:              "nested_" + pdt.AsName(),
+				DataType:          pdt.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vTrue,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      models.PropertyTokenizationWord,
 			})
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propPrimitives := &models.Property{
-					Name:             "objectProp",
-					DataType:         ndt.PropString(),
-					IndexFilterable:  &vFalse,
-					IndexSearchable:  &vFalse,
-					IndexRangeable:   &vFalse,
-					Tokenization:     "",
-					NestedProperties: nestedProperties,
+					Name:              "objectProp",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
+					NestedProperties:  nestedProperties,
 				}
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:             "nested_object",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						},
 					},
 				}
@@ -707,41 +707,41 @@ func Test_Validation_NestedProperties(t *testing.T) {
 
 			t.Run(pdt.String(), func(t *testing.T) {
 				nestedProperties = append(nestedProperties, &models.NestedProperty{
-					Name:            "nested_" + pdt.AsName(),
-					DataType:        pdt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vTrue,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "nested_" + pdt.AsName(),
+					DataType:          pdt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vTrue,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 				})
 
 				for _, ndt := range schema.NestedDataTypes {
 					t.Run(ndt.String(), func(t *testing.T) {
 						propPrimitives := &models.Property{
-							Name:             "objectProp",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vFalse,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "objectProp",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						}
 						propLvl2Primitives := &models.Property{
-							Name:            "objectPropLvl2",
-							DataType:        ndt.PropString(),
-							IndexFilterable: &vFalse,
-							IndexSearchable: &vFalse,
-							IndexRangeable:  &vFalse,
-							Tokenization:    "",
+							Name:              "objectPropLvl2",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vFalse,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
 							NestedProperties: []*models.NestedProperty{
 								{
-									Name:             "nested_object",
-									DataType:         ndt.PropString(),
-									IndexFilterable:  &vFalse,
-									IndexSearchable:  &vFalse,
-									IndexRangeable:   &vFalse,
-									Tokenization:     "",
-									NestedProperties: nestedProperties,
+									Name:              "nested_object",
+									DataType:          ndt.PropString(),
+									IndexFilterable:   &vFalse,
+									IndexSearchable:   &vFalse,
+									IndexRangeFilters: &vFalse,
+									Tokenization:      "",
+									NestedProperties:  nestedProperties,
 								},
 							},
 						}
@@ -762,33 +762,33 @@ func Test_Validation_NestedProperties(t *testing.T) {
 	t.Run("does not validate indexSearchable on nested data types", func(t *testing.T) {
 		nestedProperties := []*models.NestedProperty{
 			{
-				Name:            "nested_int",
-				DataType:        schema.DataTypeInt.PropString(),
-				IndexFilterable: &vFalse,
-				IndexSearchable: &vFalse,
-				IndexRangeable:  &vFalse,
-				Tokenization:    "",
+				Name:              "nested_int",
+				DataType:          schema.DataTypeInt.PropString(),
+				IndexFilterable:   &vFalse,
+				IndexSearchable:   &vFalse,
+				IndexRangeFilters: &vFalse,
+				Tokenization:      "",
 			},
 		}
 
 		for _, ndt := range schema.NestedDataTypes {
 			t.Run(ndt.String(), func(t *testing.T) {
 				propLvl2Primitives := &models.Property{
-					Name:            "objectPropLvl2",
-					DataType:        ndt.PropString(),
-					IndexFilterable: &vFalse,
-					IndexSearchable: &vFalse,
-					IndexRangeable:  &vFalse,
-					Tokenization:    "",
+					Name:              "objectPropLvl2",
+					DataType:          ndt.PropString(),
+					IndexFilterable:   &vFalse,
+					IndexSearchable:   &vFalse,
+					IndexRangeFilters: &vFalse,
+					Tokenization:      "",
 					NestedProperties: []*models.NestedProperty{
 						{
-							Name:             "nested_object",
-							DataType:         ndt.PropString(),
-							IndexFilterable:  &vFalse,
-							IndexSearchable:  &vTrue,
-							IndexRangeable:   &vFalse,
-							Tokenization:     "",
-							NestedProperties: nestedProperties,
+							Name:              "nested_object",
+							DataType:          ndt.PropString(),
+							IndexFilterable:   &vFalse,
+							IndexSearchable:   &vTrue,
+							IndexRangeFilters: &vFalse,
+							Tokenization:      "",
+							NestedProperties:  nestedProperties,
 						},
 					},
 				}

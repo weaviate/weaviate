@@ -319,7 +319,7 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
 			prop.IndexSearchable == nil &&
-			prop.IndexRangeable == nil {
+			prop.IndexRangeFilters == nil {
 			continue
 		}
 
@@ -340,8 +340,8 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 				prop.IndexSearchable = &vFalse
 			}
 		}
-		if prop.IndexRangeable == nil {
-			prop.IndexRangeable = &vFalse
+		if prop.IndexRangeFilters == nil {
+			prop.IndexRangeFilters = &vFalse
 		}
 	}
 }
@@ -402,8 +402,8 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 		}
 	}
 
-	if property.IndexRangeable == nil {
-		property.IndexRangeable = &vFalse
+	if property.IndexRangeFilters == nil {
+		property.IndexRangeFilters = &vFalse
 	}
 }
 
@@ -454,7 +454,7 @@ func migratePropertyIndexInverted(props ...*models.Property) {
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
 			prop.IndexSearchable == nil &&
-			prop.IndexRangeable == nil {
+			prop.IndexRangeFilters == nil {
 			prop.IndexFilterable = prop.IndexInverted
 			switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 			// string/string[] are already migrated into text/text[], can be skipped here
@@ -463,7 +463,7 @@ func migratePropertyIndexInverted(props ...*models.Property) {
 			default:
 				prop.IndexSearchable = &vFalse
 			}
-			prop.IndexRangeable = &vFalse
+			prop.IndexRangeFilters = &vFalse
 		}
 		// new options have precedence so inverted can be reset
 		prop.IndexInverted = nil
@@ -629,8 +629,8 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 
 func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	if prop.IndexInverted != nil {
-		if prop.IndexFilterable != nil || prop.IndexSearchable != nil || prop.IndexRangeable != nil {
-			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable`, " + "`indexSearchable` or `indexRangeable`")
+		if prop.IndexFilterable != nil || prop.IndexSearchable != nil || prop.IndexRangeFilters != nil {
+			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable`, " + "`indexSearchable` or `indexRangeFilters`")
 		}
 	}
 
@@ -650,7 +650,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 			}
 		}
 	}
-	if prop.IndexRangeable != nil {
+	if prop.IndexRangeFilters != nil {
 		switch dataType {
 		case schema.DataTypeNumber, schema.DataTypeInt, schema.DataTypeDate:
 			// true or false allowed
@@ -658,8 +658,8 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 			// not supported (yet?)
 			fallthrough
 		default:
-			if *prop.IndexRangeable {
-				return fmt.Errorf("`indexRangeable` is allowed only for number/int/date data types. " +
+			if *prop.IndexRangeFilters {
+				return fmt.Errorf("`indexRangeFilters` is allowed only for number/int/date data types. " +
 					"For other data types set false or leave empty")
 			}
 		}

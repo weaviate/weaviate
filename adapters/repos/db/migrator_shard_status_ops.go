@@ -18,7 +18,6 @@ import (
 	"strings"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -39,12 +38,13 @@ func (m *Migrator) frozen(idx *Index, frozen []string, ec *errorcompounder.Error
 	for _, name := range frozen {
 		name := name
 		eg.Go(func() error {
-			shard := func() ShardLike {
-				idx.shardInUseLocks.Lock(name)
-				defer idx.shardInUseLocks.Unlock(name)
+			shard, release, err := idx.getLocalShardNoShutdown(name)
+			if err != nil {
+				ec.Add(err)
+				return nil
+			}
 
-				return idx.shards.Load(name)
-			}()
+			defer release()
 
 			if shard == nil {
 				// shard already does not exist or inactive, so remove local files if exists
@@ -92,12 +92,13 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 		name := name
 		originalStatus := models.TenantActivityStatusHOT
 		eg.Go(func() error {
-			shard := func() ShardLike {
-				idx.shardInUseLocks.Lock(name)
-				defer idx.shardInUseLocks.Unlock(name)
+			shard, release, err := idx.getLocalShardNoShutdown(name)
+			if err != nil {
+				ec.Add(err)
+				return nil
+			}
 
-				return idx.shards.Load(name)
-			}()
+			defer release()
 
 			if shard == nil {
 				// shard already does not exist or inactive
@@ -192,18 +193,18 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				if err != nil {
 					ec.Add(fmt.Errorf("downloading error: %w", err))
 					// one success will be sufficient for changing the status
+					// no status provided here it will be detected which status
+					// requested by RAFT processes
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
-							Name:   name,
-							Status: types.TenantActivityStatusUNFROZEN,
+							Name: name,
 						},
 						Op: command.TenantsProcess_OP_ABORT,
 					}
 				} else {
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
-							Name:   name,
-							Status: types.TenantActivityStatusUNFROZEN,
+							Name: name,
 						},
 						Op: command.TenantsProcess_OP_DONE,
 					}
