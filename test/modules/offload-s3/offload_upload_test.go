@@ -150,8 +150,6 @@ func Test_UploadS3Journey(t *testing.T) {
 			require.NotNil(t, err)
 		})
 
-		// sleep to give time for actual upload to happen
-
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)

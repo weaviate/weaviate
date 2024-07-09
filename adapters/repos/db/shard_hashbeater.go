@@ -223,6 +223,7 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 	defer s.hashtreeRWMux.RUnlock()
 
 	if s.hashtree == nil {
+		// handling the case of a hashtree being explicitly set to nil
 		return
 	}
 

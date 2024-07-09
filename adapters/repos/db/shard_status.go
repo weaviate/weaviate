@@ -63,7 +63,11 @@ func (s *Shard) updateStatusUnlocked(in string) error {
 	}
 
 	s.status = targetStatus
-	s.updateStoreStatus(targetStatus)
+
+	err = s.updateStoreStatus(targetStatus)
+	if err != nil {
+		return err
+	}
 
 	s.index.logger.
 		WithField("action", "update shard status").
@@ -74,6 +78,6 @@ func (s *Shard) updateStatusUnlocked(in string) error {
 	return nil
 }
 
-func (s *Shard) updateStoreStatus(targetStatus storagestate.Status) {
-	s.store.UpdateBucketsStatus(targetStatus)
+func (s *Shard) updateStoreStatus(targetStatus storagestate.Status) error {
+	return s.store.UpdateBucketsStatus(targetStatus)
 }
