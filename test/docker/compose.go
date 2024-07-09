@@ -326,7 +326,8 @@ func (d *Compose) WithGenerativeOctoAI(apiKey string) *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativeAnthropic() *Compose {
+func (d *Compose) WithGenerativeAnthropic(apiKey string) *Compose {
+	d.weaviateEnvs["ANTHROPIC_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativeanthropic.Name)
 	return d
 }

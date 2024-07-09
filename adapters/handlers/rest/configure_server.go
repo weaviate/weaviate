@@ -40,7 +40,7 @@ import (
 // are only available within there
 var configureServer func(*http.Server, string, string)
 
-func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, traverser *traverser.Traverser) func(schema.Schema) {
+func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 	return func(updatedSchema schema.Schema) {
 		if appState.ServerConfig.Config.DisableGraphQL {
 			return
@@ -51,13 +51,13 @@ func makeUpdateSchemaCall(logger logrus.FieldLogger, appState *state.State, trav
 
 		gql, err := rebuildGraphQL(
 			updatedSchema,
-			logger,
+			appState.Logger,
 			appState.ServerConfig.Config,
-			traverser,
+			appState.Traverser,
 			appState.Modules,
 		)
 		if err != nil && err != utils.ErrEmptySchema {
-			logger.WithField("action", "graphql_rebuild").
+			appState.Logger.WithField("action", "graphql_rebuild").
 				WithError(err).Error("could not (re)build graphql provider")
 		}
 		appState.SetGraphQL(gql)

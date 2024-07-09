@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
@@ -205,19 +206,11 @@ type Index struct {
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *esync.KeyLocker
-	shardInUseLocks  *esync.KeyRWLocker
 
 	asyncReplicationLock sync.RWMutex
-}
 
-func (i *Index) GetShards() []ShardLike {
-	var out []ShardLike
-	i.shards.Range(func(_ string, shard ShardLike) error {
-		out = append(out, shard)
-		return nil
-	})
-
-	return out
+	closeLock sync.RWMutex
+	closed    bool
 }
 
 func (i *Index) ID() string {
@@ -277,7 +270,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
-		shardInUseLocks:        esync.NewKeyRWLocker(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -395,25 +387,24 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
 // within shardCreateLocks to prevent parallel create/init of the same shard
-func (i *Index) initAndStoreShard(ctx context.Context, shardName string, class *models.Class,
-	promMetrics *monitoring.PrometheusMetrics,
-) error {
-	if i.Config.DisableLazyLoadShards {
+func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
+	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool,
+) (ShardLike, error) {
+	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
-			return errors.Wrap(err, "memory pressure: cannot init shard")
+			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
 		}
 
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 		if err != nil {
-			return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
+			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
-		i.shards.Store(shardName, shard)
-		return nil
+
+		return shard, nil
 	}
 
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
-	i.shards.Store(shardName, shard)
-	return nil
+	return shard, nil
 }
 
 // Iterate over all objects in the index, applying the callback function to each one.  Adding or removing objects during iteration is not supported.
@@ -429,6 +420,18 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
+}
+
+func (i *Index) ForEachLoadedShard(f func(name string, shard ShardLike) error) error {
+	return i.shards.Range(func(name string, shard ShardLike) error {
+		// Skip lazy loaded shard which are not loaded
+		if asLazyLoadShard, ok := shard.(*LazyLoadShard); ok {
+			if !asLazyLoadShard.isLoaded() {
+				return nil
+			}
+		}
+		return f(name, shard)
+	})
 }
 
 func (i *Index) ForEachShardConcurrently(f func(name string, shard ShardLike) error) error {
@@ -1729,71 +1732,119 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	return shard.DeleteObject(ctx, id)
 }
 
-// func (i *Index) localShard(name string) ShardLike {
-// 	return i.shards.Load(name)
-// }
-
-func (i *Index) getLocalShardNoShutdown(shardName string) (ShardLike, func(), error) {
-	i.shardInUseLocks.RLock(shardName)
-	defer i.shardInUseLocks.RUnlock(shardName)
-
-	shard := i.shards.Load(shardName)
-	if shard == nil {
-		return nil, func() {}, nil
-	}
-
-	release, err := shard.preventShutdown()
-	if err != nil {
-		return nil, func() {}, err
-	}
-	return shard, release, nil
-}
-
-func (i *Index) getOrInitLocalShardNoShutdown(ctx context.Context, shardName string,
-) (ShardLike, func(), error) {
-	i.shardInUseLocks.RLock(shardName)
-	defer i.shardInUseLocks.RUnlock(shardName)
-
-	shard, err := i.getOrInitLocalShard(ctx, shardName)
-	if err != nil {
-		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
-	}
-
-	release, err := shard.preventShutdown()
-	if err != nil {
-		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
-	}
-	return shard, release, nil
+func (i *Index) getClass() *models.Class {
+	className := i.Config.ClassName.String()
+	return i.getSchema.ReadOnlyClass(className)
 }
 
 // Intended to run on "receiver" nodes, where local shard
 // is expected to exist and be active
 // Method first tries to get shard from Index::shards map,
 // or inits shard and adds it to the map if shard was not found
-func (i *Index) getOrInitLocalShard(ctx context.Context, shardName string) (ShardLike, error) {
-	if shard := i.shards.Load(shardName); shard != nil {
-		return shard, nil
-	}
-
-	className := i.Config.ClassName.String()
-	class := i.getSchema.ReadOnlyClass(className)
-	return i.initLocalShard(ctx, shardName, class)
+func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
+	return i.optInitLocalShard(ctx, i.getClass(), shardName, i.Config.DisableLazyLoadShards)
 }
 
-func (i *Index) initLocalShard(ctx context.Context, shardName string, class *models.Class) (ShardLike, error) {
+func (i *Index) loadLocalShard(ctx context.Context, shardName string) error {
+	return i.optInitLocalShard(ctx, i.getClass(), shardName, true)
+}
+
+func (i *Index) optInitLocalShard(ctx context.Context, class *models.Class, shardName string, disableLazyLoad bool) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
 	// make sure same shard is not inited in parallel
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
 
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
-		return shard, nil
+		if disableLazyLoad {
+			asLL, ok := shard.(*LazyLoadShard)
+			if ok {
+				return asLL.Load(ctx)
+			}
+		}
+
+		return nil
 	}
 
-	if err := i.initAndStoreShard(ctx, shardName, class, i.metrics.baseMetrics); err != nil {
-		return nil, err
+	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad)
+	if err != nil {
+		return err
 	}
-	return i.shards.Load(shardName), nil
+
+	i.shards.Store(shardName, shard)
+
+	return nil
+}
+
+func (i *Index) getLocalShardNoShutdown(shardName string) (
+	shard ShardLike, release func(), err error,
+) {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil, func() {}, errAlreadyShutdown
+	}
+
+	// make sure same shard is not inited in parallel
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	// check if created in the meantime by concurrent call
+	shard = i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
+	}
+
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+	}
+
+	return shard, release, nil
+}
+
+func (i *Index) getOrInitLocalShardNoShutdown(ctx context.Context, shardName string) (
+	shard ShardLike, release func(), err error,
+) {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil, func() {}, errAlreadyShutdown
+	}
+
+	className := i.Config.ClassName.String()
+	class := i.getSchema.ReadOnlyClass(className)
+
+	// make sure same shard is not inited in parallel
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	// check if created in the meantime by concurrent call
+	shard = i.shards.Load(shardName)
+	if shard == nil {
+		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true)
+		if err != nil {
+			return nil, func() {}, err
+		}
+
+		i.shards.Store(shardName, shard)
+	}
+
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+	}
+
+	return shard, release, nil
 }
 
 func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
@@ -1916,6 +1967,18 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
+
+	i.closeLock.Lock()
+	defer i.closeLock.Unlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	i.closed = true
+
 	i.closingCancel()
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -1933,9 +1996,6 @@ func (i *Index) drop() error {
 		})
 		return nil
 	}
-
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
 
 	i.shards.Range(dropShard)
 	if err := eg.Wait(); err != nil {
@@ -1957,6 +2017,13 @@ func (i *Index) drop() error {
 func (i *Index) dropShards(names []string) error {
 	i.shardTransferMutex.RLock()
 	defer i.shardTransferMutex.RUnlock()
+
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
 
 	ec := &errorcompounder.ErrorCompounder{}
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -1988,14 +2055,57 @@ func (i *Index) dropShards(names []string) error {
 	return ec.ToError()
 }
 
-func (i *Index) Shutdown(ctx context.Context) error {
-	i.closingCancel()
-
+func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
 	i.shardTransferMutex.RLock()
 	defer i.shardTransferMutex.RUnlock()
 
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	ec := &errorcompounder.ErrorCompounder{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU * 2)
+
+	for _, name := range names {
+		name := name
+		eg.Go(func() error {
+			i.shardCreateLocks.Lock(name)
+			defer i.shardCreateLocks.Unlock(name)
+
+			if err := cloud.Delete(ctx, i.ID(), name, nodeId); err != nil {
+				ec.Add(err)
+				i.logger.WithField("action", "cloud_drop_shard").
+					WithField("shard", name).Error(err)
+			}
+			return nil
+		})
+	}
+
+	eg.Wait()
+	return ec.ToError()
+}
+
+func (i *Index) Shutdown(ctx context.Context) error {
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
+
+	i.closeLock.Lock()
+	defer i.closeLock.Unlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	i.closed = true
+
+	i.closingCancel()
+
 	// TODO allow every resource cleanup to run, before returning early with error
-	if err := i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
+	if err := i.shards.RangeConcurrently(i.logger, func(name string, shard ShardLike) error {
 		if err := shard.Shutdown(ctx); err != nil {
 			if !errors.Is(err, errAlreadyShutdown) {
 				return errors.Wrapf(err, "shutdown shard %q", name)
@@ -2173,13 +2283,6 @@ func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, target
 	defer release()
 
 	return shard.UpdateStatus(targetStatus)
-}
-
-func (i *Index) notifyReady() {
-	i.ForEachShard(func(name string, shard ShardLike) error {
-		shard.NotifyReady()
-		return nil
-	})
 }
 
 func (i *Index) findUUIDs(ctx context.Context,
