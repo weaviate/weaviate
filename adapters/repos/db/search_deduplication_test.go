@@ -12,62 +12,234 @@
 package db
 
 import (
-	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func TestSearchDeduplication(t *testing.T) {
-	// array is (ID | Score)
-	// 1 -> 1
-	// 2 -> 2
-	// 3 -> 3
-	// 4 -> 4
-	// 1 -> 0
-	// 3 -> 2
-	// 1 -> 1
-	input := []*storobj.Object{
-		storobj.New(1),
-		storobj.New(2),
-		storobj.New(3),
-		storobj.New(4),
-		storobj.New(1),
-		storobj.New(3),
-		storobj.New(1),
-	}
-	// Ensure IDs are as expected, as we that is what we use to differ objects
-	input[0].Object.ID = "1"
-	input[1].Object.ID = "2"
-	input[2].Object.ID = "3"
-	input[3].Object.ID = "4"
-	input[4].Object.ID = "1"
-	input[5].Object.ID = "3"
-	input[6].Object.ID = "1"
-
-	// Build score array
-	inputDists := []float32{
-		1, 2, 3, 4, 0, 2, 1,
+	type idAndDistPair struct {
+		id   string
+		dist float32
 	}
 
-	out, outDists, err := searchResultDedup(input, inputDists)
-	require.NoError(t, err)
-	require.Len(t, out, 4)
-	require.Len(t, outDists, 4)
-
-	// Check that we have no duplicate IDs
-	outId := make(map[string]bool)
-	for _, obj := range out {
-		outId[obj.ID().String()] = true
-	}
-	for i := 1; i <= 4; i++ {
-		require.Contains(t, outId, fmt.Sprint(i))
+	type shardResult struct {
+		elems []idAndDistPair
 	}
 
-	// Check that we have the scores we expect
-	require.Equal(t, float32(0), outDists[0])
-	require.Equal(t, float32(2), outDists[1])
-	require.Equal(t, float32(2), outDists[2])
-	require.Equal(t, float32(4), outDists[3])
+	type test struct {
+		name           string
+		input          []shardResult
+		expectedOutput []idAndDistPair
+	}
+
+	tests := []test{
+		{
+			name: "single input",
+			input: []shardResult{
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.1},
+					},
+				},
+			},
+			expectedOutput: []idAndDistPair{
+				{id: "1", dist: 0.1},
+			},
+		},
+		{
+			name: "2 shards with full overlap",
+			input: []shardResult{
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.1},
+						{id: "2", dist: 0.2},
+						{id: "3", dist: 0.3},
+						{id: "4", dist: 0.4},
+					},
+				},
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.1},
+						{id: "2", dist: 0.2},
+						{id: "3", dist: 0.3},
+						{id: "4", dist: 0.4},
+					},
+				},
+			},
+			expectedOutput: []idAndDistPair{
+				{id: "1", dist: 0.1},
+				{id: "2", dist: 0.2},
+				{id: "3", dist: 0.3},
+				{id: "4", dist: 0.4},
+			},
+		},
+		{
+			name: "2 shards with no overlap, best result in first shard",
+			input: []shardResult{
+				{
+					elems: []idAndDistPair{
+						{id: "001", dist: 0.1},
+						{id: "003", dist: 0.3},
+					},
+				},
+				{
+					elems: []idAndDistPair{
+						{id: "002", dist: 0.2},
+						{id: "004", dist: 0.4},
+					},
+				},
+			},
+			expectedOutput: []idAndDistPair{
+				{id: "001", dist: 0.1},
+				{id: "002", dist: 0.2},
+				{id: "003", dist: 0.3},
+				{id: "004", dist: 0.4},
+			},
+		},
+		{
+			name: "2 shards with no overlap, best result in second shard",
+			input: []shardResult{
+				{
+					elems: []idAndDistPair{
+						{id: "002", dist: 0.2},
+						{id: "004", dist: 0.4},
+					},
+				},
+				{
+					elems: []idAndDistPair{
+						{id: "001", dist: 0.1},
+						{id: "003", dist: 0.3},
+					},
+				},
+			},
+			expectedOutput: []idAndDistPair{
+				{id: "001", dist: 0.1},
+				{id: "002", dist: 0.2},
+				{id: "003", dist: 0.3},
+				{id: "004", dist: 0.4},
+			},
+		},
+		{
+			name: "2 shards with full overlap, but shard 1 has lower scores for some elements",
+			input: []shardResult{
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.1},
+						{id: "2", dist: 0.2},
+						{id: "3", dist: 0.3},
+						{id: "4", dist: 0.4},
+					},
+				},
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.15},
+						{id: "2", dist: 0.2},
+						{id: "3", dist: 0.35},
+						{id: "4", dist: 0.4},
+					},
+				},
+			},
+			expectedOutput: []idAndDistPair{
+				{id: "1", dist: 0.1},
+				{id: "2", dist: 0.2},
+				{id: "3", dist: 0.3},
+				{id: "4", dist: 0.4},
+			},
+		},
+		{
+			name: "2 shards with full overlap, but shard 1 has higher scores for some elements",
+			input: []shardResult{
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.15},
+						{id: "2", dist: 0.2},
+						{id: "3", dist: 0.35},
+						{id: "4", dist: 0.4},
+					},
+				},
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.1},
+						{id: "2", dist: 0.2},
+						{id: "3", dist: 0.3},
+						{id: "4", dist: 0.4},
+					},
+				},
+			},
+			expectedOutput: []idAndDistPair{
+				{id: "1", dist: 0.1},
+				{id: "2", dist: 0.2},
+				{id: "3", dist: 0.3},
+				{id: "4", dist: 0.4},
+			},
+		},
+		{
+			name: "choas with some overlap, some new results, some differing scores",
+			input: []shardResult{
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.1},
+						{id: "3", dist: 0.102},
+						{id: "4", dist: 0.1},
+					},
+				},
+				{
+					elems: []idAndDistPair{
+						{id: "2", dist: 0.099},
+						{id: "3", dist: 0.101},
+					},
+				},
+				{
+					elems: []idAndDistPair{
+						{id: "1", dist: 0.1},
+						{id: "2", dist: 0.1},
+						{id: "3", dist: 0.1},
+						{id: "4", dist: 0.1},
+						{id: "5", dist: 0.098},
+					},
+				},
+			},
+			expectedOutput: []idAndDistPair{
+				{id: "1", dist: 0.1},
+				{id: "2", dist: 0.099},
+				{id: "3", dist: 0.1},
+				{id: "4", dist: 0.1},
+				{id: "5", dist: 0.098},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Build input
+			input := []*storobj.Object{}
+			inputDists := []float32{}
+			docID := uint64(0)
+			for _, shard := range test.input {
+				for _, elem := range shard.elems {
+					obj := storobj.New(docID)
+					obj.Object.ID = strfmt.UUID(elem.id)
+					input = append(input, obj)
+					docID++ // the docIDs don't matter for this test, but we need them to create the storobjs
+					inputDists = append(inputDists, elem.dist)
+				}
+			}
+
+			// Run function
+			out, outDists, err := searchResultDedup(input, inputDists)
+			require.NoError(t, err)
+
+			// turn results into idAndDistPair for easier comparison
+			output := make([]idAndDistPair, len(out))
+			for i, obj := range out {
+				output[i] = idAndDistPair{obj.ID().String(), outDists[i]}
+			}
+
+			assert.ElementsMatch(t, test.expectedOutput, output)
+		})
+	}
 }
