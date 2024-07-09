@@ -86,7 +86,7 @@ func (m *Memtable) newCursorWithSecondaryIndex(pos int) innerCursorReplace {
 				// this special case is currently needed because secondary keys
 				// are not being labeled as deleted
 				data[i] = &binarySearchNode{
-					key:       key,
+					key:       []byte(skey),
 					tombstone: true,
 				}
 				continue
