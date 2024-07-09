@@ -68,28 +68,9 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	}
 
 	if h.shouldRescore() {
-		ids := make([]uint64, results.Len())
-		i := len(ids) - 1
-		for results.Len() > 0 {
-			res := results.Pop()
-			ids[i] = res.ID
-			i--
-		}
-		results.Reset()
 		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
-		for _, id := range ids {
-			dist, found, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
-			if found && err == nil {
-				results.Insert(id, dist)
-				if results.Len() > k {
-					results.Pop()
-				}
-			} else {
-				h.logger.
-					WithField("action", "rescore").
-					WithError(err).
-					Warnf("could not rescore node %d", id)
-			}
+		if h.shouldRescore() {
+			h.rescore(results, k, compressorDistancer)
 		}
 		fn()
 	}
