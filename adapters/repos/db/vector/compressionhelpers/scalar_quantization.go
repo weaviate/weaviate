@@ -40,6 +40,14 @@ type SQData struct {
 	Dimensions uint16
 }
 
+func (sq *ScalarQuantizer) A() float32 {
+	return sq.a
+}
+
+func (sq *ScalarQuantizer) B() float32 {
+	return sq.b
+}
+
 func (sq *ScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
 	if len(x) != len(y) {
 		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
@@ -193,4 +201,22 @@ func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
 
 func (sq *ScalarQuantizer) norm(code []byte) uint32 {
 	return binary.BigEndian.Uint32(code[len(code)-8:])
+}
+
+func (sq *ScalarQuantizer) Decode(code []byte) []float32 {
+	if len(code) < sq.dimensions+8 {
+		return nil // or handle error appropriately
+	}
+
+	vec := make([]float32, sq.dimensions)
+	for i := 0; i < sq.dimensions; i++ {
+		// Reverse the encoding process
+		if code[i] == 255 {
+			vec[i] = sq.b + sq.a
+		} else {
+			vec[i] = sq.b + (sq.a * float32(code[i]) / codes)
+		}
+	}
+
+	return vec
 }

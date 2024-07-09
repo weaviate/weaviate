@@ -26,7 +26,63 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/stretchr/testify/require"
 )
+
+func FuzzScalarQuantizer(f *testing.F) {
+	const codes = 255.0
+    f.Add(float32(0), float32(1), float32(2), float32(3), float32(4), float32(5), float32(6), float32(7))
+
+    f.Fuzz(func(t *testing.T, v1, v2, v3, v4, v5, v6, v7, v8 float32) {
+        data1 := []float32{v1, v2, v3, v4}
+        data2 := []float32{v5, v6, v7, v8}
+
+        sq :=compressionhelpers. NewScalarQuantizer([][]float32{data1, data2}, distancer.NewCosineDistanceProvider())
+        if sq == nil {
+            t.Skip("Invalid input resulted in nil ScalarQuantizer")
+        }
+
+        for _, vec := range [][]float32{data1, data2} {
+            encoded := sq.Encode(vec)
+            decoded := sq.Decode(encoded)
+
+            require.Equal(t, len(vec)+8, len(encoded), "Encoded length should be input length + 8")
+            require.Equal(t, len(vec), len(decoded), "Decoded length should match input length")
+
+            for i, decodedVal := range decoded {
+                if encoded[i] == 255 {  // Upper bound case
+                    assert.GreaterOrEqual(t, decodedVal, sq.B()+sq.A(), 
+                        "Decoded value(%v) should be greater than or equal to B+A for upper bound(%v)", decodedVal, sq.B()+sq.A())
+                } else {
+                    lowerBound := sq.B() + (sq.A() * float32(encoded[i]) / codes)
+                    upperBound := sq.B() + (sq.A() * float32(encoded[i]+1) / codes)
+
+                    assert.GreaterOrEqual(t, decodedVal, lowerBound, 
+                        "Decoded value should be greater than or equal to lower bound")
+                    assert.Less(t, decodedVal, upperBound, 
+                        "Decoded value should be less than upper bound")
+                }
+            }
+
+            encoded2 := sq.Encode(vec)
+            assert.Equal(t, encoded, encoded2, "Encoding should be deterministic")
+        }
+
+        encoded1 := sq.Encode(data1)
+        encoded2 := sq.Encode(data2)
+        dist, err := sq.DistanceBetweenCompressedVectors(encoded1, encoded2)
+        assert.NoError(t, err, "Distance calculation should not error")
+        assert.NotNil(t, dist, "Distance should not be nil")
+
+        distancer := sq.NewDistancer(data1)
+        assert.NotNil(t, distancer, "NewDistancer should not return nil")
+
+        dist2, ok, err := distancer.Distance(encoded2)
+        assert.True(t, ok, "Distance calculation should be successful")
+        assert.NoError(t, err, "Distance calculation should not error")
+        assert.Equal(t, dist, dist2, "Distances should match")
+    })
+}
 
 func Test_NoRaceSQEncode(t *testing.T) {
 	sq := compressionhelpers.NewScalarQuantizer([][]float32{
