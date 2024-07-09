@@ -702,8 +702,6 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
-	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
-
 	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
 		return err
 	}
@@ -856,13 +854,15 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	defer s.hashtreeRWMux.Unlock()
 
 	if enabled {
-		if s.hashtree != nil {
-			return nil
+		if s.hashtree == nil {
+			err := s.initHashTree(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
+			}
 		}
 
-		err := s.initHashTree(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
+		if s.hashBeaterCtx.Err() != nil {
+			s.initHashBeater()
 		}
 
 		return nil
@@ -873,8 +873,6 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	}
 
 	s.stopHashBeater()
-	s.hashtree = nil
-	s.hashtreeInitialized.Store(false)
 
 	return nil
 }
