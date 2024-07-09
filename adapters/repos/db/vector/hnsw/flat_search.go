@@ -16,9 +16,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 )
 
-func (h *hnsw) flatSearch(queryVector []float32, limit int,
+func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	if !h.shouldRescore() {
+		limit = k
+	}
 	results := priorityqueue.NewMax[any](limit)
 
 	it := allowList.Iterator()
@@ -62,6 +65,33 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			results.Pop()
 			results.Insert(candidate, dist)
 		}
+	}
+
+	if h.shouldRescore() {
+		ids := make([]uint64, results.Len())
+		i := len(ids) - 1
+		for results.Len() > 0 {
+			res := results.Pop()
+			ids[i] = res.ID
+			i--
+		}
+		results.Reset()
+		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
+		for _, id := range ids {
+			dist, found, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+			if found && err == nil {
+				results.Insert(id, dist)
+				if results.Len() > k {
+					results.Pop()
+				}
+			} else {
+				h.logger.
+					WithField("action", "rescore").
+					WithError(err).
+					Warnf("could not rescore node %d", id)
+			}
+		}
+		fn()
 	}
 
 	ids := make([]uint64, results.Len())
