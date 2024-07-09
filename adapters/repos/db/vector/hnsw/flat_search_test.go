@@ -9,6 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
+//go:build !race
+
 package hnsw
 
 import (
@@ -107,18 +109,17 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 		var relevant uint64
 		var retrieved int
 
-		var querying time.Duration = 0
+		mutex := sync.Mutex{}
 		compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-			before = time.Now()
 			results, _, _ := index.flatSearch(queries[i], k, 100, allowList)
-			querying += time.Since(before)
+			mutex.Lock()
 			retrieved += k
 			relevant += testinghelpers.MatchesInLists(truths[i], results)
+			mutex.Unlock()
 		})
 
 		recall := float32(relevant) / float32(retrieved)
-		latency := float32(querying.Microseconds()) / float32(queries_size)
-		fmt.Println(recall, latency)
+		fmt.Println(recall)
 		assert.True(t, recall > 0.9)
 		assert.True(t, rescored)
 
