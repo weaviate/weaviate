@@ -159,6 +159,7 @@ type hnsw struct {
 
 	compressed   atomic.Bool
 	doNotRescore bool
+	rescoreLimit int
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -279,6 +280,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
+		rescoreLimit:             uc.PQ.RescoreLimit,
 	}
 
 	if uc.BQ.Enabled {
@@ -292,6 +294,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		index.compressed.Store(true)
 		index.cache.Drop()
 		index.cache = nil
+		index.rescoreLimit = uc.BQ.RescoreLimit
 	}
 
 	if err := index.init(cfg); err != nil {
