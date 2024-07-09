@@ -69,9 +69,7 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 
 	if h.shouldRescore() {
 		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
-		if h.shouldRescore() {
-			h.rescore(results, k, compressorDistancer)
-		}
+		h.rescore(results, k, compressorDistancer)
 		fn()
 	}
 
