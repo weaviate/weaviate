@@ -658,7 +658,7 @@ func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string
 func (m *Migrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
+		return errors.Errorf("cannot update async replication config of non-existing index for %s", className)
 	}
 
 	return idx.updateAsyncReplication(ctx, enabled)
