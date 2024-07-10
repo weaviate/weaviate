@@ -31,7 +31,7 @@ func (r *sortByScores) Swap(i, j int) {
 }
 
 func (r *sortByScores) Less(i, j int) bool {
-	return r.scores[i] > r.scores[j]
+	return r.scores[i] > r.scores[j] || r.objects[i].ID() < r.objects[j].ID()
 }
 
 func (r *sortByScores) Len() int {

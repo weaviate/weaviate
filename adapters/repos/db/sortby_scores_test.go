@@ -22,10 +22,11 @@ import (
 
 func Test_SortBy_Scores(t *testing.T) {
 	type testcase struct {
-		testName      string
-		givenObjects  []*storobj.Object
-		givenScores   []float32
-		expectedOrder []string
+		testName       string
+		givenObjects   []*storobj.Object
+		givenScores    []float32
+		expectedOrder  []string
+		expectedScores []float32
 	}
 
 	tests := []testcase{
@@ -46,6 +47,22 @@ func Test_SortBy_Scores(t *testing.T) {
 				"40d3be3e-2ecc-49c8-b37c-d8983164848b",
 				"d79f0d2d-ebc5-4dad-b3df-323bc1e6f183",
 			},
+			expectedScores: []float32{100, 43, 34, 12, 2},
+		},
+		{
+			testName: "with similar scores",
+			givenObjects: []*storobj.Object{
+				{Object: models.Object{ID: strfmt.UUID("4432797a-ef18-429f-83dc-d971dd9e4dd0")}},
+				{Object: models.Object{ID: strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b")}},
+				{Object: models.Object{ID: strfmt.UUID("31bdf9ef-d1c0-4b43-8331-1a89a48c1d2b")}},
+			},
+			givenScores: []float32{1, 1, 1},
+			expectedOrder: []string{
+				"31bdf9ef-d1c0-4b43-8331-1a89a48c1d2b",
+				"40d3be3e-2ecc-49c8-b37c-d8983164848b",
+				"4432797a-ef18-429f-83dc-d971dd9e4dd0",
+			},
+			expectedScores: []float32{1, 1, 1},
 		},
 		{
 			testName: "with a single result",
@@ -56,20 +73,25 @@ func Test_SortBy_Scores(t *testing.T) {
 			expectedOrder: []string{
 				"4a483f11-7b2f-452b-be49-f7844dbc5693",
 			},
+			expectedScores: []float32{1},
 		},
 		{
-			testName:      "with no results",
-			givenObjects:  []*storobj.Object{},
-			givenScores:   []float32{},
-			expectedOrder: []string{},
+			testName:       "with no results",
+			givenObjects:   []*storobj.Object{},
+			givenScores:    []float32{},
+			expectedOrder:  []string{},
+			expectedScores: []float32{},
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.testName, func(t *testing.T) {
-			objects, _ := newScoresSorter().sort(test.givenObjects, test.givenScores)
+			objects, scores := newScoresSorter().sort(test.givenObjects, test.givenScores)
 			for i := range objects {
 				assert.Equal(t, test.expectedOrder[i], objects[i].ID().String())
+			}
+			for i := range scores {
+				assert.Equal(t, test.expectedScores[i], scores[i])
 			}
 		})
 	}
