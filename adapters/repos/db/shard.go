@@ -807,7 +807,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).
 					WithField("shard_name", s.name).
-					WithField("objectCount", objCount).
+					WithField("object_count", objCount).
 					Infof("hashtree initialization is progress...")
 			}
 
@@ -858,6 +858,8 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 			if err != nil {
 				return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
 			}
+
+			return nil
 		}
 
 		if s.hashBeaterCtx == nil || s.hashBeaterCtx.Err() != nil {
@@ -964,6 +966,11 @@ func (s *Shard) closeHashTree() error {
 	}
 
 	err = w.Flush()
+	if err != nil {
+		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+	}
+
+	err = f.Sync()
 	if err != nil {
 		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
 	}
