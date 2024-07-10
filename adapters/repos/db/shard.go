@@ -701,6 +701,8 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
+	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
+
 	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
 		return err
 	}
@@ -760,8 +762,15 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 			s.hashtree = ht
 		}
 
-		f.Close()
-		os.Remove(hashtreeFilename)
+		err = f.Close()
+		if err != nil {
+			return err
+		}
+
+		err = os.Remove(hashtreeFilename)
+		if err != nil {
+			return err
+		}
 	}
 
 	if s.hashtree != nil {
@@ -771,6 +780,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
 			Info("hashtree successfully initialized")
+
 		s.initHashBeater()
 		return nil
 	}
@@ -863,6 +873,7 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 		}
 
 		if s.hashBeaterCtx == nil || s.hashBeaterCtx.Err() != nil {
+			s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
 			s.initHashBeater()
 		}
 
