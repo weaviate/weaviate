@@ -30,8 +30,6 @@ import (
 )
 
 func (s *Shard) initHashBeater() {
-	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
-
 	enterrors.GoWrapper(func() {
 		s.index.logger.
 			WithField("action", "async_replication").
