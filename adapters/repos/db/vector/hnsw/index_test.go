@@ -72,6 +72,26 @@ func TestHnswIndex(t *testing.T) {
 	})
 }
 
+func TestNewWithPQOn(t *testing.T) {
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "unittest",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewCosineDistanceProvider(),
+		VectorForIDThunk:      testVectorForID,
+	}, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 60,
+		PQ: ent.PQConfig{
+			Enabled: true,
+		},
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, index)
+	require.NotNil(t, err)
+	require.Equal(t, "impossible to create an hnsw instace with PQ enabled under sync indexing", err.Error())
+}
+
 func TestHnswIndexGrow(t *testing.T) {
 	vector := []float32{0.1, 0.2}
 	vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {

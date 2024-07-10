@@ -214,6 +214,10 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
+	if !asyncEnabled() && uc.PQ.Enabled {
+		return nil, errors.New("impossible to create an hnsw instace with PQ enabled under sync indexing")
+	}
+
 	if cfg.Logger == nil {
 		logger := logrus.New()
 		logger.Out = io.Discard
