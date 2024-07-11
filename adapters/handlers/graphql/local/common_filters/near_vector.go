@@ -20,7 +20,7 @@ import (
 )
 
 // ExtractNearVector arguments, such as "vector" and "distance"
-func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, *dto.TargetCombination, error) {
+func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLevel []string) (searchparams.NearVector, *dto.TargetCombination, error) {
 	var args searchparams.NearVector
 
 	vectorGQL, okVec := source["vector"].([]interface{})
@@ -46,11 +46,18 @@ func ExtractNearVector(source map[string]interface{}) (searchparams.NearVector, 
 			fmt.Errorf("cannot provide distance and certainty")
 	}
 
-	targetVectors, combination, err := ExtractTargets(source)
-	if err != nil {
-		return searchparams.NearVector{}, nil, err
+	var targetVectors []string
+	var combination *dto.TargetCombination
+	if targetVectorsFromOtherLevel == nil {
+		var err error
+		targetVectors, combination, err = ExtractTargets(source)
+		if err != nil {
+			return searchparams.NearVector{}, nil, err
+		}
+		args.TargetVectors = targetVectors
+	} else {
+		targetVectors = targetVectorsFromOtherLevel
 	}
-	args.TargetVectors = targetVectors
 
 	if okVec {
 		vector := make([]float32, len(vectorGQL))
