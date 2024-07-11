@@ -27,10 +27,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -51,6 +47,8 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -861,7 +859,7 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 			}
 		}
 
-		if s.hashBeaterCtx.Err() != nil {
+		if s.hashBeaterCtx == nil || s.hashBeaterCtx.Err() != nil {
 			s.initHashBeater()
 		}
 

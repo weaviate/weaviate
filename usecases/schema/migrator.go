@@ -59,8 +59,8 @@ type Migrator interface {
 	ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error
 	UpdateInvertedIndexConfig(ctx context.Context, className string,
 		updated *models.InvertedIndexConfig) error
-	UpdateReplicationFactor(ctx context.Context, className string, factor int64) error
-	UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error
+	UpdateReplicationConfig(ctx context.Context, className string,
+		updated *models.ReplicationConfig) error
 	WaitForStartup(context.Context) error
 	Shutdown(context.Context) error
 }

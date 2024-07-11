@@ -418,6 +418,12 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 	})
 }
 
+// ForEachShard applies func f on each shard in the index.
+//
+// WARNING: only use this if you expect all LazyLoadShards to be loaded!
+// Calling this method may lead to shards being force-loaded, causing
+// unexpected CPU spikes. If you only want to apply f on loaded shards,
+// call ForEachLoadedShard instead.
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
@@ -532,7 +538,7 @@ func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error 
 
 	i.Config.AsyncReplicationEnabled = enabled
 
-	err := i.ForEachShard(func(name string, shard ShardLike) error {
+	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateAsyncReplication(ctx, enabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
