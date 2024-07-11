@@ -6,6 +6,7 @@ from weaviate.collections.classes.grpc import (
     _MultiTargetVectorJoin,
     TargetVectors,
     _MultiTargetVectorJoinEnum,
+    HybridVectorType,
 )
 
 from .conftest import CollectionFactory, NamedCollection
@@ -667,7 +668,7 @@ def test_test_multi_target_near_vector_gql(collection_factory: CollectionFactory
     assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid2)
 
 
-def test_test_multi_target_hybrid_gql(collection_factory: CollectionFactory):
+def test_test_multi_target_hybrid_gql(collection_factory: CollectionFactory, combination: str):
     collection = collection_factory(
         vectorizer_config=[
             wvc.config.Configure.NamedVectors.none(
@@ -677,36 +678,102 @@ def test_test_multi_target_hybrid_gql(collection_factory: CollectionFactory):
         ]
     )
 
-    collection.data.insert(
+    uuid0 = collection.data.insert(
         properties={}, vector={"title1": [1, 0], "title2": [0, 0, 1], "title3": [0, 0, 0, 1]}
     )
-    uuid2 = collection.data.insert(
+    uuid1 = collection.data.insert(
         properties={}, vector={"title1": [0, 1], "title2": [0, 1, 0], "title3": [0, 0, 1, 0]}
+    )
+    uuid2 = collection.data.insert(
+        properties={}, vector={"title1": [1, 0], "title2": [1, 0, 0], "title3": [0, 1, 0, 0]}
     )
 
     client = weaviate.connect_to_local()
-    gql = client.graphql_raw_query(
+
+    gql_query = (
         """{
       Get {
         """
         + collection.name
         + """(
-          hybrid: {
-            alpha:1
-            searches: { nearVector:{
-                vectorPerTarget: {title1: [0, 1], title2: [0, 1, 0], title3: [0, 0, 1, 0]}
-                distance: 0.1
-            }}
-            """
+              hybrid: {
+                alpha:1
+                searches: { nearVector:{
+                    vectorPerTarget: {title1: [1, 0], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+                    distance: 3.1
+                }}
+                """
         + GQL_TARGETS
         + """
-          }
-        ) """
+              }
+            ) """
         + GQL_RETURNS
         + """
-        }
-      }
+            }
+          }
     }"""
     )
+
+    gql = client.graphql_raw_query(gql_query)
     assert gql.get[collection.name][0]["_additional"]["score"] == "1"
-    assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid2)
+    assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid0)
+    assert gql.get[collection.name][1]["_additional"]["score"] == "0.33333334"
+    assert gql.get[collection.name][1]["_additional"]["id"] == str(uuid2)
+    assert gql.get[collection.name][2]["_additional"]["score"] == "0"
+    assert gql.get[collection.name][2]["_additional"]["id"] == str(uuid1)
+
+
+@pytest.mark.parametrize(
+    "combination",
+    [
+        wvc.query.TargetVectors.sum(["title1", "title2"]),
+        wvc.query.TargetVectors.average(["title1", "title2"]),
+    ],
+)
+@pytest.mark.parametrize(
+    "vector",
+    [
+        wvc.query.HybridVector.near_vector({"title1": [1, 0, 0], "title2": [0, 0, 1]}),
+        {"title1": [1, 0, 0], "title2": [0, 0, 1]},
+    ],
+)
+def test_hybrid_combinations(
+    collection_factory: CollectionFactory,
+    vector: HybridVectorType,
+    combination: _MultiTargetVectorJoin,
+) -> None:
+    collection = collection_factory(
+        vectorizer_config=[
+            wvc.config.Configure.NamedVectors.none(
+                name=entry,
+            )
+            for entry in ["title1", "title2"]
+        ]
+    )
+    uuid0 = collection.data.insert(
+        properties={"title1": "first"},
+        vector={"title1": [1, 0, 0], "title2": [0, 0, 1]},
+    )
+    uuid1 = collection.data.insert(
+        properties={"title1": "second"},
+        vector={"title1": [0, 1, 0], "title2": [1, 0, 0]},
+    )
+    uuid2 = collection.data.insert(
+        properties={"title1": "third"},
+        vector={"title1": [0, 1, 0], "title2": [0, 0, 1]},
+    )
+
+    res = collection.query.hybrid(
+        "something else",
+        vector=vector,
+        target_vector=wvc.query.TargetVectors.sum(["title1", "title2"]),
+        alpha=1,
+        return_metadata=wvc.query.MetadataQuery.full(),
+    )
+    assert len(res.objects) == 3
+    assert res.objects[0].uuid == uuid0
+    assert res.objects[0].metadata.score == 1
+    assert res.objects[1].uuid == uuid2
+    assert res.objects[1].metadata.score == 0.5
+    assert res.objects[2].uuid == uuid1
+    assert res.objects[2].metadata.score == 0.0
