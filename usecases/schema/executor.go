@@ -105,14 +105,8 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		return fmt.Errorf("inverted index config: %w", err)
 	}
 
-	if err := e.migrator.UpdateReplicationFactor(ctx, className, req.Class.ReplicationConfig.Factor); err != nil {
-		return fmt.Errorf("replication index update: %w", err)
-	}
-
-	if req.Class.ReplicationConfig != nil {
-		if err := e.migrator.UpdateAsyncReplication(ctx, className, req.Class.ReplicationConfig.AsyncEnabled); err != nil {
-			return fmt.Errorf("async replication index update: %w", err)
-		}
+	if err := e.migrator.UpdateReplicationConfig(ctx, className, req.Class.ReplicationConfig); err != nil {
+		return fmt.Errorf("update replication config: %w", err)
 	}
 
 	return nil
