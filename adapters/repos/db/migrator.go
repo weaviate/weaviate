@@ -641,7 +641,11 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	return idx.updateInvertedIndexConfig(ctx, conf)
 }
 
-func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string, cfg *models.ReplicationConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
@@ -652,17 +656,15 @@ func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string
 		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
 	}
 
-	idx.Config.ReplicationFactor.Store(factor)
-	return nil
-}
+	{
+		idx.Config.ReplicationFactor.Store(cfg.Factor)
 
-func (m *Migrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot update async replication config of non-existing index for %s", className)
+		if err := idx.updateAsyncReplication(ctx, cfg.AsyncEnabled); err != nil {
+			return fmt.Errorf("update async replication for class %q: %w", className, err)
+		}
 	}
 
-	return idx.updateAsyncReplication(ctx, enabled)
+	return nil
 }
 
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
