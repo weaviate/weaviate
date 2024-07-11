@@ -17,11 +17,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/models"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -32,18 +35,20 @@ var (
 )
 
 type SchemaManager struct {
-	schema *schema
-	db     Indexer
-	parser Parser
-	log    *logrus.Logger
+	schema  *schema
+	db      Indexer
+	parser  Parser
+	log     *logrus.Logger
+	workDir string
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger) *SchemaManager {
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger, wd string) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, db),
-		db:     db,
-		parser: parser,
-		log:    log,
+		schema:  NewSchema(nodeId, db),
+		db:      db,
+		parser:  parser,
+		log:     log,
+		workDir: wd,
 	}
 }
 
@@ -82,17 +87,17 @@ func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
 	return s.schema.Restore(rc, parser)
 }
 
-func (s *SchemaManager) PreApplyFilter(req *api.ApplyRequest) error {
+func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 	classInfo := s.schema.ClassInfo(req.Class)
 
 	// Discard restoring a class if it already exists
-	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
+	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
 		s.log.WithField("class", req.Class).Info("class already restored")
 		return fmt.Errorf("class name %s already exists", req.Class)
 	}
 
 	// Discard adding class if the name already exists or a similar one exists
-	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
+	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
 		if other := s.schema.ClassEqual(req.Class); other == req.Class {
 			return fmt.Errorf("class name %s already exists", req.Class)
 		} else if other != "" {
@@ -116,6 +121,10 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
+		if err := s.migrateRangeIndexPropIfNeeded(&v.Class); err != nil {
+			s.log.Errorf("migrate range index prop for class %q: %v",
+				v.Class.Class, err)
+		}
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
@@ -374,6 +383,59 @@ func (s *SchemaManager) apply(op applyOp) error {
 	// Always trigger the schema callback last
 	if op.triggerSchemaCallback {
 		s.db.TriggerSchemaUpdateCallbacks()
+	}
+	return nil
+}
+
+// migrateRangeIndexPropIfNeeded checks to see if any data which existed prior to 1.26
+// has been properly updated to reflect the new IndexRangeFilters property field which
+// was introduced in that version. Any data which existed prior to 1.26 will have a
+// value of `nil` for this field after upgrading to ≥ 1.26.
+//
+// The class migration flags are structured as a directory of files located in the raft
+// workdir, with each file mapping to a class name in the schema, on which the migration
+// has already run. If a classname file is not found, the migration will run once, and
+// set the flag, so it will never run again.
+func (s *SchemaManager) migrateRangeIndexPropIfNeeded(class *models.Class) error {
+	var (
+		rangeIdxMigrationPath = path.Join(s.workDir, "migration1.26.rangeIndexPropByClass")
+		classMigrationFlag    = path.Join(rangeIdxMigrationPath, class.Class)
+	)
+
+	// Has the migration ever been done for any class?
+	exists, err := diskio.FileExists(rangeIdxMigrationPath)
+	if err != nil {
+		return fmt.Errorf(
+			"check if rangeIdxMigrationPath (%s) exists: %w", rangeIdxMigrationPath, err)
+	}
+	if !exists {
+		if err := os.Mkdir(rangeIdxMigrationPath, os.ModePerm); err != nil {
+			return fmt.Errorf(
+				"mkdir rangeIdxMigrationPath (%s): %w", rangeIdxMigrationPath, err)
+		}
+	}
+
+	// Has the migration been done for this class specifically?
+	exists, err = diskio.FileExists(classMigrationFlag)
+	if err != nil {
+		return fmt.Errorf(
+			"check if class range index prop migration file (%s) exists: %w", classMigrationFlag, err)
+	}
+	if exists {
+		// Nothing to do, migration has already happened
+		return nil
+	}
+
+	// Run the migration and set the flag
+	for _, prop := range class.Properties {
+		if prop.IndexRangeFilters == nil {
+			prop.IndexRangeFilters = func() *bool { f := false; return &f }()
+		}
+	}
+	_, err = os.Create(classMigrationFlag)
+	if err != nil {
+		return fmt.Errorf(
+			"create class range index prop migration file (%s): %w", classMigrationFlag, err)
 	}
 	return nil
 }
