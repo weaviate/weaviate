@@ -84,7 +84,7 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	t.Run("add tenants", func(t *testing.T) {
+	t.Run("add inactive tenant", func(t *testing.T) {
 		tenants := []*models.Tenant{{Name: tenantName, ActivityStatus: "COLD"}}
 		helper.CreateTenants(t, paragraphClass.Class, tenants)
 	})
@@ -94,7 +94,7 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 	})
 
 	// Activate/insert tenants while node 2 is down
-	t.Run("insert paragraphs", func(t *testing.T) {
+	t.Run("activate tenant and insert paragraphs", func(t *testing.T) {
 		batch := make([]*models.Object, objectCount)
 		for i := 0; i < objectCount; i++ {
 			batch[i] = articles.NewParagraph().
@@ -109,8 +109,10 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 		startNodeAt(ctx, t, compose, 2)
 	})
 
-	resp := gqlTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
-	assert.Len(t, resp, 0)
+	t.Run("verify node 2 has no objects", func(t *testing.T) {
+		resp := gqlTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
+		assert.Len(t, resp, 0)
+	})
 
 	t.Run("enable async replication", func(t *testing.T) {
 		host2 := compose.GetWeaviateNode(2).URI()
@@ -120,9 +122,20 @@ func asyncRepairMultiTenancyScenario(t *testing.T) {
 		updateClass(t, compose.GetWeaviate().URI(), class)
 	})
 
-	// Wait for async replication
-	time.Sleep(5 * time.Second)
-
-	resp2 := gqlTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
-	assert.Len(t, resp2, objectCount)
+	t.Run("validate async object propagation", func(t *testing.T) {
+		timeout := time.Minute
+		start := time.Now()
+		for {
+			resp := gqlTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, replica.One, tenantName)
+			if len(resp) != objectCount {
+				time.Sleep(time.Second)
+				continue
+			} else if time.Since(start) >= timeout {
+				t.Fatalf("expected %d objects, found %d", objectCount, len(resp))
+			} else {
+				// Test was successful
+				break
+			}
+		}
+	})
 }
