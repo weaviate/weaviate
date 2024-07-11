@@ -327,17 +327,12 @@ func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className 
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+func (f *fakeMigrator) UpdateReplicationConfig(ctx context.Context, className string, cfg *models.ReplicationConfig) error {
 	return nil
 }
 
 func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {
 	args := f.Called(ctx)
-	return args.Error(0)
-}
-
-func (f *fakeMigrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
-	args := f.Called(ctx, className, enabled)
 	return args.Error(0)
 }
 
