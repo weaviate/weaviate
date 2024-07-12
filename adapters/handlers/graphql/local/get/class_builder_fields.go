@@ -372,7 +372,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	var targetVectorCombination *dto.TargetCombination
 	var nearVectorParams *searchparams.NearVector
 	if nearVector, ok := p.Args["nearVector"]; ok {
-		p, targetCombination, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+		p, targetCombination, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}), nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearVector params: %s", err)
 		}
