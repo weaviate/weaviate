@@ -93,7 +93,11 @@ func (t Terms) findFirstNonExhausted() (int, bool) {
 func (t Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, additionalExplanations bool) (uint64, float64, []*DocPointerWithScore) {
 	pos, ok := t.findFirstNonExhausted()
 
-	docInfos := make([]*DocPointerWithScore, len(t))
+	var docInfos []*DocPointerWithScore
+
+	if additionalExplanations {
+		docInfos = make([]*DocPointerWithScore, len(t))
+	}
 
 	if !ok {
 		// done, nothing left to score
