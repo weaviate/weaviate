@@ -179,7 +179,7 @@ func NewFSM(cfg Config) Store {
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		}),
 		schemaManager: schema.NewSchemaManager(
-			cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger, cfg.WorkDir),
+			cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
 	}
 }
 

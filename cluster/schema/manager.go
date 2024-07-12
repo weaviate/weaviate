@@ -17,13 +17,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -35,20 +32,18 @@ var (
 )
 
 type SchemaManager struct {
-	schema  *schema
-	db      Indexer
-	parser  Parser
-	log     *logrus.Logger
-	workDir string
+	schema *schema
+	db     Indexer
+	parser Parser
+	log    *logrus.Logger
 }
 
-func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger, wd string) *SchemaManager {
+func NewSchemaManager(nodeId string, db Indexer, parser Parser, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema:  NewSchema(nodeId, db),
-		db:      db,
-		parser:  parser,
-		log:     log,
-		workDir: wd,
+		schema: NewSchema(nodeId, db),
+		db:     db,
+		parser: parser,
+		log:    log,
 	}
 }
 
@@ -121,10 +116,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
-		if err := s.migrateRangeIndexPropIfNeeded(&v.Class); err != nil {
-			s.log.Errorf("migrate range index prop for class %q: %v",
-				v.Class.Class, err)
-		}
+		migrateRangeIndexPropIfNeeded(&v.Class)
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
@@ -387,55 +379,15 @@ func (s *SchemaManager) apply(op applyOp) error {
 	return nil
 }
 
-// migrateRangeIndexPropIfNeeded checks to see if any data which existed prior to 1.26
-// has been properly updated to reflect the new IndexRangeFilters property field which
-// was introduced in that version. Any data which existed prior to 1.26 will have a
-// value of `nil` for this field after upgrading to ≥ 1.26.
-//
-// The class migration flags are structured as a directory of files located in the raft
-// workdir, with each file mapping to a class name in the schema, on which the migration
-// has already run. If a classname file is not found, the migration will run once, and
-// set the flag, so it will never run again.
-func (s *SchemaManager) migrateRangeIndexPropIfNeeded(class *models.Class) error {
-	var (
-		rangeIdxMigrationPath = path.Join(s.workDir, "migration1.26.rangeIndexPropByClass")
-		classMigrationFlag    = path.Join(rangeIdxMigrationPath, class.Class)
-	)
-
-	// Has the migration ever been done for any class?
-	exists, err := diskio.FileExists(rangeIdxMigrationPath)
-	if err != nil {
-		return fmt.Errorf(
-			"check if rangeIdxMigrationPath (%s) exists: %w", rangeIdxMigrationPath, err)
-	}
-	if !exists {
-		if err := os.Mkdir(rangeIdxMigrationPath, os.ModePerm); err != nil {
-			return fmt.Errorf(
-				"mkdir rangeIdxMigrationPath (%s): %w", rangeIdxMigrationPath, err)
-		}
-	}
-
-	// Has the migration been done for this class specifically?
-	exists, err = diskio.FileExists(classMigrationFlag)
-	if err != nil {
-		return fmt.Errorf(
-			"check if class range index prop migration file (%s) exists: %w", classMigrationFlag, err)
-	}
-	if exists {
-		// Nothing to do, migration has already happened
-		return nil
-	}
-
-	// Run the migration and set the flag
+// IndexRangeFilters was introduced with 1.26, so objects which were created
+// on an older version, will have this value set to nil when the instance is
+// upgraded. If we come across a property with nil IndexRangeFilters, it
+// needs to be set as false, to avoid false positive class differences on
+// comparison during class updates.
+func migrateRangeIndexPropIfNeeded(class *models.Class) {
 	for _, prop := range class.Properties {
 		if prop.IndexRangeFilters == nil {
 			prop.IndexRangeFilters = func() *bool { f := false; return &f }()
 		}
 	}
-	_, err = os.Create(classMigrationFlag)
-	if err != nil {
-		return fmt.Errorf(
-			"create class range index prop migration file (%s): %w", classMigrationFlag, err)
-	}
-	return nil
 }
