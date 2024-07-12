@@ -50,7 +50,6 @@ type compactorInverted struct {
 
 	tombstonesToWrite *sroar.Bitmap
 	tombstonesToClean *sroar.Bitmap
-	tombstonesCleaned *sroar.Bitmap
 
 	keysLen uint64
 }
@@ -157,7 +156,7 @@ func (c *compactorInverted) writeKeyValueLen() error {
 func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, error) {
 	tombstonesBuffer := make([]byte, 0)
 
-	if tombstones.GetCardinality() > 0 {
+	if tombstones != nil && tombstones.GetCardinality() > 0 {
 		tombstonesBuffer = tombstones.ToBuffer()
 	}
 
@@ -198,8 +197,6 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "get tombstones")
 	}
-
-	c.tombstonesCleaned = sroar.NewBitmap()
 
 	// the (dummy) header was already written, this is our initial offset
 
@@ -379,16 +376,7 @@ func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bo
 	last := 0
 	for i := 0; i < len(values); i++ {
 		docId := binary.BigEndian.Uint64(values[i].value[0:8])
-		if c.tombstonesToClean.Contains(docId) {
-			// Swap both elements instead overwritting `last` by `i`.
-			// Overwrite would result in `values[last].value` pointing to the same slice
-			// as `values[i].value`.
-			// If `values` slice is reused by multiple nodes (as it happens for map cursors
-			// `segmentInvertedReusable` using `segmentNode` as buffer)
-			// populating slice `values[i].value` would overwrite slice `values[last].value`.
-			// Swaps makes sure `values[i].value` and `values[last].value` point to different slices.
-			c.tombstonesCleaned.Set(docId)
-		} else {
+		if !(c.tombstonesToClean != nil && c.tombstonesToClean.Contains(docId)) {
 			values[last], values[i] = values[i], values[last]
 			last++
 		}
@@ -404,6 +392,11 @@ func (c *compactorInverted) computeTombstones() *sroar.Bitmap {
 	if c.cleanupTombstones { // no tombstones to write
 		return sroar.NewBitmap()
 	}
-
+	if c.tombstonesToWrite == nil {
+		return c.tombstonesToClean
+	}
+	if c.tombstonesToClean == nil {
+		return c.tombstonesToWrite
+	}
 	return sroar.Or(c.tombstonesToWrite, c.tombstonesToClean)
 }
