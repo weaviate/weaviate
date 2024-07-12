@@ -481,7 +481,7 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 		}
 	}
 
-	panic("ValidateParam was called without any known params present")
+	return fmt.Errorf("could not vectorize input for collection %v with search-type %v. Make sure a vectorizer module is configured for this class", class.Class, name)
 }
 
 // GetAdditionalFields provides GraphQL Get additional fields
