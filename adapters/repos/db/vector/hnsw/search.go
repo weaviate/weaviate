@@ -17,11 +17,10 @@ import (
 	"math"
 	"sync/atomic"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -164,7 +163,15 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 ) {
 	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
+	visitedExp := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
+
+	var M int
+	if allowList != nil {
+		h.Lock()
+		M = len(h.nodes) / allowList.Len()
+		h.Unlock()
+	}
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -190,12 +197,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
 	}
 	if err != nil {
-		h.pools.visitedListsLock.RLock()
-		h.pools.visitedLists.Return(visited)
-		h.pools.visitedListsLock.RUnlock()
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
-	connectionsReusable := make([]uint64, h.maximumConnectionsLayerZero)
+	var connectionsReusable []uint64
 
 	for candidates.Len() > 0 {
 		var dist float32
@@ -226,28 +230,56 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			continue
 		}
 
-		if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
-			// How is it possible that we could ever have more connections than the
-			// allowed maximum? It is not anymore, but there was a bug that allowed
-			// this to happen in versions prior to v1.12.0:
-			// https://github.com/weaviate/weaviate/issues/1868
-			//
-			// As a result the length of this slice is entirely unpredictable and we
-			// can no longer retrieve it from the pool. Instead we need to fallback
-			// to allocating a new slice.
-			//
-			// This was discovered as part of
-			// https://github.com/weaviate/weaviate/issues/1897
+		if level > 0 || allowList == nil || !h.acornSearch {
 			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
+			copy(connectionsReusable, candidateNode.connections[level])
 		} else {
-			connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
-		}
+			slice := h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
+			defer h.pools.tempVectorsUint64.Put(slice)
+			connectionsReusable = slice.Slice
 
-		copy(connectionsReusable, candidateNode.connections[level])
+			realLen := 0
+			index := 0
+
+			for index < len(candidateNode.connections[level]) && realLen < M*h.maximumConnectionsLayerZero {
+				nodeId := candidateNode.connections[level][index]
+				index++
+				if !visitedExp.Visited(nodeId) {
+					if allowList.Contains(nodeId) {
+						connectionsReusable[realLen] = nodeId
+						realLen++
+						visitedExp.Visit(nodeId)
+						continue
+					}
+				}
+				visitedExp.Visit(nodeId)
+
+				node := h.nodes[nodeId]
+				if node == nil {
+					continue
+				}
+				for _, expId := range node.connections[level] {
+					if realLen >= M*h.maximumConnectionsLayerZero {
+						break
+					}
+
+					if visitedExp.Visited(expId) {
+						continue
+					}
+
+					visitedExp.Visit(expId)
+
+					if allowList.Contains(expId) {
+						connectionsReusable[realLen] = expId
+						realLen++
+					}
+				}
+			}
+			connectionsReusable = connectionsReusable[:realLen]
+		}
 		candidateNode.Unlock()
 
 		for _, neighborID := range connectionsReusable {
-
 			if ok := visited.Visited(neighborID); ok {
 				// skip if we've already visited this neighbor
 				continue
@@ -269,12 +301,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					h.handleDeletedNode(e.DocID)
 					continue
 				} else {
-					if err != nil {
-						h.pools.visitedListsLock.RLock()
-						h.pools.visitedLists.Return(visited)
-						h.pools.visitedListsLock.RUnlock()
-						return nil, errors.Wrap(err, "calculate distance between candidate and query")
-					}
+					h.pools.visitedListsLock.RLock()
+					h.pools.visitedLists.Return(visited)
+					h.pools.visitedLists.Return(visitedExp)
+					h.pools.visitedListsLock.RUnlock()
+					return nil, errors.Wrap(err, "calculate distance between candidate and query")
 				}
 			}
 
@@ -285,14 +316,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if level == 0 && allowList != nil {
-					// we are on the lowest level containing the actual candidates and we
-					// have an allow list (i.e. the user has probably set some sort of a
-					// filter restricting this search further. As a result we have to
-					// ignore items not on the list
-					if !allowList.Contains(neighborID) {
-						continue
-					}
+				if !h.acornSearch && level == 0 && allowList != nil && !allowList.Contains(neighborID) {
+					continue
 				}
 
 				if h.hasTombstone(neighborID) {
@@ -323,6 +348,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 	h.pools.visitedListsLock.RLock()
 	h.pools.visitedLists.Return(visited)
+	h.pools.visitedLists.Return(visitedExp)
 	h.pools.visitedListsLock.RUnlock()
 
 	return results, nil

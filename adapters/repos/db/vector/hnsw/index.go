@@ -159,6 +159,7 @@ type hnsw struct {
 
 	compressed   atomic.Bool
 	doNotRescore bool
+	acornSearch  bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -284,6 +285,8 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
+
+		acornSearch: true,
 	}
 
 	if uc.BQ.Enabled {
