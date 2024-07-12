@@ -46,6 +46,7 @@ type TermInverted struct {
 	invertedValueLength uint64
 
 	queryTermIndex int
+	minIDBytes     []byte
 
 	blockList helpers.AllowList
 }
@@ -70,6 +71,8 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 
 	t.blockList = blockList
 	t.FilterDocIds = filterDocIds
+
+	t.minIDBytes = make([]byte, t.invertedKeyLength)
 
 	/*
 		if t.segment.mmapContents {
@@ -195,15 +198,14 @@ func (t *TermInverted) AdvanceAtLeast(minID uint64) {
 	if t.Exhausted {
 		return
 	}
-	minIDBytes := make([]byte, t.invertedKeyLength)
-	binary.BigEndian.PutUint64(minIDBytes, minID)
-	for bytes.Compare(t.IdBytes, minIDBytes) < 0 {
+	binary.BigEndian.PutUint64(t.minIDBytes, minID)
+	for bytes.Compare(t.IdBytes, t.minIDBytes) < 0 {
 		diffVal := minID - t.idPointer
 		if FORWARD_JUMP_ENABLED && minID > t.idPointer && diffVal > FORWARD_JUMP_THRESHOLD && t.DocCount > FORWARD_JUMP_BUCKET_MINIMUM_SIZE {
 			// jump to the right
 			// fmt.Println("jumping", t.IdPointer, minID, diffVal, expectedJump, actualJump)
 			// expectedJump := uint64(float64(diffVal) * (float64(t.EstColSize) / float64(t.DocCount)) * FORWARD_JUMP_UNDERESTIMATE)
-			t.jumpAproximate(minIDBytes, t.offsetPointer, t.actualEnd)
+			t.jumpAproximate(t.minIDBytes, t.offsetPointer, t.actualEnd)
 			// t.EstColSize = uint64(float64(t.EstColSize)*0.5 + float64(t.EstColSize)*(float64(actualJump)/float64(expectedJump))*0.5)
 		} else {
 			// actualJump++
