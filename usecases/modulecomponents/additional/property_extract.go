@@ -9,17 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package generate
+package additional
 
-type Params struct {
-	Prompt              *string
-	Task                *string
-	Properties          []string
-	PropertiesToExtract []string
-	Debug               bool
-	Options             map[string]interface{}
-}
-
-func (n Params) GetPropertiesToExtract() []string {
-	return n.PropertiesToExtract
+// some modules use data from objects - they need to be extracted from the binary-object no matter if the user requested it or not
+type PropertyExtractor interface {
+	GetPropertiesToExtract() []string
 }

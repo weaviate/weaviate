@@ -132,7 +132,7 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 }
 
 func FromBinaryOptional(data []byte,
-	addProp additional.Properties,
+	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
 
@@ -223,6 +223,8 @@ func FromBinaryOptional(data []byte,
 			props,
 			meta,
 			vectorWeights,
+			properties,
+			propLength,
 		); err != nil {
 			return nil, errors.Wrap(err, "parse")
 		}
@@ -236,13 +238,18 @@ func FromBinaryOptional(data []byte,
 	return ko, nil
 }
 
+type PropertyExtraction struct {
+	PropStrings     []string
+	PropStringsList [][]string
+}
+
 type bucket interface {
 	GetBySecondary(int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
-	additional additional.Properties,
+	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -259,6 +266,22 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		bufPool.Put(lsmBuf)
 	}()
 
+	var props *PropertyExtraction = nil
+	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
+	if properties != nil {
+		propStrings := make([]string, len(properties))
+		propStringsList := make([][]string, len(properties))
+		for j := range properties {
+			propStrings[j] = properties[j]
+			propStringsList[j] = []string{properties[j]}
+		}
+
+		props = &PropertyExtraction{
+			PropStrings:     propStrings,
+			PropStringsList: propStringsList,
+		}
+	}
+
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
 		res, newBuf, err := bucket.GetBySecondaryWithBuffer(0, docIDBuf, lsmBuf)
@@ -272,7 +295,7 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptional(res, additional)
+		unmarshalled, err := FromBinaryOptional(res, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -757,18 +780,33 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 	rw.MoveBufferPositionForward(classnameLength)
 	propertyLength := uint64(rw.ReadUint32())
 
-	jsonparser.EachKey(data[rw.Position:rw.Position+propertyLength], func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
-		var errParse error
+	return UnmarshalProperties(rw.Buffer[rw.Position:rw.Position+propertyLength], properties, aggregationProperties, propStrings)
+}
+
+func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+	var returnError error
+	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
 		switch dataType {
 		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
 			val, err := parseValues(dataType, value)
-			errParse = err
+			if err != nil {
+				returnError = err
+			}
 			(*properties)[aggregationProperties[idx]] = val
 		case jsonparser.Array: // can be a beacon or an actual array
 			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
-			beaconVal, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
+			// this checks if refs are present - the return points to the underlying memory, dont use without copying
+			_, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
 			if errBeacon == nil {
-				(*properties)[aggregationProperties[idx]] = []interface{}{map[string]interface{}{"beacon": beaconVal}}
+				// there can be more than one
+				var beacons []interface{}
+				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
+					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon") // this points to the underlying memory
+					returnError = err2
+					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
+				}
+				_, returnError = jsonparser.ArrayEach(value, handler)
+				(*properties)[aggregationProperties[idx]] = beacons
 			} else {
 				// check how many entries there are in the array by counting the ",". This allows us to allocate an
 				// array with the right size without extending it with every append.
@@ -781,29 +819,47 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 				}
 
 				array := make([]interface{}, 0, entryCount)
-				jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
+				_, err = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
 					var val interface{}
 
 					switch innerDataType {
 					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
-						val, errParse = parseValues(innerDataType, innerValue)
+						val, err = parseValues(innerDataType, innerValue)
+						if err != nil {
+							returnError = err
+						}
 					default:
-						panic("Unknown data type ArrayEach") // returning an error would be better
+						returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
 					}
 					array = append(array, val)
 				})
+				if err != nil {
+					returnError = err
+				}
 				(*properties)[aggregationProperties[idx]] = array
 
 			}
+		case jsonparser.Object:
+			// nested objects and geo-props and phonenumbers.
+			//
+			// we do not have the schema for nested object and cannot use the efficient jsonparser for them
+			//  (we could for phonenumbers and geo-props but they are not worth the effort)
+			// however this part is only called if
+			// - one of the datatypes is present
+			// - AND the user requests them
+			// => the performance impact is minimal
+			nestedProps := map[string]interface{}{}
+			err := json.Unmarshal(value, &nestedProps)
+			if err != nil {
+				returnError = err
+			}
+			(*properties)[aggregationProperties[idx]] = nestedProps
 		default:
-			panic("Unknown data type EachKey") // returning an error would be better
-		}
-		if errParse != nil {
-			panic(errParse)
+			returnError = fmt.Errorf("unknown data type %v", dataType)
 		}
 	}, propStrings...)
 
-	return nil
+	return returnError
 }
 
 func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
@@ -885,7 +941,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		string(className),
 		schema,
 		meta,
-		vectorWeights,
+		vectorWeights, nil, 0,
 	)
 }
 
@@ -988,14 +1044,22 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	propsB []byte, additionalB []byte, vectorWeightsB []byte,
+	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
-	var props map[string]interface{}
-	if err := json.Unmarshal(propsB, &props); err != nil {
-		return err
+	var returnProps map[string]interface{}
+	if properties == nil || propLength == 0 {
+		if err := json.Unmarshal(propsB, &returnProps); err != nil {
+			return err
+		}
+	} else if len(propsB) >= int(propLength) {
+		// the properties are not read in all cases, skip if not needed
+		returnProps = make(map[string]interface{}, len(properties.PropStrings))
+		if err := UnmarshalProperties(propsB[:propLength], &returnProps, properties.PropStrings, properties.PropStringsList); err != nil {
+			return err
+		}
 	}
 
-	if err := enrichSchemaTypes(props, false); err != nil {
+	if err := enrichSchemaTypes(returnProps, false); err != nil {
 		return errors.Wrap(err, "enrich schema datatypes")
 	}
 
@@ -1062,7 +1126,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		CreationTimeUnix:   create,
 		LastUpdateTimeUnix: update,
 		ID:                 uuid,
-		Properties:         props,
+		Properties:         returnProps,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,
 	}
