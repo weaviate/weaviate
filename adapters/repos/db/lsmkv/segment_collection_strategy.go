@@ -93,18 +93,17 @@ func (s *segment) invertedStratParseData(in []byte) ([]value, error) {
 	}
 
 	offset := 0
-
 	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
 	offset += 8
 
 	values := make([]value, valuesLen)
 	valueLen := 16
-	valueIndex := 0
-	for valueIndex < int(valuesLen) {
+	valueIndex := uint64(0)
+	for valueIndex < valuesLen {
 		values[valueIndex].tombstone = false
 
-		values[valueIndex].value = in[offset : offset+int(valueLen)]
-		offset += int(valueLen)
+		values[valueIndex].value = in[offset : offset+valueLen]
+		offset += valueLen
 
 		valueIndex++
 	}
