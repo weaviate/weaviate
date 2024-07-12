@@ -723,8 +723,8 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 				}
 				docId := binary.BigEndian.Uint64(segmentDecoded[j].Key[:8])
 				// check if there are any tombstones between the i and len(disk) segments
-				for _, tombstone := range allTombstones[i+1:] {
-					if tombstone.Contains(docId) {
+				for _, tombstones := range allTombstones[i+1:] {
+					if tombstones != nil && tombstones.Contains(docId) {
 						segmentDecoded[j].Tombstone = true
 						break
 					}

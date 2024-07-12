@@ -64,7 +64,8 @@ type segment struct {
 	invertedKeyLength   uint16
 	invertedValueLength uint16
 
-	tombstones *sroar.Bitmap
+	tombstones       *sroar.Bitmap
+	tombstonesLoaded bool
 }
 
 type diskIndex interface {
@@ -324,7 +325,7 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
 	}
 
-	if s.tombstones != nil {
+	if s.tombstonesLoaded {
 		return s.tombstones, nil
 	}
 
@@ -333,11 +334,17 @@ func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
 
 	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
 
+	if bitmapSize == 0 {
+		s.tombstonesLoaded = true
+		return nil, nil
+	}
+
 	bitmapStart := s.dataStartPos + keyLengths + 8
 	bitmapEnd := bitmapStart + bitmapSize
 
 	bitmap := sroar.FromBuffer(s.contents[bitmapStart:bitmapEnd])
 
 	s.tombstones = bitmap
+	s.tombstonesLoaded = true
 	return s.tombstones, nil
 }

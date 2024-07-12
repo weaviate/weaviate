@@ -170,11 +170,20 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 				}
 
 				allTombstones := sroar.NewBitmap()
+				allTombstonesNil := true
 				for _, tombstone := range tombstones[propName][segmentIndex+1:] {
-					allTombstones.Or(tombstone)
+					if tombstone != nil {
+						allTombstones.Or(tombstone)
+						allTombstonesNil = false
+					}
 				}
 
-				blockList := helpers.NewAllowListFromBitmap(allTombstones)
+				var blockList helpers.AllowList
+				if allTombstonesNil {
+					allTombstones = nil
+				} else {
+					blockList = helpers.NewAllowListFromBitmap(allTombstones)
+				}
 
 				allTerms := make([]terms.Term, 0, len(queryTermsByTokenization[tokenization]))
 				for i, term := range queryTermsByTokenization[tokenization] {
