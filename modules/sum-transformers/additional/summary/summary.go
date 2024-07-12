@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -38,7 +40,7 @@ func (p *SummaryProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 
-func (p *SummaryProvider) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (p *SummaryProvider) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return p.parseSummaryArguments(param)
 }
 

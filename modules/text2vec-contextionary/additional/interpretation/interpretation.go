@@ -14,6 +14,8 @@ package interpretation
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
@@ -41,6 +43,6 @@ func (e *Interpretation) AdditionalPropertyFn(ctx context.Context,
 	return in, nil
 }
 
-func (e *Interpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (e *Interpretation) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
