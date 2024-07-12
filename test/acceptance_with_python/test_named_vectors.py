@@ -668,7 +668,7 @@ def test_test_multi_target_near_vector_gql(collection_factory: CollectionFactory
     assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid2)
 
 
-def test_test_multi_target_hybrid_gql(collection_factory: CollectionFactory, combination: str):
+def test_test_multi_target_hybrid_gql(collection_factory: CollectionFactory):
     collection = collection_factory(
         vectorizer_config=[
             wvc.config.Configure.NamedVectors.none(
