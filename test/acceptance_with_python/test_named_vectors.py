@@ -5,12 +5,12 @@ import math
 from weaviate.collections.classes.grpc import (
     _MultiTargetVectorJoin,
     TargetVectors,
-    _MultiTargetVectorJoinEnum
+    _MultiTargetVectorJoinEnum,
 )
 
 from .conftest import CollectionFactory, NamedCollection
 
-GQL_RETURNS = "{_additional {distance id}"
+GQL_RETURNS = "{_additional {distance id score}"
 GQL_TARGETS = 'targets: {targetVectors: ["title1", "title2", "title3"], combinationMethod: sum}'
 
 
@@ -213,7 +213,9 @@ def test_near_vector(named_collection: NamedCollection) -> None:
 
 
 @pytest.mark.parametrize("target_vector", [None, "title"])
-def test_near_vector_with_single_named_vector(named_collection: NamedCollection, target_vector: str | None) -> None:
+def test_near_vector_with_single_named_vector(
+    named_collection: NamedCollection, target_vector: str | None
+) -> None:
     collection = named_collection(props=["title"])
 
     uuid1 = collection.data.insert(
@@ -662,4 +664,49 @@ def test_test_multi_target_near_vector_gql(collection_factory: CollectionFactory
     }"""
     )
     assert gql.get[collection.name][0]["_additional"]["distance"] == 0
+    assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid2)
+
+
+def test_test_multi_target_hybrid_gql(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        vectorizer_config=[
+            wvc.config.Configure.NamedVectors.none(
+                name=entry,
+            )
+            for entry in ["title1", "title2", "title3"]
+        ]
+    )
+
+    collection.data.insert(
+        properties={}, vector={"title1": [1, 0], "title2": [0, 0, 1], "title3": [0, 0, 0, 1]}
+    )
+    uuid2 = collection.data.insert(
+        properties={}, vector={"title1": [0, 1], "title2": [0, 1, 0], "title3": [0, 0, 1, 0]}
+    )
+
+    client = weaviate.connect_to_local()
+    gql = client.graphql_raw_query(
+        """{
+      Get {
+        """
+        + collection.name
+        + """(
+          hybrid: {
+            alpha:1
+            searches: { nearVector:{
+                vectorPerTarget: {title1: [0, 1], title2: [0, 1, 0], title3: [0, 0, 1, 0]}
+                distance: 0.1
+            }}
+            """
+        + GQL_TARGETS
+        + """
+          }
+        ) """
+        + GQL_RETURNS
+        + """
+        }
+      }
+    }"""
+    )
+    assert gql.get[collection.name][0]["_additional"]["score"] == "1"
     assert gql.get[collection.name][0]["_additional"]["id"] == str(uuid2)

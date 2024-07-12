@@ -120,6 +120,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
 			AvoidMMap:                 m.db.config.AvoidMMap,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
+			ForceFullReplicasSearch:   m.db.config.ForceFullReplicasSearch,
 			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
 			AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 		},
@@ -658,7 +659,7 @@ func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string
 func (m *Migrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
-		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
+		return errors.Errorf("cannot update async replication config of non-existing index for %s", className)
 	}
 
 	return idx.updateAsyncReplication(ctx, enabled)

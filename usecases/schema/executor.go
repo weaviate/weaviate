@@ -109,6 +109,12 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		return fmt.Errorf("replication index update: %w", err)
 	}
 
+	if req.Class.ReplicationConfig != nil {
+		if err := e.migrator.UpdateAsyncReplication(ctx, className, req.Class.ReplicationConfig.AsyncEnabled); err != nil {
+			return fmt.Errorf("async replication index update: %w", err)
+		}
+	}
+
 	return nil
 }
 

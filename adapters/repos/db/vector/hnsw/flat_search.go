@@ -17,9 +17,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-func (h *hnsw) flatSearch(queryVector []float32, limit int,
+func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	if !h.shouldRescore() {
+		limit = k
+	}
 	results := priorityqueue.NewMax[any](limit)
 
 	h.RLock()
@@ -68,6 +71,12 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			results.Pop()
 			results.Insert(candidate, dist)
 		}
+	}
+
+	if h.shouldRescore() {
+		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
+		h.rescore(results, k, compressorDistancer)
+		fn()
 	}
 
 	ids := make([]uint64, results.Len())
