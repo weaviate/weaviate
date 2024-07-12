@@ -78,11 +78,12 @@ const IdLockPoolSize = 128
 var errAlreadyShutdown = errors.New("already shut or dropped")
 
 type ShardLike interface {
-	Index() *Index                                                                      // Get the parent index
-	Name() string                                                                       // Get the shard name
-	Store() *lsmkv.Store                                                                // Get the underlying store
-	NotifyReady()                                                                       // Set shard status to ready
-	GetStatus() storagestate.Status                                                     // Return the shard status
+	Index() *Index                  // Get the parent index
+	Name() string                   // Get the shard name
+	Store() *lsmkv.Store            // Get the underlying store
+	NotifyReady()                   // Set shard status to ready
+	GetStatus() storagestate.Status // Return the shard status
+	GetStatusNoLoad() storagestate.Status
 	UpdateStatus(status string) error                                                   // Set shard status
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
@@ -702,8 +703,6 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
-	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
-
 	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
 		return err
 	}
@@ -856,13 +855,15 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 	defer s.hashtreeRWMux.Unlock()
 
 	if enabled {
-		if s.hashtree != nil {
-			return nil
+		if s.hashtree == nil {
+			err := s.initHashTree(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
+			}
 		}
 
-		err := s.initHashTree(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
+		if s.hashBeaterCtx.Err() != nil {
+			s.initHashBeater()
 		}
 
 		return nil
