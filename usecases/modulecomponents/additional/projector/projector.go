@@ -53,7 +53,7 @@ func (f *FeatureProjector) AdditionalPropertyFn(ctx context.Context,
 	return nil, errors.New("unknown params")
 }
 
-func (f *FeatureProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *FeatureProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return parseFeatureProjectionArguments(param)
 }
 
