@@ -22,6 +22,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -213,6 +214,10 @@ func (f *fakeModuleConfig) SetSinglePropertyDefaults(class *models.Class,
 }
 
 func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Class) error {
+	return nil
+}
+
+func (f *fakeModuleConfig) GetByName(name string) modulecapabilities.Module {
 	return nil
 }
 
