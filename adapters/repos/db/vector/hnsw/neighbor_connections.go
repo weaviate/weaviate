@@ -153,7 +153,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 				return err
 			}
 		}
-		if results.Len() >= top && dist < results.Top().Dist {
+		if results.Len() > 0 && results.Len() >= top && dist < results.Top().Dist {
 			results.Pop()
 			results.Insert(id, dist)
 		} else if results.Len() < top {
