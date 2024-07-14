@@ -421,9 +421,9 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 			hot = append(hot, tName.Name)
 		case models.TenantActivityStatusCOLD:
 			cold = append(cold, tName.Name)
-
-		case models.TenantActivityStatusFROZEN: // never arrives from user
+		case models.TenantActivityStatusFROZEN:
 			frozen = append(frozen, tName.Name)
+
 		case types.TenantActivityStatusFREEZING: // never arrives from user
 			freezing = append(freezing, tName.Name)
 		case types.TenantActivityStatusUNFREEZING: // never arrives from user
