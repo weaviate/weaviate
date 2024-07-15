@@ -77,7 +77,7 @@ jobs:
         run: |
           echo "${{ env.SKIPPED_VULN }}" | tr ' ' '\n' > .trivyignore
       - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.22.0
+        uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: 'weaviate:${{ github.sha }}'
           exit-code: '1'
