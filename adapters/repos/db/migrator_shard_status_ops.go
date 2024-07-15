@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -110,6 +111,11 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 
 			if shard != nil {
 				if err := shard.HaltForTransfer(ctx); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"error":  err,
+						"name":   class,
+						"tenant": name,
+					}).Error("HaltForTransfer")
 					ec.Add(err)
 					return fmt.Errorf("attempt to mark begin offloading: %w", err)
 				}
@@ -122,6 +128,12 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				}
 				err := m.cloud.Upload(ctx, class, name, m.nodeId)
 				if err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"error":  err,
+						"name":   class,
+						"tenant": name,
+					}).Error("uploading")
+
 					ec.Add(fmt.Errorf("uploading error: %w", err))
 					cmd.Process = &command.TenantsProcess{
 						Tenant: &command.Tenant{
@@ -191,6 +203,11 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				}
 				err := m.cloud.Download(ctx, class, name, nodeName)
 				if err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"error":  err,
+						"name":   class,
+						"tenant": name,
+					}).Error("downloading")
 					ec.Add(fmt.Errorf("downloading error: %w", err))
 					// one success will be sufficient for changing the status
 					// no status provided here it will be detected which status
@@ -221,7 +238,11 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				// delete when it's done
 				if err := m.cloud.Delete(ctx, class, name, nodeName); err != nil {
 					// we just logging in case of we are not able to delete the cloud
-					m.logger.Error("deleting error: %w", err)
+					m.logger.WithFields(logrus.Fields{
+						"error":  err,
+						"name":   class,
+						"tenant": name,
+					}).Error("deleting")
 				}
 			}, idx.logger)
 
