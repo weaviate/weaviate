@@ -128,6 +128,9 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -147,9 +150,13 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	if s.list == nil {
 		return []string{}
 	}
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -164,6 +171,9 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -179,6 +189,10 @@ func (s *State) StorageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
+
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	members := s.list.Members()
 	out := make([]string, len(members))
 	n := 0
@@ -201,18 +215,30 @@ func (s *State) Candidates() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.NumMembers()
 }
 
 func (s *State) LocalName() string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.LocalNode().Name
 }
 
 func (s *State) ClusterHealthScore() int {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on

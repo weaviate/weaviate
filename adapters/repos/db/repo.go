@@ -101,15 +101,6 @@ func (db *DB) GetConfig() Config {
 	return db.config
 }
 
-func (db *DB) GetIndices() []*Index {
-	out := make([]*Index, 0, len(db.indices))
-	for _, index := range db.indices {
-		out = append(out, index)
-	}
-
-	return out
-}
-
 func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 	return db.remoteIndex
 }
@@ -170,14 +161,13 @@ func New(logger logrus.FieldLogger, config Config,
 		logger.Info("async indexing enabled")
 		w := runtime.GOMAXPROCS(0) - 1
 		db.shutDownWg.Add(w)
-		db.jobQueueCh = make(chan job, w)
+		db.jobQueueCh = make(chan job)
 		for i := 0; i < w; i++ {
 			f := func() {
 				defer db.shutDownWg.Done()
 				asyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
 			}
 			enterrors.GoWrapper(f, db.logger)
-
 		}
 	}
 
@@ -196,11 +186,15 @@ type Config struct {
 	MemtablesMaxSizeMB        int
 	MemtablesMinActiveSeconds int
 	MemtablesMaxActiveSeconds int
+	MaxSegmentSize            int64
+	HNSWMaxLogSize            int64
+	HNSWWaitForCachePrefill   bool
 	TrackVectorDimensions     bool
 	ServerVersion             string
 	GitHash                   string
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
+	ForceFullReplicasSearch   bool
 	Replication               replication.GlobalConfig
 }
 
@@ -351,40 +345,26 @@ type job struct {
 	batcher *objectsBatcher
 
 	// async only
-	chunk   *chunk
 	indexer batchIndexer
-	queue   *vectorQueue
+	ids     []uint64
+	vectors [][]float32
+	done    func()
 }
 
 func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
-	var ids []uint64
-	var vectors [][]float32
-	var deleted []uint64
-
 	for job := range ch {
-		c := job.chunk
-		for i := range c.data[:c.cursor] {
-			if job.queue.IsDeleted(c.data[i].id) {
-				deleted = append(deleted, c.data[i].id)
-			} else {
-				ids = append(ids, c.data[i].id)
-				vectors = append(vectors, c.data[i].vector)
-			}
-		}
+		stop := func() bool {
+			defer job.done()
 
-		var err error
-
-		if len(ids) > 0 {
-		LOOP:
 			for {
-				err = job.indexer.AddBatch(job.ctx, ids, vectors)
+				err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
 				if err == nil {
-					break LOOP
+					return false
 				}
 
 				if errors.Is(err, context.Canceled) {
-					logger.WithError(err).Debugf("skipping indexing batch due to context cancellation")
-					break LOOP
+					logger.WithError(err).Debug("skipping indexing batch due to context cancellation")
+					return true
 				}
 
 				logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
@@ -396,25 +376,15 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 					if !t.Stop() {
 						<-t.C
 					}
-					return
+
+					return true
 				case <-t.C:
 				}
 			}
+		}()
+
+		if stop {
+			return
 		}
-
-		// only persist checkpoint if we indexed a full batch
-		if err == nil {
-			job.queue.persistCheckpoint(ids)
-		}
-
-		job.queue.releaseChunk(c)
-
-		if len(deleted) > 0 {
-			job.queue.ResetDeleted(deleted...)
-		}
-
-		ids = ids[:0]
-		vectors = vectors[:0]
-		deleted = deleted[:0]
 	}
 }

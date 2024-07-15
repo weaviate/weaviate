@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,14 +31,17 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/usecases/configbase"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
 const (
 	compressionBQ   = "bq"
 	compressionPQ   = "pq"
+	compressionSQ   = "sq"
 	compressionNone = "none"
 )
 
@@ -86,7 +90,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		pool:              newPools(),
 		store:             store,
 	}
-	index.initBuckets(context.Background())
+	if err := index.initBuckets(context.Background()); err != nil {
+		return nil, fmt.Errorf("init flat index buckets: %w", err)
+	}
+
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
@@ -107,16 +114,16 @@ func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) 
 }
 
 func extractCompression(uc flatent.UserConfig) string {
-	if uc.BQ.Enabled && uc.PQ.Enabled {
-		return compressionNone
-	}
-
 	if uc.BQ.Enabled {
 		return compressionBQ
 	}
 
 	if uc.PQ.Enabled {
 		return compressionPQ
+	}
+
+	if uc.SQ.Enabled {
+		return compressionSQ
 	}
 
 	return compressionNone
@@ -129,6 +136,8 @@ func extractCompressionRescore(uc flatent.UserConfig) int64 {
 		return int64(uc.PQ.RescoreLimit)
 	case compressionBQ:
 		return int64(uc.BQ.RescoreLimit)
+	case compressionSQ:
+		return int64(uc.SQ.RescoreLimit)
 	default:
 		return 0
 	}
@@ -175,8 +184,13 @@ func (index *flat) getCompressedBucketName() string {
 }
 
 func (index *flat) initBuckets(ctx context.Context) error {
+	// TODO: Forced compaction should not stay an all or nothing option.
+	//       This is only a temporary measure until dynamic compaction
+	//       behavior is implemented.
+	//       See: https://github.com/weaviate/weaviate/issues/5241
+	forceCompaction := shouldForceCompaction()
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
-		lsmkv.WithForceCompation(true),
+		lsmkv.WithForceCompation(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
 	); err != nil {
@@ -184,7 +198,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	}
 	if index.isBQ() {
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
-			lsmkv.WithForceCompation(true),
+			lsmkv.WithForceCompation(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
 		); err != nil {
@@ -192,6 +206,11 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// TODO: Remove this function when gh-5241 is completed. See flat::initBuckets for more details.
+func shouldForceCompaction() bool {
+	return !configbase.Enabled(os.Getenv("FLAT_INDEX_DISABLE_FORCED_COMPACTION"))
 }
 
 func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -596,7 +615,7 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
 
-	// Store automatically as a lock here would be very expensive, this value is
+	// Store atomically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
 	atomic.StoreInt64(&index.rescore, extractCompressionRescore(parsed))
 
@@ -643,10 +662,39 @@ func (index *flat) PostStartup() {
 	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
 	defer cursor.Close()
 
+	// The idea here is to first read everything from disk in one go, then grow
+	// the cache just once before inserting all vectors. A previous iteration
+	// would grow the cache as part of the cursor loop and this ended up making
+	// up 75% of the CPU time needed. This new implementation with two loops is
+	// much more efficient and only ever-so-slightly more memory-consuming (about
+	// one additional struct per vector while loading. Should be negligible)
+	type vec struct {
+		id  uint64
+		vec []uint64
+	}
+
+	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
+	// this slice dynamically should be quite cheap compared to other operations
+	// involved here, e.g. disk reads.
+	vecs := make([]vec, 0, 10_000)
+	maxID := uint64(0)
+
 	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
 		id := binary.BigEndian.Uint64(key)
-		index.bqCache.Grow(id)
-		index.bqCache.Preload(id, uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)))
+		vecs = append(vecs, vec{
+			id:  id,
+			vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
+		})
+		if id > maxID {
+			maxID = id
+		}
+	}
+
+	// Grow cache just once
+	index.bqCache.Grow(maxID)
+
+	for _, vec := range vecs {
+		index.bqCache.Preload(vec.id, vec.vec)
 	}
 }
 
@@ -665,6 +713,27 @@ func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, bool, error)
 }
 
 func (index *flat) ContainsNode(id uint64) bool {
+	var bucketName string
+
+	// logic modeled after SearchByVector which indicates that the PQ bucket is
+	// the same as the uncompressed bucket "for now"
+	switch index.compression {
+	case compressionBQ:
+		bucketName = index.getCompressedBucketName()
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		bucketName = index.getBucketName()
+	}
+
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+	v, err := index.store.Bucket(bucketName).Get(idBytes)
+	if v == nil || err == entlsmkv.NotFound {
+		return false
+	}
+
 	return true
 }
 
@@ -714,10 +783,6 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 			accessor: func(c flatent.UserConfig) interface{} { return c.Distance },
 		},
 		{
-			name:     "bq.cache",
-			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Cache },
-		},
-		{
 			name:     "pq.cache",
 			accessor: func(c flatent.UserConfig) interface{} { return c.PQ.Cache },
 		},
@@ -729,6 +794,10 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 			name:     "bq",
 			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Enabled },
 		},
+		// as of v1.25.2, updating the BQ cache setting is now possible.
+		// Note that the change does not take effect until the tenant is
+		// reloaded, either from a complete restart or from
+		// activating/deactivating it.
 	}
 
 	for _, u := range immutableFields {
@@ -741,4 +810,35 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 
 func (index *flat) AlreadyIndexed() uint64 {
 	return atomic.LoadUint64(&index.count)
+}
+
+func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	var distFunc func(nodeID uint64) (float32, error)
+	switch index.compression {
+	case compressionBQ:
+		queryVecEncode := index.bq.Encode(queryVector)
+		distFunc = func(nodeID uint64) (float32, error) {
+			vec, err := index.bqCache.Get(context.Background(), nodeID)
+			if err != nil {
+				return 0, err
+			}
+			return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
+		}
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		distFunc = func(nodeID uint64) (float32, error) {
+			vec, err := index.vectorById(nodeID)
+			if err != nil {
+				return 0, err
+			}
+			dist, _, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+			if err != nil {
+				return 0, err
+			}
+			return dist, nil
+		}
+	}
+	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }

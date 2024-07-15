@@ -45,7 +45,6 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
-	rStore "github.com/weaviate/weaviate/cluster/store"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -55,9 +54,11 @@ import (
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
 	modstgs3 "github.com/weaviate/weaviate/modules/backup-s3"
+	modgenerativeanthropic "github.com/weaviate/weaviate/modules/generative-anthropic"
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
@@ -68,20 +69,24 @@ import (
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
+	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modqna "github.com/weaviate/weaviate/modules/qna-transformers"
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
+	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -193,6 +198,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMaxSizeMB:        appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
 		MemtablesMinActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
 		MemtablesMaxActiveSeconds: appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		MaxSegmentSize:            appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
+		HNSWMaxLogSize:            appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:   appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		RootPath:                  appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:       appState.ServerConfig.Config.QueryMaximumResults,
@@ -202,6 +210,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
 		DisableLazyLoadShards:     appState.ServerConfig.Config.DisableLazyLoadShards,
+		ForceFullReplicasSearch:   appState.ServerConfig.Config.ForceFullReplicasSearch,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -220,7 +229,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
+
 	migrator := db.NewMigrator(repo, appState.Logger)
+	migrator.SetNode(appState.Cluster.LocalName())
+	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
+	migrator.SetOffloadProvider(appState.Modules, "offload-s3")
+
 	vectorRepo = repo
 	// migrator = vectorMigrator
 	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
@@ -251,8 +265,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-	/// TODO-RAFT START
-	//
 	server2port, err := parseNode2Port(appState)
 	if len(server2port) == 0 || err != nil {
 		appState.Logger.
@@ -267,32 +279,29 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	addrs := strings.Split(nodeAddr, ":")
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
-	rConfig := rStore.Config{
-		WorkDir:               filepath.Join(dataPath, "raft"),
-		NodeID:                nodeName,
-		Host:                  addrs[0],
-		RaftPort:              appState.ServerConfig.Config.Raft.Port,
-		RPCPort:               appState.ServerConfig.Config.Raft.InternalRPCPort,
-		RaftRPCMessageMaxSize: appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
-		ServerName2PortMap:    server2port,
-		BootstrapTimeout:      appState.ServerConfig.Config.Raft.BootstrapTimeout,
-		BootstrapExpect:       appState.ServerConfig.Config.Raft.BootstrapExpect,
-		HeartbeatTimeout:      appState.ServerConfig.Config.Raft.HeartbeatTimeout,
-		RecoveryTimeout:       appState.ServerConfig.Config.Raft.RecoveryTimeout,
-		ElectionTimeout:       appState.ServerConfig.Config.Raft.ElectionTimeout,
-		SnapshotInterval:      appState.ServerConfig.Config.Raft.SnapshotInterval,
-		SnapshotThreshold:     appState.ServerConfig.Config.Raft.SnapshotThreshold,
-		UpdateWaitTimeout:     time.Second * 10, // TODO-RAFT read from the flag
-		MetadataOnlyVoters:    appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
-		DB:                    nil,
-		Parser:                schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
-		AddrResolver:          appState.Cluster,
-		Logger:                appState.Logger,
-		LogLevel:              logLevel(),
-		LogJSONFormat:         !logTextFormat(),
-		IsLocalHost:           appState.ServerConfig.Config.Cluster.Localhost,
-		LoadLegacySchema:      schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:      schemaRepo.SaveLegacySchema,
+	rConfig := rCluster.Config{
+		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
+		NodeID:                 nodeName,
+		Host:                   addrs[0],
+		RaftPort:               appState.ServerConfig.Config.Raft.Port,
+		RPCPort:                appState.ServerConfig.Config.Raft.InternalRPCPort,
+		RaftRPCMessageMaxSize:  appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
+		BootstrapTimeout:       appState.ServerConfig.Config.Raft.BootstrapTimeout,
+		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
+		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
+		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
+		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		DB:                     nil,
+		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
+		NodeNameToPortMap:      server2port,
+		NodeToAddressResolver:  appState.Cluster,
+		Logger:                 appState.Logger,
+		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
+		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -302,12 +311,14 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.ClusterService = rCluster.New(rConfig)
+	migrator.SetCluster(appState.ClusterService.Raft)
+
 	executor := schema.NewExecutor(migrator,
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, backup.RestoreClassDir(dataPath),
 	)
 	schemaManager, err := schemaUC.NewManager(migrator,
-		appState.ClusterService.Service,
+		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
@@ -322,7 +333,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader())
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
@@ -335,6 +346,27 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	vectorRepo.SetSchemaGetter(schemaManager)
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
+
+	appState.Traverser = traverser.NewTraverser(appState.ServerConfig, appState.Locks,
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
+		appState.Modules, traverser.NewMetrics(appState.Metrics),
+		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
+
+	updateSchemaCallback := makeUpdateSchemaCall(appState)
+	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
+
+	// while we accept an overall longer startup, e.g. due to a recovery, we
+	// still want to limit the module startup context, as that's mostly service
+	// discovery / dependency checking
+	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	err = initModules(moduleCtx, appState)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't initialize")
+	}
 
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
@@ -353,14 +385,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 	appState.BatchManager = batchManager
-	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
-		appState.Modules, traverser.NewMetrics(appState.Metrics),
-		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
-	appState.Traverser = objectsTraverser
-
-	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
-	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
@@ -395,23 +419,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	configureServer = makeConfigureServer(appState)
-
-	// while we accept an overall longer startup, e.g. due to a recovery, we
-	// still want to limit the module startup context, as that's mostly service
-	// discovery / dependency checking
-	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-
-	err = initModules(moduleCtx, appState)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
-	}
-
-	// manually update schema once
-	schema := schemaManager.GetSchemaSkipAuth()
-	updateSchemaCallback(schema)
 
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
@@ -506,7 +513,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupMiddlewares := makeSetupMiddlewares(appState)
 	setupGlobalMiddleware := makeSetupGlobalMiddleware(appState)
 
-	telemeter := telemetry.New(appState.DB, appState.Modules, appState.Logger)
+	telemeter := telemetry.New(appState.DB, appState.SchemaManager, appState.Logger)
 	if telemetryEnabled(appState) {
 		enterrors.GoWrapper(func() {
 			if err := telemeter.Start(context.Background()); err != nil {
@@ -665,19 +672,6 @@ func logger() *logrus.Logger {
 	return logger
 }
 
-func logLevel() string {
-	switch level := os.Getenv("LOG_LEVEL"); level {
-	case "trace", "debug", "warn", "error":
-		return level
-	default:
-		return "info"
-	}
-}
-
-func logTextFormat() bool {
-	return os.Getenv("LOG_FORMAT") == "text"
-}
-
 type dummyLock struct{}
 
 func (d *dummyLock) LockConnector() (func() error, error) {
@@ -694,29 +688,75 @@ func registerModules(appState *state.State) error {
 		WithField("action", "startup").
 		Debug("start registering modules")
 
-	appState.Modules = modules.NewProvider()
+	appState.Modules = modules.NewProvider(appState.Logger)
 
-	enabledModules := map[string]bool{}
-	if len(appState.ServerConfig.Config.EnableModules) > 0 {
-		modules := strings.Split(appState.ServerConfig.Config.EnableModules, ",")
-		for _, module := range modules {
-			enabledModules[strings.TrimSpace(module)] = true
-		}
+	// Default modules
+	defaultVectorizers := []string{
+		modtext2vecaws.Name,
+		modcohere.Name,
+		modhuggingface.Name,
+		modjinaai.Name,
+		modoctoai.Name,
+		modopenai.Name,
+		modtext2vecpalm.Name,
+		modmulti2vecpalm.Name,
+		modvoyageai.Name,
+	}
+	defaultGenerative := []string{
+		modgenerativeanyscale.Name,
+		modgenerativeaws.Name,
+		modgenerativecohere.Name,
+		modgenerativemistral.Name,
+		modgenerativeoctoai.Name,
+		modgenerativeopenai.Name,
+		modgenerativepalm.Name,
+		modgenerativeanthropic.Name,
+	}
+	defaultOthers := []string{
+		modrerankercohere.Name,
+		modrerankervoyageai.Name,
 	}
 
-	if _, ok := enabledModules["text2vec-contextionary"]; ok {
-		appState.Modules.Register(modcontextionary.New())
+	defaultModules := append(defaultVectorizers, defaultGenerative...)
+	defaultModules = append(defaultModules, defaultOthers...)
+
+	var modules []string
+
+	if len(appState.ServerConfig.Config.EnableModules) > 0 {
+		modules = strings.Split(appState.ServerConfig.Config.EnableModules, ",")
+	}
+
+	if appState.ServerConfig.Config.EnableApiBasedModules {
+		// Concatenate modules with default modules
+		modules = append(modules, defaultModules...)
+	}
+
+	enabledModules := map[string]bool{}
+	for _, module := range modules {
+		enabledModules[strings.TrimSpace(module)] = true
+	}
+
+	if _, ok := enabledModules[modt2vbigram.Name]; ok {
+		appState.Modules.Register(modt2vbigram.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-contextionary").
+			WithField("module", modt2vbigram.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text2vec-transformers"]; ok {
+	if _, ok := enabledModules[modcontextionary.Name]; ok {
+		appState.Modules.Register(modcontextionary.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modcontextionary.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtransformers.Name]; ok {
 		appState.Modules.Register(modtransformers.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-transformers").
+			WithField("module", modtransformers.Name).
 			Debug("enabled module")
 	}
 
@@ -752,51 +792,59 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["qna-transformers"]; ok {
+	if _, ok := enabledModules[modrerankerdummy.Name]; ok {
+		appState.Modules.Register(modrerankerdummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankerdummy.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modqna.Name]; ok {
 		appState.Modules.Register(modqna.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "qna-transformers").
+			WithField("module", modqna.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["sum-transformers"]; ok {
+	if _, ok := enabledModules[modsum.Name]; ok {
 		appState.Modules.Register(modsum.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "sum-transformers").
+			WithField("module", modsum.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["img2vec-neural"]; ok {
+	if _, ok := enabledModules[modimage.Name]; ok {
 		appState.Modules.Register(modimage.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "img2vec-neural").
+			WithField("module", modimage.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["ner-transformers"]; ok {
+	if _, ok := enabledModules[modner.Name]; ok {
 		appState.Modules.Register(modner.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "ner-transformers").
+			WithField("module", modner.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text-spellcheck"]; ok {
+	if _, ok := enabledModules[modspellcheck.Name]; ok {
 		appState.Modules.Register(modspellcheck.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text-spellcheck").
+			WithField("module", modspellcheck.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["multi2vec-clip"]; ok {
+	if _, ok := enabledModules[modclip.Name]; ok {
 		appState.Modules.Register(modclip.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "multi2vec-clip").
+			WithField("module", modclip.Name).
 			Debug("enabled module")
 	}
 
@@ -808,19 +856,19 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["text2vec-openai"]; ok {
+	if _, ok := enabledModules[modopenai.Name]; ok {
 		appState.Modules.Register(modopenai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-openai").
+			WithField("module", modopenai.Name).
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules["qna-openai"]; ok {
+	if _, ok := enabledModules[modqnaopenai.Name]; ok {
 		appState.Modules.Register(modqnaopenai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "qna-openai").
+			WithField("module", modqnaopenai.Name).
 			Debug("enabled module")
 	}
 
@@ -856,6 +904,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativedummy.Name]; ok {
+		appState.Modules.Register(modgenerativedummy.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedummy.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modgenerativeaws.Name]; ok {
 		appState.Modules.Register(modgenerativeaws.New())
 		appState.Logger.
@@ -888,6 +944,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativeanthropic.Name]; ok {
+		appState.Modules.Register(modgenerativeanthropic.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeanthropic.Name).
+			Debug("enabled module")
+
+	}
 	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
 		appState.Modules.Register(modtext2vecpalm.New())
 		appState.Logger.
@@ -917,6 +981,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modstgs3.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modsloads3.Name]; ok {
+		appState.Modules.Register(modsloads3.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modsloads3.Name).
 			Debug("enabled module")
 	}
 

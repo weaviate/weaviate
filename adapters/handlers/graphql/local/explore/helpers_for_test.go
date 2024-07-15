@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"
@@ -65,7 +67,8 @@ func (p *fakeModulesProvider) CrossClassExtractSearchParams(arguments map[string
 func extractNearCustomTextParam(param map[string]interface{}) interface{} {
 	nearCustomText := &nearCustomTextModule{}
 	argument := nearCustomText.Arguments()["nearCustomText"]
-	return argument.ExtractFunction(param)
+	params, _, _ := argument.ExtractFunction(param)
+	return params
 }
 
 func getFakeModulesProvider() ModulesProvider {
@@ -162,7 +165,7 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		ExploreArgumentsFunction: func() *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument("")
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
 			return m.extractNearCustomTextArgument(source)
 		},
 		ValidateFunction: func(param interface{}) error {
@@ -270,7 +273,7 @@ func (m *nearCustomTextModule) getNearCustomTextArgument(classname string) *grap
 	}
 }
 
-func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) *nearCustomTextParams {
+func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]interface{}) (*nearCustomTextParams, *dto.TargetCombination, error) {
 	var args nearCustomTextParams
 
 	concepts := source["concepts"].([]interface{})
@@ -303,7 +306,7 @@ func (m *nearCustomTextModule) extractNearCustomTextArgument(source map[string]i
 		args.MoveAwayFrom = m.parseMoveParam(moveAwayFromMap)
 	}
 
-	return &args
+	return &args, nil, nil
 }
 
 func (m *nearCustomTextModule) parseMoveParam(source map[string]interface{}) nearExploreMove {

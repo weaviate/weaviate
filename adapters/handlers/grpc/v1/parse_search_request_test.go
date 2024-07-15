@@ -50,9 +50,11 @@ func TestGRPCRequest(t *testing.T) {
 	dotClass := "DotClass"
 	objClass := "ObjClass"
 	multiVecClass := "MultiVecClass"
+	singleNamedVecClass := "SingleNamedVecClass"
 	one := float64(1.0)
 
 	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
+	defaultNamedVecProps := search.SelectProperties{{Name: "first", IsPrimitive: true}}
 
 	scheme := schema.Schema{
 		Objects: &models.Schema{
@@ -144,6 +146,24 @@ func TestGRPCRequest(t *testing.T) {
 							VectorIndexConfig: flat.UserConfig{},
 							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
 						},
+						"second": {
+							VectorIndexType:   "flat",
+							VectorIndexConfig: flat.UserConfig{},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+					},
+				},
+				{
+					Class: singleNamedVecClass,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"default": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{},
+							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
+						},
 					},
 				},
 			},
@@ -204,29 +224,30 @@ func TestGRPCRequest(t *testing.T) {
 					Alpha: 1.0,
 					Query: "nearvecquery",
 					NearVector: &pb.NearVector{
-						VectorBytes:   byteops.Float32ToByteVector([]float32{1, 2, 3}),
-						TargetVectors: []string{"custom"},
-						Certainty:     &one,
-						Distance:      &one,
+						VectorBytes: byteops.Float32ToByteVector([]float32{1, 2, 3}),
+						Certainty:   &one,
+						Distance:    &one,
 					},
+					TargetVectors: []string{"custom"},
 				},
 			},
 			out: dto.GetParams{
 				ClassName:            multiVecClass,
 				Pagination:           defaultPagination,
 				Properties:           search.SelectProperties{},
-				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
 				HybridSearch: &searchparams.HybridSearch{
 					Alpha:           1.0,
 					Query:           "nearvecquery",
 					FusionAlgorithm: 1,
 					NearVectorParams: &searchparams.NearVector{
-						Vector:        []float32{1, 2, 3},
-						TargetVectors: []string{"custom"},
-						Certainty:     1.0,
-						Distance:      1.0,
-						WithDistance:  true,
+						VectorPerTarget: map[string][]float32{"custom": {1, 2, 3}},
+						Certainty:       1.0,
+						Distance:        1.0,
+						WithDistance:    true,
+						TargetVectors:   []string{"custom"},
 					},
+					TargetVectors: []string{"custom"},
 				},
 			},
 			error: false,
@@ -348,10 +369,10 @@ func TestGRPCRequest(t *testing.T) {
 				ClassName:            multiVecClass,
 				Pagination:           defaultPagination,
 				Properties:           search.SelectProperties{},
-				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first"}, Vector: true, NoProps: true},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
 				NearVector: &searchparams.NearVector{
-					Vector:        []float32{1, 2, 3},
-					TargetVectors: []string{"custom"},
+					TargetVectors:   []string{"custom"},
+					VectorPerTarget: map[string][]float32{"custom": {1, 2, 3}},
 				},
 			},
 			error: false,
@@ -370,7 +391,7 @@ func TestGRPCRequest(t *testing.T) {
 			error: true,
 		},
 		{
-			name: "Vectors throws error if more than one target vectors are given",
+			name: "Vectors does not throw error if more than one target vectors are given",
 			req: &pb.SearchRequest{
 				Collection: multiVecClass,
 				Metadata:   &pb.MetadataRequest{Vector: true},
@@ -380,8 +401,17 @@ func TestGRPCRequest(t *testing.T) {
 					TargetVectors: []string{"custom", "first"},
 				},
 			},
-			out:   dto.GetParams{},
-			error: true,
+			out: dto.GetParams{
+				ClassName:            multiVecClass,
+				Pagination:           defaultPagination,
+				Properties:           search.SelectProperties{},
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				NearVector: &searchparams.NearVector{
+					VectorPerTarget: map[string][]float32{"custom": {1, 2, 3}, "first": {1, 2, 3}},
+					TargetVectors:   []string{"custom", "first"},
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+			}, error: false,
 		},
 		{
 			name: "Properties return all nonref values with new default logic",
@@ -563,13 +593,13 @@ func TestGRPCRequest(t *testing.T) {
 		{
 			name: "hybrid targetvectors",
 			req: &pb.SearchRequest{
-				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
-				HybridSearch: &pb.Hybrid{TargetVectors: []string{"testname"}, Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"name", "CapitalizedName"}},
+				Collection: multiVecClass, Metadata: &pb.MetadataRequest{Vector: true, Certainty: false},
+				HybridSearch: &pb.Hybrid{TargetVectors: []string{"first"}, Query: "query", FusionType: pb.Hybrid_FUSION_TYPE_RANKED, Alpha: 0.75, Properties: []string{"first"}},
 			},
 			out: dto.GetParams{
-				ClassName: classname, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{TargetVectors: []string{"testname"}, Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"name", "capitalizedName"}},
-				Properties:           defaultTestClassProps,
-				AdditionalProperties: additional.Properties{Vector: true, NoProps: false},
+				ClassName: multiVecClass, Pagination: defaultPagination, HybridSearch: &searchparams.HybridSearch{TargetVectors: []string{"first"}, Query: "query", FusionAlgorithm: common_filters.HybridRankedFusion, Alpha: 0.75, Properties: []string{"first"}},
+				Properties:           defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{Vectors: []string{"custom", "first", "second"}, NoProps: false, Vector: true},
 			},
 			error: false,
 		},
@@ -1275,12 +1305,31 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
+				Properties: append(defaultTestClassProps, []search.SelectProperty{{Name: "one", IsPrimitive: true}, {Name: "two", IsPrimitive: true}}...),
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: false,
+					ModuleParams: map[string]interface{}{
+						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}, PropertiesToExtract: []string{"one", "two"}},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Generative without properties",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true}, Properties: &pb.PropertiesRequest{NonRefProperties: []string{}},
+				Generative: &pb.GenerativeSearch{GroupedResponseTask: someString2},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
 				Properties: defaultTestClassProps,
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
 					ModuleParams: map[string]interface{}{
-						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}},
+						"generate": &generate.Params{Task: &someString2, PropertiesToExtract: []string{"name", "number", "floats", "uuid"}},
 					},
 				},
 			},
@@ -1328,7 +1377,7 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false,
 					Group:   true,
 				},
-				NearVector: &searchparams.NearVector{Vector: []float32{1, 2, 3}},
+				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"": {1, 2, 3}}},
 				GroupBy:    &searchparams.GroupBy{Groups: 2, ObjectsPerGroup: 3, Property: "name"},
 			},
 			error: false,
@@ -1454,7 +1503,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
 					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1}},
@@ -1470,11 +1519,172 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
 					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1, Query: &someString2}},
 				},
+			},
+			error: false,
+		},
+
+		{
+			name: "Target vector join min",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: make(map[string]float32)},
+				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Target vector join avg",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Average, Weights: map[string]float32{"first": 0.5, "second": 0.5}},
+				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Target vector join manual weights",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"first": 0.1, "second": 0.8}},
+				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Target vector join manual weights missing",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"first": 0.1}},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "Target vector join manual weights non-existing",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, Weights: map[string]float32{"nonExistant": 0.1}},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "Target vector does not exist",
+			req: &pb.SearchRequest{
+				Collection: classname,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+					Targets:     &pb.Targets{TargetVectors: []string{"first", "IdoNotExist"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "Near vector with targets per vector",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					Targets:         &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
+					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+				},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Sum, Weights: map[string]float32{"first": 1, "second": 1}},
+				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Near vector with vector and targets per vector",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes:     byteVector([]float32{1, 2, 3}),
+					Targets:         &pb.Targets{TargetVectors: []string{"first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
+					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "Near vector with targets per vector and wrong target vectors",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes:     byteVector([]float32{1, 2, 3}),
+					Targets:         &pb.Targets{TargetVectors: []string{"first"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM},
+					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+				},
+			},
+			out:   dto.GetParams{},
+			error: true,
+		},
+		{
+			name: "Near vector with single named vector config and no target",
+			req: &pb.SearchRequest{
+				Collection: singleNamedVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+				},
+			},
+			out: dto.GetParams{
+				ClassName: singleNamedVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false,
+				},
+				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"default": {1, 2, 3}}, TargetVectors: []string{"default"}},
 			},
 			error: false,
 		},
@@ -1491,6 +1701,7 @@ func TestGRPCRequest(t *testing.T) {
 				// causing this test to be flaky. Sort first, no more flake
 				sortNamedVecs(tt.out.AdditionalProperties.Vectors)
 				sortNamedVecs(out.AdditionalProperties.Vectors)
+				require.EqualValues(t, tt.out.Properties, out.Properties)
 				require.EqualValues(t, tt.out, out)
 			}
 		})

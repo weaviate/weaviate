@@ -34,8 +34,10 @@ type DeserializationResult struct {
 	Entrypoint        uint64
 	Level             uint16
 	Tombstones        map[uint64]struct{}
+	TombstonesDeleted map[uint64]struct{}
 	EntrypointChanged bool
-	PQData            compressionhelpers.PQData
+	CompressionPQData *compressionhelpers.PQData
+	CompressionSQData *compressionhelpers.SQData
 	Compressed        bool
 
 	// If there is no entry for the links at a level to be replaced, we must
@@ -78,16 +80,16 @@ func (d *Deserializer) resetReusableConnectionsSlice(size int) {
 	}
 }
 
-func (d *Deserializer) Do(fd *bufio.Reader,
-	initialState *DeserializationResult, keepLinkReplaceInformation bool,
-) (*DeserializationResult, int, error) {
+func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult, keepLinkReplaceInformation bool) (*DeserializationResult, int, error) {
 	validLength := 0
 	out := initialState
+	commitTypeMetrics := make(map[HnswCommitType]int)
 	if out == nil {
 		out = &DeserializationResult{
-			Nodes:         make([]*vertex, cache.InitialSize),
-			Tombstones:    make(map[uint64]struct{}),
-			LinksReplaced: make(map[uint64]map[uint16]struct{}),
+			Nodes:             make([]*vertex, cache.InitialSize),
+			Tombstones:        make(map[uint64]struct{}),
+			TombstonesDeleted: make(map[uint64]struct{}),
+			LinksReplaced:     make(map[uint64]map[uint16]struct{}),
 		}
 	}
 
@@ -97,12 +99,10 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 			if errors.Is(err, io.EOF) {
 				break
 			}
-
 			return nil, validLength, err
 		}
-
+		commitTypeMetrics[ct]++
 		var readThisRound int
-
 		switch ct {
 		case AddNode:
 			err = d.ReadNode(fd, out)
@@ -126,7 +126,7 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 			err = d.ReadAddTombstone(fd, out.Tombstones)
 			readThisRound = 8
 		case RemoveTombstone:
-			err = d.ReadRemoveTombstone(fd, out.Tombstones)
+			err = d.ReadRemoveTombstone(fd, out.Tombstones, out.TombstonesDeleted)
 			readThisRound = 8
 		case ClearLinks:
 			err = d.ReadClearLinks(fd, out, keepLinkReplaceInformation)
@@ -142,8 +142,12 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 			out.Level = 0
 			out.Nodes = make([]*vertex, cache.InitialSize)
 		case AddPQ:
-			err = d.ReadPQ(fd, out)
-			readThisRound = 9
+			var totalRead int
+			totalRead, err = d.ReadPQ(fd, out)
+			readThisRound = 9 + totalRead
+		case AddSQ:
+			err = d.ReadSQ(fd, out)
+			readThisRound = 10
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -154,7 +158,9 @@ func (d *Deserializer) Do(fd *bufio.Reader,
 			validLength += 1 + readThisRound // 1 byte for commit type
 		}
 	}
-
+	for commitType, count := range commitTypeMetrics {
+		d.logger.WithFields(logrus.Fields{"action": "hnsw_deserialization", "ops": count}).Debugf("hnsw commit logger %s", commitType)
+	}
 	return out, validLength, nil
 }
 
@@ -335,13 +341,21 @@ func (d *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[uint64]struc
 	return nil
 }
 
-func (d *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
+func (d *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]struct{}, tombstonesDeleted map[uint64]struct{}) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
 	}
 
-	delete(tombstones, id)
+	_, ok := tombstones[id]
+	if !ok {
+		// Tombstone is not present but may exist in older commit log
+		// wWe need to keep track of it so we can delete it later
+		tombstonesDeleted[id] = struct{}{}
+	} else {
+		// Tombstone is present, we can delete it
+		delete(tombstones, id)
+	}
 
 	return nil
 }
@@ -461,7 +475,7 @@ func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult) e
 	return nil
 }
 
-func (d *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, i uint16) (compressionhelpers.PQEncoder, error) {
+func (d *Deserializer) ReadTileEncoder(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
 	bins, err := d.readFloat64(r)
 	if err != nil {
 		return nil, err
@@ -497,10 +511,10 @@ func (d *Deserializer) ReadTileEncoder(r io.Reader, res *DeserializationResult, 
 	return compressionhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
 }
 
-func (d *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult, i uint16) (compressionhelpers.PQEncoder, error) {
-	ds := int(res.PQData.Dimensions / res.PQData.M)
-	centers := make([][]float32, 0, res.PQData.Ks)
-	for k := uint16(0); k < res.PQData.Ks; k++ {
+func (d *Deserializer) ReadKMeansEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+	ds := int(data.Dimensions / data.M)
+	centers := make([][]float32, 0, data.Ks)
+	for k := uint16(0); k < data.Ks; k++ {
 		center := make([]float32, 0, ds)
 		for i := 0; i < ds; i++ {
 			c, err := d.readFloat32(r)
@@ -512,7 +526,7 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult
 		centers = append(centers, center)
 	}
 	kms := compressionhelpers.NewKMeansWithCenters(
-		int(res.PQData.Ks),
+		int(data.Ks),
 		ds,
 		int(i),
 		centers,
@@ -520,33 +534,33 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, res *DeserializationResult
 	return kms, nil
 }
 
-func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
+func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, error) {
 	dims, err := d.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	enc, err := d.readByte(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	ks, err := d.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	m, err := d.readUint16(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	dist, err := d.readByte(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	useBitsEncoding, err := d.readByte(r)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	encoder := compressionhelpers.Encoder(enc)
-	res.PQData = compressionhelpers.PQData{
+	pqData := compressionhelpers.PQData{
 		Dimensions:          dims,
 		EncoderType:         encoder,
 		Ks:                  ks,
@@ -554,21 +568,51 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) error {
 		EncoderDistribution: byte(dist),
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
-	var encoderReader func(io.Reader, *DeserializationResult, uint16) (compressionhelpers.PQEncoder, error)
+	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
+	// var encoderReader func(io.Reader, *DeserializationResult, uint16) (compressionhelpers.PQEncoder, error)
+	var totalRead int
 	switch encoder {
 	case compressionhelpers.UseTileEncoder:
 		encoderReader = d.ReadTileEncoder
+		totalRead = 51 * int(pqData.M)
 	case compressionhelpers.UseKMeansEncoder:
 		encoderReader = d.ReadKMeansEncoder
+		totalRead = int(pqData.Dimensions) * int(pqData.Ks) * 4
 	default:
-		return errors.New("Unsuported encoder type")
+		return 0, errors.New("Unsuported encoder type")
 	}
+
 	for i := uint16(0); i < m; i++ {
-		encoder, err := encoderReader(r, res, i)
+		encoder, err := encoderReader(r, &pqData, i)
 		if err != nil {
-			return err
+			return 0, err
 		}
-		res.PQData.Encoders = append(res.PQData.Encoders, encoder)
+		pqData.Encoders = append(pqData.Encoders, encoder)
+	}
+	res.Compressed = true
+
+	res.CompressionPQData = &pqData
+
+	return totalRead, nil
+}
+
+func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
+	a, err := d.readFloat32(r)
+	if err != nil {
+		return err
+	}
+	b, err := d.readFloat32(r)
+	if err != nil {
+		return err
+	}
+	dims, err := d.readUint16(r)
+	if err != nil {
+		return err
+	}
+	res.CompressionSQData = &compressionhelpers.SQData{
+		A:          a,
+		B:          b,
+		Dimensions: dims,
 	}
 	res.Compressed = true
 

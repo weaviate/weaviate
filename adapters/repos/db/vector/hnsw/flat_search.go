@@ -14,26 +14,36 @@ package hnsw
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-func (h *hnsw) flatSearch(queryVector []float32, limit int,
+func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	if !h.shouldRescore() {
+		limit = k
+	}
 	results := priorityqueue.NewMax[any](limit)
+
+	h.RLock()
+	nodeSize := uint64(len(h.nodes))
+	h.RUnlock()
+
+	var compressorDistancer compressionhelpers.CompressorDistancer
+	if h.compressed.Load() {
+		distancer, returnFn := h.compressor.NewDistancer(queryVector)
+		defer returnFn()
+		compressorDistancer = distancer
+	}
 
 	it := allowList.Iterator()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
-		h.RLock()
 		// Hot fix for https://github.com/weaviate/weaviate/issues/1937
 		// this if statement mitigates the problem but it doesn't resolve the issue
-		if candidate >= uint64(len(h.nodes)) {
+		if candidate >= nodeSize {
 			h.logger.WithField("action", "flatSearch").
-				Warnf("trying to get candidate: %v but we only have: %v elements.",
-					candidate, len(h.nodes))
-			h.RUnlock()
-			continue
-		}
-		if len(h.nodes) <= int(candidate) { // if index hasn't grown yet for a newly inserted node
+				Debugf("trying to get candidate: %v but we only have: %v elements.",
+					candidate, nodeSize)
 			continue
 		}
 
@@ -42,11 +52,10 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 		h.shardedNodeLocks.RUnlock(candidate)
 
 		if c == nil || h.hasTombstone(candidate) {
-			h.RUnlock()
 			continue
 		}
-		h.RUnlock()
-		dist, ok, err := h.distBetweenNodeAndVec(candidate, queryVector)
+
+		dist, ok, err := h.distToNode(compressorDistancer, candidate, queryVector)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -62,6 +71,12 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			results.Pop()
 			results.Insert(candidate, dist)
 		}
+	}
+
+	if h.shouldRescore() {
+		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
+		h.rescore(results, k, compressorDistancer)
+		fn()
 	}
 
 	ids := make([]uint64, results.Len())

@@ -13,9 +13,10 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -23,21 +24,24 @@ import (
 )
 
 type executor struct {
-	store           metaReader
-	migrator        Migrator
-	callbacks       []func(updatedSchema schema.Schema)
+	schemaReader SchemaReader
+	migrator     Migrator
+
+	callbacksLock sync.RWMutex
+	callbacks     []func(updatedSchema schema.Schema)
+
 	logger          logrus.FieldLogger
 	restoreClassDir func(string) error
 }
 
 // NewManager creates a new manager
-func NewExecutor(migrator Migrator, mr metaReader,
+func NewExecutor(migrator Migrator, sr SchemaReader,
 	logger logrus.FieldLogger, classBackupDir func(string) error,
 ) *executor {
 	return &executor{
 		migrator:        migrator,
 		logger:          logger,
-		store:           mr,
+		schemaReader:    sr,
 		restoreClassDir: classBackupDir,
 	}
 }
@@ -50,15 +54,17 @@ func (e *executor) Open(ctx context.Context) error {
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
+	var errList error
 	for i, u := range all {
-		e.logger.WithField("index", u.Class.Class).Info("restore local index")
+		e.logger.WithField("index", u.Class.Class).Info("reload local index")
 		cs[i] = u.Class
 		if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
-			return fmt.Errorf("restore index %q: %w", i, err)
+			e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
+			errList = errors.Join(fmt.Errorf("failed to reload local index %q: %w", i, err))
 		}
 	}
-	e.rebuildGQL(models.Schema{Classes: cs})
-	return nil
+	e.TriggerSchemaUpdateCallbacks()
+	return errList
 }
 
 func (e *executor) Close(ctx context.Context) error {
@@ -96,8 +102,19 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 
 	if err := e.migrator.UpdateInvertedIndexConfig(ctx, className,
 		req.Class.InvertedIndexConfig); err != nil {
-		return errors.Wrap(err, "inverted index config")
+		return fmt.Errorf("inverted index config: %w", err)
 	}
+
+	if err := e.migrator.UpdateReplicationFactor(ctx, className, req.Class.ReplicationConfig.Factor); err != nil {
+		return fmt.Errorf("replication index update: %w", err)
+	}
+
+	if req.Class.ReplicationConfig != nil {
+		if err := e.migrator.UpdateAsyncReplication(ctx, className, req.Class.ReplicationConfig.AsyncEnabled); err != nil {
+			return fmt.Errorf("async replication index update: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -150,7 +167,7 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 			Status: p.Status,
 		}
 	}
-	cls := e.store.ReadOnlyClass(class)
+	cls := e.schemaReader.ReadOnlyClass(class)
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
@@ -163,7 +180,7 @@ func (e *executor) AddTenants(class string, req *api.AddTenantsRequest) error {
 
 func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) error {
 	ctx := context.Background()
-	cls := e.store.ReadOnlyClass(class)
+	cls := e.schemaReader.ReadOnlyClass(class)
 	if cls == nil {
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
@@ -180,6 +197,33 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
+		}).WithError(err).Error("error updating tenants")
+		return err
+	}
+	return nil
+}
+
+func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error {
+	ctx := context.Background()
+	cls := e.schemaReader.ReadOnlyClass(class)
+	if cls == nil {
+		return fmt.Errorf("class %q: %w", class, ErrNotFound)
+	}
+	// no error here because that means the process shouldn't be applied to db
+	if req.Process == nil {
+		return nil
+	}
+
+	if err := e.migrator.UpdateTenants(ctx, cls, []*UpdateTenantPayload{
+		{
+			Name:   req.Process.Tenant.Name,
+			Status: req.Process.Tenant.Status,
+		},
+	}); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action":     "update_tenants_process",
+			"sub-action": "update_tenants",
+			"class":      class,
 		}).WithError(err).Error("error updating tenants")
 		return err
 	}
@@ -222,7 +266,11 @@ func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList
 	return resp, nil
 }
 
-func (e *executor) rebuildGQL(s models.Schema) {
+func (e *executor) TriggerSchemaUpdateCallbacks() {
+	e.callbacksLock.RLock()
+	defer e.callbacksLock.RUnlock()
+
+	s := e.schemaReader.ReadOnlySchema()
 	for _, cb := range e.callbacks {
 		cb(schema.Schema{
 			Objects: &s,
@@ -230,13 +278,12 @@ func (e *executor) rebuildGQL(s models.Schema) {
 	}
 }
 
-func (e *executor) TriggerSchemaUpdateCallbacks() {
-	e.rebuildGQL(e.store.ReadOnlySchema())
-}
-
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
 // type update callback. The callbacks will be called any time we persist a
 // schema update
 func (e *executor) RegisterSchemaUpdateCallback(callback func(updatedSchema schema.Schema)) {
+	e.callbacksLock.Lock()
+	defer e.callbacksLock.Unlock()
+
 	e.callbacks = append(e.callbacks, callback)
 }

@@ -382,6 +382,11 @@
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        },
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean",
+          "x-omitempty": false
         }
       },
       "type": "object"
@@ -436,6 +441,11 @@
         },
         "autoTenantCreation": {
           "description": "Nonexistent tenants should (not) be created implicitly",
+          "type": "boolean",
+          "x-omitempty": false
+        },
+        "autoTenantActivation": {
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status",
           "type": "boolean",
           "x-omitempty": false
         }
@@ -728,6 +738,11 @@
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeFilters": {
+          "description": "Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types",
           "type": "string",
@@ -737,7 +752,8 @@
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr"
           ]
         },
         "nestedProperties": {
@@ -787,6 +803,10 @@
           "x-nullable": true
         },
         "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeFilters": {
           "type": "boolean",
           "x-nullable": true
         },
@@ -2089,13 +2109,14 @@
           "type": "string"
         },
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. Allowed values are `HOT` - tenant is fully active, `WARM` - tenant is active, some restrictions are imposed (TBD; not supported yet), `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, `FROZEN` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. For creation, allowed values are `HOT` - tenant is fully active and `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `HOT`, `COLD` and also `FROZEN` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `FREEZING` - tenant is transitioning from HOT/COLD to FROZEN, `UNFREEZING` - tenant is transitioning from FROZEN to HOT/COLD",
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
-            "FROZEN"
+            "FROZEN",
+            "FREEZING",
+            "UNFREEZING"
           ]
         }
       }
@@ -2112,7 +2133,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.25.0-rc.0"
+    "version": "1.26.0-rc.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

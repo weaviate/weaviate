@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.0-rc.0"
+    "version": "1.26.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -4083,6 +4083,11 @@ func init() {
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
+        "autoTenantActivation": {
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "autoTenantCreation": {
           "description": "Nonexistent tenants should (not) be created implicitly",
           "type": "boolean",
@@ -4115,6 +4120,10 @@ func init() {
           "type": "string"
         },
         "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeFilters": {
           "type": "boolean",
           "x-nullable": true
         },
@@ -4543,6 +4552,11 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeFilters": {
+          "description": "Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules",
           "type": "boolean",
@@ -4573,7 +4587,8 @@ func init() {
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr"
           ]
         }
       }
@@ -4704,6 +4719,11 @@ func init() {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
@@ -4927,13 +4947,14 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active and ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `HOT` + "`" + `, ` + "`" + `COLD` + "`" + ` and also ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `FREEZING` + "`" + ` - tenant is transitioning from HOT/COLD to FROZEN, ` + "`" + `UNFREEZING` + "`" + ` - tenant is transitioning from FROZEN to HOT/COLD",
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
-            "FROZEN"
+            "FROZEN",
+            "FREEZING",
+            "UNFREEZING"
           ]
         },
         "name": {
@@ -5294,7 +5315,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.0-rc.0"
+    "version": "1.26.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -9610,6 +9631,11 @@ func init() {
     "MultiTenancyConfig": {
       "description": "Configuration related to multi-tenancy within a class",
       "properties": {
+        "autoTenantActivation": {
+          "description": "Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "autoTenantCreation": {
           "description": "Nonexistent tenants should (not) be created implicitly",
           "type": "boolean",
@@ -9642,6 +9668,10 @@ func init() {
           "type": "string"
         },
         "indexFilterable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeFilters": {
           "type": "boolean",
           "x-nullable": true
         },
@@ -10088,6 +10118,11 @@ func init() {
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeFilters": {
+          "description": "Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "indexSearchable": {
           "description": "Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules",
           "type": "boolean",
@@ -10118,7 +10153,8 @@ func init() {
             "whitespace",
             "field",
             "trigram",
-            "gse"
+            "gse",
+            "kagome_kr"
           ]
         }
       }
@@ -10249,6 +10285,11 @@ func init() {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean",
+          "x-omitempty": false
+        },
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
@@ -10472,13 +10513,14 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. Allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active, ` + "`" + `WARM` + "`" + ` - tenant is active, some restrictions are imposed (TBD; not supported yet), ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active and ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `HOT` + "`" + `, ` + "`" + `COLD` + "`" + ` and also ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `FREEZING` + "`" + ` - tenant is transitioning from HOT/COLD to FROZEN, ` + "`" + `UNFREEZING` + "`" + ` - tenant is transitioning from FROZEN to HOT/COLD",
           "type": "string",
           "enum": [
             "HOT",
-            "WARM",
             "COLD",
-            "FROZEN"
+            "FROZEN",
+            "FREEZING",
+            "UNFREEZING"
           ]
         },
         "name": {

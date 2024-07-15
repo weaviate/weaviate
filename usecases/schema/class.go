@@ -19,6 +19,8 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/configbase"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -40,7 +42,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
 		return nil, err
 	}
-	cl := h.metaReader.ReadOnlyClass(name)
+	cl := h.schemaReader.ReadOnlyClass(name)
 	return cl, nil
 }
 
@@ -51,10 +53,10 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 		return nil, 0, err
 	}
 	if consistency {
-		vclasses, err := h.metaWriter.QueryReadOnlyClasses(name)
+		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
 		return vclasses[name].Class, vclasses[name].Version, err
 	}
-	class, _ := h.metaReader.ReadOnlyClassWithVersion(ctx, name, 0)
+	class, _ := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
 	return class, 0, nil
 }
 
@@ -66,7 +68,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	}
 
 	return classcache.ClassesFromContext(ctxWithClassCache, func(names ...string) (map[string]versioned.Class, error) {
-		vclasses, err := h.metaWriter.QueryReadOnlyClasses(names...)
+		vclasses, err := h.schemaManager.QueryReadOnlyClasses(names...)
 		if err != nil {
 			return nil, err
 		}
@@ -133,7 +135,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, fmt.Errorf("init sharding state: %w", err)
 	}
-	version, err := h.metaWriter.AddClass(cls, shardState)
+	version, err := h.schemaManager.AddClass(cls, shardState)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -182,7 +184,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 	shardingState.MigrateFromOldFormat()
 	shardingState.ApplyNodeMapping(m)
-	_, err = h.metaWriter.RestoreClass(class, &shardingState)
+	_, err = h.schemaManager.RestoreClass(class, &shardingState)
 	return err
 }
 
@@ -193,7 +195,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 		return err
 	}
 
-	_, err = h.metaWriter.DeleteClass(class)
+	_, err = h.schemaManager.DeleteClass(class)
 	return err
 }
 
@@ -212,7 +214,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	initial := h.metaReader.ReadOnlyClass(className)
+	initial := h.schemaReader.ReadOnlyClass(className)
 	var shardingState *sharding.State
 
 	// first layer of defense is basic validation if class already exists
@@ -222,30 +224,28 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return err
 		}
 
-		// TODO: fix PushShard issues before enabling scale out
-		//       https://github.com/weaviate/weaviate/issues/4840
-		//initialRF := initial.ReplicationConfig.Factor
-		//updatedRF := updated.ReplicationConfig.Factor
-		//
-		//if initialRF != updatedRF {
-		//	ss, _, err := h.metaWriter.QueryShardingState(className)
-		//	if err != nil {
-		//		return fmt.Errorf("query sharding state for %q: %w", className, err)
-		//	}
-		//	shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-		//	if err != nil {
-		//		return fmt.Errorf(
-		//			"scale %q from %d replicas to %d: %w",
-		//			className, initialRF, updatedRF, err)
-		//	}
-		//}
+		initialRF := initial.ReplicationConfig.Factor
+		updatedRF := updated.ReplicationConfig.Factor
+
+		if initialRF != updatedRF {
+			ss, _, err := h.schemaManager.QueryShardingState(className)
+			if err != nil {
+				return fmt.Errorf("query sharding state for %q: %w", className, err)
+			}
+			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
+			if err != nil {
+				return fmt.Errorf(
+					"scale %q from %d replicas to %d: %w",
+					className, initialRF, updatedRF, err)
+			}
+		}
 
 		if err := validateImmutableFields(initial, updated); err != nil {
 			return err
 		}
 	}
 
-	_, err = h.metaWriter.UpdateClass(updated, shardingState)
+	_, err = h.schemaManager.UpdateClass(updated, shardingState)
 	return err
 }
 
@@ -318,11 +318,13 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 		// migrate IndexInverted later.
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
-			prop.IndexSearchable == nil {
+			prop.IndexSearchable == nil &&
+			prop.IndexRangeFilters == nil {
 			continue
 		}
 
 		vTrue := true
+		vFalse := false
 		if prop.IndexFilterable == nil {
 			prop.IndexFilterable = &vTrue
 		}
@@ -335,9 +337,11 @@ func setPropertyDefaultIndexing(props ...*models.Property) {
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				prop.IndexSearchable = &vTrue
 			default:
-				vFalse := false
 				prop.IndexSearchable = &vFalse
 			}
+		}
+		if prop.IndexRangeFilters == nil {
+			prop.IndexRangeFilters = &vFalse
 		}
 	}
 }
@@ -397,6 +401,10 @@ func setNestedPropertyDefaultIndexing(property *models.NestedProperty,
 			}
 		}
 	}
+
+	if property.IndexRangeFilters == nil {
+		property.IndexRangeFilters = &vFalse
+	}
 }
 
 func (h *Handler) migrateClassSettings(class *models.Class) {
@@ -439,20 +447,23 @@ func migratePropertyDataTypeAndTokenization(props ...*models.Property) {
 // and IndexSearchable (map inverted index with term frequencies;
 // therefore applicable only to text/text[] data types)
 func migratePropertyIndexInverted(props ...*models.Property) {
+	vFalse := false
+
 	for _, prop := range props {
 		// if none of new options is set, use inverted settings
 		if prop.IndexInverted != nil &&
 			prop.IndexFilterable == nil &&
-			prop.IndexSearchable == nil {
+			prop.IndexSearchable == nil &&
+			prop.IndexRangeFilters == nil {
 			prop.IndexFilterable = prop.IndexInverted
 			switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
 			// string/string[] are already migrated into text/text[], can be skipped here
 			case schema.DataTypeText, schema.DataTypeTextArray:
 				prop.IndexSearchable = prop.IndexInverted
 			default:
-				vFalse := false
 				prop.IndexSearchable = &vFalse
 			}
+			prop.IndexRangeFilters = &vFalse
 		}
 		// new options have precedence so inverted can be reset
 		prop.IndexInverted = nil
@@ -477,7 +488,7 @@ func (h *Handler) validateProperty(
 		}
 
 		// Validate data type of property.
-		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.metaReader.ReadOnlyClass, property.DataType,
+		propertyDataType, err := schema.FindPropertyDataTypeWithRefs(h.schemaReader.ReadOnlyClass, property.DataType,
 			relaxCrossRefValidation, schema.ClassName(class.Class))
 		if err != nil {
 			return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
@@ -557,6 +568,10 @@ func (h *Handler) validateCanAddClass(
 		return err
 	}
 
+	if err := validateMT(class); err != nil {
+		return err
+	}
+
 	if err := replica.ValidateConfig(class, h.config.Replication); err != nil {
 		return err
 	}
@@ -579,7 +594,18 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			switch tokenization {
 			case models.PropertyTokenizationField, models.PropertyTokenizationWord,
-				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase, models.PropertyTokenizationTrigram, models.PropertyTokenizationGse:
+				models.PropertyTokenizationWhitespace, models.PropertyTokenizationLowercase,
+				models.PropertyTokenizationTrigram:
+				return nil
+			case models.PropertyTokenizationGse:
+				if !configbase.Enabled(os.Getenv("USE_GSE")) && !configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
+				}
+				return nil
+			case models.PropertyTokenizationKagomeKr:
+				if !configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
+				}
 				return nil
 			}
 		default:
@@ -603,16 +629,17 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 
 func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 	if prop.IndexInverted != nil {
-		if prop.IndexFilterable != nil || prop.IndexSearchable != nil {
-			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`.")
+		if prop.IndexFilterable != nil || prop.IndexSearchable != nil || prop.IndexRangeFilters != nil {
+			return fmt.Errorf("`indexInverted` is deprecated and can not be set together with `indexFilterable`, " + "`indexSearchable` or `indexRangeFilters`")
 		}
 	}
 
+	dataType, _ := schema.AsPrimitive(prop.DataType)
 	if prop.IndexSearchable != nil {
-		switch dataType, _ := schema.AsPrimitive(prop.DataType); dataType {
+		switch dataType {
 		case schema.DataTypeString, schema.DataTypeStringArray:
 			// string/string[] are migrated to text/text[] later,
-			// at this point they are still valid data types, therefore should be handled here
+			// at this point they are still valid data types, therefore should be handled here.
 			// true or false allowed
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			// true or false allowed
@@ -623,16 +650,30 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 			}
 		}
 	}
+	if prop.IndexRangeFilters != nil {
+		switch dataType {
+		case schema.DataTypeNumber, schema.DataTypeInt, schema.DataTypeDate:
+			// true or false allowed
+		case schema.DataTypeNumberArray, schema.DataTypeIntArray, schema.DataTypeDateArray:
+			// not supported (yet?)
+			fallthrough
+		default:
+			if *prop.IndexRangeFilters {
+				return fmt.Errorf("`indexRangeFilters` is allowed only for number/int/date data types. " +
+					"For other data types set false or leave empty")
+			}
+		}
+	}
 
 	return nil
 }
 
-func (m *Handler) validateVectorSettings(class *models.Class) error {
+func (h *Handler) validateVectorSettings(class *models.Class) error {
 	if !hasTargetVectors(class) {
-		if err := m.validateVectorizer(class.Vectorizer); err != nil {
+		if err := h.validateVectorizer(class.Vectorizer); err != nil {
 			return err
 		}
-		if err := m.validateVectorIndexType(class.VectorIndexType); err != nil {
+		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
 		return nil
@@ -650,24 +691,24 @@ func (m *Handler) validateVectorSettings(class *models.Class) error {
 		// other cases are handled in module config validation
 		if vm, ok := cfg.Vectorizer.(map[string]interface{}); ok && len(vm) == 1 {
 			for vectorizer := range vm {
-				if err := m.validateVectorizer(vectorizer); err != nil {
+				if err := h.validateVectorizer(vectorizer); err != nil {
 					return fmt.Errorf("target vector %q: %w", name, err)
 				}
 			}
 		}
-		if err := m.validateVectorIndexType(cfg.VectorIndexType); err != nil {
+		if err := h.validateVectorIndexType(cfg.VectorIndexType); err != nil {
 			return fmt.Errorf("target vector %q: %w", name, err)
 		}
 	}
 	return nil
 }
 
-func (m *Handler) validateVectorizer(vectorizer string) error {
+func (h *Handler) validateVectorizer(vectorizer string) error {
 	if vectorizer == config.VectorizerModuleNone {
 		return nil
 	}
 
-	if err := m.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
+	if err := h.vectorizerValidator.ValidateVectorizer(vectorizer); err != nil {
 		return errors.Wrap(err, "vectorizer")
 	}
 
@@ -684,6 +725,19 @@ func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	}
 }
 
+func validateMT(class *models.Class) error {
+	enabled := schema.MultiTenancyEnabled(class)
+	if !enabled && schema.AutoTenantCreationEnabled(class) {
+		return fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
+	}
+
+	if !enabled && schema.AutoTenantActivationEnabled(class) {
+		return fmt.Errorf("can't enable autoTenantActivation on a non-multi-tenant class")
+	}
+
+	return nil
+}
+
 // validateUpdatingMT validates toggling MT and returns whether mt is enabled
 func validateUpdatingMT(current, update *models.Class) (enabled bool, err error) {
 	enabled = schema.MultiTenancyEnabled(current)
@@ -693,10 +747,10 @@ func validateUpdatingMT(current, update *models.Class) (enabled bool, err error)
 		} else {
 			err = fmt.Errorf("enabling multi-tenancy for an existing class is not supported")
 		}
+	} else {
+		err = validateMT(update)
 	}
-	if !enabled && schema.AutoTenantCreationEnabled(update) {
-		err = fmt.Errorf("can't enable autoTenantCreation on a non-multi-tenant class")
-	}
+
 	return
 }
 

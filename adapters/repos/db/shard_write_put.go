@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/spaolacci/murmur3"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -43,26 +44,6 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
-	if s.hasTargetVectors() {
-		if len(object.Vectors) > 0 {
-			for targetVector, vector := range object.Vectors {
-				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
-					if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
-						return errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, object.ID())
-					}
-				}
-			}
-		}
-	} else {
-		if object.Vector != nil {
-			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-			err := s.vectorIndex.ValidateBeforeInsert(object.Vector)
-			if err != nil {
-				return errors.Wrapf(err, "Validate vector index for %s", object.ID())
-			}
-		}
-	}
-
 	status, err := s.putObjectLSM(object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
@@ -94,8 +75,12 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
-	if err := s.GetPropertyLengthTracker().Flush(false); err != nil {
+	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
 		return errors.Wrap(err, "flush prop length tracker to disk")
+	}
+
+	if err := s.mayUpsertObjectHashTree(object, uuid, status); err != nil {
+		return errors.Wrap(err, "object creation in hashtree")
 	}
 
 	return nil
@@ -231,13 +216,32 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 }
 
 func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
-) (objectInsertStatus, error) {
+) (status objectInsertStatus, err error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
+	if s.hasTargetVectors() {
+		if len(obj.Vectors) > 0 {
+			for targetVector, vector := range obj.Vectors {
+				if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+					if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
+						return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
+					}
+				}
+			}
+		}
+	} else {
+		if obj.Vector != nil {
+			// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+			err := s.vectorIndex.ValidateBeforeInsert(obj.Vector)
+			if err != nil {
+				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+			}
+		}
+	}
+
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	var prevObj *storobj.Object
-	var status objectInsertStatus
 
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
 	// to determine if it is insert or an update.
@@ -295,10 +299,57 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	return status, nil
 }
 
+func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
+	s.hashtreeRWMux.RLock()
+	defer s.hashtreeRWMux.RUnlock()
+
+	if s.hashtree == nil {
+		return nil
+	}
+
+	return s.upsertObjectHashTree(object, uuidBytes, status)
+}
+
+func (s *Shard) upsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
+	if len(uuidBytes) != 16 {
+		return fmt.Errorf("invalid object uuid")
+	}
+
+	if object.Object.LastUpdateTimeUnix < 1 {
+		return fmt.Errorf("invalid object last update time")
+	}
+
+	h := murmur3.New64()
+	h.Write(uuidBytes)
+	token := h.Sum64()
+
+	var objectDigest [16 + 8]byte
+
+	copy(objectDigest[:], uuidBytes)
+
+	if status.docIDChanged {
+		if status.oldUpdateTime < 1 {
+			return fmt.Errorf("invalid object previous update time")
+		}
+
+		// Given only latest object version is maintained, previous registration is erased
+		binary.BigEndian.PutUint64(objectDigest[16:], uint64(status.oldUpdateTime))
+		s.hashtree.AggregateLeafWith(token, objectDigest[:])
+	}
+
+	binary.BigEndian.PutUint64(objectDigest[16:], uint64(object.Object.LastUpdateTimeUnix))
+	s.hashtree.AggregateLeafWith(token, objectDigest[:])
+
+	s.objectPropagationRequired()
+
+	return nil
+}
+
 type objectInsertStatus struct {
-	docID        uint64
-	docIDChanged bool
-	oldDocID     uint64
+	docID         uint64
+	docIDChanged  bool
+	oldDocID      uint64
+	oldUpdateTime int64
 	// docID was not changed, although object itself did. DocID can be preserved if
 	// object's vector remain the same, allowing to omit vector index update which is time
 	// consuming operation. New object is saved and inverted indexes updated if required.
@@ -325,6 +376,7 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	}
 
 	out.oldDocID = prevObj.DocID
+	out.oldUpdateTime = prevObj.LastUpdateTimeUnix()
 
 	// If object was not changed (props and additional props of prev and next objects are the same)
 	// skip updates of object, inverted indexes and vector index.
@@ -371,6 +423,7 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 	}
 
 	out.docID = previous.DocID
+	out.oldUpdateTime = previous.LastUpdateTimeUnix()
 
 	// we are planning on mutating and thus not altering the doc id
 	return out, nil
@@ -383,7 +436,19 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	binary.Write(keyBuf, binary.LittleEndian, &docID)
 	docIDBytes := keyBuf.Bytes()
 
-	return bucket.Put(id, data, lsmkv.WithSecondaryKey(0, docIDBytes))
+	h := murmur3.New64()
+	h.Write(id)
+	token := h.Sum64()
+
+	var tokenBytes [8 + 16]byte
+	// Important: token is suffixed with object uuid because only unique secondary indexes are supported
+	binary.BigEndian.PutUint64(tokenBytes[:], token)
+	copy(tokenBytes[8:], id)
+
+	return bucket.Put(id, data,
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMTokenRangeSecondaryIndex, tokenBytes[:]),
+	)
 }
 
 func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,

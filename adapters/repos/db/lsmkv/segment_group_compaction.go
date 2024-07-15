@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -146,6 +147,12 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
 
+	if !sg.compactionFitsSizeLimit(leftSegment, rightSegment) {
+		// nothing to do this round, let's wait for the next round in the hopes
+		// that we'll find smaller (lower-level) segments that can still fit.
+		return false, nil
+	}
+
 	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
 
 	f, err := os.Create(path)
@@ -229,6 +236,22 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 
+	case segmentindex.StrategyRoaringSetRange:
+		leftCursor := leftSegment.newRoaringSetRangeCursor()
+		rightCursor := rightSegment.newRoaringSetRangeCursor()
+
+		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
+			level, cleanupTombstones)
+
+		if sg.metrics != nil {
+			sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)
+			defer sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(0)
+		}
+
+		if err := c.Do(); err != nil {
+			return false, err
+		}
+
 	default:
 		return false, errors.Errorf("unrecognized strategy %v", strategy)
 	}
@@ -256,6 +279,36 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		sg.segments[old2].countNetAdditions
 	sg.maintenanceLock.RUnlock()
 
+	err := func() error {
+		sg.maintenanceLock.Lock()
+		defer sg.maintenanceLock.Unlock()
+
+		leftSegment := sg.segments[old1]
+		rightSegment := sg.segments[old2]
+		newSegmentId := "segment-" + segmentID(leftSegment.path) + "_" + segmentID(rightSegment.path)
+
+		// delete any existing bloom tmp files in the form of segment-<seg1>_<seg2>*bloom.tmp
+		tmpFiles, err := filepath.Glob(filepath.Join(sg.dir, newSegmentId+"*bloom.tmp"))
+		if err != nil {
+			return errors.Wrap(err, "glob tmp files")
+		}
+
+		for _, tmpFile := range tmpFiles {
+			err = os.Remove(tmpFile)
+			if err != nil {
+				return errors.Wrap(err, "remove tmp file")
+			}
+		}
+		return nil
+	}()
+	if err != nil {
+		return err
+	}
+
+	leftSegment := sg.segments[old1]
+	rightSegment := sg.segments[old2]
+
+	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
 		updatedCountNetAdditions, sg.logger,
 		sg.useBloomFilter, sg.calcCountNetAdditions)
@@ -265,9 +318,6 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
-
-	leftSegment := sg.segments[old1]
-	rightSegment := sg.segments[old2]
 
 	if err := leftSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
@@ -283,6 +333,11 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	if err := rightSegment.drop(); err != nil {
 		return errors.Wrap(err, "drop disk segment")
+	}
+
+	err = fsync(sg.dir)
+	if err != nil {
+		return fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 	}
 
 	sg.segments[old1] = nil
@@ -469,4 +524,14 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 			"path":     dir,
 		}).Set(float64(count))
 	}
+}
+
+func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
+	if sg.maxSegmentSize == 0 {
+		// no limit is set, always return true
+		return true
+	}
+
+	totalSize := left.size + right.size
+	return totalSize <= sg.maxSegmentSize
 }

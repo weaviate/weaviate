@@ -743,3 +743,66 @@ func TestEnvironmentAuthentication(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvironmentHNSWMaxLogSize(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int64
+		expectedErr bool
+	}{
+		{"Valid no unit", []string{"3"}, 3, false},
+		{"Valid IEC unit", []string{"3KB"}, 3000, false},
+		{"Valid SI unit", []string{"3KiB"}, 3 * 1024, false},
+		{"not given", []string{}, DefaultPersistenceHNSWMaxLogSize, false},
+		{"invalid factor", []string{"-1"}, -1, true},
+		{"not parsable", []string{"I'm not a number"}, -1, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("PERSISTENCE_HNSW_MAX_LOG_SIZE", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.Persistence.HNSWMaxLogSize)
+			}
+		})
+	}
+}
+
+func TestEnvironmentHNSWWaitForPrefill(t *testing.T) {
+	factors := []struct {
+		name        string
+		value       []string
+		expected    bool
+		expectedErr bool
+	}{
+		{"Valid: true", []string{"true"}, true, false},
+		{"Valid: false", []string{"false"}, false, false},
+		{"Valid: 1", []string{"1"}, true, false},
+		{"Valid: 0", []string{"0"}, false, false},
+		{"Valid: on", []string{"on"}, true, false},
+		{"Valid: off", []string{"off"}, false, false},
+		{"not given", []string{}, false, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE", tt.value[0])
+			}
+			conf := Config{}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Equal(t, tt.expected, conf.HNSWStartupWaitForVectorCache)
+			}
+		})
+	}
+}

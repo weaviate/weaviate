@@ -30,7 +30,7 @@ type L2Squared struct {
 
 func (l L2Squared) Distance(b []float32) (float32, bool, error) {
 	if len(l.a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
+		return 0, false, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(l.a), len(b))
 	}
 
@@ -45,7 +45,7 @@ func NewL2SquaredProvider() L2SquaredProvider {
 
 func (l L2SquaredProvider) SingleDist(a, b []float32) (float32, bool, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
+		return 0, false, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(a), len(b))
 	}
 

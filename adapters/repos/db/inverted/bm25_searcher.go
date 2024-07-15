@@ -79,6 +79,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 			return nil, nil, inverted.NewMissingSearchableIndexError(property)
 		}
 	}
+
 	class := b.getClass(className.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
@@ -92,8 +93,8 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	return objs, scores, nil
 }
 
-func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
-	return b.propLenTracker.(*JsonPropertyLengthTracker)
+func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
+	return b.propLenTracker.(*JsonShardMetaData)
 }
 
 func (b *BM25Searcher) wand(
@@ -196,7 +197,7 @@ func (b *BM25Searcher) wand(
 				j := i
 
 				eg.Go(func() (err error) {
-					termResult, docIndices, termErr := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
+					termResult, docIndices, termErr := b.createTerm(ctx, N, filterDocIds, queryTerms[j], propNames,
 						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
 					if termErr != nil {
 						err = termErr
@@ -344,7 +345,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 	}
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string,
+func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds helpers.AllowList, query string,
 	propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int,
 	additionalExplanations bool,
 ) (term, map[uint64]int, error) {
@@ -358,7 +359,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
-		preM, err := bucket.MapList([]byte(query))
+		preM, err := bucket.MapList(ctx, []byte(query))
 		if err != nil {
 			return termResult, nil, err
 		}

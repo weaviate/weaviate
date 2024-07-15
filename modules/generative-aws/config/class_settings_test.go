@@ -20,7 +20,6 @@ import (
 )
 
 func Test_classSettings_Validate(t *testing.T) {
-	t.Skip("Skipping this test for now")
 	tests := []struct {
 		name              string
 		cfg               moduletools.ClassConfig
@@ -33,7 +32,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantMaxTokenCount int
 		wantStopSequences []string
 		wantTemperature   float64
-		wantTopP          int
+		wantTopP          float64
 		wantErr           error
 	}{
 		{
@@ -144,20 +143,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.Errorf("topP has to be an integer value between 0 and 1"),
 		},
-		{
-			name: "wrong all",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"maxTokenCount": 9000,
-					"temperature":   2,
-					"topP":          3,
-				},
-			},
-			wantErr: errors.Errorf("wrong service, " +
-				"available services are: [bedrock sagemaker], " +
-				"region cannot be empty",
-			),
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -171,12 +156,12 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantEndpoint, ic.Endpoint())
 				assert.Equal(t, tt.wantTargetModel, ic.TargetModel())
 				assert.Equal(t, tt.wantTargetVariant, ic.TargetVariant())
-				if ic.Temperature() != nil {
-					assert.Equal(t, tt.wantTemperature, *ic.Temperature())
+				if ic.Temperature(ic.Service(), ic.Model()) != nil {
+					assert.Equal(t, tt.wantTemperature, *ic.Temperature(ic.Service(), ic.Model()))
 				}
-				assert.Equal(t, tt.wantStopSequences, ic.StopSequences())
-				if ic.TopP() != nil {
-					assert.Equal(t, tt.wantTopP, *ic.TopP())
+				assert.Equal(t, tt.wantStopSequences, ic.StopSequences(ic.Service(), ic.Model()))
+				if ic.TopP(ic.Service(), ic.Model()) != nil {
+					assert.Equal(t, tt.wantTopP, *ic.TopP(ic.Service(), ic.Model()))
 				}
 			}
 		})

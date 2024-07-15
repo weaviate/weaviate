@@ -162,7 +162,6 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
@@ -171,6 +170,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 	require.Nil(t, err)
 	fname, ok := findFileWithExt(files, ".bloom")
 	require.True(t, ok)
+	b.Shutdown(ctx)
 
 	// now corrupt the bloom filter by randomly overriding data
 	require.Nil(t, corruptBloomFileByTruncatingIt(path.Join(dirName, fname)))
@@ -225,6 +225,17 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
 	assert.Nil(t, err)
 	assert.Equal(t, []byte("world"), value)
+
+	err = b2.Delete([]byte("hello"))
+	assert.Nil(t, err)
+
+	v, err := b2.Get([]byte("hello"))
+	assert.Nil(t, err)
+	assert.Nil(t, v)
+
+	value, _, err = b2.GetBySecondaryIntoMemory(0, []byte("bonjour"), value)
+	assert.Nil(t, err)
+	assert.Nil(t, value)
 }
 
 func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
@@ -237,7 +248,6 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -247,6 +257,8 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 	require.Nil(t, err)
 	fname, ok := findFileWithExt(files, "secondary.0.bloom")
 	require.True(t, ok)
+
+	b.Shutdown(ctx)
 
 	// now corrupt the file by replacing the count value without adapting the checksum
 	require.Nil(t, corruptBloomFile(path.Join(dirName, fname)))
@@ -274,7 +286,6 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
 	require.Nil(t, err)
-	defer b.Shutdown(ctx)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
@@ -285,6 +296,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 	fname, ok := findFileWithExt(files, "secondary.0.bloom")
 	require.True(t, ok)
 
+	b.Shutdown(ctx)
 	// now corrupt the file by replacing the count value without adapting the checksum
 	require.Nil(t, corruptBloomFileByTruncatingIt(path.Join(dirName, fname)))
 

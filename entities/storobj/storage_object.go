@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 
 	"github.com/buger/jsonparser"
@@ -131,7 +132,7 @@ func FromBinaryUUIDOnly(data []byte) (*Object, error) {
 }
 
 func FromBinaryOptional(data []byte,
-	addProp additional.Properties,
+	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
 	ko := &Object{}
 
@@ -222,6 +223,8 @@ func FromBinaryOptional(data []byte,
 			props,
 			meta,
 			vectorWeights,
+			properties,
+			propLength,
 		); err != nil {
 			return nil, errors.Wrap(err, "parse")
 		}
@@ -235,13 +238,18 @@ func FromBinaryOptional(data []byte,
 	return ko, nil
 }
 
+type PropertyExtraction struct {
+	PropStrings     []string
+	PropStringsList [][]string
+}
+
 type bucket interface {
 	GetBySecondary(int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
-	additional additional.Properties,
+	additional additional.Properties, properties []string,
 ) ([]*Object, error) {
 	if bucket == nil {
 		return nil, fmt.Errorf("objects bucket not found")
@@ -258,6 +266,22 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		bufPool.Put(lsmBuf)
 	}()
 
+	var props *PropertyExtraction = nil
+	// not all code paths forward the list of properties that should be extracted - if nil is passed fall back
+	if properties != nil {
+		propStrings := make([]string, len(properties))
+		propStringsList := make([][]string, len(properties))
+		for j := range properties {
+			propStrings[j] = properties[j]
+			propStringsList[j] = []string{properties[j]}
+		}
+
+		props = &PropertyExtraction{
+			PropStrings:     propStrings,
+			PropStringsList: propStringsList,
+		}
+	}
+
 	for _, id := range ids {
 		binary.LittleEndian.PutUint64(docIDBuf, id)
 		res, newBuf, err := bucket.GetBySecondaryWithBuffer(0, docIDBuf, lsmBuf)
@@ -271,7 +295,7 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 			continue
 		}
 
-		unmarshalled, err := FromBinaryOptional(res, additional)
+		unmarshalled, err := FromBinaryOptional(res, additional, props)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarshal data object at position %d", i)
 		}
@@ -471,7 +495,10 @@ func SearchResultsWithScore(in []*Object, scores []float32, additional additiona
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		score := scores[i]
+		score := float32(0.0)
+		if len(scores) > i {
+			score = scores[i]
+		}
 		out[i] = elem.SearchResultWithScoreAndTenant(additional, score, tenant)
 	}
 
@@ -491,20 +518,43 @@ func SearchResultsWithDists(in []*Object, addl additional.Properties,
 }
 
 func DocIDFromBinary(in []byte) (uint64, error) {
-	var version uint8
+	if len(in) < 9 {
+		return 0, errors.Errorf("binary data too short")
+	}
+	// first by is kind, then 8 bytes for the docID
+	return binary.LittleEndian.Uint64(in[1:9]), nil
+}
+
+func DocIDAndTimeFromBinary(in []byte) (docID uint64, updateTime int64, err error) {
 	r := bytes.NewReader(in)
+
+	var version uint8
+
 	le := binary.LittleEndian
+
 	if err := binary.Read(r, le, &version); err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	if version != 1 {
-		return 0, errors.Errorf("unsupported binary marshaller version %d", version)
+		return 0, 0, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
-	var docID uint64
-	err := binary.Read(r, le, &docID)
-	return docID, err
+	err = binary.Read(r, le, &docID)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	var buf [1 + 16 + 8 + 8]byte // kind uuid createtime updatetime
+
+	_, err = io.ReadFull(r, buf[:])
+	if err != nil {
+		return 0, 0, err
+	}
+
+	updateTime = int64(binary.LittleEndian.Uint64(buf[1+16+8:]))
+
+	return docID, updateTime, nil
 }
 
 // MarshalBinary creates the binary representation of a kind object. Regardless
@@ -535,6 +585,16 @@ func DocIDFromBinary(in []byte) (uint64, error) {
 // 4          | uint32        | length of target vectors segment (in bytes)
 // n          | uint16+[]byte | target vectors segment: sequence of vec_length + vec (uint16 + []byte), (uint16 + []byte) ...
 
+const (
+	maxVectorLength               int = math.MaxUint16
+	maxClassNameLength            int = math.MaxUint16
+	maxSchemaLength               int = math.MaxUint32
+	maxMetaLength                 int = math.MaxUint32
+	maxVectorWeightsLength        int = math.MaxUint32
+	maxTargetVectorsSegmentLength int = math.MaxUint32
+	maxTargetVectorsOffsetsLength int = math.MaxUint32
+)
+
 func (ko *Object) MarshalBinary() ([]byte, error) {
 	if ko.MarshallerVersion != 1 {
 		return nil, errors.Errorf("unsupported marshaller version %d", ko.MarshallerVersion)
@@ -552,41 +612,75 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	if len(ko.Vector) > maxVectorLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(ko.Vector), maxVectorLength)
+	}
 	vectorLength := uint32(len(ko.Vector))
+
 	className := []byte(ko.Class())
+	if len(className) > maxClassNameLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "className", len(className), maxClassNameLength)
+	}
 	classNameLength := uint32(len(className))
+
 	schema, err := json.Marshal(ko.Properties())
 	if err != nil {
 		return nil, err
 	}
+	if len(schema) > maxSchemaLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "schema", len(schema), maxSchemaLength)
+	}
 	schemaLength := uint32(len(schema))
+
 	meta, err := json.Marshal(ko.AdditionalProperties())
 	if err != nil {
 		return nil, err
 	}
+	if len(meta) > maxMetaLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "meta", len(meta), maxMetaLength)
+	}
 	metaLength := uint32(len(meta))
+
 	vectorWeights, err := json.Marshal(ko.VectorWeights())
 	if err != nil {
 		return nil, err
 	}
+	if len(vectorWeights) > maxVectorWeightsLength {
+		return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vectorWeights", len(vectorWeights), maxVectorWeightsLength)
+	}
 	vectorWeightsLength := uint32(len(vectorWeights))
 
 	var targetVectorsOffsets []byte
-	targetVectorsOffsetsLength := uint32(0)
-	targetVectorsSegmentLength := uint32(0)
+	var targetVectorsOffsetsLength uint32
+	var targetVectorsSegmentLength int
 
 	targetVectorsOffsetOrder := make([]string, 0, len(ko.Vectors))
 	if len(ko.Vectors) > 0 {
 		offsetsMap := map[string]uint32{}
 		for name, vec := range ko.Vectors {
-			offsetsMap[name] = targetVectorsSegmentLength
-			targetVectorsSegmentLength += 2 + 4*uint32(len(vec)) // 2 for vec length + vec bytes
+			if len(vec) > maxVectorLength {
+				return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "vector", len(vec), maxVectorLength)
+			}
+
+			offsetsMap[name] = uint32(targetVectorsSegmentLength)
+			targetVectorsSegmentLength += 2 + 4*len(vec) // 2 for vec length + vec bytes
+
+			if targetVectorsSegmentLength > maxTargetVectorsSegmentLength {
+				return nil,
+					fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)",
+						"targetVectorsSegmentLength", targetVectorsSegmentLength, maxTargetVectorsSegmentLength)
+			}
+
 			targetVectorsOffsetOrder = append(targetVectorsOffsetOrder, name)
 		}
 
 		targetVectorsOffsets, err = msgpack.Marshal(offsetsMap)
 		if err != nil {
-			return nil, fmt.Errorf("Could not marshal target vectors offsets: %w", err)
+			return nil, fmt.Errorf("could not marshal target vectors offsets: %w", err)
+		}
+		if len(targetVectorsOffsets) > maxTargetVectorsOffsetsLength {
+			return nil, fmt.Errorf("could not marshal '%s' max length exceeded (%d/%d)", "targetVectorsOffsets", len(targetVectorsOffsets), maxTargetVectorsOffsetsLength)
 		}
 		targetVectorsOffsetsLength = uint32(len(targetVectorsOffsets))
 	}
@@ -598,7 +692,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		4 + metaLength +
 		4 + vectorWeightsLength +
 		4 + targetVectorsOffsetsLength +
-		4 + targetVectorsSegmentLength
+		4 + uint32(targetVectorsSegmentLength)
 
 	byteBuffer := make([]byte, totalBufferLength)
 	rw := byteops.NewReadWriter(byteBuffer)
@@ -648,7 +742,7 @@ func (ko *Object) MarshalBinary() ([]byte, error) {
 		}
 	}
 
-	rw.WriteUint32(targetVectorsSegmentLength)
+	rw.WriteUint32(uint32(targetVectorsSegmentLength))
 	for _, name := range targetVectorsOffsetOrder {
 		vec := ko.Vectors[name]
 		vecLen := len(vec)
@@ -686,18 +780,33 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 	rw.MoveBufferPositionForward(classnameLength)
 	propertyLength := uint64(rw.ReadUint32())
 
-	jsonparser.EachKey(data[rw.Position:rw.Position+propertyLength], func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
-		var errParse error
+	return UnmarshalProperties(rw.Buffer[rw.Position:rw.Position+propertyLength], properties, aggregationProperties, propStrings)
+}
+
+func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggregationProperties []string, propStrings [][]string) error {
+	var returnError error
+	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
 		switch dataType {
 		case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
 			val, err := parseValues(dataType, value)
-			errParse = err
+			if err != nil {
+				returnError = err
+			}
 			(*properties)[aggregationProperties[idx]] = val
 		case jsonparser.Array: // can be a beacon or an actual array
 			arrayEntries := value[1 : len(value)-1] // without leading and trailing []
-			beaconVal, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
+			// this checks if refs are present - the return points to the underlying memory, dont use without copying
+			_, errBeacon := jsonparser.GetUnsafeString(arrayEntries, "beacon")
 			if errBeacon == nil {
-				(*properties)[aggregationProperties[idx]] = []interface{}{map[string]interface{}{"beacon": beaconVal}}
+				// there can be more than one
+				var beacons []interface{}
+				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
+					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon") // this points to the underlying memory
+					returnError = err2
+					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
+				}
+				_, returnError = jsonparser.ArrayEach(value, handler)
+				(*properties)[aggregationProperties[idx]] = beacons
 			} else {
 				// check how many entries there are in the array by counting the ",". This allows us to allocate an
 				// array with the right size without extending it with every append.
@@ -710,29 +819,47 @@ func UnmarshalPropertiesFromObject(data []byte, properties *map[string]interface
 				}
 
 				array := make([]interface{}, 0, entryCount)
-				jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
+				_, err = jsonparser.ArrayEach(value, func(innerValue []byte, innerDataType jsonparser.ValueType, offset int, innerErr error) {
 					var val interface{}
 
 					switch innerDataType {
 					case jsonparser.Number, jsonparser.String, jsonparser.Boolean:
-						val, errParse = parseValues(innerDataType, innerValue)
+						val, err = parseValues(innerDataType, innerValue)
+						if err != nil {
+							returnError = err
+						}
 					default:
-						panic("Unknown data type ArrayEach") // returning an error would be better
+						returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
 					}
 					array = append(array, val)
 				})
+				if err != nil {
+					returnError = err
+				}
 				(*properties)[aggregationProperties[idx]] = array
 
 			}
+		case jsonparser.Object:
+			// nested objects and geo-props and phonenumbers.
+			//
+			// we do not have the schema for nested object and cannot use the efficient jsonparser for them
+			//  (we could for phonenumbers and geo-props but they are not worth the effort)
+			// however this part is only called if
+			// - one of the datatypes is present
+			// - AND the user requests them
+			// => the performance impact is minimal
+			nestedProps := map[string]interface{}{}
+			err := json.Unmarshal(value, &nestedProps)
+			if err != nil {
+				returnError = err
+			}
+			(*properties)[aggregationProperties[idx]] = nestedProps
 		default:
-			panic("Unknown data type EachKey") // returning an error would be better
-		}
-		if errParse != nil {
-			panic(errParse)
+			returnError = fmt.Errorf("unknown data type %v", dataType)
 		}
 	}, propStrings...)
 
-	return nil
+	return returnError
 }
 
 func parseValues(dt jsonparser.ValueType, value []byte) (interface{}, error) {
@@ -814,7 +941,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 		string(className),
 		schema,
 		meta,
-		vectorWeights,
+		vectorWeights, nil, 0,
 	)
 }
 
@@ -917,14 +1044,22 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 }
 
 func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className string,
-	propsB []byte, additionalB []byte, vectorWeightsB []byte,
+	propsB []byte, additionalB []byte, vectorWeightsB []byte, properties *PropertyExtraction, propLength uint32,
 ) error {
-	var props map[string]interface{}
-	if err := json.Unmarshal(propsB, &props); err != nil {
-		return err
+	var returnProps map[string]interface{}
+	if properties == nil || propLength == 0 {
+		if err := json.Unmarshal(propsB, &returnProps); err != nil {
+			return err
+		}
+	} else if len(propsB) >= int(propLength) {
+		// the properties are not read in all cases, skip if not needed
+		returnProps = make(map[string]interface{}, len(properties.PropStrings))
+		if err := UnmarshalProperties(propsB[:propLength], &returnProps, properties.PropStrings, properties.PropStringsList); err != nil {
+			return err
+		}
 	}
 
-	if err := enrichSchemaTypes(props, false); err != nil {
+	if err := enrichSchemaTypes(returnProps, false); err != nil {
 		return errors.Wrap(err, "enrich schema datatypes")
 	}
 
@@ -991,7 +1126,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		CreationTimeUnix:   create,
 		LastUpdateTimeUnix: update,
 		ID:                 uuid,
-		Properties:         props,
+		Properties:         returnProps,
 		VectorWeights:      vectorWeights,
 		Additional:         additionalProperties,
 	}

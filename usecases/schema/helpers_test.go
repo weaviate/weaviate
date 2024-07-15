@@ -20,7 +20,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/store"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
@@ -31,8 +31,8 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func newTestHandler(t *testing.T, db store.Indexer) (*Handler, *fakeMetaHandler) {
-	metaHandler := &fakeMetaHandler{}
+func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSchemaManager) {
+	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
@@ -42,16 +42,16 @@ func newTestHandler(t *testing.T, db store.Indexer) (*Handler, *fakeMetaHandler)
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	handler, err := NewHandler(
-		metaHandler, metaHandler, &fakeValidator{}, logger, &fakeAuthorizer{nil},
+		schemaManager, schemaManager, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
 	require.Nil(t, err)
-	return &handler, metaHandler
+	return &handler, schemaManager
 }
 
-func newTestHandlerWithCustomAuthorizer(t *testing.T, db store.Indexer, authorizer authorizer) (*Handler, *fakeMetaHandler) {
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorizer) (*Handler, *fakeSchemaManager) {
 	cfg := config.Config{}
-	metaHandler := &fakeMetaHandler{}
+	metaHandler := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	vectorizerValidator := &fakeVectorizerValidator{
 		valid: []string{
@@ -114,6 +114,10 @@ func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest) 
 	return nil
 }
 
+func (f *fakeDB) UpdateTenantsProcess(class string, req *command.TenantProcessRequest) error {
+	return nil
+}
+
 func (f *fakeDB) DeleteTenants(class string, cmd *command.DeleteTenantsRequest) error {
 	return nil
 }
@@ -147,7 +151,7 @@ func (f *fakeScaleOutManager) Scale(ctx context.Context,
 	return nil, nil
 }
 
-func (f *fakeScaleOutManager) SetSchemaManager(sm scaler.SchemaManager) {
+func (f *fakeScaleOutManager) SetSchemaReader(sr scaler.SchemaReader) {
 }
 
 type fakeValidator struct{}
@@ -323,8 +327,17 @@ func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className 
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+	return nil
+}
+
 func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {
 	args := f.Called(ctx)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
+	args := f.Called(ctx, className, enabled)
 	return args.Error(0)
 }
 

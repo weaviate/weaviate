@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -89,10 +90,15 @@ func (db *DB) init(ctx context.Context) error {
 				MemtablesMaxSizeMB:        db.config.MemtablesMaxSizeMB,
 				MemtablesMinActiveSeconds: db.config.MemtablesMinActiveSeconds,
 				MemtablesMaxActiveSeconds: db.config.MemtablesMaxActiveSeconds,
+				MaxSegmentSize:            db.config.MaxSegmentSize,
+				HNSWMaxLogSize:            db.config.HNSWMaxLogSize,
+				HNSWWaitForCachePrefill:   db.config.HNSWWaitForCachePrefill,
 				TrackVectorDimensions:     db.config.TrackVectorDimensions,
 				AvoidMMap:                 db.config.AvoidMMap,
 				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
-				ReplicationFactor:         class.ReplicationConfig.Factor,
+				ForceFullReplicasSearch:   db.config.ForceFullReplicasSearch,
+				ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
+				AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
@@ -165,4 +171,10 @@ func fileExists(file string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+func NewAtomicInt64(val int64) *atomic.Int64 {
+	aval := &atomic.Int64{}
+	aval.Store(val)
+	return aval
 }

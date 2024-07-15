@@ -36,12 +36,17 @@ const (
 	topKProperty              = "topK"
 )
 
+const (
+	Bedrock   = "bedrock"
+	Sagemaker = "sagemaker"
+)
+
 var (
 	DefaultTitanMaxTokens     = 8192
 	DefaultTitanStopSequences = []string{}
 	DefaultTitanTemperature   = 0.0
 	DefaultTitanTopP          = 1.0
-	DefaultService            = "bedrock"
+	DefaultService            = Bedrock
 )
 
 var (
@@ -61,14 +66,43 @@ var (
 	DefaultCohereTopP        = 1.0
 )
 
+var (
+	DefaultMistralAIMaxTokens   = 200
+	DefaultMistralAITemperature = 0.5
+)
+
+var (
+	DefaultMetaMaxTokens   = 512
+	DefaultMetaTemperature = 0.5
+)
+
 var availableAWSServices = []string{
 	DefaultService,
-	"sagemaker",
+	Sagemaker,
 }
 
 var availableBedrockModels = []string{
+	"ai21.j2-ultra-v1",
+	"ai21.j2-mid-v1",
+	"amazon.titan-text-lite-v1",
+	"amazon.titan-text-express-v1",
+	"amazon.titan-text-premier-v1:0",
+	"anthropic.claude-v2",
+	"anthropic.claude-v2:1",
+	"anthropic.claude-instant-v1",
+	"anthropic.claude-3-sonnet-20240229-v1:0",
+	"anthropic.claude-3-haiku-20240307-v1:0",
 	"cohere.command-text-v14",
 	"cohere.command-light-text-v14",
+	"cohere.command-r-v1:0",
+	"cohere.command-r-plus-v1:0",
+	"meta.llama3-8b-instruct-v1:0",
+	"meta.llama3-70b-instruct-v1:0",
+	"meta.llama2-13b-chat-v1",
+	"meta.llama2-70b-chat-v1",
+	"mistral.mistral-7b-instruct-v0:2",
+	"mistral.mixtral-8x7b-instruct-v0:1",
+	"mistral.mistral-large-2402-v1:0",
 }
 
 type classSettings struct {
@@ -103,15 +137,15 @@ func (ic *classSettings) Validate(class *models.Class) error {
 			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s: %s, available model names are: %v", modelProperty, model, availableBedrockModels))
 		}
 
-		maxTokenCount := ic.MaxTokenCount()
+		maxTokenCount := ic.MaxTokenCount(Bedrock, model)
 		if *maxTokenCount < 1 || *maxTokenCount > 8192 {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 8096", maxTokenCountProperty))
 		}
-		temperature := ic.Temperature()
+		temperature := ic.Temperature(Bedrock, model)
 		if *temperature < 0 || *temperature > 1 {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", temperatureProperty))
 		}
-		topP := ic.TopP()
+		topP := ic.TopP(Bedrock, model)
 		if topP != nil && (*topP < 0 || *topP > 1) {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 0 and 1", topPProperty))
 		}
@@ -202,72 +236,84 @@ func (ic *classSettings) Model() string {
 	return ic.getStringProperty(modelProperty, "")
 }
 
-func (ic *classSettings) MaxTokenCount() *int {
-	if isBedrock(ic.Service()) {
-		if isAmazonModel(ic.Model()) {
+func (ic *classSettings) MaxTokenCount(service, model string) *int {
+	if isBedrock(service) {
+		if isAmazonModel(model) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultTitanMaxTokens)
 		}
-		if isAnthropicModel(ic.Model()) {
+		if isAnthropicModel(model) {
 			return ic.getIntProperty(maxTokensToSampleProperty, &DefaultAnthropicMaxTokensToSample)
 		}
-		if isAI21Model(ic.Model()) {
+		if isAI21Model(model) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultAI21MaxTokens)
 		}
-		if isCohereModel(ic.Model()) {
+		if isCohereModel(model) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultCohereMaxTokens)
+		}
+		if isMistralAIModel(model) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultMistralAIMaxTokens)
+		}
+		if isMetaModel(model) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultMetaMaxTokens)
 		}
 	}
 	return ic.getIntProperty(maxTokenCountProperty, nil)
 }
 
-func (ic *classSettings) StopSequences() []string {
-	if isBedrock(ic.Service()) {
-		if isAmazonModel(ic.Model()) {
+func (ic *classSettings) StopSequences(service, model string) []string {
+	if isBedrock(service) {
+		if isAmazonModel(model) {
 			return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultTitanStopSequences)
 		}
-		if isAnthropicModel(ic.Model()) {
+		if isAnthropicModel(model) {
 			return *ic.getListOfStringsProperty(stopSequencesProperty, DefaultAnthropicStopSequences)
 		}
 	}
 	return *ic.getListOfStringsProperty(stopSequencesProperty, nil)
 }
 
-func (ic *classSettings) Temperature() *float64 {
-	if isBedrock(ic.Service()) {
-		if isAmazonModel(ic.Model()) {
+func (ic *classSettings) Temperature(service, model string) *float64 {
+	if isBedrock(service) {
+		if isAmazonModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultTitanTemperature)
 		}
-		if isAnthropicModel(ic.Model()) {
+		if isAnthropicModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultAnthropicTemperature)
 		}
-		if isCohereModel(ic.Model()) {
+		if isCohereModel(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultCohereTemperature)
 		}
-		if isAI21Model(ic.Model()) {
+		if isAI21Model(model) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultAI21Temperature)
+		}
+		if isMistralAIModel(model) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultMistralAITemperature)
+		}
+		if isMetaModel(model) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultMetaTemperature)
 		}
 	}
 	return ic.getFloatProperty(temperatureProperty, nil)
 }
 
-func (ic *classSettings) TopP() *float64 {
-	if isBedrock(ic.Service()) {
-		if isAmazonModel(ic.Model()) {
+func (ic *classSettings) TopP(service, model string) *float64 {
+	if isBedrock(service) {
+		if isAmazonModel(model) {
 			return ic.getFloatProperty(topPProperty, &DefaultTitanTopP)
 		}
-		if isAnthropicModel(ic.Model()) {
+		if isAnthropicModel(model) {
 			return ic.getFloatProperty(topPProperty, &DefaultAnthropicTopP)
 		}
-		if isCohereModel(ic.Model()) {
+		if isCohereModel(model) {
 			return ic.getFloatProperty(topPProperty, &DefaultCohereTopP)
 		}
 	}
 	return ic.getFloatProperty(topPProperty, nil)
 }
 
-func (ic *classSettings) TopK() *int {
-	if isBedrock(ic.Service()) {
-		if isAnthropicModel(ic.Model()) {
+func (ic *classSettings) TopK(service, model string) *int {
+	if isBedrock(service) {
+		if isAnthropicModel(model) {
 			return ic.getIntProperty(topKProperty, &DefaultAnthropicTopK)
 		}
 	}
@@ -287,11 +333,11 @@ func (ic *classSettings) TargetVariant() string {
 }
 
 func isSagemaker(service string) bool {
-	return service == "sagemaker"
+	return service == Sagemaker
 }
 
 func isBedrock(service string) bool {
-	return service == "bedrock"
+	return service == Bedrock
 }
 
 func isAmazonModel(model string) bool {
@@ -308,4 +354,12 @@ func isAnthropicModel(model string) bool {
 
 func isCohereModel(model string) bool {
 	return strings.HasPrefix(model, "cohere")
+}
+
+func isMistralAIModel(model string) bool {
+	return strings.HasPrefix(model, "mistral")
+}
+
+func isMetaModel(model string) bool {
+	return strings.HasPrefix(model, "meta")
 }

@@ -13,29 +13,36 @@ package common_filters
 
 import (
 	"fmt"
+	"strconv"
+
+	"github.com/tailor-inc/graphql/language/ast"
 
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
-func NearVectorArgument(argumentPrefix, className string) *graphql.ArgumentConfig {
+func NearVectorArgument(argumentPrefix, className string, addTarget bool) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("%s%s", argumentPrefix, className)
 	return &graphql.ArgumentConfig{
 		// Description: descriptions.GetExplore,
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:   fmt.Sprintf("%sNearVectorInpObj", prefix),
-				Fields: NearVectorFields(prefix),
+				Fields: NearVectorFields(prefix, addTarget),
 			},
 		),
 	}
 }
 
-func NearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
+func NearVectorFields(prefix string, addTarget bool) graphql.InputObjectConfigFieldMap {
+	fieldMap := graphql.InputObjectConfigFieldMap{
 		"vector": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Vector,
-			Type:        graphql.NewNonNull(graphql.NewList(graphql.Float)),
+			Type:        graphql.NewList(graphql.Float),
+		},
+		"vectorPerTarget": &graphql.InputObjectFieldConfig{
+			Description: "Vector per target",
+			Type:        vectorPerTarget,
 		},
 		"certainty": &graphql.InputObjectFieldConfig{
 			Description: descriptions.Certainty,
@@ -50,22 +57,24 @@ func NearVectorFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.NewList(graphql.String),
 		},
 	}
+	fieldMap = AddTargetArgument(fieldMap, prefix+"nearVector", addTarget)
+	return fieldMap
 }
 
-func NearObjectArgument(argumentPrefix, className string) *graphql.ArgumentConfig {
+func NearObjectArgument(argumentPrefix, className string, addTarget bool) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("%s%s", argumentPrefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:   fmt.Sprintf("%sNearObjectInpObj", prefix),
-				Fields: nearObjectFields(prefix),
+				Fields: nearObjectFields(prefix, addTarget),
 			},
 		),
 	}
 }
 
-func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
-	return graphql.InputObjectConfigFieldMap{
+func nearObjectFields(prefix string, addTarget bool) graphql.InputObjectConfigFieldMap {
+	fieldMap := graphql.InputObjectConfigFieldMap{
 		"id": &graphql.InputObjectFieldConfig{
 			Description: descriptions.ID,
 			Type:        graphql.String,
@@ -87,4 +96,45 @@ func nearObjectFields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.NewList(graphql.String),
 		},
 	}
+	fieldMap = AddTargetArgument(fieldMap, prefix+"nearObject", addTarget)
+	return fieldMap
 }
+
+var vectorPerTarget = graphql.NewScalar(graphql.ScalarConfig{
+	Name:        "VectorPerTarget",
+	Description: "A custom scalar type for a map with strings as keys and list of floats as values",
+	Serialize: func(value interface{}) interface{} {
+		return value
+	},
+	ParseValue: func(value interface{}) interface{} {
+		return value
+	},
+	ParseLiteral: func(valueAST ast.Value) interface{} {
+		switch v := valueAST.(type) {
+		case *ast.ObjectValue:
+			result := make(map[string][]float32)
+			for _, field := range v.Fields {
+				key := field.Name.Value
+				switch value := field.Value.(type) {
+				case *ast.ListValue:
+					floatValues := make([]float32, len(value.Values))
+					for i, value := range value.Values {
+						floatValue, err := strconv.ParseFloat(value.GetValue().(string), 64)
+						if err != nil {
+							return nil
+						}
+						floatValues[i] = float32(floatValue)
+					}
+
+					result[key] = floatValues
+
+				default:
+					return nil
+				}
+			}
+			return result
+		default:
+			return nil
+		}
+	},
+})

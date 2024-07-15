@@ -10,16 +10,18 @@ enum TenantActivityStatus {
   TENANT_ACTIVITY_STATUS_UNSPECIFIED = 0;
   TENANT_ACTIVITY_STATUS_HOT = 1;
   TENANT_ACTIVITY_STATUS_COLD = 2;
-  TENANT_ACTIVITY_STATUS_WARM = 3;
+  // Originally TENANT_ACTIVITY_STATUS_WARM = 3;
+  reserved 3; 
   TENANT_ACTIVITY_STATUS_FROZEN = 4;
+  TENANT_ACTIVITY_STATUS_UNFREEZING = 5;
+  TENANT_ACTIVITY_STATUS_FREEZING = 6;
 }
 
 message TenantsGetRequest {
   string collection = 1;
-  bool is_consistent = 2;
   // we might need to add a tenant-cursor api at some point, make this easily extendable
   oneof params {
-    TenantNames names = 3;
+    TenantNames names = 2;
   };
 }
 

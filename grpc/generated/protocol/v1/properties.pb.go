@@ -3,12 +3,11 @@
 package protocol
 
 import (
-	reflect "reflect"
-	sync "sync"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"
+	reflect "reflect"
+	sync "sync"
 )
 
 const (
@@ -518,9 +517,6 @@ type TextValues struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// *
-	// The values are stored as a byte array, where each byte contains a single UTF-8 character.
-	// Individual text values are delimited by a ',' character within the overall byte array.
 	Values []string `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 }
 
@@ -568,9 +564,6 @@ type BoolValues struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// *
-	// The values are stored as a byte array, where each byte represents a single boolean value.
-	// The byte array is stored in little-endian order using uint64 encoding.
 	Values []bool `protobuf:"varint,1,rep,packed,name=values,proto3" json:"values,omitempty"`
 }
 
@@ -665,9 +658,6 @@ type DateValues struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// *
-	// The values are stored as a byte array, where each byte contains a single UTF-8 character.
-	// Individual date values are delimited by a ',' character within the overall byte array.
 	Values []string `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 }
 
@@ -715,9 +705,6 @@ type UuidValues struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// *
-	// The values are stored as a byte array, where each byte contains a single UTF-8 character.
-	// Individual uuid values are delimited by a ',' character within the overall byte array.
 	Values []string `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 }
 

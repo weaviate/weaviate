@@ -24,6 +24,7 @@ const (
 
 var availableVoyageAIModels = []string{
 	"rerank-lite-1",
+	"rerank-1",
 }
 
 // note it might not like this -- might want int values for e.g. MaxTokens

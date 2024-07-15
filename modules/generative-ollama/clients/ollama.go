@@ -23,12 +23,13 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/modules/generative-ollama/config"
+	ollamaparams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -47,30 +48,35 @@ func New(timeout time.Duration, logger logrus.FieldLogger) *ollama {
 	}
 }
 
-func (v *ollama) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *ollama) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *ollama) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *ollama) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
+	params := v.getParameters(cfg, options)
+	debugInformation := v.getDebugInformation(debug, prompt)
 
 	ollamaUrl := v.getOllamaUrl(ctx, settings.ApiEndpoint())
 	input := generateInput{
-		Model:  settings.ModelID(),
+		Model:  params.Model,
 		Prompt: prompt,
 		Stream: false,
+	}
+	if params.Temperature != nil {
+		input.Options = &generateOptions{Temperature: params.Temperature}
 	}
 
 	body, err := json.Marshal(input)
@@ -111,9 +117,33 @@ func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	textResponse := resBody.Response
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
+		Debug:  debugInformation,
 	}, nil
+}
+
+func (v *ollama) getParameters(cfg moduletools.ClassConfig, options interface{}) ollamaparams.Params {
+	settings := config.NewClassSettings(cfg)
+
+	var params ollamaparams.Params
+	if p, ok := options.(ollamaparams.Params); ok {
+		params = p
+	}
+
+	if params.Model == "" {
+		params.Model = settings.Model()
+	}
+	return params
+}
+
+func (v *ollama) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
 }
 
 func (v *ollama) getOllamaUrl(ctx context.Context, baseURL string) string {
@@ -153,9 +183,14 @@ func (v *ollama) getValueFromContext(ctx context.Context, key string) string {
 }
 
 type generateInput struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
+	Model   string           `json:"model"`
+	Prompt  string           `json:"prompt"`
+	Stream  bool             `json:"stream"`
+	Options *generateOptions `json:"options,omitempty"`
+}
+
+type generateOptions struct {
+	Temperature *float64 `json:"temperature,omitempty"`
 }
 
 // The entire response for an error ends up looking different, may want to add omitempty everywhere.

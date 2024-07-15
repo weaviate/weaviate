@@ -31,6 +31,7 @@ const (
 	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
 	DefaultRaftBootstrapTimeout = 90
 	DefaultRaftBootstrapExpect  = 1
+	DefaultRaftDir              = "raft"
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -69,6 +70,10 @@ func FromEnv(config *Config) error {
 		config.DisableLazyLoadShards = true
 	}
 
+	if configbase.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
+		config.ForceFullReplicasSearch = true
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
 	if configbase.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
@@ -91,10 +96,10 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = asInt
 	}
 
-	if v := os.Getenv("PROFILING_PORT"); v != "" {
+	if v := os.Getenv("GO_PROFILING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("parse PROFILING_PORT as int: %w", err)
+			return fmt.Errorf("parse GO_PROFILING_PORT as int: %w", err)
 		}
 
 		config.Profiling.Port = asInt
@@ -170,7 +175,7 @@ func FromEnv(config *Config) error {
 		}
 	}
 
-	config.Profiling.Disabled = configbase.Enabled(os.Getenv("DISABLE_GO_PROFILING"))
+	config.Profiling.Disabled = configbase.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -178,6 +183,28 @@ func FromEnv(config *Config) error {
 
 	if os.Getenv("PERSISTENCE_LSM_ACCESS_STRATEGY") == "pread" {
 		config.AvoidMmap = true
+	}
+
+	if v := os.Getenv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_LSM_MAX_SEGMENT_SIZE: %w", err)
+		}
+
+		config.Persistence.LSMMaxSegmentSize = parsed
+	} else {
+		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
+	}
+
+	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_HNSW_MAX_LOG_SIZE: %w", err)
+		}
+
+		config.Persistence.HNSWMaxLogSize = parsed
+	} else {
+		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
 	clusterCfg, err := parseClusterConfig()
@@ -287,6 +314,10 @@ func FromEnv(config *Config) error {
 		config.EnableModules = v
 	}
 
+	if configbase.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
+		config.EnableApiBasedModules = true
+	}
+
 	config.AutoSchema.Enabled = true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
 		config.AutoSchema.Enabled = !(strings.ToLower(v) == "false")
@@ -373,6 +404,10 @@ func FromEnv(config *Config) error {
 		config.DisableTelemetry = true
 	}
 
+	if configbase.Enabled(os.Getenv("HNSW_STARTUP_WAIT_FOR_VECTOR_CACHE")) {
+		config.HNSWStartupWaitForVectorCache = true
+	}
+
 	return nil
 }
 
@@ -438,14 +473,6 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	}
 
 	if err := parsePositiveInt(
-		"RAFT_RECOVERY_TIMEOUT",
-		func(val int) { cfg.RecoveryTimeout = time.Second * time.Duration(val) },
-		3,
-	); err != nil {
-		return cfg, err
-	}
-
-	if err := parsePositiveInt(
 		"RAFT_ELECTION_TIMEOUT",
 		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
 		1, // raft default
@@ -465,6 +492,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_SNAPSHOT_THRESHOLD",
 		func(val int) { cfg.SnapshotThreshold = uint64(val) },
 		8192, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
+		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
+		10,
 	); err != nil {
 		return cfg, err
 	}
