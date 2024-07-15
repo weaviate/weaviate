@@ -13,14 +13,17 @@ package hnsw
 
 import (
 	"sync"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/iterableconnections"
 )
 
 type vertex struct {
 	id uint64
 	sync.Mutex
-	level       int
-	connections [][]uint64
-	maintenance bool
+	level               int
+	connections         [][]uint64
+	maintenance         bool
+	filteredConnections map[string]iterableconnections.IterableConnections
 }
 
 func (v *vertex) markAsMaintenance() {
