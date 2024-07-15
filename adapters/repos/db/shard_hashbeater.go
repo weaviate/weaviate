@@ -56,7 +56,7 @@ func (s *Shard) initHashBeater() {
 
 		backoffTimer := interval.NewBackoffTimer(backoffs...)
 
-		for {
+		for it := 0; ; it++ {
 			select {
 			case <-s.hashBeaterCtx.Done():
 				return
@@ -70,6 +70,7 @@ func (s *Shard) initHashBeater() {
 						WithField("action", "async_replication").
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
+						WithField("hashbeat_iteration", it).
 						Warn(err)
 					return
 				}
@@ -83,6 +84,7 @@ func (s *Shard) initHashBeater() {
 						WithField("action", "async_replication").
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
+						WithField("hashbeat_iteration", it).
 						Warnf("iteration failed: %v", err)
 
 					time.Sleep(backoffTimer.CurrentInterval())
@@ -116,6 +118,7 @@ func (s *Shard) initHashBeater() {
 					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).
 					WithField("shard_name", s.name).
+					WithField("hashbeat_iteration", it).
 					WithField("hosts", hosts).
 					WithField("diff_calculation_took", stats.diffCalculationTook.String()).
 					WithField("local_objects", localObjects).
@@ -147,6 +150,11 @@ func (s *Shard) initHashBeater() {
 		t := time.NewTicker(100 * time.Millisecond)
 		defer t.Stop()
 
+		// just in case host comparison is not enough
+		// this way we ensure hashbeat will be always triggered
+		jict := time.NewTicker(1 * time.Second)
+		defer jict.Stop()
+
 		for {
 			select {
 			case <-s.hashBeaterCtx.Done():
@@ -162,6 +170,8 @@ func (s *Shard) initHashBeater() {
 				if !slices.Equal(comparedHosts, aliveHosts) {
 					s.objectPropagationRequired()
 				}
+			case <-jict.C:
+				s.objectPropagationRequired()
 			}
 		}
 	}, s.index.logger)

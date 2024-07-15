@@ -787,11 +787,15 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 
 	var ht hashtree.AggregatedHashTree
 
-	if partitioningEnabled {
+	// TODO (jeroiraz): for simplificy sake a compact hashtree is always used
+	// the multi-segment hashtree is an optimized implementation but it still requires
+	// further evaluation
+	/*if partitioningEnabled {
 		ht, err = s.buildCompactHashTree()
 	} else {
 		ht, err = s.buildMultiSegmentHashTree(ctx)
-	}
+	}*/
+	ht, err = s.buildCompactHashTree()
 	if err != nil {
 		return err
 	}
