@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/tailor-inc/graphql"
@@ -55,8 +57,8 @@ func (p *GenerateProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 
-func (p *GenerateProvider) ExtractAdditionalFn(param []*ast.Argument) interface{} {
-	return p.parseGenerateArguments(param)
+func (p *GenerateProvider) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
+	return p.parseGenerateArguments(param, class)
 }
 
 func (p *GenerateProvider) AdditionalFieldFn(classname string) *graphql.Field {

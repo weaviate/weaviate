@@ -69,7 +69,7 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
-		return h.flatSearch(vector, k, allowList)
+		return h.flatSearch(vector, k, h.searchTimeEF(k), allowList)
 	}
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
 }
@@ -576,34 +576,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	if h.shouldRescore() {
-		if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
-			for res.Len() > h.sqConfig.RescoreLimit {
-				res.Pop()
-			}
-		}
-		ids := make([]uint64, res.Len())
-		i := len(ids) - 1
-		for res.Len() > 0 {
-			res := res.Pop()
-			ids[i] = res.ID
-			i--
-		}
-		res.Reset()
-		for _, id := range ids {
-			dist, found, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
-			if found && err == nil {
-				res.Insert(id, dist)
-				if res.Len() > ef {
-					res.Pop()
-				}
-			} else {
-				h.logger.
-					WithField("action", "rescore").
-					WithError(err).
-					Warnf("could not rescore node %d", id)
-			}
-		}
-
+		h.rescore(res, k, compressorDistancer)
 	}
 
 	for res.Len() > k {
@@ -643,6 +616,36 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 			return dist, err
 		}
 		return common.QueryVectorDistancer{DistanceFunc: f}
+	}
+}
+
+func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) {
+	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
+		for res.Len() > h.sqConfig.RescoreLimit {
+			res.Pop()
+		}
+	}
+	ids := make([]uint64, res.Len())
+	i := len(ids) - 1
+	for res.Len() > 0 {
+		res := res.Pop()
+		ids[i] = res.ID
+		i--
+	}
+	res.Reset()
+	for _, id := range ids {
+		dist, found, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+		if found && err == nil {
+			res.Insert(id, dist)
+			if res.Len() > k {
+				res.Pop()
+			}
+		} else {
+			h.logger.
+				WithField("action", "rescore").
+				WithError(err).
+				Warnf("could not rescore node %d", id)
+		}
 	}
 }
 

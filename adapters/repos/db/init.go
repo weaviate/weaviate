@@ -96,6 +96,7 @@ func (db *DB) init(ctx context.Context) error {
 				TrackVectorDimensions:     db.config.TrackVectorDimensions,
 				AvoidMMap:                 db.config.AvoidMMap,
 				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
+				ForceFullReplicasSearch:   db.config.ForceFullReplicasSearch,
 				ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
 				AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 			}, db.schemaGetter.CopyShardingState(class.Class),
