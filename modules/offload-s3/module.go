@@ -63,7 +63,7 @@ func New() *Module {
 		Bucket:      "weaviate-offload",
 		Concurrency: 25,
 		DataPath:    config.DefaultPersistenceDataPath,
-		timeout:     10 * time.Second,
+		timeout:     120 * time.Second,
 		// we use custom cli app to avoid some bugs in underlying dependencies
 		// specially with .After implementation.
 		app: &cli.App{
