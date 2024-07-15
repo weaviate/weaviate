@@ -577,13 +577,18 @@ func (st *Store) openDatabase(ctx context.Context) {
 		return
 	}
 
-	st.log.Info("loading local db")
-	if err := st.schemaManager.Load(ctx, st.cfg.NodeID); err != nil {
-		st.log.WithError(err).Error("cannot restore database")
-		panic("error restoring database")
+	if st.cfg.MetadataOnlyVoters {
+		st.log.Info("Not loading local DB as the node is metadata only")
+	} else {
+		st.log.Info("loading local db")
+		if err := st.schemaManager.Load(ctx, st.cfg.NodeID); err != nil {
+			st.log.WithError(err).Error("cannot restore database")
+			panic("error restoring database")
+		}
+		st.log.Info("local DB successfully loaded")
 	}
 
-	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("database has been successfully loaded")
+	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
 }
 
 // reloadDBFromSnapshot reloads the node's local db. If the db is already loaded, it will be reloaded.
