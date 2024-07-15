@@ -230,7 +230,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			continue
 		}
 
-		if level > 0 || allowList == nil || !h.acornSearch {
+		if level > 0 || allowList == nil || !h.acornSearch.Load() {
 			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 			copy(connectionsReusable, candidateNode.connections[level])
 		} else {
@@ -316,7 +316,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if !h.acornSearch && level == 0 && allowList != nil && !allowList.Contains(neighborID) {
+				if !h.acornSearch.Load() && level == 0 && allowList != nil && !allowList.Contains(neighborID) {
 					continue
 				}
 
