@@ -212,7 +212,7 @@ func (s *Searcher) docIDs(ctx context.Context, filter *filters.LocalFilter,
 		return nil, fmt.Errorf("merge doc ids by operator: %w", err)
 	}
 
-	return helpers.NewAllowListFromBitmap(dbm.docIDs), nil
+	return helpers.NewAllowListFromBitmap(dbm.docIDs, fmt.Sprintf("%s%s%v", filter.Root.On.Property.String(), filter.Root.Operator.Name(), filter.Root.Value.Value)), nil
 }
 
 func (s *Searcher) extractPropValuePair(filter *filters.Clause,
