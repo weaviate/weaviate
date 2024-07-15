@@ -45,7 +45,7 @@ func (s *Shard) initHashBeater() {
 				Info("hashbeater stopped")
 		}()
 
-		t := time.NewTicker(50 * time.Millisecond)
+		t := time.NewTicker(500 * time.Millisecond)
 		defer t.Stop()
 
 		backoffs := []time.Duration{
