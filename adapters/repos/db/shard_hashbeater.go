@@ -152,7 +152,7 @@ func (s *Shard) initHashBeater() {
 
 		// just in case host comparison is not enough
 		// this way we ensure hashbeat will be always triggered
-		jict := time.NewTicker(1 * time.Second)
+		jict := time.NewTicker(5 * time.Second)
 		defer jict.Stop()
 
 		for {
