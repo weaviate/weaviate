@@ -39,7 +39,7 @@ type TermInverted struct {
 	Exhausted           bool
 	queryTerm           string
 	PropertyBoost       float64
-	values              []value
+	contents            []byte
 	ColSize             uint64
 	FilterDocIds        helpers.AllowList
 	invertedKeyLength   uint64
@@ -63,7 +63,7 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 	t.Exhausted = false
 	t.actualStart = start + 8
 	t.actualEnd = end - 4 - uint64(len(key))
-	t.offsetPointer = t.actualStart
+
 	t.PropertyBoost = propertyBoost
 	t.queryTermIndex = queryTermIndex
 
@@ -74,34 +74,13 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 
 	t.minIDBytes = make([]byte, t.invertedKeyLength)
 
-	/*
-		if t.segment.mmapContents {
-			t.DocCount = binary.LittleEndian.Uint64(curSegment.contents[start : start+8])
-			byteSize := end - start - uint64(8+4+len(key))
-			t.NonTombstoneCount = (byteSize - (21 * t.DocCount)) / 8
-			t.TombstoneCount = t.DocCount - t.NonTombstoneCount
-
-		} else {
-			var err error
-			t.values, err = t.segment.getCollection(key)
-			if err != nil {
-				return err
-			}
-			result := 0
-			for _, value := range t.values {
-				if !value.tombstone {
-					result++
-				}
-			}
-			t.NonTombstoneCount = uint64(result)
-			t.TombstoneCount = uint64(len(t.values)) - t.DocCount
-			t.DocCount = uint64(len(t.values))
-		}
-	*/
-
-	if !t.segment.mmapContents {
-		var err error
-		t.values, err = t.segment.getCollection(key)
+	if t.segment.mmapContents {
+		t.contents = t.segment.contents
+		t.offsetPointer = t.actualStart
+	} else {
+		t.contents = make([]byte, t.actualEnd-t.actualStart)
+		t.offsetPointer = 0
+		err := t.segment.copyNode(t.contents, nodeOffset{t.actualStart, t.actualEnd})
 		if err != nil {
 			return err
 		}
@@ -127,31 +106,19 @@ func (t *TermInverted) init(N float64, duplicateTextBoost float64, curSegment se
 }
 
 func (t *TermInverted) decode() error {
-	docIdOffsetStart := t.offsetPointer
+	t.IdBytes = t.contents[t.offsetPointer : t.offsetPointer+t.invertedKeyLength]
+	freqOffsetStart := t.offsetPointer + t.invertedKeyLength
+	// read two floats
+	t.data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.contents[freqOffsetStart : freqOffsetStart+4]))
+	propLengthOffsetStart := freqOffsetStart + 4
+	t.data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
 
-	if t.segment.mmapContents {
-		t.IdBytes = t.segment.contents[docIdOffsetStart : docIdOffsetStart+t.invertedKeyLength]
-		freqOffsetStart := docIdOffsetStart + t.invertedKeyLength
-		// read two floats
-		t.data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[freqOffsetStart : freqOffsetStart+4]))
-		propLengthOffsetStart := freqOffsetStart + 4
-		t.data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.segment.contents[propLengthOffsetStart : propLengthOffsetStart+4]))
-	} else {
-		// read two floats
-		t.IdBytes = t.values[t.PosPointer].value[0:t.invertedKeyLength]
-		t.data.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[t.invertedKeyLength : t.invertedKeyLength+4]))
-		t.data.PropLength = math.Float32frombits(binary.LittleEndian.Uint32(t.values[t.PosPointer].value[t.invertedKeyLength+4 : t.invertedKeyLength+8]))
-	}
 	t.idPointer = binary.BigEndian.Uint64(t.IdBytes)
 	return nil
 }
 
 func (t *TermInverted) decodeIdOnly() {
-	if t.segment.mmapContents {
-		t.IdBytes = t.segment.contents[t.offsetPointer : t.offsetPointer+t.invertedKeyLength]
-	} else {
-		t.IdBytes = t.values[t.PosPointer].value[0:t.invertedKeyLength]
-	}
+	t.IdBytes = t.contents[t.offsetPointer : t.offsetPointer+t.invertedKeyLength]
 }
 
 func (t *TermInverted) advance() {
@@ -276,21 +243,12 @@ func (t *TermInverted) jumpAproximate(minIDBytes []byte, start uint64, end uint6
 		return 0
 	}
 
-	var docIdFoundBytes []byte
-	if t.segment.mmapContents {
-		// read docId at halfOffsetLen
-		docIdFoundBytes = t.segment.contents[start : start+t.invertedKeyLength]
-	} else {
-		docIdFoundBytes = t.values[posPointer].value[0:t.invertedKeyLength]
-	}
-	// fmt.Println("jumped to", posPointer, "f", binary.BigEndian.Uint64(docIdFoundBytes), "e", binary.BigEndian.Uint64(minIDBytes), "d", binary.BigEndian.Uint64(docIdFoundBytes)-binary.BigEndian.Uint64(minIDBytes))
-
-	t.IdBytes = docIdFoundBytes
+	t.IdBytes = t.contents[start : start+t.invertedKeyLength]
 	t.idPointer = binary.BigEndian.Uint64(t.IdBytes)
 	t.PosPointer = posPointer
 	t.offsetPointer = start + halfOffsetLen
 
-	compare := bytes.Compare(docIdFoundBytes, minIDBytes)
+	compare := bytes.Compare(t.IdBytes, minIDBytes)
 	if compare < 0 {
 		start += halfOffsetLen + (t.invertedKeyLength + t.invertedValueLength)
 		return t.jumpAproximate(minIDBytes, start, end)
