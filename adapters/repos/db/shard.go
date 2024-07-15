@@ -22,7 +22,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime/debug"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -68,7 +67,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const IdLockPoolSize = 128
@@ -897,6 +895,7 @@ func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
 	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
 }
 
+/*
 func (s *Shard) shardState(ctx context.Context) (*sharding.State, error) {
 	// when a class was just created, the shard state may not be already updated
 	// specially when an incoming request is trigering the shard creation or loading
@@ -960,6 +959,7 @@ func (s *Shard) buildMultiSegmentHashTree(ctx context.Context) (hashtree.Aggrega
 
 	return hashtree.NewMultiSegmentHashTree(segments, 16)
 }
+*/
 
 func (s *Shard) closeHashTree() error {
 	var b [8]byte
