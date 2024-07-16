@@ -19,6 +19,7 @@ import (
 	"math/rand"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -245,7 +246,9 @@ type ReplicasSearchResult struct {
 	Node    string
 }
 
-func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context, shard string,
+func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
+	log logrus.FieldLogger,
+	shard string,
 	queryVec []float32,
 	targetVector string,
 	limit int,
@@ -266,7 +269,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context, shard string,
 		}
 		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node}, nil
 	}
-	return ri.queryAllReplicas(ctx, shard, remoteShardQuery, localNode)
+	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode)
 }
 
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
@@ -398,6 +401,7 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 
 func (ri *RemoteIndex) queryAllReplicas(
 	ctx context.Context,
+	log logrus.FieldLogger,
 	shard string,
 	do func(nodeName, host string) (ReplicasSearchResult, error),
 	localNode string,
@@ -410,7 +414,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 	queryOne := func(replica string) (ReplicasSearchResult, error) {
 		host, ok := ri.nodeResolver.NodeHostname(replica)
 		if !ok || host == "" {
-			return ReplicasSearchResult{}, fmt.Errorf("resolve node name %q to host", replica)
+			return ReplicasSearchResult{}, fmt.Errorf("unable to resolve node name %q to host", replica)
 		}
 		return do(replica, host)
 	}
@@ -423,19 +427,28 @@ func (ri *RemoteIndex) queryAllReplicas(
 			if node == localNode {
 				continue
 			}
+
 			if errC := ctx.Err(); errC != nil {
-				errList = errors.Join(errList, errC)
+				errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, errC))
 				continue
 			}
 
 			if searchResult, err = queryOne(node); err != nil {
-				errList = errors.Join(errList, err)
+				errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
 				continue
 			}
 			resp = append(resp, searchResult)
 		}
+		if errList != nil {
+			// Simply log the errors but don't return them unless we have no valid result
+			log.Warnf("errors happened during full replicas search for shard '%s' errors: %s", shard, errList)
+		}
+
 		if len(resp) == 0 {
 			return nil, errList
+		}
+		if len(resp) != len(replicas)-1 {
+			log.Warnf("full replicas search has less results than the count of replicas: have=%d want=%d", len(resp), len(replicas)-1)
 		}
 		return resp, nil
 	}
