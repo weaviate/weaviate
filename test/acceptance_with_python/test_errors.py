@@ -15,4 +15,4 @@ def test_error_no_module_for_vectorizer(collection_factory: CollectionFactory) -
 
     with pytest.raises(WeaviateQueryError) as exc:
         collection.query.near_text("hello")
-        assert "could not vectorize input" in str(exc.value)
+    assert "could not vectorize input" in str(exc.value)
