@@ -325,10 +325,10 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	shardName string, host string, initialToken, finalToken uint64,
 ) (localObjects, remoteObjects, propagations int, err error) {
-	const limit = 100
+	const maxBatchSize = 1_000
 
 	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
-		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, limit)
+		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, maxBatchSize)
 		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
 		}
@@ -357,7 +357,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 		// fetch digests from remote host in order to avoid sending unnecessary objects
 		for remoteLastTokenRead < newLocalLastReadToken {
 			remoteDigests, newRemoteLastTokenRead, err := s.index.replicator.DigestObjectsInTokenRange(ctx,
-				shardName, host, remoteLastTokenRead, newLocalLastReadToken, limit)
+				shardName, host, remoteLastTokenRead, newLocalLastReadToken, maxBatchSize)
 			if err != nil && !strings.Contains(err.Error(), storobj.ErrLimitReached.Error()) {
 				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
 			}
