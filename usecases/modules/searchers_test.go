@@ -105,7 +105,7 @@ func TestModulesWithSearchers(t *testing.T) {
 			"nearDoesNotExist", nil, fakeFindVector, "")
 
 		require.NotNil(t, err)
-		assert.Contains(t, err.Error(), "no module configured for class")
+		assert.Contains(t, err.Error(), "could not vectorize input for collection")
 	})
 
 	t.Run("get a vector across classes", func(t *testing.T) {
