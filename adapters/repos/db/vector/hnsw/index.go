@@ -157,9 +157,10 @@ type hnsw struct {
 	// negative impact on performance.
 	deleteVsInsertLock sync.RWMutex
 
-	compressed   atomic.Bool
-	doNotRescore bool
-	acornSearch  atomic.Bool
+	compressed       atomic.Bool
+	doNotRescore     bool
+	acornSearch      atomic.Bool
+	acornSearchCache atomic.Bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -287,6 +288,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		allocChecker:             cfg.AllocChecker,
 	}
 	index.acornSearch.Store(uc.FilteredSearch.Enabled)
+	index.acornSearchCache.Store(uc.FilteredSearch.Cache2H)
 
 	if uc.BQ.Enabled {
 		var err error

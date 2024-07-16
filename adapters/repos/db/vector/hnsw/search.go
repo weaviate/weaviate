@@ -68,10 +68,10 @@ func (h *hnsw) SearchByVector(vector []float32, k int, allowList helpers.AllowLi
 	defer h.compressActionLock.RUnlock()
 
 	vector = h.normalizeVec(vector)
-	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
+	/*flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		return h.flatSearch(vector, k, h.searchTimeEF(k), allowList)
-	}
+	}*/
 	return h.knnSearchByVector(vector, k, h.searchTimeEF(k), allowList)
 }
 
@@ -158,6 +158,58 @@ func (h *hnsw) shouldRescore() bool {
 	return h.compressed.Load() && !h.doNotRescore
 }
 
+func (h *hnsw) calculate2HExpansion(candidateNode *vertex, level, M int, allowList helpers.AllowList) iterableconnections.IterableConnections {
+	h.pools.visitedListsLock.RLock()
+	visitedExp := h.pools.visitedLists.Borrow()
+	h.pools.visitedListsLock.RUnlock()
+	slice := h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
+	defer h.pools.tempVectorsUint64.Put(slice)
+	tempConnectionsReusable := slice.Slice
+
+	realLen := 0
+	index := 0
+
+	for index < len(candidateNode.connections[level]) && realLen < M*h.maximumConnectionsLayerZero {
+		nodeId := candidateNode.connections[level][index]
+		index++
+		if !visitedExp.Visited(nodeId) {
+			if allowList.Contains(nodeId) {
+				tempConnectionsReusable[realLen] = nodeId
+				realLen++
+				visitedExp.Visit(nodeId)
+				continue
+			}
+		}
+		visitedExp.Visit(nodeId)
+
+		node := h.nodes[nodeId]
+		if node == nil {
+			continue
+		}
+		for _, expId := range node.connections[level] {
+			if realLen >= M*h.maximumConnectionsLayerZero {
+				break
+			}
+
+			if visitedExp.Visited(expId) {
+				continue
+			}
+
+			visitedExp.Visit(expId)
+
+			if allowList.Contains(expId) {
+				tempConnectionsReusable[realLen] = expId
+				realLen++
+			}
+		}
+	}
+	tempConnectionsReusable = tempConnectionsReusable[:realLen]
+	if candidateNode.filteredConnections == nil {
+		candidateNode.filteredConnections = make(map[string]iterableconnections.IterableConnections)
+	}
+	return iterableconnections.NewVarintIterableConnections(tempConnectionsReusable)
+}
+
 func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
@@ -233,60 +285,16 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		if level > 0 || allowList == nil || !h.acornSearch.Load() {
 			connectionsReusable = iterableconnections.NewArrIterableConnections(candidateNode.connections[level])
 		} else {
-			filterID := allowList.ID()
-			if x, found := candidateNode.filteredConnections[filterID]; found {
-				connectionsReusable = x.Copy()
+			if h.acornSearchCache.Load() {
+				filterID := allowList.ID()
+				if x, found := candidateNode.filteredConnections[filterID]; found {
+					connectionsReusable = x.Copy()
+				} else {
+					connectionsReusable = h.calculate2HExpansion(candidateNode, level, M, allowList)
+					candidateNode.filteredConnections[filterID] = connectionsReusable
+				}
 			} else {
-				h.pools.visitedListsLock.RLock()
-				visitedExp := h.pools.visitedLists.Borrow()
-				h.pools.visitedListsLock.RUnlock()
-				slice := h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
-				defer h.pools.tempVectorsUint64.Put(slice)
-				tempConnectionsReusable := slice.Slice
-
-				realLen := 0
-				index := 0
-
-				for index < len(candidateNode.connections[level]) && realLen < M*h.maximumConnectionsLayerZero {
-					nodeId := candidateNode.connections[level][index]
-					index++
-					if !visitedExp.Visited(nodeId) {
-						if allowList.Contains(nodeId) {
-							tempConnectionsReusable[realLen] = nodeId
-							realLen++
-							visitedExp.Visit(nodeId)
-							continue
-						}
-					}
-					visitedExp.Visit(nodeId)
-
-					node := h.nodes[nodeId]
-					if node == nil {
-						continue
-					}
-					for _, expId := range node.connections[level] {
-						if realLen >= M*h.maximumConnectionsLayerZero {
-							break
-						}
-
-						if visitedExp.Visited(expId) {
-							continue
-						}
-
-						visitedExp.Visit(expId)
-
-						if allowList.Contains(expId) {
-							tempConnectionsReusable[realLen] = expId
-							realLen++
-						}
-					}
-				}
-				tempConnectionsReusable = tempConnectionsReusable[:realLen]
-				if candidateNode.filteredConnections == nil {
-					candidateNode.filteredConnections = make(map[string]iterableconnections.IterableConnections)
-				}
-				connectionsReusable = iterableconnections.NewVarintIterableConnections(tempConnectionsReusable)
-				candidateNode.filteredConnections[filterID] = connectionsReusable
+				connectionsReusable = h.calculate2HExpansion(candidateNode, level, M, allowList)
 			}
 		}
 		candidateNode.Unlock()

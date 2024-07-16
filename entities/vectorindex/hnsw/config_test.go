@@ -606,6 +606,7 @@ func Test_UserConfig(t *testing.T) {
 			input: map[string]interface{}{
 				"filteredSearch": map[string]interface{}{
 					"enabled": true,
+					"cache2h": true,
 				},
 			},
 			expected: UserConfig{
@@ -638,6 +639,7 @@ func Test_UserConfig(t *testing.T) {
 				},
 				FilteredSearch: FilteredSearchConfig{
 					Enabled: true,
+					Cache2H: true,
 				},
 			},
 		},
