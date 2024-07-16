@@ -806,7 +806,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetV
 		}
 	}
 
-	return nil, "", fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params)
+	return nil, fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params)
 }
 
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
