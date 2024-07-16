@@ -498,7 +498,7 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 		}
 	}
 
-	panic("ValidateParam was called without any known params present")
+	return fmt.Errorf("could not vectorize input for collection %v with search-type %v. Make sure a vectorizer module is configured for this collection", class.Class, name)
 }
 
 // GetAdditionalFields provides GraphQL Get additional fields
@@ -806,7 +806,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context, className, targetV
 		}
 	}
 
-	panic("VectorFromSearchParam was called without any known params present")
+	return nil, "", fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params)
 }
 
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
@@ -838,7 +838,7 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	panic("CrossClassVectorFromSearchParam was called without any known params present")
+	return nil, "", fmt.Errorf("could not vectorize input for Explore with search-type %v and parameters %v. Make sure a vectorizer module is configured", param, params)
 }
 
 func (p *Provider) getTargetVector(class *models.Class, params interface{}) ([]string, error) {
