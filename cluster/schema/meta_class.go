@@ -303,18 +303,28 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			req.Tenants[i] = nil
 			continue
 		case types.TenantActivityStatusFREEZING:
-			if u.Status != models.TenantActivityStatusFROZEN {
+			// ignore multiple freezing
+			if u.Status == models.TenantActivityStatusFROZEN {
 				req.Tenants[i] = nil
-				return n, fmt.Errorf("freezing is in progress, requested status: %s for tenant: %s", u.Status, u.Name)
+				continue
 			}
 		case types.TenantActivityStatusUNFREEZING:
-			if u.Status != models.TenantActivityStatusFROZEN {
+			// ignore multiple unfreezing
+			var statusInProgress string
+			processes, exists := m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)]
+			if exists {
+				for _, process := range processes {
+					statusInProgress = process.Tenant.Status
+					break
+				}
+			}
+			if u.Status == statusInProgress {
 				req.Tenants[i] = nil
-				return n, fmt.Errorf("unfreezing is in progress, requested status: %s for tenant: %s", u.Status, u.Name)
+				continue
 			}
 		}
 
-		frozenShard := p.ActivityStatus() == models.TenantActivityStatusFROZEN
+		frozenShard := p.ActivityStatus() == models.TenantActivityStatusFROZEN || p.ActivityStatus() == models.TenantActivityStatusFREEZING
 		toFrozen := u.Status == models.TenantActivityStatusFROZEN
 
 		switch {

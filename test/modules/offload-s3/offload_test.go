@@ -460,3 +460,167 @@ func Test_AutoTenantActivation(t *testing.T) {
 		}
 	})
 }
+
+func Test_ConcurrentFreezeUnfreeze(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+	t.Log("pre-instance env setup")
+	t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
+	t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
+
+	compose, err := docker.New().
+		WithOffloadS3("offloading").
+		WithText2VecContextionary().
+		With3NodeCluster().
+		Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	className := "MultiTenantClass"
+	testClass := models.Class{
+		Class:             className,
+		ReplicationConfig: &models.ReplicationConfig{Factor: 2},
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			AutoTenantActivation: true,
+			Enabled:              true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		},
+	}
+	t.Run("create class with multi-tenancy enabled", func(t *testing.T) {
+		helper.CreateClass(t, &testClass)
+	})
+
+	defer func() {
+		helper.DeleteClass(t, className)
+	}()
+
+	tenantNames := []string{
+		"Tenant1", "Tenant2", "Tenant3",
+	}
+	t.Run("create tenants", func(t *testing.T) {
+		tenants := make([]*models.Tenant, len(tenantNames))
+		for i := range tenants {
+			tenants[i] = &models.Tenant{Name: tenantNames[i]}
+		}
+		helper.CreateTenants(t, className, tenants)
+	})
+
+	tenantObjects := []*models.Object{
+		{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: className,
+			Properties: map[string]interface{}{
+				"name": tenantNames[0],
+			},
+			Tenant: tenantNames[0],
+		},
+		{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: className,
+			Properties: map[string]interface{}{
+				"name": tenantNames[1],
+			},
+			Tenant: tenantNames[1],
+		},
+		{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: className,
+			Properties: map[string]interface{}{
+				"name": tenantNames[2],
+			},
+			Tenant: tenantNames[2],
+		},
+	}
+
+	t.Run("add tenant objects", func(t *testing.T) {
+		for _, obj := range tenantObjects {
+			assert.Nil(t, helper.CreateObject(t, obj))
+		}
+	})
+
+	t.Run("verify object creation", func(t *testing.T) {
+		for i, obj := range tenantObjects {
+			resp, err := helper.TenantObject(t, obj.Class, obj.ID, tenantNames[i])
+			require.Nil(t, err)
+			assert.Equal(t, obj.Class, resp.Class)
+			assert.Equal(t, obj.Properties, resp.Properties)
+		}
+	})
+
+	t.Run("updating tenant status", func(t *testing.T) {
+		tenants := []*models.Tenant{}
+		for i := range tenantNames {
+			tenants = append(tenants, &models.Tenant{
+				Name:           tenantNames[i],
+				ActivityStatus: models.TenantActivityStatusFROZEN,
+			})
+		}
+
+		for idx := 0; idx < 5; idx++ {
+			go helper.UpdateTenants(t, className, tenants)
+		}
+	})
+
+	t.Run("verify tenant status", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(at *assert.CollectT) {
+			resp, err := helper.GetTenants(t, className)
+			require.Nil(t, err)
+			for _, tn := range resp.Payload {
+				for i := range tenantNames {
+					if tn.Name == tenantNames[i] {
+						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+						break
+					}
+				}
+			}
+		}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
+	})
+
+	t.Run("verify tenant does not exists", func(t *testing.T) {
+		for i := range tenantObjects {
+			_, err = helper.TenantObject(t, tenantObjects[i].Class, tenantObjects[i].ID, tenantNames[i])
+			require.NotNil(t, err)
+		}
+	})
+
+	t.Run("updating tenant status to HOT", func(t *testing.T) {
+		tenants := []*models.Tenant{}
+		for i := range tenantNames {
+			tenants = append(tenants, &models.Tenant{
+				Name:           tenantNames[i],
+				ActivityStatus: models.TenantActivityStatusHOT,
+			})
+		}
+
+		for idx := 0; idx < 5; idx++ {
+			go helper.UpdateTenants(t, className, tenants)
+		}
+	})
+
+	t.Run("verify tenant status HOT", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(at *assert.CollectT) {
+			resp, err := helper.GetTenants(t, className)
+			require.Nil(t, err)
+			for _, tn := range resp.Payload {
+				for i := range tenantNames {
+					if tn.Name == tenantNames[i] {
+						assert.Equal(at, models.TenantActivityStatusHOT, tn.ActivityStatus)
+						break
+					}
+				}
+			}
+		}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
+	})
+}
