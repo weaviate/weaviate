@@ -29,6 +29,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+const propagationLimitPerHashbeatIteration = 100_000
+
 func (s *Shard) initHashBeater() {
 	enterrors.GoWrapper(func() {
 		s.index.logger.
@@ -45,7 +47,7 @@ func (s *Shard) initHashBeater() {
 				Info("hashbeater stopped")
 		}()
 
-		t := time.NewTicker(500 * time.Millisecond)
+		t := time.NewTicker(1 * time.Second)
 		defer t.Stop()
 
 		backoffs := []time.Duration{
@@ -95,15 +97,13 @@ func (s *Shard) initHashBeater() {
 					continue
 				}
 
-				hosts := make([]string, len(stats.hostStats))
 				localObjects := 0
 				remoteObjects := 0
 				objectsPropagated := 0
 				var objectProgationTook time.Duration
 				var propagationErr error
 
-				for i, stat := range stats.hostStats {
-					hosts[i] = stat.host
+				for _, stat := range stats.hostStats {
 					localObjects += stat.localObjects
 					remoteObjects += stat.remoteObjects
 					objectsPropagated += stat.objectsPropagated
@@ -119,7 +119,7 @@ func (s *Shard) initHashBeater() {
 					WithField("class_name", s.class.Class).
 					WithField("shard_name", s.name).
 					WithField("hashbeat_iteration", it).
-					WithField("hosts", hosts).
+					WithField("hosts", s.getLastComparedHosts()).
 					WithField("diff_calculation_took", stats.diffCalculationTook.String()).
 					WithField("local_objects", localObjects).
 					WithField("remote_objects", remoteObjects).
@@ -147,12 +147,12 @@ func (s *Shard) initHashBeater() {
 	}, s.index.logger)
 
 	enterrors.GoWrapper(func() {
-		t := time.NewTicker(100 * time.Millisecond)
+		t := time.NewTicker(1 * time.Second)
 		defer t.Stop()
 
 		// just in case host comparison is not enough
 		// this way we ensure hashbeat will be always triggered
-		jict := time.NewTicker(5 * time.Second)
+		jict := time.NewTicker(10 * time.Second)
 		defer jict.Stop()
 
 		for {
@@ -241,7 +241,7 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 
 	diffCalculationStart := time.Now()
 
-	replyCh, hosts, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, s.hashtree)
+	replyCh, _, err := s.index.replicator.CollectShardDifferences(s.hashBeaterCtx, s.name, s.hashtree)
 	if err != nil {
 		return stats, fmt.Errorf("collecting differences: %w", err)
 	}
@@ -291,6 +291,7 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 				shardDiffReader.Host,
 				initialToken,
 				finalToken,
+				propagationLimitPerHashbeatIteration-objectsPropagated,
 			)
 			if err != nil {
 				propagationErr = fmt.Errorf("propagating local objects: %v", err)
@@ -300,6 +301,10 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 			localObjects += localObjs
 			remoteObjects += remoteObjs
 			objectsPropagated += propagations
+
+			if objectsPropagated >= propagationLimitPerHashbeatIteration {
+				break
+			}
 		}
 
 		stat := hashBeatHostStats{
@@ -317,13 +322,13 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 		diffCollectionErr = nil
 	}
 
-	s.setLastComparedNodes(hosts)
+	s.setLastComparedNodes(s.allAliveHostnames())
 
 	return stats, diffCollectionErr
 }
 
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
-	shardName string, host string, initialToken, finalToken uint64,
+	shardName string, host string, initialToken, finalToken uint64, limit int,
 ) (localObjects, remoteObjects, propagations int, err error) {
 	const maxBatchSize = 1_000
 
@@ -440,6 +445,10 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 
 		propagations += len(mergeObjs)
 		localLastReadToken = newLocalLastReadToken
+
+		if propagations >= limit {
+			break
+		}
 	}
 
 	// Note: propagations == 0 means local shard is laying behind remote shard,
