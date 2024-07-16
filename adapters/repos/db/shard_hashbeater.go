@@ -30,8 +30,6 @@ import (
 )
 
 func (s *Shard) initHashBeater() {
-	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
-
 	enterrors.GoWrapper(func() {
 		s.index.logger.
 			WithField("action", "async_replication").
@@ -47,36 +45,35 @@ func (s *Shard) initHashBeater() {
 				Info("hashbeater stopped")
 		}()
 
-		t := time.NewTicker(50 * time.Millisecond)
+		t := time.NewTicker(500 * time.Millisecond)
 		defer t.Stop()
 
 		backoffs := []time.Duration{
 			1 * time.Second,
+			3 * time.Second,
 			5 * time.Second,
-			10 * time.Second,
-			30 * time.Second,
-			1 * time.Minute,
 		}
 
 		backoffTimer := interval.NewBackoffTimer(backoffs...)
 
-		firstFailure := true
-
-		for {
+		for it := 0; ; it++ {
 			select {
 			case <-s.hashBeaterCtx.Done():
 				return
 			case <-t.C:
-				s.objectPropagationNeededCond.L.Lock()
-				for !s.objectPropagationNeeded {
-					if s.hashBeaterCtx.Err() != nil {
-						s.objectPropagationNeededCond.L.Unlock()
-						return
-					}
-					s.objectPropagationNeededCond.Wait()
+				err := s.waitUntilObjectPropagationRequired(s.hashBeaterCtx)
+				if s.hashBeaterCtx.Err() != nil {
+					return
 				}
-				s.objectPropagationNeeded = false
-				s.objectPropagationNeededCond.L.Unlock()
+				if err != nil {
+					s.index.logger.
+						WithField("action", "async_replication").
+						WithField("class_name", s.class.Class).
+						WithField("shard_name", s.name).
+						WithField("hashbeat_iteration", it).
+						Warn(err)
+					return
+				}
 
 				stats, err := s.hashBeat()
 				if s.hashBeaterCtx.Err() != nil {
@@ -87,12 +84,8 @@ func (s *Shard) initHashBeater() {
 						WithField("action", "async_replication").
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
-						Warnf("iteration failed: %v", err)
-
-					if firstFailure {
-						backoffTimer.Reset()
-						firstFailure = false
-					}
+						WithField("hashbeat_iteration", it).
+						Warnf("hashbeat iteration failed: %v", err)
 
 					time.Sleep(backoffTimer.CurrentInterval())
 					backoffTimer.IncreaseInterval()
@@ -101,8 +94,6 @@ func (s *Shard) initHashBeater() {
 
 					continue
 				}
-
-				firstFailure = false
 
 				hosts := make([]string, len(stats.hostStats))
 				localObjects := 0
@@ -127,26 +118,24 @@ func (s *Shard) initHashBeater() {
 					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).
 					WithField("shard_name", s.name).
+					WithField("hashbeat_iteration", it).
 					WithField("hosts", hosts).
-					WithField("diffCalculationTook", stats.diffCalculationTook.String()).
-					WithField("localObjects", localObjects).
-					WithField("remoteObjects", remoteObjects).
-					WithField("objectsPropagated", objectsPropagated).
-					WithField("objectProgationTook", objectProgationTook.String())
+					WithField("diff_calculation_took", stats.diffCalculationTook.String()).
+					WithField("local_objects", localObjects).
+					WithField("remote_objects", remoteObjects).
+					WithField("objects_propagated", objectsPropagated).
+					WithField("object_progation_took", objectProgationTook.String())
 
 				if propagationErr == nil {
-					if backoffTimer.IntervalElapsed() {
-						logEntry.Info("iteration successfully completed")
-					}
+					logEntry.Info("hashbeat iteration successfully completed")
 
-					if objectsPropagated == 0 {
-						backoffTimer.IncreaseInterval()
-					} else {
-						backoffTimer.Reset()
+					backoffTimer.Reset()
+
+					if objectsPropagated > 0 {
 						s.objectPropagationRequired()
 					}
 				} else {
-					logEntry.Warnf("propagation error: %v", propagationErr)
+					logEntry.Warnf("hashbeat iteration failed: %v", propagationErr)
 
 					time.Sleep(backoffTimer.CurrentInterval())
 					backoffTimer.IncreaseInterval()
@@ -160,6 +149,11 @@ func (s *Shard) initHashBeater() {
 	enterrors.GoWrapper(func() {
 		t := time.NewTicker(100 * time.Millisecond)
 		defer t.Stop()
+
+		// just in case host comparison is not enough
+		// this way we ensure hashbeat will be always triggered
+		jict := time.NewTicker(5 * time.Second)
+		defer jict.Stop()
 
 		for {
 			select {
@@ -176,6 +170,8 @@ func (s *Shard) initHashBeater() {
 				if !slices.Equal(comparedHosts, aliveHosts) {
 					s.objectPropagationRequired()
 				}
+			case <-jict.C:
+				s.objectPropagationRequired()
 			}
 		}
 	}, s.index.logger)
@@ -204,6 +200,20 @@ func (s *Shard) objectPropagationRequired() {
 	s.objectPropagationNeeded = true
 	s.objectPropagationNeededCond.Signal()
 	s.objectPropagationNeededCond.L.Unlock()
+}
+
+func (s *Shard) waitUntilObjectPropagationRequired(ctx context.Context) error {
+	s.objectPropagationNeededCond.L.Lock()
+	for !s.objectPropagationNeeded {
+		if ctx.Err() != nil {
+			s.objectPropagationNeededCond.L.Unlock()
+			return ctx.Err()
+		}
+		s.objectPropagationNeededCond.Wait()
+	}
+	s.objectPropagationNeeded = false
+	s.objectPropagationNeededCond.L.Unlock()
+	return nil
 }
 
 type hashBeatStats struct {
@@ -315,10 +325,10 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 	shardName string, host string, initialToken, finalToken uint64,
 ) (localObjects, remoteObjects, propagations int, err error) {
-	const limit = 100
+	const maxBatchSize = 1_000
 
 	for localLastReadToken := initialToken; localLastReadToken < finalToken; {
-		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, limit)
+		localDigests, newLocalLastReadToken, err := s.index.DigestObjectsInTokenRange(ctx, shardName, localLastReadToken, finalToken, maxBatchSize)
 		if err != nil && !errors.Is(err, storobj.ErrLimitReached) {
 			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
 		}
@@ -347,7 +357,7 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 		// fetch digests from remote host in order to avoid sending unnecessary objects
 		for remoteLastTokenRead < newLocalLastReadToken {
 			remoteDigests, newRemoteLastTokenRead, err := s.index.replicator.DigestObjectsInTokenRange(ctx,
-				shardName, host, remoteLastTokenRead, newLocalLastReadToken, limit)
+				shardName, host, remoteLastTokenRead, newLocalLastReadToken, maxBatchSize)
 			if err != nil && !strings.Contains(err.Error(), storobj.ErrLimitReached.Error()) {
 				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
 			}
