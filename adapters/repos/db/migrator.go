@@ -415,19 +415,19 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	frozen := make([]string, 0, len(updates))
 	unfreezing := make([]string, 0, len(updates))
 
-	for _, tName := range updates {
-		switch tName.Status {
+	for _, tenant := range updates {
+		switch tenant.Status {
 		case models.TenantActivityStatusHOT:
-			hot = append(hot, tName.Name)
+			hot = append(hot, tenant.Name)
 		case models.TenantActivityStatusCOLD:
-			cold = append(cold, tName.Name)
+			cold = append(cold, tenant.Name)
 		case models.TenantActivityStatusFROZEN:
-			frozen = append(frozen, tName.Name)
+			frozen = append(frozen, tenant.Name)
 
 		case types.TenantActivityStatusFREEZING: // never arrives from user
-			freezing = append(freezing, tName.Name)
+			freezing = append(freezing, tenant.Name)
 		case types.TenantActivityStatusUNFREEZING: // never arrives from user
-			unfreezing = append(freezing, tName.Name)
+			unfreezing = append(unfreezing, tenant.Name)
 		}
 	}
 

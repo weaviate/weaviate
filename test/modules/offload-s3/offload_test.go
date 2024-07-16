@@ -132,28 +132,35 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("updating tenant status", func(t *testing.T) {
-			helper.UpdateTenants(t, className, []*models.Tenant{
-				{
-					Name:           tenantNames[0],
+			tenants := []*models.Tenant{}
+			for i := range tenantNames {
+				tenants = append(tenants, &models.Tenant{
+					Name:           tenantNames[i],
 					ActivityStatus: models.TenantActivityStatusFROZEN,
-				},
-			})
+				})
+			}
+
+			helper.UpdateTenants(t, className, tenants)
 		})
 
 		t.Run("verify tenant status FREEZING", func(t *testing.T) {
 			resp, err := helper.GetTenants(t, className)
 			require.Nil(t, err)
 			for _, tn := range resp.Payload {
-				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
-					break
+				for i := range tenantNames {
+					if tn.Name == tenantNames[i] {
+						require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+						break
+					}
 				}
 			}
 		})
 
 		t.Run("verify tenant does not exists", func(t *testing.T) {
-			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
-			require.NotNil(t, err)
+			for i := range tenantObjects {
+				_, err = helper.TenantObject(t, tenantObjects[i].Class, tenantObjects[i].ID, tenantNames[i])
+				require.NotNil(t, err)
+			}
 		})
 
 		t.Run("verify tenant status", func(t *testing.T) {
@@ -161,21 +168,26 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
-					if tn.Name == tenantNames[0] {
-						assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
-						break
+					for i := range tenantNames {
+						if tn.Name == tenantNames[i] {
+							assert.Equal(at, models.TenantActivityStatusFROZEN, tn.ActivityStatus)
+							break
+						}
 					}
 				}
 			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 		})
 
 		t.Run("updating tenant status to HOT", func(t *testing.T) {
-			helper.UpdateTenants(t, className, []*models.Tenant{
-				{
-					Name:           tenantNames[0],
+			tenants := []*models.Tenant{}
+			for i := range tenantNames {
+				tenants = append(tenants, &models.Tenant{
+					Name:           tenantNames[i],
 					ActivityStatus: models.TenantActivityStatusHOT,
-				},
-			})
+				})
+			}
+
+			helper.UpdateTenants(t, className, tenants)
 		})
 
 		t.Run("verify tenant status HOT", func(t *testing.T) {
@@ -183,9 +195,11 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 				resp, err := helper.GetTenants(t, className)
 				require.Nil(t, err)
 				for _, tn := range resp.Payload {
-					if tn.Name == tenantNames[0] {
-						assert.Equal(at, models.TenantActivityStatusHOT, tn.ActivityStatus)
-						break
+					for i := range tenantNames {
+						if tn.Name == tenantNames[i] {
+							assert.Equal(at, models.TenantActivityStatusHOT, tn.ActivityStatus)
+							break
+						}
 					}
 				}
 			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusHOT))
@@ -201,28 +215,35 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("updating tenant status", func(t *testing.T) {
-			helper.UpdateTenants(t, className, []*models.Tenant{
-				{
-					Name:           tenantNames[0],
+			tenants := []*models.Tenant{}
+			for i := range tenantNames {
+				tenants = append(tenants, &models.Tenant{
+					Name:           tenantNames[i],
 					ActivityStatus: models.TenantActivityStatusFROZEN,
-				},
-			})
+				})
+			}
+
+			helper.UpdateTenants(t, className, tenants)
 		})
 
 		t.Run("verify tenant status FREEZING", func(t *testing.T) {
 			resp, err := helper.GetTenants(t, className)
 			require.Nil(t, err)
 			for _, tn := range resp.Payload {
-				if tn.Name == tenantNames[0] {
-					require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
-					break
+				for i := range tenantNames {
+					if tn.Name == tenantNames[i] {
+						require.Equal(t, types.TenantActivityStatusFREEZING, tn.ActivityStatus)
+						break
+					}
 				}
 			}
 		})
 
 		t.Run("verify tenant does not exists", func(t *testing.T) {
-			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
-			require.NotNil(t, err)
+			for i := range tenantObjects {
+				_, err = helper.TenantObject(t, tenantObjects[i].Class, tenantObjects[i].ID, tenantNames[i])
+				require.NotNil(t, err)
+			}
 		})
 	})
 }
