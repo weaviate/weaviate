@@ -132,14 +132,15 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("updating tenant status", func(t *testing.T) {
+			tenants := []*models.Tenant{}
 			for i := range tenantNames {
-				helper.UpdateTenants(t, className, []*models.Tenant{
-					{
-						Name:           tenantNames[i],
-						ActivityStatus: models.TenantActivityStatusFROZEN,
-					},
+				tenants = append(tenants, &models.Tenant{
+					Name:           tenantNames[i],
+					ActivityStatus: models.TenantActivityStatusFROZEN,
 				})
 			}
+
+			helper.UpdateTenants(t, className, tenants)
 		})
 
 		t.Run("verify tenant status FREEZING", func(t *testing.T) {
@@ -178,14 +179,15 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("updating tenant status to HOT", func(t *testing.T) {
+			tenants := []*models.Tenant{}
 			for i := range tenantNames {
-				helper.UpdateTenants(t, className, []*models.Tenant{
-					{
-						Name:           tenantNames[i],
-						ActivityStatus: models.TenantActivityStatusHOT,
-					},
+				tenants = append(tenants, &models.Tenant{
+					Name:           tenantNames[i],
+					ActivityStatus: models.TenantActivityStatusHOT,
 				})
 			}
+
+			helper.UpdateTenants(t, className, tenants)
 		})
 
 		t.Run("verify tenant status HOT", func(t *testing.T) {
@@ -213,14 +215,15 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		})
 
 		t.Run("updating tenant status", func(t *testing.T) {
+			tenants := []*models.Tenant{}
 			for i := range tenantNames {
-				helper.UpdateTenants(t, className, []*models.Tenant{
-					{
-						Name:           tenantNames[i],
-						ActivityStatus: models.TenantActivityStatusFROZEN,
-					},
+				tenants = append(tenants, &models.Tenant{
+					Name:           tenantNames[i],
+					ActivityStatus: models.TenantActivityStatusFROZEN,
 				})
 			}
+
+			helper.UpdateTenants(t, className, tenants)
 		})
 
 		t.Run("verify tenant status FREEZING", func(t *testing.T) {
