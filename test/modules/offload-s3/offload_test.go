@@ -39,7 +39,7 @@ const (
 
 func Test_Upload_DownloadS3Journey(t *testing.T) {
 	t.Run("happy path with RF 2 upload to s3 provider", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -253,7 +253,7 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 }
 
 func Test_AutoTenantActivation(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	t.Log("pre-instance env setup")
 	t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
@@ -462,7 +462,7 @@ func Test_AutoTenantActivation(t *testing.T) {
 }
 
 func Test_ConcurrentFreezeUnfreeze(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 	t.Log("pre-instance env setup")
 	t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
