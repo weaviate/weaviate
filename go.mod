@@ -65,7 +65,7 @@ require (
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	github.com/weaviate/s5cmd/v2 v2.0.0-20240716170935-5fa610c6faf4
+	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.2
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1
