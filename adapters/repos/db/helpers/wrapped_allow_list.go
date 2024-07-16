@@ -11,6 +11,8 @@
 
 package helpers
 
+import "fmt"
+
 type wrappedAllowList struct {
 	wAllowList AllowList
 	allowList  AllowList
@@ -137,6 +139,10 @@ func (al *wrappedAllowList) Truncate(upTo uint64) AllowList {
 
 func (al *wrappedAllowList) Iterator() AllowListIterator {
 	return al.LimitedIterator(0)
+}
+
+func (al *wrappedAllowList) ID() string {
+	return fmt.Sprintf("%s%s", al.allowList.ID(), al.wAllowList.ID())
 }
 
 func (al *wrappedAllowList) LimitedIterator(limit int) AllowListIterator {

@@ -29,6 +29,7 @@ type AllowList interface {
 	Max() uint64
 	Size() uint64
 	Truncate(uint64) AllowList
+	ID() string
 
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
@@ -40,19 +41,23 @@ type AllowListIterator interface {
 }
 
 func NewAllowList(ids ...uint64) AllowList {
-	return NewAllowListFromBitmap(roaringset.NewBitmap(ids...))
+	return NewAllowListFromBitmap(roaringset.NewBitmap(ids...), "")
 }
 
-func NewAllowListFromBitmap(bm *sroar.Bitmap) AllowList {
-	return &bitmapAllowList{bm: bm}
+func NewAllowListFromBitmap(bm *sroar.Bitmap, id string) AllowList {
+	return &bitmapAllowList{
+		bm: bm,
+		id: id,
+	}
 }
 
-func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap) AllowList {
-	return NewAllowListFromBitmap(bm.Clone())
+func NewAllowListFromBitmapDeepCopy(bm *sroar.Bitmap, id string) AllowList {
+	return NewAllowListFromBitmap(bm.Clone(), id)
 }
 
 type bitmapAllowList struct {
 	bm *sroar.Bitmap
+	id string
 }
 
 func (al *bitmapAllowList) Insert(ids ...uint64) {
@@ -64,7 +69,7 @@ func (al *bitmapAllowList) Contains(id uint64) bool {
 }
 
 func (al *bitmapAllowList) DeepCopy() AllowList {
-	return NewAllowListFromBitmapDeepCopy(al.bm)
+	return NewAllowListFromBitmapDeepCopy(al.bm, al.id)
 }
 
 func (al *bitmapAllowList) WrapOnWrite() AllowList {
@@ -110,6 +115,10 @@ func (al *bitmapAllowList) Iterator() AllowListIterator {
 
 func (al *bitmapAllowList) LimitedIterator(limit int) AllowListIterator {
 	return newBitmapAllowListIterator(al.bm, limit)
+}
+
+func (al *bitmapAllowList) ID() string {
+	return al.id
 }
 
 type bitmapAllowListIterator struct {

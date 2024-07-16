@@ -99,6 +99,7 @@ func (u *UserConfig) SetDefaults() {
 	}
 	u.FilteredSearch = FilteredSearchConfig{
 		Enabled: DefaultFilteredSearchEnabled,
+		Cache2H: DefaultFilteredSearchEnabled,
 	}
 }
 

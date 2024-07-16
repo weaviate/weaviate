@@ -98,7 +98,7 @@ func TestAllowList(t *testing.T) {
 	t.Run("allowlist created from bitmap", func(t *testing.T) {
 		bm := roaringset.NewBitmap(1, 2, 3)
 
-		al := NewAllowListFromBitmap(bm)
+		al := NewAllowListFromBitmap(bm, "")
 		bm.SetMany([]uint64{4, 5})
 
 		assert.Equal(t, 5, al.Len())
@@ -117,7 +117,7 @@ func TestAllowList(t *testing.T) {
 	t.Run("allowlist created from bitmap deepcopy", func(t *testing.T) {
 		bm := roaringset.NewBitmap(1, 2, 3)
 
-		al := NewAllowListFromBitmapDeepCopy(bm)
+		al := NewAllowListFromBitmapDeepCopy(bm, "")
 		bm.SetMany([]uint64{4, 5})
 
 		assert.Equal(t, 3, al.Len())

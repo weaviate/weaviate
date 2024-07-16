@@ -15,10 +15,12 @@ import "github.com/weaviate/weaviate/entities/vectorindex/common"
 
 const (
 	DefaultFilteredSearchEnabled = false
+	DefaultFilteredSearchCache2H = false
 )
 
 type FilteredSearchConfig struct {
 	Enabled bool `json:"enabled"`
+	Cache2H bool `json:"cache2h"`
 }
 
 func parseFilteredSearchMap(in map[string]interface{}, fs *FilteredSearchConfig) error {
@@ -34,6 +36,12 @@ func parseFilteredSearchMap(in map[string]interface{}, fs *FilteredSearchConfig)
 
 	if err := common.OptionalBoolFromMap(fsConfigMap, "enabled", func(v bool) {
 		fs.Enabled = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalBoolFromMap(fsConfigMap, "cache2h", func(v bool) {
+		fs.Cache2H = v
 	}); err != nil {
 		return err
 	}
