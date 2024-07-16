@@ -400,7 +400,8 @@ func (m *Manager) activateTenantIfInactive(class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants: make([]*api.Tenant, 0, len(status)),
+		Tenants:      make([]*api.Tenant, 0, len(status)),
+		ClusterNodes: m.clusterState.Candidates(),
 	}
 
 	for tenant, s := range status {
