@@ -599,7 +599,7 @@ func (st *Store) openDatabase(ctx context.Context) {
 // the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
 func (st *Store) reloadDBFromSnapshot() (success bool) {
 	defer func() {
-		if success {
+		if success && !st.cfg.MetadataOnlyVoters {
 			st.reloadDBFromSchema()
 		}
 	}()
@@ -618,7 +618,11 @@ func (st *Store) reloadDBFromSnapshot() (success bool) {
 }
 
 func (st *Store) reloadDBFromSchema() {
-	st.schemaManager.ReloadDBFromSchema()
+	if !st.cfg.MetadataOnlyVoters {
+		st.schemaManager.ReloadDBFromSchema()
+	} else {
+		st.log.Info("skipping reload DB from schema as the node is metadata only")
+	}
 	st.dbLoaded.Store(true)
 	st.lastAppliedIndexOnStart.Store(0)
 }
