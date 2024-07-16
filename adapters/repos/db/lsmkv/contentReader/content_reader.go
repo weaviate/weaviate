@@ -28,6 +28,7 @@ const (
 	uint64Len = 8
 	uint32Len = 4
 	uint8Len  = 1
+	PageSize  = 4096
 )
 
 type ContentReader interface {
