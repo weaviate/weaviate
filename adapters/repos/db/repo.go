@@ -196,7 +196,7 @@ type Config struct {
 	DisableLazyLoadShards     bool
 	ForceFullReplicasSearch   bool
 	Replication               replication.GlobalConfig
-	PropsToIndexRangeable     map[string][]string
+	PropsToIndexRangeFilters  map[string][]string
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

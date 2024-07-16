@@ -90,7 +90,7 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
-	propsToIndexRangeable := map[string][]string{}
+	propsToIndexRangeFilters := map[string][]string{}
 	if v := os.Getenv("INDEX_RANGEABLE_AT_STARTUP"); v != "" {
 		// "class1:property11,property12;class2:property21,property22"
 
@@ -129,7 +129,7 @@ func FromEnv(config *Config) error {
 					uniqueProps[prop] = struct{}{}
 				}
 
-				propsToIndexRangeable[class] = props
+				propsToIndexRangeFilters[class] = props
 				return nil
 			}()
 			ec.Add(err)
@@ -139,7 +139,7 @@ func FromEnv(config *Config) error {
 			return err
 		}
 	}
-	config.IndexRangeablePropsAtStartup = propsToIndexRangeable
+	config.IndexRangeFiltersPropsAtStartup = propsToIndexRangeFilters
 
 	if v := os.Getenv("PROMETHEUS_MONITORING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)

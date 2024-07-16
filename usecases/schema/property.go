@@ -99,7 +99,7 @@ func (h *Handler) UpdateClassProperty(ctx context.Context, principal *models.Pri
 		return nil, 0, fmt.Errorf("no property provided")
 	}
 
-	// Only supports setting indexRangeable for property with
+	// Only supports setting indexRangeFilters for property with
 	// indexFilterable already set.
 	// Will fail for any other type of change.
 
@@ -155,11 +155,11 @@ func (h *Handler) UpdateClassProperty(ctx context.Context, principal *models.Pri
 		return nil, 0, fmt.Errorf("invalid property: filterable index needed as source")
 	}
 
-	if !(prop.IndexRangeable != nil && *prop.IndexRangeable) {
-		return nil, 0, fmt.Errorf("index rangeable change to %v not allowed", prop.IndexRangeable)
+	if !(prop.IndexRangeFilters != nil && *prop.IndexRangeFilters) {
+		return nil, 0, fmt.Errorf("index rangeable change to %v not allowed", *prop.IndexRangeFilters)
 	}
 
-	existingProp.IndexRangeable = prop.IndexRangeable
+	existingProp.IndexRangeFilters = prop.IndexRangeFilters
 
 	version, err := h.schemaManager.AddProperty(class.Class, existingProp)
 	if err != nil {

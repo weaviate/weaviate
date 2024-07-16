@@ -292,8 +292,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// longer start up if the required minimum is now higher than 1. We want
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
-		Replication:           replication.GlobalConfig{MinimumFactor: 1},
-		PropsToIndexRangeable: appState.ServerConfig.Config.IndexRangeablePropsAtStartup,
+		Replication:              replication.GlobalConfig{MinimumFactor: 1},
+		PropsToIndexRangeFilters: appState.ServerConfig.Config.IndexRangeFiltersPropsAtStartup,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -488,8 +488,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancel(context.Background())
 	reindexFinished := make(chan error, 1)
 
-	if len(appState.ServerConfig.Config.IndexRangeablePropsAtStartup) > 0 {
-		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTask_Rangeable")
+	if len(appState.ServerConfig.Config.IndexRangeFiltersPropsAtStartup) > 0 {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTask_RangeFilters")
 	}
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
 		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")

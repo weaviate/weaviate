@@ -125,7 +125,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			ForceFullReplicasSearch:   m.db.config.ForceFullReplicasSearch,
 			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
 			AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
-			PropsToIndexRangeable:     m.db.config.PropsToIndexRangeable,
+			PropsToIndexRangeFilters:  m.db.config.PropsToIndexRangeFilters,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -780,7 +780,7 @@ func (m *Migrator) RecountProperties(ctx context.Context) error {
 
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNames ...string) error {
 	var errs errorcompounder.ErrorCompounder
-	errs.Add(m.doInvertedIndexRangeable(ctx, taskNames))
+	errs.Add(m.doInvertedIndexRangeFilters(ctx, taskNames))
 	errs.Add(m.doInvertedReindex(ctx, taskNames...))
 	errs.Add(m.doInvertedIndexMissingTextFilterable(ctx, taskNames...))
 	return errs.ToError()
@@ -993,8 +993,8 @@ func (m *Migrator) Shutdown(ctx context.Context) error {
 // RANGEABLE
 // ======================================================================================
 
-func (m *Migrator) doInvertedIndexRangeable(ctx context.Context, taskNames []string) error {
-	taskName := "ShardInvertedReindexTask_Rangeable"
+func (m *Migrator) doInvertedIndexRangeFilters(ctx context.Context, taskNames []string) error {
+	taskName := "ShardInvertedReindexTask_RangeFilters"
 
 	found := false
 	for _, name := range taskNames {
@@ -1008,7 +1008,7 @@ func (m *Migrator) doInvertedIndexRangeable(ctx context.Context, taskNames []str
 	}
 
 	// validation
-	for className, propNames := range m.db.config.PropsToIndexRangeable {
+	for className, propNames := range m.db.config.PropsToIndexRangeFilters {
 		class := m.db.schemaGetter.ReadOnlyClass(className)
 		if class == nil {
 			return fmt.Errorf("rangeable migration: class %q does not exist", className)
@@ -1039,7 +1039,7 @@ func (m *Migrator) doInvertedIndexRangeable(ctx context.Context, taskNames []str
 		}
 	}
 
-	for className, propNames := range m.db.config.PropsToIndexRangeable {
+	for className, propNames := range m.db.config.PropsToIndexRangeFilters {
 		idx, ok := m.db.indices[indexID(schema.ClassName(className))]
 		if !ok {
 			return fmt.Errorf("index for class %q not found", className)

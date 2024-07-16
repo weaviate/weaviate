@@ -723,17 +723,17 @@ func (s *Shard) ForcedHasRangeableIndex(property *models.Property) bool {
 }
 
 func forcedHasRangeableIndex(config IndexConfig, property *models.Property) bool {
-	if !isPropToIndexRangeable(config, property.Name) {
+	if !isPropToIndexRangeFilters(config, property.Name) {
 		return false
 	}
 	return checkEligibleForForcedHasRangeableIndex(property) == nil
 }
 
-func isPropToIndexRangeable(config IndexConfig, propName string) bool {
-	if _, ok := config.PropsToIndexRangeable[config.ClassName.String()]; !ok {
+func isPropToIndexRangeFilters(config IndexConfig, propName string) bool {
+	if _, ok := config.PropsToIndexRangeFilters[config.ClassName.String()]; !ok {
 		return false
 	}
-	for _, prop := range config.PropsToIndexRangeable[config.ClassName.String()] {
+	for _, prop := range config.PropsToIndexRangeFilters[config.ClassName.String()] {
 		if prop == propName {
 			return true
 		}

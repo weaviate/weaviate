@@ -122,7 +122,7 @@ type Config struct {
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
-	IndexRangeablePropsAtStartup        map[string][]string      `json:"index_rangeable_props_at_startup" yaml:"index_rangeable_props_at_startup"`
+	IndexRangeFiltersPropsAtStartup     map[string][]string      `json:"index_rangeable_props_at_startup" yaml:"index_rangeable_props_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
