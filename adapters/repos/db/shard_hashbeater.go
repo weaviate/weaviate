@@ -29,6 +29,8 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+const propagationLimitPerHashbeatIteration = 100_000
+
 func (s *Shard) initHashBeater() {
 	enterrors.GoWrapper(func() {
 		s.index.logger.
@@ -291,6 +293,7 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 				shardDiffReader.Host,
 				initialToken,
 				finalToken,
+				propagationLimitPerHashbeatIteration-objectsPropagated,
 			)
 			if err != nil {
 				propagationErr = fmt.Errorf("propagating local objects: %v", err)
@@ -300,6 +303,10 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 			localObjects += localObjs
 			remoteObjects += remoteObjs
 			objectsPropagated += propagations
+
+			if objectsPropagated >= propagationLimitPerHashbeatIteration {
+				break
+			}
 		}
 
 		stat := hashBeatHostStats{
@@ -323,7 +330,7 @@ func (s *Shard) hashBeat() (stats hashBeatStats, err error) {
 }
 
 func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
-	shardName string, host string, initialToken, finalToken uint64,
+	shardName string, host string, initialToken, finalToken uint64, limit int,
 ) (localObjects, remoteObjects, propagations int, err error) {
 	const maxBatchSize = 1_000
 
@@ -440,6 +447,10 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context,
 
 		propagations += len(mergeObjs)
 		localLastReadToken = newLocalLastReadToken
+
+		if propagations >= limit {
+			break
+		}
 	}
 
 	// Note: propagations == 0 means local shard is laying behind remote shard,
