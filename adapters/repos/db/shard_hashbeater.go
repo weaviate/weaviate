@@ -85,7 +85,7 @@ func (s *Shard) initHashBeater() {
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
 						WithField("hashbeat_iteration", it).
-						Warnf("iteration failed: %v", err)
+						Warnf("hashbeat iteration failed: %v", err)
 
 					time.Sleep(backoffTimer.CurrentInterval())
 					backoffTimer.IncreaseInterval()
@@ -127,7 +127,7 @@ func (s *Shard) initHashBeater() {
 					WithField("object_progation_took", objectProgationTook.String())
 
 				if propagationErr == nil {
-					logEntry.Info("iteration successfully completed")
+					logEntry.Info("hashbeat iteration successfully completed")
 
 					backoffTimer.Reset()
 
@@ -135,7 +135,7 @@ func (s *Shard) initHashBeater() {
 						s.objectPropagationRequired()
 					}
 				} else {
-					logEntry.Warnf("iteration failed: %v", propagationErr)
+					logEntry.Warnf("hashbeat iteration failed: %v", propagationErr)
 
 					time.Sleep(backoffTimer.CurrentInterval())
 					backoffTimer.IncreaseInterval()
