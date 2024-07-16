@@ -249,6 +249,11 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	defer m.Unlock()
 
 	name := req.Process.Tenant.Name
+	shard, ok := m.Sharding.Physical[name]
+	if !ok {
+		return fmt.Errorf("shard %s not found", name)
+	}
+
 	if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
 		// on unfreezing get the requested status from the shard process
 		if status := m.findRequestedStatus(nodeID, name, req.Action); status != "" {
@@ -258,11 +263,6 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 
 	process := m.shardProcess(name, req.Action)
 	process[req.Node] = req.Process
-
-	shard, ok := m.Sharding.Physical[name]
-	if !ok {
-		return fmt.Errorf("shard %s not found", name)
-	}
 
 	if m.allShardProcessExecuted(name, req.Action) {
 		m.applyShardProcess(name, req, &shard)
@@ -393,6 +393,7 @@ func (m *metaClass) updateShardProcess(name string, req *command.TenantProcessRe
 		for _, sp := range processes {
 			if sp.Op == command.TenantsProcess_OP_DONE {
 				copy.Status = sp.Tenant.Status
+				req.Process.Tenant.Status = sp.Tenant.Status
 				break
 			}
 		}
@@ -467,6 +468,10 @@ func (m *metaClass) freeze(i int, req *command.UpdateTenantsRequest, shard shard
 	for _, node := range shard.BelongsToNodes {
 		process[node] = &api.TenantsProcess{
 			Op: command.TenantsProcess_OP_START,
+			Tenant: &command.Tenant{
+				Name:   req.Tenants[i].Name,
+				Status: req.Tenants[i].Status,
+			},
 		}
 	}
 	// to be proceed in the db layer

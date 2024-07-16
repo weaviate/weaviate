@@ -228,6 +228,12 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				}
 
 				if _, err = m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"error":   err,
+						"name":    class,
+						"process": cmd.Process,
+						"tenant":  name,
+					}).Error("UpdateTenantsProcess")
 					ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
 					return
 				}
