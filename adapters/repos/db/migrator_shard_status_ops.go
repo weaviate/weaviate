@@ -249,7 +249,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					"node":        nodeID,
 					"currentNode": m.nodeId,
 					"tenant":      name,
-				}).Debug("deleting")
+				}).Debug("deleting from cloud")
 
 				// delete when it's done
 				if err := m.cloud.Delete(ctx, class, name, nodeID); err != nil {
