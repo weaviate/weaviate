@@ -482,7 +482,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
 
-		sentry.Flush(2 * time.Second)
+		if appState.ServerConfig.Config.Sentry.Enabled {
+			sentry.Flush(2 * time.Second)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
