@@ -89,8 +89,15 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
 
-	for _, name := range freeze {
+	cmd := command.TenantProcessRequest{
+		Node:             m.nodeId,
+		Action:           command.TenantProcessRequest_ACTION_FREEZING,
+		TenantsProcesses: make([]*command.TenantsProcess, len(freeze)),
+	}
+
+	for uidx, name := range freeze {
 		name := name
+		uidx := uidx
 		eg.Go(func() error {
 			originalStatus := models.TenantActivityStatusHOT
 			shard, release, err := idx.getLocalShardNoShutdown(name)
@@ -121,46 +128,52 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				}
 			}
 
-			enterrors.GoWrapper(func() {
-				cmd := command.TenantProcessRequest{
-					Node:   m.nodeId,
-					Action: command.TenantProcessRequest_ACTION_FREEZING,
-				}
-				err := m.cloud.Upload(ctx, class, name, m.nodeId)
-				if err != nil {
-					m.logger.WithFields(logrus.Fields{
-						"error":  err,
-						"name":   class,
-						"tenant": name,
-					}).Error("uploading")
+			err = m.cloud.Upload(ctx, class, name, m.nodeId)
+			if err != nil {
+				m.logger.WithFields(logrus.Fields{
+					"error":  err,
+					"name":   class,
+					"tenant": name,
+				}).Error("uploading")
 
-					ec.Add(fmt.Errorf("uploading error: %w", err))
-					cmd.Process = &command.TenantsProcess{
-						Tenant: &command.Tenant{
-							Name:   name,
-							Status: originalStatus,
-						},
-						Op: command.TenantsProcess_OP_ABORT,
-					}
-				} else {
-					cmd.Process = &command.TenantsProcess{
-						Tenant: &command.Tenant{
-							Name:   name,
-							Status: models.TenantActivityStatusFROZEN,
-						},
-						Op: command.TenantsProcess_OP_DONE,
-					}
+				ec.Add(fmt.Errorf("uploading error: %w", err))
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{
+						Name:   name,
+						Status: originalStatus,
+					},
+					Op: command.TenantsProcess_OP_ABORT,
 				}
-
-				if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
-					ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
+			} else {
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{
+						Name:   name,
+						Status: models.TenantActivityStatusFROZEN,
+					},
+					Op: command.TenantsProcess_OP_DONE,
 				}
-			}, idx.logger)
+			}
 
 			return nil
 		})
 	}
 	eg.Wait()
+
+	enterrors.GoWrapper(func() {
+		m.logger.WithFields(logrus.Fields{
+			"name":    class,
+			"process": cmd.TenantsProcesses,
+		}).Error("calling UpdateTenantsProcess")
+
+		if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"error":   err,
+				"name":    class,
+				"process": cmd.TenantsProcesses,
+			}).Error("UpdateTenantsProcess")
+			ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
+		}
+	}, idx.logger)
 }
 
 func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfreeze []string, ec *errorcompounder.ErrorCompounder) {
@@ -179,9 +192,15 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	cmd := command.TenantProcessRequest{
+		Node:             m.nodeId,
+		Action:           command.TenantProcessRequest_ACTION_UNFREEZING,
+		TenantsProcesses: make([]*command.TenantsProcess, len(unfreeze)),
+	}
 
-	for _, name := range unfreeze {
+	for uidx, name := range unfreeze {
 		name := name
+		uidx := uidx
 		eg.Go(func() error {
 			// # is a delineator shall come from RAFT and it's away e.g. tenant1#node1
 			// to identify which node path in the cloud shall we get the data from.
@@ -198,72 +217,69 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
-			enterrors.GoWrapper(func() {
-				cmd := command.TenantProcessRequest{
-					Node:   m.nodeId,
-					Action: command.TenantProcessRequest_ACTION_UNFREEZING,
-				}
-				err := m.cloud.Download(ctx, class, name, nodeID)
-				if err != nil {
-					m.logger.WithFields(logrus.Fields{
-						"error":  err,
-						"name":   class,
-						"tenant": name,
-					}).Error("downloading")
-					ec.Add(fmt.Errorf("downloading error: %w", err))
-					// one success will be sufficient for changing the status
-					// no status provided here it will be detected which status
-					// requested by RAFT processes
-					cmd.Process = &command.TenantsProcess{
-						Tenant: &command.Tenant{
-							Name: name,
-						},
-						Op: command.TenantsProcess_OP_ABORT,
-					}
-				} else {
-					cmd.Process = &command.TenantsProcess{
-						Tenant: &command.Tenant{
-							Name: name,
-						},
-						Op: command.TenantsProcess_OP_DONE,
-					}
-				}
-
-				if _, err = m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
-					m.logger.WithFields(logrus.Fields{
-						"error":   err,
-						"name":    class,
-						"process": cmd.Process,
-						"tenant":  name,
-					}).Error("UpdateTenantsProcess")
-					ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
-					return
-				}
-
-				if cmd.Process.Op != command.TenantsProcess_OP_DONE {
-					return
-				}
-
+			err := m.cloud.Download(ctx, class, name, nodeID)
+			if err != nil {
 				m.logger.WithFields(logrus.Fields{
-					"name":        class,
-					"node":        nodeID,
-					"currentNode": m.nodeId,
-					"tenant":      name,
-				}).Debug("deleting from cloud")
-
-				// delete when it's done
-				if err := m.cloud.Delete(ctx, class, name, nodeID); err != nil {
-					// we just logging in case of we are not able to delete the cloud
-					m.logger.WithFields(logrus.Fields{
-						"error":  err,
-						"name":   class,
-						"tenant": name,
-					}).Error("deleting")
+					"error":  err,
+					"name":   class,
+					"tenant": name,
+				}).Error("downloading")
+				ec.Add(fmt.Errorf("downloading error: %w", err))
+				// one success will be sufficient for changing the status
+				// no status provided here it will be detected which status
+				// requested by RAFT processes
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{
+						Name: name,
+					},
+					Op: command.TenantsProcess_OP_ABORT,
 				}
-			}, idx.logger)
+			} else {
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{
+						Name: name,
+					},
+					Op: command.TenantsProcess_OP_DONE,
+				}
+			}
 
 			return nil
 		})
 	}
 	eg.Wait()
+
+	enterrors.GoWrapper(func() {
+		if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
+			m.logger.WithFields(logrus.Fields{
+				"error":   err,
+				"name":    class,
+				"process": cmd.TenantsProcesses,
+			}).Error("UpdateTenantsProcess")
+			ec.Add(fmt.Errorf("UpdateTenantsProcess error: %w", err))
+			return
+		}
+	}, idx.logger)
+
+	// if cmd.Process[uidx].Op != command.TenantsProcess_OP_DONE {
+	// 	return
+	// }
+
+	// m.logger.WithFields(logrus.Fields{
+	// 	"action":      "deleting from cloud",
+	// 	"name":        class,
+	// 	"node":        nodeID,
+	// 	"currentNode": m.nodeId,
+	// 	"tenant":      name,
+	// }).Debug()
+
+	// // delete when it's done
+	// if err := m.cloud.Delete(ctx, class, name, nodeID); err != nil {
+	// 	// we just logging in case of we are not able to delete the cloud
+	// 	m.logger.WithFields(logrus.Fields{
+	// 		"action": "deleting from cloud",
+	// 		"error":  err,
+	// 		"name":   class,
+	// 		"tenant": name,
+	// 	}).Error("deleting")
+	// }
 }
