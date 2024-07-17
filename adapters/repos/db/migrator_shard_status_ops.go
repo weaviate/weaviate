@@ -91,8 +91,8 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 
 	for _, name := range freeze {
 		name := name
-		originalStatus := models.TenantActivityStatusHOT
 		eg.Go(func() error {
+			originalStatus := models.TenantActivityStatusHOT
 			shard, release, err := idx.getLocalShardNoShutdown(name)
 			if err != nil {
 				ec.Add(err)
@@ -181,18 +181,20 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 	eg.SetLimit(_NUMCPU * 2)
 
 	for _, name := range unfreeze {
-		// # is a delineator shall come from RAFT and it's away e.g. tenant1#node1
-		// to identify which node path in the cloud shall we get the data from.
-		// it's made because nodeID could be changed on download based on new candidates
-		// when the tenant is unfrozen
-		split := strings.Split(name, "#")
-		if len(split) < 2 {
-			ec.Add(fmt.Errorf("can't detect the old node name"))
-			continue
-		}
-		name := split[0]
-		nodeName := split[1]
+		name := name
 		eg.Go(func() error {
+			// # is a delineator shall come from RAFT and it's away e.g. tenant1#node1
+			// to identify which node path in the cloud shall we get the data from.
+			// it's made because nodeID could be changed on download based on new candidates
+			// when the tenant is unfrozen
+			split := strings.Split(name, "#")
+			if len(split) < 2 {
+				err := fmt.Errorf("can't detect the old node name")
+				ec.Add(err)
+				return err
+			}
+			name := split[0]
+			nodeID := split[1]
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
@@ -201,7 +203,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					Node:   m.nodeId,
 					Action: command.TenantProcessRequest_ACTION_UNFREEZING,
 				}
-				err := m.cloud.Download(ctx, class, name, nodeName)
+				err := m.cloud.Download(ctx, class, name, nodeID)
 				if err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"error":  err,
@@ -241,8 +243,16 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 				if cmd.Process.Op != command.TenantsProcess_OP_DONE {
 					return
 				}
+
+				m.logger.WithFields(logrus.Fields{
+					"name":        class,
+					"node":        nodeID,
+					"currentNode": m.nodeId,
+					"tenant":      name,
+				}).Debug("deleting from cloud")
+
 				// delete when it's done
-				if err := m.cloud.Delete(ctx, class, name, nodeName); err != nil {
+				if err := m.cloud.Delete(ctx, class, name, nodeID); err != nil {
 					// we just logging in case of we are not able to delete the cloud
 					m.logger.WithFields(logrus.Fields{
 						"error":  err,
