@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"runtime/debug"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local"
@@ -104,9 +103,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				if entsentry.Enabled() {
-					sentry.CurrentHub().Recover(r)
-				}
+				entsentry.Recover(r)
 				err = fmt.Errorf("%v at %s", r, debug.Stack())
 			}
 		}()
