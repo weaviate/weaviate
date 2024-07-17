@@ -114,11 +114,10 @@ message TenantProcessRequest {
   }
   string node = 1;
   Action action = 2;
-  
-  reserved "process"; 
-  reserved 3;
-  
   repeated TenantsProcess tenants_processes = 4;
+    
+  TenantsProcess process = 3 [deprecated = true];
+  
 }
 
 message DeleteTenantsRequest {
