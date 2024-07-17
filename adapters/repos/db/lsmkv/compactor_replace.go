@@ -62,8 +62,6 @@ func (c *compactorReplace) do() error {
 		return fmt.Errorf("init: %w", err)
 	}
 
-	panic("oh oh - how did this panic sneak in here?")
-
 	kis, err := c.writeKeys()
 	if err != nil {
 		return fmt.Errorf("write keys: %w", err)
