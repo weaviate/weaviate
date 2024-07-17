@@ -18,7 +18,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 // a single node of strategy "replace"
@@ -162,115 +161,6 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 	}
 
 	return out, nil
-}
-
-func ParseReplaceNodeIntoPread(r io.Reader, secondaryIndexCount uint16, out *segmentReplaceNode) (err error) {
-	out.offset = 0
-
-	if err := binary.Read(r, binary.LittleEndian, &out.tombstone); err != nil {
-		return errors.Wrap(err, "read tombstone")
-	}
-	out.offset += 1
-
-	var valueLength uint64
-	if err := binary.Read(r, binary.LittleEndian, &valueLength); err != nil {
-		return errors.Wrap(err, "read value length encoding")
-	}
-	out.offset += 8
-
-	if int(valueLength) > cap(out.value) {
-		out.value = make([]byte, valueLength)
-	} else {
-		out.value = out.value[:valueLength]
-	}
-
-	if n, err := io.ReadFull(r, out.value); err != nil {
-		return errors.Wrap(err, "read value")
-	} else {
-		out.offset += n
-	}
-
-	var keyLength uint32
-	if err := binary.Read(r, binary.LittleEndian, &keyLength); err != nil {
-		return errors.Wrap(err, "read key length encoding")
-	}
-	out.offset += 4
-
-	out.primaryKey = make([]byte, keyLength)
-	if n, err := io.ReadFull(r, out.primaryKey); err != nil {
-		return errors.Wrap(err, "read key")
-	} else {
-		out.offset += n
-	}
-
-	if secondaryIndexCount > 0 {
-		out.secondaryKeys = make([][]byte, secondaryIndexCount)
-	}
-
-	for j := 0; j < int(secondaryIndexCount); j++ {
-		var secKeyLen uint32
-		if err := binary.Read(r, binary.LittleEndian, &secKeyLen); err != nil {
-			return errors.Wrap(err, "read secondary key length encoding")
-		}
-		out.offset += 4
-
-		if secKeyLen == 0 {
-			continue
-		}
-
-		out.secondaryKeys[j] = make([]byte, secKeyLen)
-		if n, err := io.ReadFull(r, out.secondaryKeys[j]); err != nil {
-			return errors.Wrap(err, "read secondary key")
-		} else {
-			out.offset += n
-		}
-	}
-
-	return nil
-}
-
-func ParseReplaceNodeIntoMMAP(r *byteops.ReadWriter, secondaryIndexCount uint16, out *segmentReplaceNode) error {
-	out.tombstone = r.ReadUint8() == 0x01
-	valueLength := r.ReadUint64()
-
-	if int(valueLength) > cap(out.value) {
-		out.value = make([]byte, valueLength)
-	} else {
-		out.value = out.value[:valueLength]
-	}
-
-	if _, err := r.CopyBytesFromBuffer(valueLength, out.value); err != nil {
-		return err
-	}
-
-	// Note: In a previous version (prior to
-	// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
-	// mentioned PR optimizes the Replace Cursor which led to this now being
-	// shared memory. After internal review, we believe this is safe to do. The
-	// cursor gives no guarantees about memory after calling .next(). Before
-	// .next() is called, this should be safe. Nevertheless, we are leaving this
-	// note in case a future bug appears, as this should make this spot easier to
-	// find.
-	out.primaryKey = r.ReadBytesFromBufferWithUint32LengthIndicator()
-
-	if secondaryIndexCount > 0 {
-		out.secondaryKeys = make([][]byte, secondaryIndexCount)
-	}
-
-	for j := 0; j < int(secondaryIndexCount); j++ {
-		// Note: In a previous version (prior to
-		// https://github.com/weaviate/weaviate/pull/3660) this was a copy. The
-		// mentioned PR optimizes the Replace Cursor which led to this now being
-		// shared memory. After internal review, we believe this is safe to do. The
-		// cursor gives no guarantees about memory after calling .next(). Before
-		// .next() is called, this should be safe. Nevertheless, we are leaving this
-		// note in case a future bug appears, as this should make this spot easier to
-		// find.
-		out.secondaryKeys[j] = r.ReadBytesFromBufferWithUint32LengthIndicator()
-	}
-
-	out.offset = int(r.Position)
-	return nil
 }
 
 // collection strategy does not support secondary keys at this time

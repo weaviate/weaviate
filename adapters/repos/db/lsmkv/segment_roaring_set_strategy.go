@@ -49,20 +49,6 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 }
 
 func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, error) {
-	var contents []byte
-	if s.mmapContents {
-		contents = s.contents[offset.start:offset.end]
-	} else {
-		contents = make([]byte, offset.end-offset.start)
-		r, err := s.bufferedReaderAt(offset.start)
-		if err != nil {
-			return nil, err
-		}
-		_, err = r.Read(contents)
-		if err != nil {
-			return nil, err
-		}
-	}
-
+	contents, _ := s.contentReader.NewWithOffsetStartEnd(offset.start, offset.end)
 	return roaringset.NewSegmentNodeFromBuffer(contents), nil
 }

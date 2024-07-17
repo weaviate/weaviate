@@ -15,7 +15,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -402,86 +405,90 @@ func Test_Compactor(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		t.Run("[keep]"+test.name, func(t *testing.T) {
-			dir := t.TempDir()
+	testsMMap := []struct{ mmap bool }{{mmap: true}, {mmap: false}}
+	for _, tt := range testsMMap {
 
-			leftCursor := NewSegmentCursor(test.left, nil)
-			rightCursor := NewSegmentCursor(test.right, nil)
+		for _, test := range tests {
+			t.Run("[keep]"+test.name+"mmap"+strconv.FormatBool(tt.mmap), func(t *testing.T) {
+				dir := t.TempDir()
 
-			segmentFile := filepath.Join(dir, "result.db")
-			f, err := os.Create(segmentFile)
-			require.NoError(t, err)
+				leftCursor := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, test.left), nil)
+				rightCursor := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, test.right), nil)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", false)
-			require.NoError(t, c.Do())
+				segmentFile := filepath.Join(dir, "result.db")
+				f, err := os.Create(segmentFile)
+				require.NoError(t, err)
 
-			require.NoError(t, f.Close())
+				c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", false)
+				require.NoError(t, c.Do())
 
-			f, err = os.Open(segmentFile)
-			require.NoError(t, err)
+				require.NoError(t, f.Close())
 
-			header, err := segmentindex.ParseHeader(f)
-			require.NoError(t, err)
+				f, err = os.Open(segmentFile)
+				require.NoError(t, err)
 
-			segmentBytes, err := io.ReadAll(f)
-			require.NoError(t, err)
+				header, err := segmentindex.ParseHeader(f)
+				require.NoError(t, err)
 
-			require.NoError(t, f.Close())
+				segmentBytes, err := io.ReadAll(f)
+				require.NoError(t, err)
 
-			cu := NewSegmentCursor(segmentBytes[:header.IndexStart-segmentindex.HeaderSize], nil)
+				require.NoError(t, f.Close())
 
-			i := 0
-			for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
-				assert.Equal(t, test.expected[i].key, k)
-				assert.Equal(t, test.expected[i].additions, v.Additions.ToArray())
-				assert.Equal(t, test.expected[i].deletions, v.Deletions.ToArray())
-				i++
-			}
+				cu := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, segmentBytes[:header.IndexStart-segmentindex.HeaderSize]), nil)
 
-			assert.Equal(t, len(test.expected), i, "all expected keys must have been hit")
-		})
-	}
+				i := 0
+				for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
+					assert.Equal(t, test.expected[i].key, k)
+					assert.Equal(t, test.expected[i].additions, v.Additions.ToArray())
+					assert.Equal(t, test.expected[i].deletions, v.Deletions.ToArray())
+					i++
+				}
 
-	for _, test := range tests {
-		t.Run("[cleanup] "+test.name, func(t *testing.T) {
-			dir := t.TempDir()
+				assert.Equal(t, len(test.expected), i, "all expected keys must have been hit")
+			})
+		}
 
-			leftCursor := NewSegmentCursor(test.left, nil)
-			rightCursor := NewSegmentCursor(test.right, nil)
+		for _, test := range tests {
+			t.Run("[cleanup] "+test.name, func(t *testing.T) {
+				dir := t.TempDir()
 
-			segmentFile := filepath.Join(dir, "result.db")
-			f, err := os.Create(segmentFile)
-			require.NoError(t, err)
+				leftCursor := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, test.left), nil)
+				rightCursor := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, test.right), nil)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", true)
-			require.NoError(t, c.Do())
+				segmentFile := filepath.Join(dir, "result.db")
+				f, err := os.Create(segmentFile)
+				require.NoError(t, err)
 
-			require.NoError(t, f.Close())
+				c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", true)
+				require.NoError(t, c.Do())
 
-			f, err = os.Open(segmentFile)
-			require.NoError(t, err)
+				require.NoError(t, f.Close())
 
-			header, err := segmentindex.ParseHeader(f)
-			require.NoError(t, err)
+				f, err = os.Open(segmentFile)
+				require.NoError(t, err)
 
-			segmentBytes, err := io.ReadAll(f)
-			require.NoError(t, err)
+				header, err := segmentindex.ParseHeader(f)
+				require.NoError(t, err)
 
-			require.NoError(t, f.Close())
+				segmentBytes, err := io.ReadAll(f)
+				require.NoError(t, err)
 
-			cu := NewSegmentCursor(segmentBytes[:header.IndexStart-segmentindex.HeaderSize], nil)
+				require.NoError(t, f.Close())
 
-			i := 0
-			for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
-				assert.Equal(t, test.expectedRoot[i].key, k)
-				assert.Equal(t, test.expectedRoot[i].additions, v.Additions.ToArray())
-				assert.Empty(t, v.Deletions.ToArray())
-				i++
-			}
+				cu := NewSegmentCursor(contentReader.GetContentReaderFromBytes(t, tt.mmap, segmentBytes[:header.IndexStart-segmentindex.HeaderSize]), nil)
 
-			assert.Equal(t, len(test.expectedRoot), i, "all expected keys must have been hit")
-		})
+				i := 0
+				for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
+					assert.Equal(t, test.expectedRoot[i].key, k)
+					assert.Equal(t, test.expectedRoot[i].additions, v.Additions.ToArray())
+					assert.Empty(t, v.Deletions.ToArray())
+					i++
+				}
+
+				assert.Equal(t, len(test.expectedRoot), i, "all expected keys must have been hit")
+			})
+		}
 	}
 }
 

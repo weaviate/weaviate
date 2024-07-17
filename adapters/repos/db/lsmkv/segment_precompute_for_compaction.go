@@ -17,6 +17,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
+
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -28,7 +30,7 @@ import (
 // created will have a .tmp suffix so they don't interfere with existing
 // segments that might have a similar name.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
-	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
+	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool, mmapContents bool,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -43,21 +45,25 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
-	defer file.Close()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
-	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
+	var contReader contentReader.ContentReader
+	if mmapContents {
+		contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("mmap file: %w", err)
+		}
+		contReader = contentReader.NewMemory(contents)
+		defer file.Close()
+	} else {
+		contReader = contentReader.NewPread(file, uint64(fileInfo.Size()))
 	}
-
-	defer contents.Unmap()
-
-	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
+	headerByte, _ := contReader.ReadRange(0, segmentindex.HeaderSize, nil)
+	header, err := segmentindex.ParseHeader(bytes.NewReader(headerByte))
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
@@ -66,7 +72,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	primaryIndex, err := header.PrimaryIndex(contents)
+	primaryIndex, err := header.PrimaryIndex(contReader)
 	if err != nil {
 		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
@@ -81,8 +87,6 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		// the path here, we would end up with filenames like
 		// segment.tmp.bloom.tmp, whereas we want to end up with segment.bloom.tmp
 		path:                  strings.TrimSuffix(path, ".tmp"),
-		contents:              contents,
-		contentFile:           file,
 		version:               header.Version,
 		secondaryIndexCount:   header.SecondaryIndices,
 		segmentStartPos:       header.IndexStart,
@@ -94,12 +98,13 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		logger:                logger,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
+		contentReader:         contReader,
 	}
 
 	if seg.secondaryIndexCount > 0 {
 		seg.secondaryIndices = make([]diskIndex, seg.secondaryIndexCount)
 		for i := range seg.secondaryIndices {
-			secondary, err := header.SecondaryIndex(contents, uint16(i))
+			secondary, err := header.SecondaryIndex(contReader, uint16(i))
 			if err != nil {
 				return nil, errors.Wrapf(err, "get position for secondary index at %d", i)
 			}
@@ -120,6 +125,10 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 			return nil, err
 		}
 		out = append(out, files...)
+	}
+
+	if err := seg.close(); err != nil {
+		return nil, err
 	}
 
 	return out, nil

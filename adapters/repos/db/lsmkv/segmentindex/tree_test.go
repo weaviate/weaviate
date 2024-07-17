@@ -12,51 +12,58 @@
 package segmentindex
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
+type elem struct {
+	key   []byte
+	start uint64
+	end   uint64
+}
+
+var elements = []elem{
+	{
+		key:   []byte("foobar"),
+		start: 17,
+		end:   18,
+	},
+	{
+		key:   []byte("abc"),
+		start: 4,
+		end:   5,
+	},
+	{
+		key:   []byte("zzz"),
+		start: 34,
+		end:   35,
+	},
+	{
+		key:   []byte("aaa"),
+		start: 1,
+		end:   2,
+	},
+	{
+		// makes the tree slightly imbalanced to the right, which in turn assures
+		// that we have a nil node in between
+		key:   []byte("zzzz"),
+		start: 100,
+		end:   102,
+	},
+}
+
 func TestTree(t *testing.T) {
-	type elem struct {
-		key   []byte
-		start uint64
-		end   uint64
-	}
-
 	tree := NewTree(4)
-
-	elements := []elem{
-		{
-			key:   []byte("foobar"),
-			start: 17,
-			end:   18,
-		},
-		{
-			key:   []byte("abc"),
-			start: 4,
-			end:   5,
-		},
-		{
-			key:   []byte("zzz"),
-			start: 34,
-			end:   35,
-		},
-		{
-			key:   []byte("aaa"),
-			start: 1,
-			end:   2,
-		},
-		{
-			// makes the tree slightly imbalanced to the right, which in turn assures
-			// that we have a nil node in between
-			key:   []byte("zzzz"),
-			start: 100,
-			end:   102,
-		},
-	}
 
 	t.Run("inserting", func(t *testing.T) {
 		for _, elem := range elements {
@@ -95,7 +102,7 @@ func TestTree(t *testing.T) {
 		bytes, err := tree.MarshalBinary()
 		require.Nil(t, err)
 
-		dTree := NewDiskTree(bytes)
+		dTree := NewDiskTree(contentReader.NewMemory(bytes))
 
 		t.Run("get", func(t *testing.T) {
 			n, err := dTree.Get([]byte("foobar"))
@@ -208,5 +215,137 @@ func TestTree(t *testing.T) {
 			require.Nil(t, err)
 			assert.ElementsMatch(t, expected, keys)
 		})
+	})
+}
+
+func TestTreeConstantSizeOnePagePlusOneNode(t *testing.T) {
+	nodeSize := uint64(36 + 8) //  8 bytes for the key, 36 bytes for the test
+
+	nrNodes := floatDivideAndRoundUp(contentReader.PageSize, nodeSize) * 100
+
+	nodes := make([]Node, 0, nrNodes)
+	existingKeysList := make([][]byte, 0, nrNodes)
+	for i := uint64(0); i < nrNodes; i++ {
+		key := []byte(fmt.Sprintf("%08d", i))
+		nodes = append(nodes, Node{Key: key, Start: i, End: i + 1})
+		existingKeysList = append(existingKeysList, key)
+	}
+	tree := NewBalanced(nodes)
+
+	var b bytes.Buffer
+	bw := io.Writer(&b)
+
+	_, err := tree.MarshalBinaryInto(bw)
+	require.Nil(t, err)
+
+	dTree := NewDiskTree(contentReader.GetContentReaderFromBytes(t, false, b.Bytes()))
+	for i := range existingKeysList {
+		n, err := dTree.Get(existingKeysList[i])
+		assert.Nil(t, err)
+		assert.Equal(t, existingKeysList[i], n.Key)
+		assert.Equal(t, uint64(i), n.Start)
+		assert.Equal(t, uint64(i+1), n.End)
+	}
+
+	keys, err := dTree.AllKeys()
+	require.Nil(t, err)
+	assert.ElementsMatch(t, existingKeysList, keys)
+}
+
+func elementToByte(elements []elem) []byte {
+	size := 0
+	for i := range elements {
+		size += len(elements[i].key) + 16 + 4
+	}
+	byteOps := byteops.NewReadWriter(make([]byte, size))
+	for i := range elements {
+
+		byteOps.WriteUint64(elements[i].start)
+		byteOps.WriteUint64(elements[i].end)
+		byteOps.WriteUint32(uint32(len(elements[i].key)))
+		byteOps.CopyBytesToBuffer(elements[i].key)
+	}
+	return byteOps.Buffer
+}
+
+func FuzzTree(f *testing.F) {
+	f.Add(elementToByte(elements)) // Use f.Add to provide a seed corpus
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) < 21 {
+			return
+		}
+
+		byts := byteops.NewReadWriter(data)
+		existingKeys := make(map[string]struct{})
+		existingKeysList := make([][]byte, 0)
+
+		elems := make([]elem, 0)
+		for {
+			if len(byts.Buffer) <= int(byts.Position)+21 {
+				break
+			}
+			start := byts.ReadUint64()
+			end := byts.ReadUint64()
+			if start > end || end > uint64(len(data)) {
+				continue
+			}
+			keyLen := byts.ReadUint32()
+
+			if uint64(keyLen) > uint64(len(byts.Buffer))-byts.Position {
+				continue
+			}
+			key, _ := byts.CopyBytesFromBuffer(uint64(keyLen), nil)
+			_, ok := existingKeys[string(key)]
+			if !ok && keyLen != 0 {
+				elems = append(elems, elem{start: start, end: end, key: key})
+				existingKeys[string(key)] = struct{}{}
+				existingKeysList = append(existingKeysList, key)
+			}
+
+		}
+
+		if len(elems) == 0 {
+			return
+		}
+
+		tree := NewTree(len(elems))
+		for i := range elems {
+			tree.Insert(elems[i].key, elems[i].start, elems[i].end)
+		}
+
+		for i := range elems {
+			key, start, end := tree.Get(elems[i].key)
+			assert.Equal(t, elems[i].key, key)
+			assert.Equal(t, elems[i].start, start)
+			assert.Equal(t, elems[i].end, end)
+		}
+
+		// two ways of creating bytes from the tree
+		var b bytes.Buffer
+		bw := io.Writer(&b)
+
+		_, err := tree.MarshalBinaryInto(bw)
+		require.Nil(t, err)
+
+		bytesWrite, err := tree.MarshalBinary()
+		require.Nil(t, err)
+
+		bytesFromTree := [][]byte{bytesWrite, b.Bytes()}
+
+		for _, bts := range bytesFromTree {
+			dTree := NewDiskTree(contentReader.GetContentReaderFromBytes(t, false, bts))
+			for i := range elems {
+				n, err := dTree.Get(elems[i].key)
+				assert.Nil(t, err)
+				assert.Equal(t, elems[i].key, n.Key)
+				assert.Equal(t, elems[i].start, n.Start)
+				assert.Equal(t, elems[i].end, n.End)
+			}
+
+			keys, err := dTree.AllKeys()
+			require.Nil(t, err)
+			assert.ElementsMatch(t, existingKeysList, keys)
+		}
 	})
 }

@@ -12,7 +12,7 @@
 package roaringsetrange
 
 import (
-	"encoding/binary"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -46,42 +46,43 @@ import (
 //	(25+x):(25+x+y)     | deletions bitmap
 //						| deletion indicator and bitmaps are used only for key == 0
 type SegmentNode struct {
-	data []byte
+	data contentReader.ContentReader
 }
 
 // Len indicates the total length of the [SegmentNode]. When reading multiple
 // segments back-2-back, such as in a cursor situation, the offset of element
 // (n+1) is the offset of element n + Len()
 func (sn *SegmentNode) Len() uint64 {
-	return binary.LittleEndian.Uint64(sn.data[0:8])
+	length, _ := sn.data.ReadUint64(0)
+	return length
 }
 
 // Additions returns the additions roaring bitmap with shared state. Only use
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur.
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(9)
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	length, offset := sn.data.ReadUint64(9)
+	buf, _ := sn.data.ReadRange(offset, length, nil)
+	return sroar.FromBuffer(buf)
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur.
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	if key := rw.ReadUint8(); key != 0 {
+	key, offset := sn.data.ReadUint8(8)
+	if key != 0 {
 		return sroar.NewBitmap()
 	}
-	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	length, offset := sn.data.ReadUint64(offset)
+	length, offset = sn.data.ReadUint64(offset + length)
+	buf, _ := sn.data.ReadRange(offset, length, nil)
+	return sroar.FromBuffer(buf)
 }
 
 func (sn *SegmentNode) Key() uint8 {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	return rw.ReadUint8()
+	key, _ := sn.data.ReadUint8(8)
+	return key
 }
 
 func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode, error) {
@@ -96,9 +97,8 @@ func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode
 		expectedSize += 8 + len(deletionsBuf)
 	}
 
-	sn := SegmentNode{data: make([]byte, expectedSize)}
-
-	rw := byteops.NewReadWriter(sn.data)
+	bytes := make([]byte, expectedSize)
+	rw := byteops.NewReadWriter(bytes)
 	// reserve the first 8 bytes for the offset, which will be written at the very end
 	rw.MoveBufferPositionForward(8)
 	rw.CopyBytesToBuffer([]byte{key})
@@ -115,9 +115,8 @@ func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode
 
 	offset := rw.Position
 	rw.MoveBufferToAbsolutePosition(0)
-	rw.WriteUint64(uint64(offset))
-
-	return &sn, nil
+	rw.WriteUint64(offset)
+	return &SegmentNode{data: contentReader.NewMemory(bytes)}, nil
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,
@@ -131,12 +130,13 @@ func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode
 // much memory. Truncating at the length prevents this and has no other
 // negative effects.
 func (sn *SegmentNode) ToBuffer() []byte {
-	return sn.data[:sn.Len()]
+	buf, _ := sn.data.ReadRange(0, sn.data.Length(), nil)
+	return buf
 }
 
 // NewSegmentNodeFromBuffer creates a new segment node by using the underlying
 // buffer without copying data. Only use this when you can be sure that it's
 // safe to share the data or create your own copy.
-func NewSegmentNodeFromBuffer(buf []byte) *SegmentNode {
+func NewSegmentNodeFromBuffer(buf contentReader.ContentReader) *SegmentNode {
 	return &SegmentNode{data: buf}
 }

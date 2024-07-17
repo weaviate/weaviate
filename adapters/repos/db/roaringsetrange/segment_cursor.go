@@ -12,6 +12,7 @@
 package roaringsetrange
 
 import (
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
@@ -19,7 +20,7 @@ import (
 // You can start at the beginning using [*SegmentCursor.First] and move forward
 // using [*SegmentCursor.Next]
 type SegmentCursor struct {
-	data       []byte
+	data       contentReader.ContentReader
 	nextOffset uint64
 }
 
@@ -31,7 +32,7 @@ type SegmentCursor struct {
 //
 // Therefore if the payload is part of a longer continuous buffer, the cursor
 // should be initialized with data[payloadStartPos:payloadEndPos]
-func NewSegmentCursor(data []byte) *SegmentCursor {
+func NewSegmentCursor(data contentReader.ContentReader) *SegmentCursor {
 	return &SegmentCursor{data: data, nextOffset: 0}
 }
 
@@ -41,11 +42,16 @@ func (c *SegmentCursor) First() (uint8, roaringset.BitmapLayer, bool) {
 }
 
 func (c *SegmentCursor) Next() (uint8, roaringset.BitmapLayer, bool) {
-	if c.nextOffset >= uint64(len(c.data)) {
+	if c.nextOffset >= c.data.Length() {
 		return 0, roaringset.BitmapLayer{}, false
 	}
 
-	sn := NewSegmentNodeFromBuffer(c.data[c.nextOffset:])
+	next, err := c.data.NewWithOffsetStart(c.nextOffset)
+	if err != nil {
+		return 0, roaringset.BitmapLayer{}, false
+	}
+
+	sn := NewSegmentNodeFromBuffer(next)
 	c.nextOffset += sn.Len()
 
 	return sn.Key(), roaringset.BitmapLayer{

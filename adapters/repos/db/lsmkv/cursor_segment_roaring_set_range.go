@@ -16,7 +16,8 @@ import (
 )
 
 func (s *segment) newRoaringSetRangeCursor() *roaringsetrange.SegmentCursor {
-	return roaringsetrange.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos])
+	reader, _ := s.contentReader.NewWithOffsetStartEnd(s.dataStartPos, s.dataEndPos)
+	return roaringsetrange.NewSegmentCursor(reader)
 }
 
 func (sg *SegmentGroup) newRoaringSetRangeCursors() ([]roaringsetrange.InnerCursor, func()) {

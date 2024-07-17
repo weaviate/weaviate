@@ -94,7 +94,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 		}
 	}
 
-	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+	extr := newBufferedKeyAndTombstoneExtractor(s.contentReader, s.dataStartPos,
 		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
 
 	extr.do()

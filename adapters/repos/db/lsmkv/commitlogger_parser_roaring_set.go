@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/contentReader"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -108,7 +110,7 @@ func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
 		return errors.Wrap(err, "read segment contents")
 	}
 
-	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
+	segment := roaringset.NewSegmentNodeFromBuffer(contentReader.NewMemory(segBuf))
 	key := segment.PrimaryKey()
 
 	if err := prs.consume(key, segment.Additions().ToArray(), segment.Deletions().ToArray()); err != nil {

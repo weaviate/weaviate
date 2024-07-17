@@ -13,18 +13,16 @@ package lsmkv
 
 import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type segmentCursorReplace struct {
 	segment       *segment
+	reusableNode  *segmentReplaceNode
 	index         diskIndex
 	keyFn         func(n *segmentReplaceNode) []byte
 	firstOffsetFn func() (uint64, error)
 	nextOffsetFn  func(n *segmentReplaceNode) (uint64, error)
 	currOffset    uint64
-	reusableNode  *segmentReplaceNode
-	reusableBORW  byteops.ReadWriter
 }
 
 func (s *segment) newCursor() *segmentCursorReplace {
@@ -39,7 +37,6 @@ func (s *segment) newCursor() *segmentCursorReplace {
 			return n.primaryKey
 		},
 		reusableNode: &segmentReplaceNode{},
-		reusableBORW: byteops.NewReadWriter(nil),
 	}
 
 	cursor.nextOffsetFn = func(n *segmentReplaceNode) (uint64, error) {
@@ -76,7 +73,6 @@ func (s *segment) newCursorWithSecondaryIndex(pos int) *segmentCursorReplace {
 			return next.Start, nil
 		},
 		reusableNode: &segmentReplaceNode{},
-		reusableBORW: byteops.NewReadWriter(nil),
 	}
 }
 
@@ -107,11 +103,9 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-
 	s.currOffset = node.Start
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
-		s.segment.contents[node.Start:node.End])
+	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End})
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -130,9 +124,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 	}
 
 	s.currOffset = nextOffset
-
-	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset},
-		s.segment.contents[s.currOffset:])
+	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset})
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -148,8 +140,7 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 
 	s.currOffset = firstOffset
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset},
-		s.segment.contents[s.currOffset:])
+	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset})
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -203,44 +194,48 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 	return out, err
 }
 
-func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byte) error {
-	if s.segment.mmapContents {
-		return s.parse(buf)
-	}
-
-	r, err := s.segment.newNodeReader(offset)
+func (s *segmentCursorReplace) parseReplaceNodeInto(readOffset nodeOffset) error {
+	contentReader, err := s.segment.contentReader.NewWithOffsetStart(readOffset.start)
 	if err != nil {
 		return err
 	}
+	offset := uint64(0)
+	tombstoneByte, offset := contentReader.ReadValue(offset)
+	s.reusableNode.tombstone = tombstoneByte != 0
 
-	err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, s.reusableNode)
-	if err != nil {
-		return err
+	valueLength, offset := contentReader.ReadUint64(offset)
+	if valueLength > uint64(len(s.reusableNode.value)) {
+		s.reusableNode.value = make([]byte, valueLength)
+	} else {
+		s.reusableNode.value = s.reusableNode.value[:valueLength]
+	}
+	_, offset = contentReader.ReadRange(offset, valueLength, s.reusableNode.value)
+
+	keyLength, offset := contentReader.ReadUint32(offset)
+	if keyLength > uint32(len(s.reusableNode.primaryKey)) {
+		s.reusableNode.primaryKey = make([]byte, keyLength)
+	} else {
+		s.reusableNode.primaryKey = s.reusableNode.primaryKey[:keyLength]
+	}
+	_, offset = contentReader.ReadRange(offset, uint64(keyLength), s.reusableNode.primaryKey)
+
+	if s.segment.secondaryIndexCount > 0 {
+		s.reusableNode.secondaryKeys = make([][]byte, s.segment.secondaryIndexCount)
 	}
 
+	var secKeyLen uint32
+	for j := 0; j < int(s.segment.secondaryIndexCount); j++ {
+		secKeyLen, offset = contentReader.ReadUint32(offset)
+		if secKeyLen == 0 {
+			continue
+		}
+		secKey := make([]byte, secKeyLen)
+		_, offset = contentReader.ReadRange(offset, uint64(secKeyLen), secKey)
+		s.reusableNode.secondaryKeys[j] = secKey
+	}
+	s.reusableNode.offset = int(offset)
 	if s.reusableNode.tombstone {
 		return lsmkv.Deleted
 	}
-
-	return nil
-}
-
-func (s *segmentCursorReplace) parse(in []byte) error {
-	if len(in) == 0 {
-		return lsmkv.NotFound
-	}
-
-	s.reusableBORW.ResetBuffer(in)
-
-	err := ParseReplaceNodeIntoMMAP(&s.reusableBORW, s.segment.secondaryIndexCount,
-		s.reusableNode)
-	if err != nil {
-		return err
-	}
-
-	if s.reusableNode.tombstone {
-		return lsmkv.Deleted
-	}
-
 	return nil
 }
