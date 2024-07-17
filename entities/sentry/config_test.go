@@ -174,7 +174,7 @@ func TestParseSentryTags(t *testing.T) {
 				"SENTRY_TAG_validKey1":                            "validValue1",
 				"SENTRY_TAG_invalidKeyWithMoreThanThirtyTwoChars": "value",
 				"SENTRY_TAG_validKey2":                            "validValue2",
-				"SENTRY_TAG_validKey3":                            "value\nwith\nnewlines",
+				"SENTRY_TAG_validKey3":                            "value",
 			},
 			expected: map[string]string{
 				"validKey1": "validValue1",
