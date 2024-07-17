@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
@@ -119,6 +120,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			if shard != nil {
 				if err := shard.HaltForTransfer(ctx); err != nil {
 					m.logger.WithFields(logrus.Fields{
+						"action": "halt_for_transfer",
 						"error":  err,
 						"name":   class,
 						"tenant": name,
@@ -131,6 +133,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			err = m.cloud.Upload(ctx, class, name, m.nodeId)
 			if err != nil {
 				m.logger.WithFields(logrus.Fields{
+					"action": "upload_tenant_from_cloud",
 					"error":  err,
 					"name":   class,
 					"tenant": name,
@@ -160,13 +163,9 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 	eg.Wait()
 
 	enterrors.GoWrapper(func() {
-		m.logger.WithFields(logrus.Fields{
-			"name":    class,
-			"process": cmd.TenantsProcesses,
-		}).Error("calling UpdateTenantsProcess")
-
 		if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
 			m.logger.WithFields(logrus.Fields{
+				"action":  "update_tenants_process",
 				"error":   err,
 				"name":    class,
 				"process": cmd.TenantsProcesses,
@@ -192,6 +191,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	tenantsToBeDeletedFromCloud := sync.Map{}
 	cmd := command.TenantProcessRequest{
 		Node:             m.nodeId,
 		Action:           command.TenantProcessRequest_ACTION_UNFREEZING,
@@ -220,6 +220,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			err := m.cloud.Download(ctx, class, name, nodeID)
 			if err != nil {
 				m.logger.WithFields(logrus.Fields{
+					"action": "download_tenant_from_cloud",
 					"error":  err,
 					"name":   class,
 					"tenant": name,
@@ -241,6 +242,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					},
 					Op: command.TenantsProcess_OP_DONE,
 				}
+				tenantsToBeDeletedFromCloud.Store(name, nodeID)
 			}
 
 			return nil
@@ -251,6 +253,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 	enterrors.GoWrapper(func() {
 		if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
 			m.logger.WithFields(logrus.Fields{
+				"action":  "update_tenants_process",
 				"error":   err,
 				"name":    class,
 				"process": cmd.TenantsProcesses,
@@ -260,26 +263,24 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 		}
 	}, idx.logger)
 
-	// if cmd.Process[uidx].Op != command.TenantsProcess_OP_DONE {
-	// 	return
-	// }
+	tenantsToBeDeletedFromCloud.Range(func(name, nodeID any) bool {
+		m.logger.WithFields(logrus.Fields{
+			"action":      "deleting_tenant_from_cloud",
+			"name":        class,
+			"node":        nodeID,
+			"currentNode": m.nodeId,
+			"tenant":      name,
+		}).Debug()
 
-	// m.logger.WithFields(logrus.Fields{
-	// 	"action":      "deleting from cloud",
-	// 	"name":        class,
-	// 	"node":        nodeID,
-	// 	"currentNode": m.nodeId,
-	// 	"tenant":      name,
-	// }).Debug()
-
-	// // delete when it's done
-	// if err := m.cloud.Delete(ctx, class, name, nodeID); err != nil {
-	// 	// we just logging in case of we are not able to delete the cloud
-	// 	m.logger.WithFields(logrus.Fields{
-	// 		"action": "deleting from cloud",
-	// 		"error":  err,
-	// 		"name":   class,
-	// 		"tenant": name,
-	// 	}).Error("deleting")
-	// }
+		if err := m.cloud.Delete(ctx, class, name.(string), nodeID.(string)); err != nil {
+			// we just logging in case of we are not able to delete the cloud
+			m.logger.WithFields(logrus.Fields{
+				"action": "deleting_tenant_from_cloud",
+				"error":  err,
+				"name":   class,
+				"tenant": name,
+			}).Error("deleting")
+		}
+		return true
+	})
 }
