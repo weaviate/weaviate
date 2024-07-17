@@ -31,10 +31,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/usecases/configbase"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
@@ -207,7 +207,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 
 // TODO: Remove this function when gh-5241 is completed. See flat::initBuckets for more details.
 func shouldForceCompaction() bool {
-	return !configbase.Enabled(os.Getenv("FLAT_INDEX_DISABLE_FORCED_COMPACTION"))
+	return !entcfg.Enabled(os.Getenv("FLAT_INDEX_DISABLE_FORCED_COMPACTION"))
 }
 
 func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {

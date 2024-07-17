@@ -50,6 +50,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
@@ -816,6 +817,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+					entsentry.Recover(err)
 					debug.PrintStack()
 				}
 			}()

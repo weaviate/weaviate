@@ -23,8 +23,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/configbase"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
@@ -182,7 +182,7 @@ func NewIndexQueue(
 	if v, _ := strconv.Atoi(os.Getenv("ASYNC_MAX_CHUNKS_PER_TICK")); v > 0 {
 		opts.MaxChunksPerTick = v
 	}
-	if configbase.Enabled(os.Getenv("ASYNC_THROTTLING")) {
+	if entcfg.Enabled(os.Getenv("ASYNC_THROTTLING")) {
 		opts.Throttle = true
 	}
 
