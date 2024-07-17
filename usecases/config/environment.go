@@ -381,6 +381,8 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
+	// explicitly reset sentry config
+	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()
 	if err != nil {
 		return fmt.Errorf("parse sentry config from env: %w", err)
