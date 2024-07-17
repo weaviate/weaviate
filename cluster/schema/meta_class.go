@@ -266,7 +266,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 		process[req.Node] = req.TenantsProcesses[idx]
 
 		if m.allShardProcessExecuted(name, req.Action) {
-			m.applyShardProcess(name, req, &shard)
+			m.applyShardProcess(name, req.Action, req.TenantsProcesses[idx], &shard)
 		} else {
 			// ignore applying in case of aborts (upload action only)
 			if !m.updateShardProcess(name, req.Action, req.TenantsProcesses[idx], &shard) {
@@ -427,42 +427,40 @@ func (m *metaClass) updateShardProcess(name string, action command.TenantProcess
 	return false
 }
 
-func (m *metaClass) applyShardProcess(name string, req *command.TenantProcessRequest, copy *sharding.Physical) {
-	processes := m.ShardProcesses[shardProcessID(name, req.Action)]
-	for idx := range req.TenantsProcesses {
-		switch req.Action {
-		case command.TenantProcessRequest_ACTION_UNFREEZING:
-			for _, sp := range processes {
-				if sp.Op == command.TenantsProcess_OP_DONE {
-					copy.Status = sp.Tenant.Status
-					req.TenantsProcesses[idx].Tenant.Status = sp.Tenant.Status
-					continue
-				}
+func (m *metaClass) applyShardProcess(name string, action command.TenantProcessRequest_Action, req *command.TenantsProcess, copy *sharding.Physical) {
+	processes := m.ShardProcesses[shardProcessID(name, action)]
+	switch action {
+	case command.TenantProcessRequest_ACTION_UNFREEZING:
+		for _, sp := range processes {
+			if sp.Op == command.TenantsProcess_OP_DONE {
+				copy.Status = sp.Tenant.Status
+				req.Tenant.Status = sp.Tenant.Status
+				break
 			}
-		case command.TenantProcessRequest_ACTION_FREEZING:
-			count := 0
-			onAbortStatus := copy.Status
-			for _, sp := range processes {
-				if sp.Op == command.TenantsProcess_OP_DONE {
-					count++
-				} else {
-					count--
-					onAbortStatus = sp.Tenant.Status
-				}
-			}
-
-			if count == len(processes) {
-				copy.Status = req.TenantsProcesses[idx].Tenant.Status
-			} else {
-				copy.Status = onAbortStatus
-				req.TenantsProcesses[idx].Tenant.Status = onAbortStatus
-			}
-		default:
-			// do nothing
-			continue
 		}
-		delete(m.ShardProcesses, shardProcessID(name, req.Action))
+	case command.TenantProcessRequest_ACTION_FREEZING:
+		count := 0
+		onAbortStatus := copy.Status
+		for _, sp := range processes {
+			if sp.Op == command.TenantsProcess_OP_DONE {
+				count++
+			} else {
+				count--
+				onAbortStatus = sp.Tenant.Status
+			}
+		}
+
+		if count == len(processes) {
+			copy.Status = req.Tenant.Status
+		} else {
+			copy.Status = onAbortStatus
+			req.Tenant.Status = onAbortStatus
+		}
+	default:
+		// do nothing
+		return
 	}
+	delete(m.ShardProcesses, shardProcessID(name, action))
 }
 
 func (m *metaClass) shardProcess(name string, action command.TenantProcessRequest_Action) map[string]*api.TenantsProcess {
