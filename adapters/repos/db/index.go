@@ -24,7 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
 	"github.com/pkg/errors"
@@ -794,9 +793,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
-					if entsentry.Enabled() {
-						sentry.CurrentHub().Recover(err)
-					}
+					entsentry.Recover(err)
 					debug.PrintStack()
 				}
 			}()

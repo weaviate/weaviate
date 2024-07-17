@@ -16,7 +16,6 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/getsentry/sentry-go"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
@@ -29,9 +28,7 @@ func GoWrapper(f func(), logger logrus.FieldLogger) {
 			if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 				if r := recover(); r != nil {
 					logger.Errorf("Recovered from panic: %v", r)
-					if entsentry.Enabled() {
-						sentry.CurrentHub().Recover(r)
-					}
+					entsentry.Recover(r)
 					debug.PrintStack()
 				}
 			}
@@ -47,9 +44,7 @@ func GoWrapperWithBlock(f func(), logger logrus.FieldLogger) error {
 			if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 				if r := recover(); r != nil {
 					logger.Errorf("Recovered from panic: %v", r)
-					if entsentry.Enabled() {
-						sentry.CurrentHub().Recover(r)
-					}
+					entsentry.Recover(r)
 					debug.PrintStack()
 					errChan <- fmt.Errorf("panic occurred: %v", r)
 				}

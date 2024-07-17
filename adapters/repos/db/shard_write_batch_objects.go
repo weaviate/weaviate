@@ -19,7 +19,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/getsentry/sentry-go"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -395,10 +394,8 @@ func (ob *objectsBatcher) storeSingleObjectInAdditionalStorage(ctx context.Conte
 ) {
 	defer func() {
 		err := recover()
-		if entsentry.Enabled() {
-			sentry.CurrentHub().Recover(err)
-		}
 		if err != nil {
+			entsentry.Recover(err)
 			ob.setErrorAtIndex(fmt.Errorf("an unexpected error occurred: %s", err), index)
 			fmt.Fprintf(os.Stderr, "panic: %s\n", err)
 			debug.PrintStack()

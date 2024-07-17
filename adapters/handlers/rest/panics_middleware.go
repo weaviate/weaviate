@@ -20,7 +20,6 @@ import (
 
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -81,9 +80,7 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 	// find the source of the issue if the user sends their logs
 	metricRequestsTotal.logServerError("", err)
 
-	if entsentry.Enabled() {
-		sentry.CurrentHub().Recover(r)
-	}
+	entsentry.Recover(r)
 
 	debug.PrintStack()
 }

@@ -17,7 +17,6 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -72,9 +71,7 @@ func (egw *ErrorGroupWrapper) setDeferFunc() {
 	if !disable {
 		egw.deferFunc = func(localVars ...interface{}) {
 			if r := recover(); r != nil {
-				if entsentry.Enabled() {
-					sentry.CurrentHub().Recover(r)
-				}
+				entsentry.Recover(r)
 				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
 				debug.PrintStack()
 				egw.returnError = fmt.Errorf("panic occurred: %v", r)
