@@ -54,12 +54,12 @@ require (
 	github.com/cenkalti/backoff/v4 v4.2.1
 	github.com/coreos/go-oidc/v3 v3.10.0
 	github.com/edsrzf/mmap-go v1.1.0
+	github.com/getsentry/sentry-go v0.28.1
 	github.com/go-ego/gse v0.80.2
 	github.com/googleapis/gax-go/v2 v2.12.4
 	github.com/hashicorp/go-hclog v1.6.2
 	github.com/hashicorp/raft v1.5.0
 	github.com/hashicorp/raft-boltdb/v2 v2.2.2
-	github.com/ikawaha/kagome-dict v1.1.0
 	github.com/ikawaha/kagome-dict-ko v0.2.1
 	github.com/ikawaha/kagome/v2 v2.9.11
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
@@ -136,8 +136,9 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
+	github.com/ikawaha/kagome-dict v1.1.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
-	github.com/klauspost/compress v1.17.6 // indirect
+	github.com/klauspost/compress v1.17.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect

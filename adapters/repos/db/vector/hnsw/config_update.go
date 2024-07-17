@@ -15,8 +15,8 @@ import (
 	"os"
 	"sync/atomic"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/configbase"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema/config"
@@ -122,7 +122,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 }
 
 func asyncEnabled() bool {
-	return configbase.Enabled(os.Getenv("ASYNC_INDEXING"))
+	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 func (h *hnsw) Upgrade(callback func()) error {
