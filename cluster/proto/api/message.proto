@@ -114,7 +114,11 @@ message TenantProcessRequest {
   }
   string node = 1;
   Action action = 2;
-  repeated TenantsProcess tenants_processes = 3;
+  
+  reserved "process"; 
+  reserved 3;
+  
+  repeated TenantsProcess tenants_processes = 4;
 }
 
 message DeleteTenantsRequest {
