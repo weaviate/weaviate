@@ -12,31 +12,52 @@
 package db
 
 import (
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
 
 type nodeWideMetricsObserver struct {
 	db       *DB
 	shutdown chan struct{}
+
+	activityLock    sync.Mutex
+	activityTracker activityByCollection
+	lastTenantUsage tenantactivity.ByCollection
 }
+
+// internal types used for tenant activity aggregation, not exposed to the user
+type (
+	activityByCollection map[string]activityByTenant
+	activityByTenant     map[string]int32
+)
 
 func newNodeWideMetricsObserver(db *DB) *nodeWideMetricsObserver {
 	return &nodeWideMetricsObserver{db: db, shutdown: make(chan struct{})}
 }
 
 func (o *nodeWideMetricsObserver) Start() {
-	t := time.NewTicker(30 * time.Second)
+	t30 := time.NewTicker(30 * time.Second)
+	t10 := time.NewTicker(10 * time.Second)
 
-	defer t.Stop()
+	// make sure we start with a warm state, otherwise we delay the initial
+	// update. This only applies to tenant activity, other metrics wait
+	// for shard-readiness anyway.
+	o.observeActivity()
+
+	defer t30.Stop()
+	defer t10.Stop()
 
 	for {
 		select {
 		case <-o.shutdown:
 			return
-		case <-t.C:
+		case <-t10.C:
+			o.observeActivity()
+		case <-t30.C:
 			o.observeIfShardsReady()
 		}
 	}
@@ -92,4 +113,95 @@ func (o *nodeWideMetricsObserver) observeUnlocked() {
 
 func (o *nodeWideMetricsObserver) Shutdown() {
 	o.shutdown <- struct{}{}
+}
+
+func (o *nodeWideMetricsObserver) observeActivity() {
+	start := time.Now()
+	current := o.getCurrentActivity()
+
+	o.activityLock.Lock()
+	defer o.activityLock.Unlock()
+
+	o.lastTenantUsage = o.analyzeActivityDelta(current)
+	o.activityTracker = current
+
+	took := time.Since(start)
+	o.db.logger.WithFields(logrus.Fields{
+		"action": "observe_tenantactivity",
+		"took":   took,
+	}).Debug("observed tenant activity stats")
+}
+
+func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityByCollection) tenantactivity.ByCollection {
+	previousActivity := o.activityTracker
+	if previousActivity == nil {
+		previousActivity = make(activityByCollection)
+	}
+
+	now := time.Now()
+
+	// create a new map, this way we will automatically drop anything that
+	// doesn't appear in the new list anymore
+	newUsage := make(tenantactivity.ByCollection)
+
+	for class, current := range currentActivity {
+		newUsage[class] = make(tenantactivity.ByTenant)
+
+		for tenant, act := range current {
+			if _, ok := previousActivity[class]; !ok {
+				previousActivity[class] = make(activityByTenant)
+			}
+
+			previous, ok := previousActivity[class][tenant]
+			if !ok {
+				// this tenant didn't appear on the previous list, so we need to consider
+				// it recently active
+				newUsage[class][tenant] = now
+				continue
+			}
+
+			if act == previous {
+				// unchanged, we can copy the current state
+				newUsage[class][tenant] = o.lastTenantUsage[class][tenant]
+			} else {
+				// activity changed we need to update it
+				newUsage[class][tenant] = now
+			}
+		}
+	}
+
+	return newUsage
+}
+
+func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
+	o.db.indexLock.RLock()
+	defer o.db.indexLock.RUnlock()
+
+	current := make(activityByCollection)
+	for _, index := range o.db.indices {
+		if !index.partitioningEnabled {
+			continue
+		}
+		cn := index.Config.ClassName.String()
+		current[cn] = make(activityByTenant)
+		index.ForEachShard(func(name string, shard ShardLike) error {
+			current[cn][name] = shard.Activity()
+			return nil
+		})
+	}
+
+	return current
+}
+
+func (o *nodeWideMetricsObserver) Usage() tenantactivity.ByCollection {
+	if o == nil {
+		// not loaded yet, requests could come in before the db is initialized yet
+		// don't attempt to lock, as that would lead to a nil-pointer issue
+		return tenantactivity.ByCollection{}
+	}
+
+	o.activityLock.Lock()
+	defer o.activityLock.Unlock()
+
+	return o.lastTenantUsage
 }

@@ -660,7 +660,7 @@ func TestIndexQueue(t *testing.T) {
 		called := make(chan struct{}, 1)
 		idx.shouldCompress = true
 		idx.threshold = 4
-		idx.alreadyIndexed = 6
+		idx.alreadyIndexed.Store(6)
 
 		release := make(chan struct{})
 		idx.onCompressionTurnedOn = func(callback func()) error {
@@ -690,7 +690,7 @@ func TestIndexQueue(t *testing.T) {
 		require.True(t, q.paused.Load())
 
 		// release the compression
-		idx.compressed = true
+		idx.compressed.Store(true)
 		close(release)
 
 		// indexing should be resumed eventually
@@ -711,6 +711,41 @@ func TestIndexQueue(t *testing.T) {
 
 		// indexing should happen
 		<-indexed
+	})
+
+	t.Run("compression occurs even when the threshold is hit after clearing the queue", func(t *testing.T) {
+		var idx mockBatchIndexer
+		idx.shouldCompress = true
+		idx.threshold = 3
+		idx.alreadyIndexed.Store(0)
+		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
+			go func() {
+				time.Sleep(1000 * time.Millisecond)
+				idx.alreadyIndexed.Add(uint64(len(id)))
+			}()
+			return nil
+		}
+
+		release := make(chan int)
+		idx.onCompressionTurnedOn = func(callback func()) error {
+			idx.compressed.Store(true)
+			close(release)
+			return nil
+		}
+
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     2,
+			IndexInterval: 10 * time.Millisecond,
+		}, nil)
+		require.NoError(t, err)
+		defer q.Close()
+
+		for i := 0; i < 4; i++ {
+			pushVector(t, ctx, q, uint64(i), []float32{1, 2, 3})
+		}
+
+		<-release
+		require.True(t, idx.compressed.Load())
 	})
 
 	t.Run("compression does not occur at the indexing if async is enabled", func(t *testing.T) {
@@ -912,8 +947,8 @@ type mockBatchIndexer struct {
 	distancerProvider      distancer.Provider
 	shouldCompress         bool
 	threshold              int
-	compressed             bool
-	alreadyIndexed         uint64
+	compressed             atomic.Bool
+	alreadyIndexed         atomic.Uint64
 	onCompressionTurnedOn  func(func()) error
 	noLock                 bool
 	validateBeforeInsertFn func(vector []float32) error
@@ -1098,19 +1133,19 @@ func (m *mockBatchIndexer) DistancerProvider() distancer.Provider {
 	return m.distancerProvider
 }
 
-func (m *mockBatchIndexer) ShouldCompress() (bool, int) {
+func (m *mockBatchIndexer) ShouldUpgrade() (bool, int) {
 	return m.shouldCompress, m.threshold
 }
 
-func (m *mockBatchIndexer) Compressed() bool {
-	return m.compressed
+func (m *mockBatchIndexer) Upgraded() bool {
+	return m.compressed.Load()
 }
 
 func (m *mockBatchIndexer) AlreadyIndexed() uint64 {
-	return m.alreadyIndexed
+	return m.alreadyIndexed.Load()
 }
 
-func (m *mockBatchIndexer) TurnOnCompression(callback func()) error {
+func (m *mockBatchIndexer) Upgrade(callback func()) error {
 	if m.onCompressionTurnedOn != nil {
 		return m.onCompressionTurnedOn(callback)
 	}

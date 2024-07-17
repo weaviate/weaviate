@@ -121,14 +121,14 @@ type batchIndexer interface {
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
+	AlreadyIndexed() uint64
 	ValidateBeforeInsert(vector []float32) error
 }
 
-type compressedIndexer interface {
-	Compressed() bool
-	AlreadyIndexed() uint64
-	TurnOnCompression(callback func()) error
-	ShouldCompress() (bool, int)
+type upgradableIndexer interface {
+	Upgraded() bool
+	Upgrade(callback func()) error
+	ShouldUpgrade() (bool, int)
 }
 
 type shardStatusUpdater interface {
@@ -657,21 +657,21 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 }
 
 func (q *IndexQueue) checkCompressionSettings() bool {
-	ci, ok := q.Index.(compressedIndexer)
+	ci, ok := q.Index.(upgradableIndexer)
 	if !ok {
 		return false
 	}
 
-	shouldCompress, shouldCompressAt := ci.ShouldCompress()
-	if !shouldCompress || ci.Compressed() {
+	shouldUpgrade, shouldUpgradeAt := ci.ShouldUpgrade()
+	if !shouldUpgrade || ci.Upgraded() {
 		return false
 	}
 
-	if ci.AlreadyIndexed() > uint64(shouldCompressAt) {
+	if q.Index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		q.pauseIndexing()
-		err := ci.TurnOnCompression(q.resumeIndexing)
+		err := ci.Upgrade(q.resumeIndexing)
 		if err != nil {
-			q.Logger.WithError(err).Error("failed to turn on compression")
+			q.Logger.WithError(err).Error("failed to upgrade")
 		}
 
 		return true

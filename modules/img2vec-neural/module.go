@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,11 +36,11 @@ type ImageModule struct {
 	vectorizer      imageVectorizer
 	graphqlProvider modulecapabilities.GraphQLArguments
 	searcher        modulecapabilities.Searcher
+	logger          logrus.FieldLogger
 }
 
 type imageVectorizer interface {
-	Object(ctx context.Context, object *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+	Object(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context,
 		id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 }
@@ -54,6 +56,7 @@ func (m *ImageModule) Type() modulecapabilities.ModuleType {
 func (m *ImageModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -90,9 +93,19 @@ func (m *ImageModule) RootHandler() http.Handler {
 }
 
 func (m *ImageModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.vectorizer.Object(ctx, obj, comp, cfg)
+	return m.vectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *ImageModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	ichek := vectorizer.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
+	return false, mediaProps, err
+}
+
+func (m *ImageModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
 }
 
 func (m *ImageModule) MetaInfo() (map[string]interface{}, error) {

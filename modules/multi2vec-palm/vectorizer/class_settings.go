@@ -100,6 +100,37 @@ func (ic *classSettings) VideoFieldsWeights() ([]float32, error) {
 	return ic.getFieldsWeights("video")
 }
 
+func (ic *classSettings) Properties() ([]string, error) {
+	if ic.cfg == nil {
+		// we would receive a nil-config on cross-class requests, such as Explore{}
+		return nil, errors.New("empty config")
+	}
+	props := make([]string, 0)
+
+	fields := []string{"textFields", "imageFields", "videoFields"}
+
+	for _, field := range fields {
+		fields, ok := ic.cfg.Class()[field]
+		if !ok {
+			continue
+		}
+
+		fieldsArray, ok := fields.([]interface{})
+		if !ok {
+			return nil, errors.Errorf("%s must be an array", field)
+		}
+
+		for _, value := range fieldsArray {
+			v, ok := value.(string)
+			if !ok {
+				return nil, errors.Errorf("%s must be a string", field)
+			}
+			props = append(props, v)
+		}
+	}
+	return props, nil
+}
+
 func (ic *classSettings) field(name, property string) bool {
 	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}

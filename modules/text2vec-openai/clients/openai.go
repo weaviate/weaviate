@@ -14,6 +14,7 @@ package clients
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -43,9 +46,10 @@ type embedding struct {
 }
 
 type embeddingData struct {
-	Object    string    `json:"object"`
-	Index     int       `json:"index"`
-	Embedding []float32 `json:"embedding"`
+	Object    string          `json:"object"`
+	Index     int             `json:"index"`
+	Embedding []float32       `json:"embedding"`
+	Error     *openAIApiError `json:"error,omitempty"`
 }
 
 type openAIApiError struct {
@@ -97,7 +101,7 @@ func buildUrl(baseURL, resourceName, deploymentID, apiVersion string, isAzure bo
 	return url.JoinPath(host, path)
 }
 
-type vectorizer struct {
+type client struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
@@ -106,8 +110,8 @@ type vectorizer struct {
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
-	return &vectorizer{
+func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
+	return &client{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
@@ -119,37 +123,40 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 	}
 }
 
-func (v *vectorizer) Vectorize(ctx context.Context, input string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, []string{input}, v.getModelString(config.Type, config.Model, "document", config.ModelVersion), config)
+func (v *client) Vectorize(ctx context.Context, input []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	config := v.getVectorizationConfig(cfg)
+	return v.vectorize(ctx, input, v.getModelString(config, "document"), config)
 }
 
-func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, v.getModelString(config.Type, config.Model, "query", config.ModelVersion), config)
+func (v *client) VectorizeQuery(ctx context.Context, input []string,
+	cfg moduletools.ClassConfig,
+) (*modulecomponents.VectorizationResult, error) {
+	config := v.getVectorizationConfig(cfg)
+	res, _, err := v.vectorize(ctx, input, v.getModelString(config, "query"), config)
+	return res, err
 }
 
-func (v *vectorizer) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*ent.VectorizationResult, error) {
+func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
 	if err != nil {
-		return nil, errors.Wrap(err, "marshal body")
+		return nil, nil, errors.Wrap(err, "marshal body")
 	}
 
 	endpoint, err := v.buildURL(ctx, config)
 	if err != nil {
-		return nil, errors.Wrap(err, "join OpenAI API host and path")
+		return nil, nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
 		bytes.NewReader(body))
 	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
+		return nil, nil, errors.Wrap(err, "create POST request")
 	}
 	apiKey, err := v.getApiKey(ctx, config.IsAzure)
 	if err != nil {
-		return nil, errors.Wrap(err, "API Key")
+		return nil, nil, errors.Wrap(err, "API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, config.IsAzure))
 	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
@@ -159,47 +166,53 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string, model string
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
+		return nil, nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
 
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
+		return nil, nil, errors.Wrap(err, "read response body")
 	}
 
 	var resBody embedding
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal response body")
+		return nil, nil, errors.Wrap(err, "unmarshal response body")
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
+		return nil, nil, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
 	}
+	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
 
 	texts := make([]string, len(resBody.Data))
 	embeddings := make([][]float32, len(resBody.Data))
+	openAIerror := make([]error, len(resBody.Data))
 	for i := range resBody.Data {
 		texts[i] = resBody.Data[i].Object
 		embeddings[i] = resBody.Data[i].Embedding
+		if resBody.Data[i].Error != nil {
+			openAIerror[i] = v.getError(res.StatusCode, resBody.Data[i].Error, config.IsAzure)
+		}
 	}
 
-	return &ent.VectorizationResult{
+	return &modulecomponents.VectorizationResult{
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
-	}, nil
+		Errors:     openAIerror,
+	}, rateLimit, nil
 }
 
-func (v *vectorizer) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
+func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
 	baseURL, resourceName, deploymentID, apiVersion, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
 	return v.buildUrlFn(baseURL, resourceName, deploymentID, apiVersion, isAzure)
 }
 
-func (v *vectorizer) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
+func (v *client) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
 	endpoint := "OpenAI API"
 	if isAzure {
 		endpoint = "Azure OpenAI API"
@@ -210,28 +223,55 @@ func (v *vectorizer) getError(statusCode int, resBodyError *openAIApiError, isAz
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *vectorizer) getEmbeddingsRequest(input []string, model string, isAzure bool, dimensions *int64) embeddingsRequest {
+func (v *client) getEmbeddingsRequest(input []string, model string, isAzure bool, dimensions *int64) embeddingsRequest {
 	if isAzure {
 		return embeddingsRequest{Input: input}
 	}
 	return embeddingsRequest{Input: input, Model: model, Dimensions: dimensions}
 }
 
-func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
+func (v *client) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
 	if isAzure {
 		return "api-key", apiKey
 	}
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
-func (v *vectorizer) getOpenAIOrganization(ctx context.Context) string {
-	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
+func (v *client) getOpenAIOrganization(ctx context.Context) string {
+	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
 	}
 	return v.openAIOrganization
 }
 
-func (v *vectorizer) getApiKey(ctx context.Context, isAzure bool) (string, error) {
+func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
+	config := v.getVectorizationConfig(cfg)
+
+	key, err := v.getApiKey(ctx, config.IsAzure)
+	if err != nil {
+		return [32]byte{}
+	}
+	return sha256.Sum256([]byte(key))
+}
+
+func (v *client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
+	config := v.getVectorizationConfig(cfg)
+	name := "Openai"
+	if config.IsAzure {
+		name = "Azure"
+	}
+	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, name, 0, 0)
+	return &modulecomponents.RateLimits{
+		RemainingTokens:   tpm,
+		LimitTokens:       tpm,
+		ResetTokens:       time.Now().Add(61 * time.Second),
+		RemainingRequests: rpm,
+		LimitRequests:     rpm,
+		ResetRequests:     time.Now().Add(61 * time.Second),
+	}
+}
+
+func (v *client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	var apiKey, envVarValue, envVar string
 
 	if isAzure {
@@ -247,8 +287,8 @@ func (v *vectorizer) getApiKey(ctx context.Context, isAzure bool) (string, error
 	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
 }
 
-func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
+	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
 	if envVarValue != "" {
@@ -257,32 +297,18 @@ func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVarVal
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *vectorizer) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-
-	return ""
-}
-
-func (v *vectorizer) getModelString(docType, model, action, version string) string {
-	if strings.HasPrefix(model, "text-embedding-3") {
+func (v *client) getModelString(config ent.VectorizationConfig, action string) string {
+	if strings.HasPrefix(config.Model, "text-embedding-3") || config.IsThirdPartyProvider {
 		// indicates that we handle v3 models
-		return model
+		return config.Model
 	}
-	if version == "002" {
-		return v.getModel002String(model)
+	if config.ModelVersion == "002" {
+		return v.getModel002String(config.Model)
 	}
-	return v.getModel001String(docType, model, action)
+	return v.getModel001String(config.Type, config.Model, action)
 }
 
-func (v *vectorizer) getModel001String(docType, model, action string) string {
+func (v *client) getModel001String(docType, model, action string) string {
 	modelBaseString := "%s-search-%s-%s-001"
 	if action == "document" {
 		if docType == "code" {
@@ -298,7 +324,23 @@ func (v *vectorizer) getModel001String(docType, model, action string) string {
 	}
 }
 
-func (v *vectorizer) getModel002String(model string) string {
+func (v *client) getModel002String(model string) string {
 	modelBaseString := "text-embedding-%s-002"
 	return fmt.Sprintf(modelBaseString, model)
+}
+
+func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
+	settings := ent.NewClassSettings(cfg)
+	return ent.VectorizationConfig{
+		Type:                 settings.Type(),
+		Model:                settings.Model(),
+		ModelVersion:         settings.ModelVersion(),
+		ResourceName:         settings.ResourceName(),
+		DeploymentID:         settings.DeploymentID(),
+		BaseURL:              settings.BaseURL(),
+		IsAzure:              settings.IsAzure(),
+		IsThirdPartyProvider: settings.IsThirdPartyProvider(),
+		ApiVersion:           settings.ApiVersion(),
+		Dimensions:           settings.Dimensions(),
+	}
 }

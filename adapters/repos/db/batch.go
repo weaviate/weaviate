@@ -30,7 +30,7 @@ type batchQueue struct {
 }
 
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchObjects, error) {
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
@@ -88,7 +88,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
-		errs := index.putObjectBatch(ctx, queue.objects, repl)
+		errs := index.putObjectBatch(ctx, queue.objects, repl, schemaVersion)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -103,7 +103,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 }
 
 func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchReferences,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (objects.BatchReferences, error) {
 	refByClass := make(map[schema.ClassName]objects.BatchReferences)
 	indexByClass := make(map[schema.ClassName]*Index)
@@ -145,7 +145,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 
 	for class, index := range indexByClass {
 		queue := refByClass[class]
-		errs := index.AddReferencesBatch(ctx, queue, repl)
+		errs := index.AddReferencesBatch(ctx, queue, repl, schemaVersion)
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -160,7 +160,7 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 }
 
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string,
+	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (objects.BatchDeleteResult, error) {
 	// get index for a given class
 	className := params.ClassName
@@ -197,7 +197,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// delete the DocIDs in given shards
-	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl)
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl, schemaVersion)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
 	}

@@ -125,7 +125,7 @@ func prepareCarTestSchemaAndData(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, 0))
 			})
 		}
 	}
@@ -148,7 +148,7 @@ func prepareCarTestSchemaAndDataNoLength(repo *DB,
 		for i, fixture := range cars {
 			t.Run(fmt.Sprintf("importing car %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil))
+					repo.PutObject(context.Background(), &fixture, carVectors[i], nil, nil, 0))
 			})
 		}
 	}
@@ -1089,7 +1089,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 							Longitude: &coordinates[i][1],
 						},
 					},
-				}, []float32{0.5}, nil, nil)
+				}, []float32{0.5}, nil, nil, 0)
 			}
 		}
 	}
@@ -1233,7 +1233,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
 			})
 		}
 	})
@@ -1604,7 +1604,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		for i, obj := range objects {
 			t.Run(fmt.Sprintf("importing object %d", i), func(t *testing.T) {
 				require.Nil(t,
-					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil))
+					repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, 0))
 			})
 		}
 	})
@@ -1634,7 +1634,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	})
 
 	t.Run("Delete object and filter again", func(t *testing.T) {
-		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, nil, "")
+		repo.DeleteObject(context.Background(), "DeletionClass", UUID2, nil, "", 0)
 
 		filterNil := buildFilter("other", true, null, dtBool)
 		paramsNil := dto.GetParams{

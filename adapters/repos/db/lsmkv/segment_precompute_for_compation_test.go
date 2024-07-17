@@ -55,7 +55,7 @@ func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []Buc
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -115,7 +115,7 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 
 	logger, _ := test.NewNullLogger()
 
-	b, err := NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)

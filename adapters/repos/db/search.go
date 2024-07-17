@@ -30,19 +30,20 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
 func (db *DB) Aggregate(ctx context.Context,
-	params aggregation.Params,
+	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	return idx.aggregate(ctx, params)
+	return idx.aggregate(ctx, params, modules)
 }
 
 func (db *DB) GetQueryMaximumResults() int {
@@ -237,8 +238,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		return nil, nil
 	}
 	if len(q.Sort) > 0 {
-		scheme := db.schemaGetter.GetSchemaSkipAuth()
-		if err := filters.ValidateSort(scheme, schema.ClassName(q.Class), q.Sort); err != nil {
+		if err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, schema.ClassName(q.Class), q.Sort); err != nil {
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
@@ -308,7 +308,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 						continue
 					}
 					// tenant does belong to this class
-					if errors.As(err, &errTenantNotFound) {
+					if errors.Is(err, enterrors.ErrTenantNotFound) {
 						continue // tenant does belong to this class
 					}
 				}
@@ -362,12 +362,9 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 func (db *DB) validateSort(sort []filters.Sort) error {
 	if len(sort) > 0 {
 		var errorMsgs []string
-		// needs to happen before the index lock as they might deadlock each other
-		schema := db.schemaGetter.GetSchemaSkipAuth()
 		db.indexLock.RLock()
 		for _, index := range db.indices {
-			err := filters.ValidateSort(schema,
-				index.Config.ClassName, sort)
+			err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, index.Config.ClassName, sort)
 			if err != nil {
 				errorMsg := errors.Wrapf(err, "search index %s", index.ID()).Error()
 				errorMsgs = append(errorMsgs, errorMsg)

@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/img2vec-neural/ent"
@@ -39,12 +38,12 @@ type Client interface {
 
 type ClassSettings interface {
 	ImageField(property string) bool
+	Properties() ([]string, error)
 }
 
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, comp, cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
@@ -57,44 +56,33 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 	return res.Vector, nil
 }
 
-func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	ichek := NewClassSettings(cfg)
-	prevVector := comp.PrevVector()
-	if cfg.TargetVector() != "" {
-		prevVector = comp.PrevVectorForName(cfg.TargetVector())
-	}
-
-	vectorize := prevVector == nil
 
 	// vectorize image
 	images := []string{}
 
-	it := comp.PropsIterator()
-	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
-		if !ichek.ImageField(propName) {
-			continue
+	if object.Properties != nil {
+		schemamap := object.Properties.(map[string]interface{})
+		for _, propName := range moduletools.SortStringKeys(schemamap) {
+			if !ichek.ImageField(propName) {
+				continue
+			}
+
+			switch val := schemamap[propName].(type) {
+			case string:
+				images = append(images, val)
+
+			default:
+			}
+
 		}
-
-		switch typed := propValue.(type) {
-		case string:
-			vectorize = vectorize || comp.IsChanged(propName)
-			images = append(images, typed)
-
-		case nil:
-			vectorize = vectorize || comp.IsChanged(propName)
-		}
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
 	for i, image := range images {
-		imgID := fmt.Sprintf("%s_%v", id, i)
+		imgID := fmt.Sprintf("%s_%v", object.ID, i)
 		vector, err := v.VectorizeImage(ctx, imgID, image, cfg)
 		if err != nil {
 			return nil, err

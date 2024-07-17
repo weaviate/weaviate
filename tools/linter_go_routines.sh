@@ -7,6 +7,9 @@ all_files=$(git ls-files | grep -E '\.go$' | grep -vE '_test\.go$')
 # Get all files with 'go ' in them, ignoring lines that start with a comment
 files=$(grep -E -l '^[[:space:]]*[^/]*go ' ${all_files})
 
+found_error=false
+
+
 # check for permitted ussage (generated files and a few more things)
 for file in $files; do
     # wrapper
@@ -24,11 +27,6 @@ for file in $files; do
         continue
     fi
 
-    # too many callers from too many different places
-    if [ "$file" == "adapters/repos/db/vector/compressionhelpers/utils.go" ]; then
-        continue
-    fi
-
     # race happens when replacing the direct goroutine with a wrapper. Not important enough to investigate as nobody is
     # using classification.
     if [ "$file" == "usecases/classification/classifier_run.go" ]; then
@@ -36,5 +34,10 @@ for file in $files; do
     fi
 
     echo "Error: $file uses direct goroutines. Please use entities/errors/go_wrapper.go instead."
-    exit 1
+    found_error=true
 done
+
+
+if [ "$found_error" = true ]; then
+    exit 1
+fi

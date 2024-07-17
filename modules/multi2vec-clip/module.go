@@ -17,6 +17,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -39,6 +41,7 @@ type ClipModule struct {
 	nearTextSearcher         modulecapabilities.Searcher
 	nearTextTransformer      modulecapabilities.TextTransform
 	metaClient               metaClient
+	logger                   logrus.FieldLogger
 }
 
 type metaClient interface {
@@ -46,8 +49,7 @@ type metaClient interface {
 }
 
 type imageVectorizer interface {
-	Object(ctx context.Context, obj *models.Object, comp moduletools.VectorizablePropsComparator,
-		cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
+	Object(ctx context.Context, obj *models.Object, cfg moduletools.ClassConfig) ([]float32, models.AdditionalProperties, error)
 	VectorizeImage(ctx context.Context, id, image string, cfg moduletools.ClassConfig) ([]float32, error)
 }
 
@@ -67,6 +69,7 @@ func (m *ClipModule) Type() modulecapabilities.ModuleType {
 func (m *ClipModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
+	m.logger = params.GetLogger()
 	if err := m.initVectorizer(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
 		return errors.Wrap(err, "init vectorizer")
 	}
@@ -123,9 +126,13 @@ func (m *ClipModule) RootHandler() http.Handler {
 }
 
 func (m *ClipModule) VectorizeObject(ctx context.Context,
-	obj *models.Object, comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	return m.imageVectorizer.Object(ctx, obj, comp, cfg)
+	return m.imageVectorizer.Object(ctx, obj, cfg)
+}
+
+func (m *ClipModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.imageVectorizer.Object)
 }
 
 func (m *ClipModule) MetaInfo() (map[string]interface{}, error) {
@@ -136,6 +143,12 @@ func (m *ClipModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.textVectorizer.Texts(ctx, []string{input}, cfg)
+}
+
+func (m *ClipModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+	ichek := vectorizer.NewClassSettings(cfg)
+	mediaProps, err := ichek.Properties()
+	return false, mediaProps, err
 }
 
 // verify we implement the modules.Module interface

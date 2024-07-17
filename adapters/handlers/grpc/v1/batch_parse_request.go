@@ -33,7 +33,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*models.Object, map[int]int, map[int]error) {
+func batchFromProto(req *pb.BatchObjectsRequest, getClass func(string) *models.Class) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
@@ -41,7 +41,6 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 
 	insertCounter := 0
 	for i, obj := range objectsBatch {
-		class := scheme.GetClass(schema.ClassName(obj.Collection))
 		var props map[string]interface{}
 		if obj.Properties != nil {
 			props = extractPrimitiveProperties(&pb.ObjectPropertiesValue{
@@ -54,13 +53,17 @@ func batchFromProto(req *pb.BatchObjectsRequest, scheme schema.Schema) ([]*model
 				ObjectArrayProperties:  obj.Properties.ObjectArrayProperties,
 				EmptyListProps:         obj.Properties.EmptyListProps,
 			})
-			if err := extractSingleRefTarget(class, obj.Properties.SingleTargetRefProps, props); err != nil {
-				objectErrors[i] = err
-				continue
-			}
-			if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props); err != nil {
-				objectErrors[i] = err
-				continue
+			// If class is not in schema, continue as there is no ref to extract
+			class := getClass(obj.Collection)
+			if class != nil {
+				if err := extractSingleRefTarget(class, obj.Properties.SingleTargetRefProps, props); err != nil {
+					objectErrors[i] = err
+					continue
+				}
+				if err := extractMultiRefTarget(class, obj.Properties.MultiTargetRefProps, props); err != nil {
+					objectErrors[i] = err
+					continue
+				}
 			}
 		}
 

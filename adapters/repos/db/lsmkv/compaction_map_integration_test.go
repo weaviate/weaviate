@@ -298,7 +298,7 @@ func compactionMapStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -445,7 +445,7 @@ func compactionMapStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -574,7 +574,7 @@ func compactionMapStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+				b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 				require.Nil(t, err)
 

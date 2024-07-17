@@ -17,8 +17,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -57,6 +57,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{path, StatusInternalServerError, err}
 	}
 
+	ctx = classcache.ContextWithClassCache(ctx)
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch err.(type) {
@@ -70,8 +71,8 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"not found", StatusNotFound, err}
 	}
 
-	err = m.autoSchemaManager.autoSchema(ctx, principal, updates, false)
-	if err != nil {
+	var schemaVersion uint64
+	if schemaVersion, err = m.autoSchemaManager.autoSchema(ctx, principal, false, updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, NewErrInvalidUserInput("invalid object: %v", err)}
 	}
 
@@ -94,18 +95,18 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant)
+	return m.patchObject(ctx, principal, prevObj, updates, repl, propertiesToDelete, updates.Tenant, schemaVersion)
 }
 
 // patchObject patches an existing object obj with updates
 func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	prevObj, updates *models.Object, repl *additional.ReplicationProperties,
-	propertiesToDelete []string, tenant string,
+	propertiesToDelete []string, tenant string, schemaVersion uint64,
 ) *Error {
 	cls, id := updates.Class, updates.ID
 	primitive, refs := m.splitPrimitiveAndRefs(updates.Properties.(map[string]interface{}), cls, id)
 	objWithVec, err := m.mergeObjectSchemaAndVectorize(ctx, cls, prevObj.Properties,
-		primitive, principal, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors)
+		primitive, principal, prevObj.Vector, updates.Vector, prevObj.Vectors, updates.Vectors, updates.ID)
 	if err != nil {
 		return &Error{"merge and vectorize", StatusInternalServerError, err}
 	}
@@ -124,7 +125,15 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 		mergeDoc.AdditionalProperties = objWithVec.Additional
 	}
 
-	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant); err != nil {
+	// Ensure that the local schema has caught up to the version we used to validate
+	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return &Error{
+			Msg:  fmt.Sprintf("error waiting for local schema to catch up to version %d", schemaVersion),
+			Code: StatusInternalServerError,
+			Err:  err,
+		}
+	}
+	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, schemaVersion); err != nil {
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 
@@ -147,24 +156,21 @@ func (m *Manager) validateInputs(updates *models.Object) error {
 func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className string,
 	prevPropsSch models.PropertySchema, nextProps map[string]interface{},
 	principal *models.Principal, prevVec, nextVec []float32,
-	prevVecs models.Vectors, nextVecs models.Vectors,
+	prevVecs models.Vectors, nextVecs models.Vectors, id strfmt.UUID,
 ) (*models.Object, error) {
-	class, err := m.schemaManager.GetClass(ctx, principal, className)
+	vclasses, err := m.schemaManager.GetCachedClass(ctx, principal, className)
 	if err != nil {
 		return nil, err
 	}
+	vclass := vclasses[className]
+	class := vclass.Class
 
 	var mergedProps map[string]interface{}
-	var compFactory moduletools.PropsComparatorFactory
 
 	vector := nextVec
 	vectors := nextVecs
 	if prevPropsSch == nil {
 		mergedProps = nextProps
-
-		compFactory = func() (moduletools.VectorizablePropsComparator, error) {
-			return moduletools.NewVectorizablePropsComparatorDummy(class.Properties, mergedProps), nil
-		}
 	} else {
 		prevProps, ok := prevPropsSch.(map[string]interface{})
 		if !ok {
@@ -178,16 +184,12 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 		for propName, propValue := range nextProps {
 			mergedProps[propName] = propValue
 		}
-
-		compFactory = func() (moduletools.VectorizablePropsComparator, error) {
-			return moduletools.NewVectorizablePropsComparator(class.Properties, mergedProps, prevProps, prevVec, prevVecs), nil
-		}
 	}
 
 	// Note: vector could be a nil vector in case a vectorizer is configured,
 	// then the vectorizer will set it
-	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors}
-	if err := m.modulesProvider.UpdateVector(ctx, obj, class, compFactory, m.findObject, m.logger); err != nil {
+	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors, ID: id}
+	if err := m.modulesProvider.UpdateVector(ctx, obj, class, m.findObject, m.logger); err != nil {
 		return nil, err
 	}
 

@@ -27,8 +27,9 @@ import (
 const (
 	// Version > version1 support compression
 	// "2.1" support restore on 2 phases
+	Version = "2.1"
 	// "2.0" support compression
-	Version = "2.0"
+	// Version = "2.0"
 	// version1 store plain files without compression
 	version1 = "1.0"
 )
@@ -55,6 +56,10 @@ type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 	AllNames() []string
 	NodeCount() int
+
+	// LeaderID is used to return the current leader ID
+	// It may return empty strings if there is no current leader or the leader is unknown.
+	LeaderID() string
 }
 
 type Status struct {
@@ -94,7 +99,6 @@ func NewHandler(
 		restorer: newRestorer(node, logger,
 			sourcer,
 			backends,
-			schema,
 		),
 	}
 	return m
@@ -169,7 +173,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = fmt.Sprintf("init uploader: %v", err)
 			return ret
 		}
-		res, err := m.backupper.backup(ctx, store, req)
+		res, err := m.backupper.backup(store, req)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret
@@ -181,7 +185,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = err.Error()
 			return ret
 		}
-		res, err := m.restorer.restore(ctx, req, meta, store)
+		res, err := m.restorer.restore(req, meta, store)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret

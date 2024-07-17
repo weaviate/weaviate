@@ -16,7 +16,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/multi2vec-palm/ent"
@@ -51,9 +50,9 @@ type ClassSettings interface {
 }
 
 func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+	cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, comp, cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
@@ -83,55 +82,40 @@ func (v *Vectorizer) VectorizeVideo(ctx context.Context,
 	return res.VideoVectors[0], nil
 }
 
-func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object,
+	cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	ichek := NewClassSettings(cfg)
-	prevVector := comp.PrevVector()
-	if cfg.TargetVector() != "" {
-		prevVector = comp.PrevVectorForName(cfg.TargetVector())
-	}
-
-	vectorize := prevVector == nil
 
 	// vectorize image and text
 	texts := []string{}
 	images := []string{}
 	videos := []string{}
 
-	it := comp.PropsIterator()
-	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
-		switch typed := propValue.(type) {
-		case string:
-			if ichek.ImageField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				images = append(images, typed)
-			}
-			if ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed)
-			}
-			if ichek.VideoField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				videos = append(videos, typed)
-			}
+	if object.Properties != nil {
+		schemamap := object.Properties.(map[string]interface{})
+		for _, propName := range moduletools.SortStringKeys(schemamap) {
+			switch val := schemamap[propName].(type) {
+			case string:
+				if ichek.ImageField(propName) {
+					images = append(images, val)
+				}
+				if ichek.TextField(propName) {
+					texts = append(texts, val)
+				}
+				if ichek.VideoField(propName) {
+					videos = append(videos, val)
+				}
 
-		case []string:
-			if ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed...)
-			}
+			case []string:
+				if ichek.TextField(propName) {
+					texts = append(texts, val...)
+				}
+			default: // properties that are not part of the object
 
-		case nil:
-			if ichek.ImageField(propName) || ichek.TextField(propName) || ichek.VideoField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
 			}
 		}
-	}
 
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return prevVector, nil
 	}
 
 	vectors := [][]float32{}

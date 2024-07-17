@@ -28,7 +28,7 @@ import (
 // https://github.com/weaviate/weaviate/issues/981
 func TestInvalidDataTypeInProperty(t *testing.T) {
 	t.Parallel()
-	className := "WrongPropertyClass"
+	className := t.Name()
 
 	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
 		assert.NotContains(t, GetObjectClassNames(t), className)
@@ -58,7 +58,7 @@ func TestInvalidDataTypeInProperty(t *testing.T) {
 
 func TestInvalidPropertyName(t *testing.T) {
 	t.Parallel()
-	className := "WrongPropertyClass"
+	className := t.Name()
 
 	t.Run("asserting that this class does not exist yet", func(t *testing.T) {
 		assert.NotContains(t, GetObjectClassNames(t), className)
@@ -122,14 +122,6 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 
 	// And verify that the class does not exist anymore.
 	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
-
-	t.Log("Verify schema cluster status")
-	statusResp, err := helper.Client(t).Schema.SchemaClusterStatus(
-		clschema.NewSchemaClusterStatusParams(), nil,
-	)
-	require.Nil(t, err)
-	assert.Equal(t, "", statusResp.Payload.Error)
-	assert.True(t, statusResp.Payload.Healthy)
 }
 
 // This test prevents a regression on

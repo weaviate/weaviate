@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -34,6 +35,7 @@ import (
 
 func Test_NoRaceCompressionRecall(t *testing.T) {
 	path := t.TempDir()
+	logger, _ := test.NewNullLogger()
 
 	efConstruction := 4
 	ef := 64
@@ -54,8 +56,8 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 	allowList.Insert(makeRange(0, uint64(vectors_size))...)
 
 	truths := make([][]uint64, queries_size)
-	compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
-		truths[i], _ = testinghelpers.BruteForce(vectors, queries[i], k, distanceWrapper(distancer))
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
 	})
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
@@ -87,7 +89,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 	}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	init := time.Now()
-	compressionhelpers.Concurrently(uint64(vectors_size), func(id uint64) {
+	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(id uint64) {
 		index.Add(id, vectors[id])
 	})
 	before = time.Now()
@@ -110,7 +112,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 		var retrieved int
 
 		mutex := sync.Mutex{}
-		compressionhelpers.Concurrently(uint64(len(queries)), func(i uint64) {
+		compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 			results, _, _ := index.flatSearch(queries[i], k, 100, allowList)
 			mutex.Lock()
 			retrieved += k

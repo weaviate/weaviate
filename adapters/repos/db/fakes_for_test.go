@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 type fakeSchemaGetter struct {
@@ -41,6 +42,10 @@ type fakeSchemaGetter struct {
 
 func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
+}
+
+func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
+	return f.schema.GetClass(class)
 }
 
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
@@ -68,8 +73,18 @@ func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) 
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaGetter) TenantShard(class, tenant string) (string, string) {
-	return tenant, models.TenantActivityStatusHOT
+func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	res := map[string]string{}
+	for _, t := range tenants {
+		res[t] = models.TenantActivityStatusHOT
+	}
+	return res, nil
+}
+
+func (f *fakeSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
 }
 
 func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string {
@@ -93,8 +108,12 @@ func (f fakeSchemaGetter) ResolveParentNodes(_ string, shard string) (map[string
 	return nil, nil
 }
 
+func (f fakeSchemaGetter) Statistics() map[string]any {
+	return nil
+}
+
 func singleShardState() *sharding.State {
-	config, err := sharding.ParseConfig(nil, 1)
+	config, err := shardingConfig.ParseConfig(nil, 1)
 	if err != nil {
 		panic(err)
 	}
@@ -108,7 +127,7 @@ func singleShardState() *sharding.State {
 }
 
 func multiShardState() *sharding.State {
-	config, err := sharding.ParseConfig(map[string]interface{}{
+	config, err := shardingConfig.ParseConfig(map[string]interface{}{
 		"desiredCount": json.Number("3"),
 	}, 1)
 	if err != nil {
@@ -154,12 +173,12 @@ func (f fakeNodes) LocalName() string {
 
 type fakeRemoteClient struct{}
 
-func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties) []error {
+func (f *fakeRemoteClient) BatchPutObjects(ctx context.Context, hostName, indexName, shardName string, objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error {
 	return nil
 }
 
 func (f *fakeRemoteClient) PutObject(ctx context.Context, hostName, indexName,
-	shardName string, obj *storobj.Object,
+	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {
 	return nil
 }
@@ -178,13 +197,13 @@ func (f *fakeRemoteClient) Exists(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) DeleteObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID,
+	shardName string, id strfmt.UUID, schemaVersion uint64,
 ) error {
 	return nil
 }
 
 func (f *fakeRemoteClient) MergeObject(ctx context.Context, hostName, indexName,
-	shardName string, mergeDoc objects.MergeDocument,
+	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
 	return nil
 }
@@ -210,7 +229,7 @@ func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) BatchAddReferences(ctx context.Context, hostName,
-	indexName, shardName string, refs objects.BatchReferences,
+	indexName, shardName string, refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	return nil
 }
@@ -222,7 +241,7 @@ func (f *fakeRemoteClient) FindUUIDs(ctx context.Context, hostName, indexName, s
 }
 
 func (f *fakeRemoteClient) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	return nil
 }
@@ -240,7 +259,7 @@ func (f *fakeRemoteClient) GetShardStatus(ctx context.Context,
 }
 
 func (f *fakeRemoteClient) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string,
+	targetStatus string, schemaVersion uint64,
 ) error {
 	return nil
 }
@@ -263,40 +282,44 @@ func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, clas
 	return &models.NodeStatus{}, nil
 }
 
+func (f *fakeRemoteNodeClient) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+	return &models.Statistics{}, nil
+}
+
 type fakeReplicationClient struct{}
 
 func (f *fakeReplicationClient) PutObject(ctx context.Context, host, index, shard, requestID string,
-	obj *storobj.Object,
+	obj *storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) DeleteObject(ctx context.Context, host, index, shard, requestID string,
-	id strfmt.UUID,
+	id strfmt.UUID, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) PutObjects(ctx context.Context, host, index, shard, requestID string,
-	objs []*storobj.Object,
+	objs []*storobj.Object, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) MergeObject(ctx context.Context, host, index, shard, requestID string,
-	mergeDoc *objects.MergeDocument,
+	mergeDoc *objects.MergeDocument, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }
 
 func (f *fakeReplicationClient) AddReferences(ctx context.Context, host, index, shard, requestID string,
-	refs []objects.BatchReference,
+	refs []objects.BatchReference, schemaVersion uint64,
 ) (replica.SimpleResponse, error) {
 	return replica.SimpleResponse{}, nil
 }

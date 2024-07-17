@@ -26,6 +26,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
+const (
+	DefaultRaftPort             = 8300
+	DefaultRaftInternalPort     = 8301
+	DefaultRaftGRPCMaxSize      = 1024 * 1024 * 1024
+	DefaultRaftBootstrapTimeout = 90
+	DefaultRaftBootstrapExpect  = 1
+	DefaultRaftDir              = "raft"
+)
+
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
@@ -86,6 +95,17 @@ func FromEnv(config *Config) error {
 		}
 
 		config.Monitoring.Port = asInt
+	}
+
+<<<<<<< HEAD
+	if entcfg.Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
+	if v := os.Getenv("PROFILING_PORT"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse PROFILING_PORT as int: %w", err)
+		}
+
+		config.Profiling.Port = asInt
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED")) {
@@ -364,6 +384,10 @@ func FromEnv(config *Config) error {
 
 	config.DisableGraphQL = entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL"))
 
+	if config.Raft, err = parseRAFTConfig(config.Cluster.Hostname); err != nil {
+		return fmt.Errorf("parse raft config: %w", err)
+	}
+
 	if err := parsePositiveInt(
 		"REPLICATION_MINIMUM_FACTOR",
 		func(val int) { config.Replication.MinimumFactor = val },
@@ -389,6 +413,102 @@ func FromEnv(config *Config) error {
 	}
 
 	return nil
+}
+
+func parseRAFTConfig(hostname string) (Raft, error) {
+	// flag.IntVar()
+	cfg := Raft{
+		MetadataOnlyVoters: entcfg.Enabled(os.Getenv("RAFT_METADATA_ONLY_VOTERS")),
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_PORT",
+		func(val int) { cfg.Port = val },
+		DefaultRaftPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_INTERNAL_RPC_PORT",
+		func(val int) { cfg.InternalRPCPort = val },
+		DefaultRaftInternalPort,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_GRPC_MESSAGE_MAX_SIZE",
+		func(val int) { cfg.RPCMessageMaxSize = val },
+		DefaultRaftGRPCMaxSize,
+	); err != nil {
+		return cfg, err
+	}
+
+	parseStringList(
+		"RAFT_JOIN",
+		func(val []string) { cfg.Join = val },
+		// Default RAFT_JOIN must be the configured node name and the configured raft port. This allows us to have a one-node raft cluster
+		// able to bootstrap itself if the user doesn't pass any raft parameter.
+		[]string{fmt.Sprintf("%s:%d", hostname, cfg.InternalRPCPort)},
+	)
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_TIMEOUT",
+		func(val int) { cfg.BootstrapTimeout = time.Second * time.Duration(val) },
+		DefaultRaftBootstrapTimeout,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_BOOTSTRAP_EXPECT",
+		func(val int) { cfg.BootstrapExpect = val },
+		DefaultRaftBootstrapExpect,
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_HEARTBEAT_TIMEOUT",
+		func(val int) { cfg.HeartbeatTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_ELECTION_TIMEOUT",
+		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_SNAPSHOT_INTERVAL",
+		func(val int) { cfg.SnapshotInterval = time.Second * time.Duration(val) },
+		120, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_SNAPSHOT_THRESHOLD",
+		func(val int) { cfg.SnapshotThreshold = uint64(val) },
+		8192, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
+		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
+		10,
+	); err != nil {
+		return cfg, err
+	}
+
+	return cfg, nil
 }
 
 func (c *Config) parseCORSConfig() error {
@@ -507,6 +627,14 @@ const DefaultGossipBindPort = 7946
 // TODO: This should be retrieved dynamically from all installed modules
 const VectorizerModuleText2VecContextionary = "text2vec-contextionary"
 
+func parseStringList(varName string, cb func(val []string), defaultValue []string) {
+	if v := os.Getenv(varName); v != "" {
+		cb(strings.Split(v, ","))
+	} else {
+		cb(defaultValue)
+	}
+}
+
 func parseResourceUsageEnvVars() (ResourceUsage, error) {
 	ru := ResourceUsage{}
 
@@ -556,12 +684,20 @@ func parseResourceUsageEnvVars() (ResourceUsage, error) {
 func parseClusterConfig() (cluster.Config, error) {
 	cfg := cluster.Config{}
 
+	// by default memberlist assigns hostname to os.Hostname() incase hostname is empty
+	// ref: https://github.com/hashicorp/memberlist/blob/3f82dc10a89f82efe300228752f7077d0d9f87e4/config.go#L303
+	// it's handled at parseClusterConfig step to be consistent from the config start point and conveyed to all
+	// underlying functions see parseRAFTConfig(..) for example
 	cfg.Hostname = os.Getenv("CLUSTER_HOSTNAME")
+	if cfg.Hostname == "" {
+		cfg.Hostname, _ = os.Hostname()
+	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
 
 	advertiseAddr, advertiseAddrSet := os.LookupEnv("CLUSTER_ADVERTISE_ADDR")
 	advertisePort, advertisePortSet := os.LookupEnv("CLUSTER_ADVERTISE_PORT")
 
+	cfg.Localhost = entcfg.Enabled(os.Getenv("CLUSTER_IN_LOCALHOST"))
 	gossipBind, gossipBindSet := os.LookupEnv("CLUSTER_GOSSIP_BIND_PORT")
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
 

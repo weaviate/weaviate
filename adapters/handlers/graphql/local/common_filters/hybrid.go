@@ -34,9 +34,29 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 			subsearches = append(subsearches, operandMap)
 		}
 	}
+	var args searchparams.HybridSearch
+	namedSearchesI := source["searches"]
+	if namedSearchesI != nil {
+		namedSearchess := namedSearchesI.([]interface{})
+		namedSearches := namedSearchess[0].(map[string]interface{})
+		// TODO: add bm25 here too
+		if namedSearches["nearText"] != nil {
+			nearText := namedSearches["nearText"].(map[string]interface{})
+			arguments, _ := ExtractNearText(nearText)
+
+			args.NearTextParams = &arguments
+		}
+
+		if namedSearches["nearVector"] != nil {
+			nearVector := namedSearches["nearVector"].(map[string]interface{})
+			arguments, _ := ExtractNearVector(nearVector)
+			args.NearVectorParams = &arguments
+
+		}
+	}
 
 	var weightedSearchResults []searchparams.WeightedSearchResult
-	var args searchparams.HybridSearch
+
 	for _, ss := range subsearches {
 		subsearch := ss.(map[string]interface{})
 		switch {
@@ -123,5 +143,16 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	}
 
 	args.Type = "hybrid"
+
+	if args.NearTextParams != nil && args.NearVectorParams != nil {
+		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
+	}
+	if args.Vector != nil && args.NearTextParams != nil {
+		return nil, fmt.Errorf("cannot have both vector and nearTextParams")
+	}
+	if args.Vector != nil && args.NearVectorParams != nil {
+		return nil, fmt.Errorf("cannot have both vector and nearVectorParams")
+	}
+
 	return &args, nil
 }

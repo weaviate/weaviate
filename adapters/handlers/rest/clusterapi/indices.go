@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	reposdb "github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -36,7 +37,6 @@ import (
 )
 
 type indices struct {
-	logger                 logrus.FieldLogger
 	shards                 shards
 	db                     db
 	auth                   auth
@@ -54,6 +54,8 @@ type indices struct {
 	regexpShardFiles          *regexp.Regexp
 	regexpShard               *regexp.Regexp
 	regexpShardReinit         *regexp.Regexp
+
+	logger logrus.FieldLogger
 }
 
 const (
@@ -91,20 +93,20 @@ const (
 
 type shards interface {
 	PutObject(ctx context.Context, indexName, shardName string,
-		obj *storobj.Object) error
+		obj *storobj.Object, schemaVersion uint64) error
 	BatchPutObjects(ctx context.Context, indexName, shardName string,
-		objs []*storobj.Object) []error
+		objs []*storobj.Object, schemaVersion uint64) []error
 	BatchAddReferences(ctx context.Context, indexName, shardName string,
-		refs objects.BatchReferences) []error
+		refs objects.BatchReferences, schemaVersion uint64) []error
 	GetObject(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID, selectProperties search.SelectProperties,
 		additional additional.Properties) (*storobj.Object, error)
 	Exists(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, indexName, shardName string,
-		id strfmt.UUID) error
+		id strfmt.UUID, schemaVersion uint64) error
 	MergeObject(ctx context.Context, indexName, shardName string,
-		mergeDoc objects.MergeDocument) error
+		mergeDoc objects.MergeDocument, schemaVersion uint64) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
 		id []strfmt.UUID) ([]*storobj.Object, error)
 	Search(ctx context.Context, indexName, shardName string,
@@ -118,11 +120,11 @@ type shards interface {
 	FindUUIDs(ctx context.Context, indexName, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
-		uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
-		targetStatus string) error
+		targetStatus string, schemaVersion uint64) error
 
 	// Replication-specific
 	OverwriteObjects(ctx context.Context, indexName, shardName string,
@@ -343,7 +345,13 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	if err := i.shards.PutObject(r.Context(), index, shard, obj); err != nil {
+	schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := i.shards.PutObject(r.Context(), index, shard, obj, schemaVersion); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -366,7 +374,17 @@ func (i *indices) postObjectBatch(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs)
+	schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	errs := i.shards.BatchPutObjects(r.Context(), index, shard, objs, schemaVersion)
+	if len(errs) > 0 && errors.Is(errs[0], reposdb.ErrShardNotFound) {
+		http.Error(w, errs[0].Error(), http.StatusInternalServerError)
+		return
+	}
 	errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -500,7 +518,13 @@ func (i *indices) deleteObject() http.Handler {
 
 		defer r.Body.Close()
 
-		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id))
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
@@ -539,7 +563,13 @@ func (i *indices) mergeObject() http.Handler {
 			return
 		}
 
-		if err := i.shards.MergeObject(r.Context(), index, shard, mergeDoc); err != nil {
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err = i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -693,7 +723,13 @@ func (i *indices) postReferences() http.Handler {
 			return
 		}
 
-		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		errs := i.shards.BatchAddReferences(r.Context(), index, shard, refs, schemaVersion)
 		errsJSON, err := IndicesPayloads.ErrorList.Marshal(errs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -953,7 +989,13 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, dryRun)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, dryRun, schemaVersion)
 
 		resBytes, err := IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {
@@ -1071,7 +1113,13 @@ func (i *indices) postUpdateShardStatus() http.Handler {
 			return
 		}
 
-		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus)
+		schemaVersion, err := extractSchemaVersionFromUrlQuery(r.URL.Query())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err = i.shards.UpdateShardStatus(r.Context(), index, shard, targetStatus, schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -1139,7 +1187,7 @@ func (i *indices) postShard() http.Handler {
 func (i *indices) putShardReinit() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpShardReinit.FindStringSubmatch(r.URL.Path)
-		fmt.Println(args)
+
 		if len(args) != 3 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return

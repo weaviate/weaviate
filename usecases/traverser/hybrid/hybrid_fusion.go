@@ -28,7 +28,7 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 			}
 			tempResult := res
 			docId := tempResult.ID
-			score := weights[resultSetIndex] / float64(i+60) // TODO replace 60 with a class configured variable in the schema
+			score := float32(weights[resultSetIndex] / float64(i+60)) // TODO replace 60 with a class configured variable in the schema
 
 			if tempResult.AdditionalProperties == nil {
 				tempResult.AdditionalProperties = map[string]interface{}{}
@@ -40,7 +40,7 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
 					"%v\nHybrid (Result Set %v) Document %v contributed %v to the score",
 					previousResult.AdditionalProperties["explainScore"], setNames[resultSetIndex], tempResult.ID, score)
-				score += float64(previousResult.Score)
+				score += previousResult.Score
 			} else {
 				tempResult.AdditionalProperties["explainScore"] = fmt.Sprintf(
 					"%v\nHybrid (Result Set %v) Document %v contributed %v to the score",
@@ -56,22 +56,22 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 
 	// Sort the results
 	var (
-		concat = make([]*search.Result, len(combinedResults))
-		i      = 0
+		sortList = make([]*search.Result, len(combinedResults))
+		i        = 0
 	)
 	for _, res := range combinedResults {
 		res.ExplainScore = res.AdditionalProperties["explainScore"].(string)
-		concat[i] = res
+		sortList[i] = res
 		i++
 	}
 
-	sort.Slice(concat, func(i, j int) bool {
-		if concat[j].Score == concat[i].Score {
-			return concat[i].SecondarySortValue > concat[j].SecondarySortValue
+	sort.Slice(sortList, func(i, j int) bool {
+		if sortList[j].Score == sortList[i].Score {
+			return sortList[i].SecondarySortValue > sortList[j].SecondarySortValue
 		}
-		return float64(concat[i].Score) > float64(concat[j].Score)
+		return float64(sortList[i].Score) > float64(sortList[j].Score)
 	})
-	return concat
+	return sortList
 }
 
 // FusionRelativeScore uses the relative differences in the scores from keyword and vector search to combine the
@@ -85,7 +85,7 @@ func FusionRanked(weights []float64, resultSets [][]*search.Result, setNames []s
 //
 // The normalized scores are then combined using their respective weight and the combined scores are sorted
 func FusionRelativeScore(weights []float64, resultSets [][]*search.Result, names []string) []*search.Result {
-	if len(resultSets[0]) == 0 && (len(resultSets) == 1 || len(resultSets[1]) == 0) {
+	if len(resultSets) == 0 || len(resultSets[0]) == 0 && (len(resultSets) == 1 || len(resultSets[1]) == 0) {
 		return []*search.Result{}
 	}
 

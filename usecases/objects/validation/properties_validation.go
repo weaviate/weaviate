@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -78,10 +77,7 @@ func (v *Validator) properties(ctx context.Context, class *models.Class,
 		}
 
 		// properties in the class are saved with lower case first letter
-		propertyKeyLowerCase := strings.ToLower(propertyKey[:1])
-		if len(propertyKey) > 1 {
-			propertyKeyLowerCase += propertyKey[1:]
-		}
+		propertyKeyLowerCase := schema.LowercaseFirstLetter(propertyKey)
 		property, err := schema.GetPropertyByName(class, propertyKeyLowerCase)
 		if err != nil {
 			return err

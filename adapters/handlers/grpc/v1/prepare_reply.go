@@ -19,9 +19,10 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/byteops"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	generative "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -32,7 +33,25 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema, usesPropertiesMessage bool) (*pb.SearchReply, error) {
+type mapper interface {
+	NewPrimitiveValue(v interface{}, dt schema.DataType) (*pb.Value, error)
+	NewNestedValue(v interface{}, dt schema.DataType, parent schema.PropertyInterface, prop search.SelectProperty) (*pb.Value, error)
+	NewNilValue() *pb.Value
+}
+
+type Replier struct {
+	mapper  mapper
+	uses123 bool
+}
+
+func NewReplier(uses123, uses125 bool) *Replier {
+	return &Replier{
+		mapper:  &Mapper{uses125: uses125},
+		uses123: uses123,
+	}
+}
+
+func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
 		Took:                    float32(tookSeconds),
@@ -42,7 +61,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 	if searchParams.GroupBy != nil {
 		out.GroupByResults = make([]*pb.GroupByResult, len(res))
 		for i, raw := range res {
-			group, generativeGroupResponse, err := extractGroup(raw, searchParams, scheme, usesPropertiesMessage)
+			group, generativeGroupResponse, err := r.extractGroup(raw, searchParams, scheme)
 			if err != nil {
 				return nil, err
 			}
@@ -52,7 +71,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 			out.GroupByResults[i] = group
 		}
 	} else {
-		objects, generativeGroupResponse, err := extractObjectsToResults(res, searchParams, scheme, false, usesPropertiesMessage)
+		objects, generativeGroupResponse, err := r.extractObjectsToResults(res, searchParams, scheme, false)
 		if err != nil {
 			return nil, err
 		}
@@ -62,7 +81,7 @@ func searchResultsToProto(res []interface{}, start time.Time, searchParams dto.G
 	return out, nil
 }
 
-func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup, usesPropertiesMessage bool) ([]*pb.SearchResult, string, error) {
+func (r *Replier) extractObjectsToResults(res []interface{}, searchParams dto.GetParams, scheme schema.Schema, fromGroup bool) ([]*pb.SearchResult, string, error) {
 	results := make([]*pb.SearchResult, len(res))
 	generativeGroupResultsReturn := ""
 	for i, raw := range res {
@@ -75,16 +94,16 @@ func extractObjectsToResults(res []interface{}, searchParams dto.GetParams, sche
 		var props *pb.PropertiesResult
 		var err error
 
-		if usesPropertiesMessage {
-			props, err = extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
+		if r.uses123 {
+			props, err = r.extractPropertiesAnswer(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		} else {
-			props, err = extractPropertiesAnswerDeprecated(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
+			props, err = r.extractPropertiesAnswerDeprecated(scheme, asMap, searchParams.Properties, searchParams.ClassName, searchParams.AdditionalProperties)
 		}
 		if err != nil {
 			return nil, "", err
 		}
 
-		additionalProps, generativeGroupResults, err := extractAdditionalProps(asMap, searchParams.AdditionalProperties, firstObject, fromGroup)
+		additionalProps, generativeGroupResults, err := r.extractAdditionalProps(asMap, searchParams.AdditionalProperties, firstObject, fromGroup)
 		if err != nil {
 			return nil, "", err
 		}
@@ -116,7 +135,7 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 	return hexInteger.Bytes(), idStrfmtStr, nil
 }
 
-func extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
+func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsParams additional.Properties, firstObject, fromGroup bool) (*pb.MetadataResult, string, error) {
 	generativeSearchRaw, generativeSearchEnabled := additionalPropsParams.ModuleParams["generate"]
 	_, rerankEnabled := additionalPropsParams.ModuleParams["rerank"]
 
@@ -166,13 +185,13 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	}
 
 	if generativeSearchEnabled {
-		var generateFmt *models.GenerateResult
+		var generateFmt *additionalModels.GenerateResult
 
 		generate, ok := additionalPropertiesMap["generate"]
 		if !ok {
-			generateFmt = &models.GenerateResult{}
+			generateFmt = &additionalModels.GenerateResult{}
 		} else {
-			generateFmt, ok = generate.(*models.GenerateResult)
+			generateFmt, ok = generate.(*additionalModels.GenerateResult)
 			if !ok {
 				return nil, "", errors.New("could not cast generative result additional prop")
 			}
@@ -212,7 +231,8 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 		if !ok {
 			return nil, "", errors.New("No results for rerank despite a search request. Is a the rerank module enabled?")
 		}
-		rerankFmt, ok := rerank.([]*models.RankResult)
+
+		rerankFmt, ok := rerank.([]*additionalModels.RankResult)
 		if !ok {
 			return nil, "", errors.New("could not cast rerank result additional prop")
 		}
@@ -335,7 +355,7 @@ func extractAdditionalProps(asMap map[string]any, additionalPropsParams addition
 	return metadata, generativeGroupResults, nil
 }
 
-func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, usesMarshalling bool) (*pb.GroupByResult, string, error) {
+func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema) (*pb.GroupByResult, string, error) {
 	generativeSearchRaw, generativeSearchEnabled := searchParams.AdditionalProperties.ModuleParams["generate"]
 	_, rerankEnabled := searchParams.AdditionalProperties.ModuleParams["rerank"]
 	asMap, ok := raw.(map[string]interface{})
@@ -346,13 +366,16 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 	if !ok {
 		return nil, "", fmt.Errorf("_additional is required for groups %v", asMap)
 	}
-	addAsMap, ok := add.(map[string]interface{})
+	addProps, ok := add.(models.AdditionalProperties)
+	if !ok {
+		addProps, ok = add.(map[string]interface{})
+	}
 	if !ok {
 		return nil, "", fmt.Errorf("cannot parse _additional %v", add)
 	}
-	groupRaw, ok := addAsMap["group"]
+	groupRaw, ok := addProps["group"]
 	if !ok {
-		return nil, "", fmt.Errorf("group is not present %v", addAsMap)
+		return nil, "", fmt.Errorf("group is not present %v", addProps)
 	}
 	group, ok := groupRaw.(*additional.Group)
 	if !ok {
@@ -368,13 +391,13 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 
 	groupedGenerativeResults := ""
 	if generativeSearchEnabled {
-		var generateFmt *models.GenerateResult
+		var generateFmt *additionalModels.GenerateResult
 
-		generate, ok := addAsMap["generate"]
+		generate, ok := addProps["generate"]
 		if !ok {
-			generateFmt = &models.GenerateResult{}
+			generateFmt = &additionalModels.GenerateResult{}
 		} else {
-			generateFmt, ok = generate.(*models.GenerateResult)
+			generateFmt, ok = generate.(*additionalModels.GenerateResult)
 			if !ok {
 				return nil, "", errors.New("could not cast generative result additional prop")
 			}
@@ -405,11 +428,12 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 	}
 
 	if rerankEnabled {
-		rerankRaw, ok := addAsMap["rerank"]
+		rerankRaw, ok := addProps["rerank"]
 		if !ok {
-			return nil, "", fmt.Errorf("rerank is not present %v", addAsMap)
+			return nil, "", fmt.Errorf("rerank is not present %v", addProps)
 		}
-		rerank, ok := rerankRaw.([]*models.RankResult)
+
+		rerank, ok := rerankRaw.([]*additionalModels.RankResult)
 		if !ok {
 			return nil, "", fmt.Errorf("cannot parse rerank %v", rerankRaw)
 		}
@@ -434,7 +458,7 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 		returnObjectsUntyped[i] = group.Hits[i]
 	}
 
-	objects, _, err := extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true, usesMarshalling)
+	objects, _, err := r.extractObjectsToResults(returnObjectsUntyped, searchParams, scheme, true)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "extracting hits from group")
 	}
@@ -444,7 +468,7 @@ func extractGroup(raw any, searchParams dto.GetParams, scheme schema.Schema, use
 	return ret, groupedGenerativeResults, nil
 }
 
-func extractPropertiesAnswerDeprecated(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+func (r *Replier) extractPropertiesAnswerDeprecated(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	nonRefProps := make(map[string]interface{}, 0)
 	refProps := make([]*pb.RefPropertiesResult, 0)
 	objProps := make([]*pb.ObjectProperties, 0)
@@ -459,13 +483,17 @@ func extractPropertiesAnswerDeprecated(scheme schema.Schema, results map[string]
 			continue
 		}
 		if prop.IsObject {
-			nested, err := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(prop.Name))
+			class := scheme.GetClass(className)
+			if class == nil {
+				return nil, fmt.Errorf("could not find class %s in schema", className)
+			}
+			nested, err := schema.GetPropertyByName(class, prop.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "getting property")
 			}
 			singleObj, ok := propRaw.(map[string]interface{})
 			if ok {
-				extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &Property{Property: nested})
+				extractedNestedProp, err := extractPropertiesNested(scheme.GetClass, singleObj, prop, className, &Property{Property: nested})
 				if err != nil {
 					return nil, errors.Wrap(err, "extracting nested properties")
 				}
@@ -483,7 +511,7 @@ func extractPropertiesAnswerDeprecated(scheme schema.Schema, results map[string]
 					if !ok {
 						continue
 					}
-					extractedNestedProp, err := extractPropertiesNested(scheme, singleObj, prop, className, &Property{Property: nested})
+					extractedNestedProp, err := extractPropertiesNested(scheme.GetClass, singleObj, prop, className, &Property{Property: nested})
 					if err != nil {
 						return nil, err
 					}
@@ -508,11 +536,11 @@ func extractPropertiesAnswerDeprecated(scheme schema.Schema, results map[string]
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := extractPropertiesAnswerDeprecated(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
+			extractedRefProp, err := r.extractPropertiesAnswerDeprecated(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
 			if err != nil {
 				continue
 			}
-			additionalProps, _, err := extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			additionalProps, _, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
 			if err != nil {
 				return nil, err
 			}
@@ -526,7 +554,7 @@ func extractPropertiesAnswerDeprecated(scheme schema.Schema, results map[string]
 	props := pb.PropertiesResult{}
 	if len(nonRefProps) > 0 {
 		outProps := pb.ObjectPropertiesValue{}
-		if err := extractArrayTypesRoot(scheme, className, nonRefProps, &outProps); err != nil {
+		if err := extractArrayTypesRoot(scheme.GetClass, className, nonRefProps, &outProps); err != nil {
 			return nil, errors.Wrap(err, "extracting non-primitive types")
 		}
 		newStruct, err := structpb.NewStruct(nonRefProps)
@@ -555,27 +583,30 @@ func extractPropertiesAnswerDeprecated(scheme schema.Schema, results map[string]
 	return &props, nil
 }
 
-func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
+func (r *Replier) extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{}, properties search.SelectProperties, className string, additionalPropsParams additional.Properties) (*pb.PropertiesResult, error) {
 	nonRefProps := &pb.Properties{
 		Fields: make(map[string]*pb.Value, 0),
 	}
 	refProps := make([]*pb.RefPropertiesResult, 0)
-	class := scheme.GetClass(schema.ClassName(className))
 	for _, prop := range properties {
 		propRaw, ok := results[prop.Name]
 
 		if !ok {
 			if prop.IsPrimitive || prop.IsObject {
-				nonRefProps.Fields[prop.Name] = NewNilValue()
+				nonRefProps.Fields[prop.Name] = r.mapper.NewNilValue()
 			}
 			continue
 		}
 		if prop.IsPrimitive {
+			class := scheme.GetClass(className)
+			if class == nil {
+				return nil, fmt.Errorf("could not find class %s in schema", className)
+			}
 			dataType, err := schema.GetPropertyDataType(class, prop.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "getting primitive property datatype")
 			}
-			value, err := NewPrimitiveValue(propRaw, *dataType)
+			value, err := r.mapper.NewPrimitiveValue(propRaw, *dataType)
 			if err != nil {
 				return nil, errors.Wrapf(err, "creating primitive value for %v", prop.Name)
 			}
@@ -583,11 +614,15 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 			continue
 		}
 		if prop.IsObject {
-			nested, err := scheme.GetProperty(schema.ClassName(className), schema.PropertyName(prop.Name))
+			class := scheme.GetClass(className)
+			if class == nil {
+				return nil, fmt.Errorf("could not find class %s in schema", className)
+			}
+			nested, err := schema.GetPropertyByName(class, prop.Name)
 			if err != nil {
 				return nil, errors.Wrap(err, "getting nested property")
 			}
-			value, err := NewNestedValue(propRaw, schema.DataType(nested.DataType[0]), &Property{Property: nested}, prop)
+			value, err := r.mapper.NewNestedValue(propRaw, schema.DataType(nested.DataType[0]), &Property{Property: nested}, prop)
 			if err != nil {
 				return nil, errors.Wrap(err, "creating object value")
 			}
@@ -604,11 +639,11 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 			if !ok {
 				continue
 			}
-			extractedRefProp, err := extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
+			extractedRefProp, err := r.extractPropertiesAnswer(scheme, refLocal.Fields, prop.Refs[0].RefProperties, refLocal.Class, additionalPropsParams)
 			if err != nil {
 				continue
 			}
-			additionalProps, _, err := extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
+			additionalProps, _, err := r.extractAdditionalProps(refLocal.Fields, prop.Refs[0].AdditionalProperties, false, false)
 			if err != nil {
 				return nil, err
 			}
@@ -631,7 +666,7 @@ func extractPropertiesAnswer(scheme schema.Schema, results map[string]interface{
 	return &props, nil
 }
 
-func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, results map[string]interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectPropertiesValue, error) {
+func extractPropertiesNested[P schema.PropertyInterface](getClass func(string) *models.Class, results map[string]interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectPropertiesValue, error) {
 	primitiveProps := make(map[string]interface{}, 0)
 	objProps := make([]*pb.ObjectProperties, 0)
 	objArrayProps := make([]*pb.ObjectArrayProperties, 0)
@@ -646,7 +681,7 @@ func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, r
 		}
 		if prop.IsObject {
 			var err error
-			objProps, objArrayProps, err = extractObjectProperties(scheme, propRaw, prop, className, parent, objProps, objArrayProps)
+			objProps, objArrayProps, err = extractObjectProperties(getClass, propRaw, prop, className, parent, objProps, objArrayProps)
 			if err != nil {
 				return nil, err
 			}
@@ -654,7 +689,7 @@ func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, r
 	}
 	props := pb.ObjectPropertiesValue{}
 	if len(primitiveProps) > 0 {
-		if err := extractArrayTypesNested(scheme, className, primitiveProps, &props, parent); err != nil {
+		if err := extractArrayTypesNested(className, primitiveProps, &props, parent); err != nil {
 			return nil, errors.Wrap(err, "extracting non-primitive types")
 		}
 		newStruct, err := structpb.NewStruct(primitiveProps)
@@ -672,10 +707,10 @@ func extractPropertiesNested[P schema.PropertyInterface](scheme schema.Schema, r
 	return &props, nil
 }
 
-func extractObjectProperties[P schema.PropertyInterface](scheme schema.Schema, propRaw interface{}, property search.SelectProperty, className string, parent P, objProps []*pb.ObjectProperties, objArrayProps []*pb.ObjectArrayProperties) ([]*pb.ObjectProperties, []*pb.ObjectArrayProperties, error) {
+func extractObjectProperties[P schema.PropertyInterface](getClass func(string) *models.Class, propRaw interface{}, property search.SelectProperty, className string, parent P, objProps []*pb.ObjectProperties, objArrayProps []*pb.ObjectArrayProperties) ([]*pb.ObjectProperties, []*pb.ObjectArrayProperties, error) {
 	prop, ok := propRaw.(map[string]interface{})
 	if ok {
-		objProp, err := extractObjectSingleProperties(scheme, prop, property, className, parent)
+		objProp, err := extractObjectSingleProperties(getClass, prop, property, className, parent)
 		if err != nil {
 			return objProps, objArrayProps, err
 		}
@@ -683,7 +718,7 @@ func extractObjectProperties[P schema.PropertyInterface](scheme schema.Schema, p
 	}
 	propArray, ok := propRaw.([]interface{})
 	if ok {
-		objArrayProp, err := extractObjectArrayProperties(scheme, propArray, property, className, parent)
+		objArrayProp, err := extractObjectArrayProperties(getClass, propArray, property, className, parent)
 		if err != nil {
 			return objProps, objArrayProps, err
 		}
@@ -692,12 +727,12 @@ func extractObjectProperties[P schema.PropertyInterface](scheme schema.Schema, p
 	return objProps, objArrayProps, nil
 }
 
-func extractObjectSingleProperties[P schema.PropertyInterface](scheme schema.Schema, prop map[string]interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectProperties, error) {
+func extractObjectSingleProperties[P schema.PropertyInterface](getClass func(string) *models.Class, prop map[string]interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectProperties, error) {
 	nested, err := schema.GetNestedPropertyByName(parent, property.Name)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting property")
 	}
-	extractedNestedProp, err := extractPropertiesNested(scheme, prop, property, className, &NestedProperty{NestedProperty: nested})
+	extractedNestedProp, err := extractPropertiesNested(getClass, prop, property, className, &NestedProperty{NestedProperty: nested})
 	if err != nil {
 		return nil, errors.Wrap(err, fmt.Sprintf("extracting nested properties from %v", nested))
 	}
@@ -707,7 +742,7 @@ func extractObjectSingleProperties[P schema.PropertyInterface](scheme schema.Sch
 	}, nil
 }
 
-func extractObjectArrayProperties[P schema.PropertyInterface](scheme schema.Schema, propObjs []interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectArrayProperties, error) {
+func extractObjectArrayProperties[P schema.PropertyInterface](getClass func(string) *models.Class, propObjs []interface{}, property search.SelectProperty, className string, parent P) (*pb.ObjectArrayProperties, error) {
 	extractedNestedProps := make([]*pb.ObjectPropertiesValue, 0, len(propObjs))
 	for _, objRaw := range propObjs {
 		nested, err := schema.GetNestedPropertyByName(parent, property.Name)
@@ -718,7 +753,7 @@ func extractObjectArrayProperties[P schema.PropertyInterface](scheme schema.Sche
 		if !ok {
 			continue
 		}
-		extractedNestedProp, err := extractPropertiesNested(scheme, obj, property, className, &NestedProperty{NestedProperty: nested})
+		extractedNestedProp, err := extractPropertiesNested(getClass, obj, property, className, &NestedProperty{NestedProperty: nested})
 		if err != nil {
 			return nil, errors.Wrap(err, "extracting nested properties")
 		}
@@ -730,19 +765,23 @@ func extractObjectArrayProperties[P schema.PropertyInterface](scheme schema.Sche
 	}, nil
 }
 
-func extractArrayTypesRoot(scheme schema.Schema, className string, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue) error {
+func extractArrayTypesRoot(getClass func(string) *models.Class, className string, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue) error {
 	dataTypes := make(map[string]*schema.DataType, 0)
+	class := getClass(className)
+	if class == nil {
+		return fmt.Errorf("could not find class %s in schema", className)
+	}
 	for propName := range rawProps {
-		dataType, err := schema.GetPropertyDataType(scheme.GetClass(schema.ClassName(className)), propName)
+		dataType, err := schema.GetPropertyDataType(class, propName)
 		if err != nil {
 			return err
 		}
 		dataTypes[propName] = dataType
 	}
-	return extractArrayTypes(scheme, rawProps, props, dataTypes)
+	return extractArrayTypes(rawProps, props, dataTypes)
 }
 
-func extractArrayTypesNested[P schema.PropertyInterface](scheme schema.Schema, className string, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue, parent P) error {
+func extractArrayTypesNested[P schema.PropertyInterface](className string, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue, parent P) error {
 	dataTypes := make(map[string]*schema.DataType, 0)
 	for propName := range rawProps {
 		dataType, err := schema.GetNestedPropertyDataType(parent, propName)
@@ -751,11 +790,11 @@ func extractArrayTypesNested[P schema.PropertyInterface](scheme schema.Schema, c
 		}
 		dataTypes[propName] = dataType
 	}
-	return extractArrayTypes(scheme, rawProps, props, dataTypes)
+	return extractArrayTypes(rawProps, props, dataTypes)
 }
 
 // slices cannot be part of a grpc struct, so we need to handle each of them separately
-func extractArrayTypes(scheme schema.Schema, rawProps map[string]interface{}, props *pb.ObjectPropertiesValue, dataTypes map[string]*schema.DataType) error {
+func extractArrayTypes(rawProps map[string]interface{}, props *pb.ObjectPropertiesValue, dataTypes map[string]*schema.DataType) error {
 	for propName, prop := range rawProps {
 		dataType := dataTypes[propName]
 		switch *dataType {

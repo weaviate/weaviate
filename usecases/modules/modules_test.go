@@ -362,7 +362,7 @@ func fakeValidateFn(param interface{}) error {
 
 func newGraphQLModule(name string) *dummyGraphQLModule {
 	return &dummyGraphQLModule{
-		dummyText2VecModuleNoCapabilities: newDummyText2VecModule(name),
+		dummyText2VecModuleNoCapabilities: newDummyText2VecModule(name, nil),
 		arguments:                         map[string]modulecapabilities.GraphQLArgument{},
 	}
 }

@@ -47,7 +47,7 @@ type Provider struct {
 }
 
 type schemaGetter interface {
-	GetSchemaSkipAuth() schema.Schema
+	ReadOnlyClass(name string) *models.Class
 }
 
 func NewProvider() *Provider {
@@ -367,6 +367,7 @@ func (p *Provider) GetArguments(class *models.Class) map[string]*graphql.Argumen
 			}
 		}
 	}
+
 	return arguments
 }
 
@@ -480,7 +481,7 @@ func (p *Provider) validateSearchParam(name string, value interface{}, class *mo
 		}
 	}
 
-	panic("ValidateParam was called without any known params present")
+	return fmt.Errorf("could not vectorize input for collection %v with search-type %v. Make sure a vectorizer module is configured for this collection", class.Class, name)
 }
 
 // GetAdditionalFields provides GraphQL Get additional fields
@@ -555,23 +556,18 @@ func (p *Provider) GetExploreAdditionalExtend(ctx context.Context, in []search.R
 }
 
 // ListExploreAdditionalExtend extends graphql api list queries with additional properties
-func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{},
-	argumentModuleParams map[string]interface{},
-) ([]search.Result, error) {
+func (p *Provider) ListExploreAdditionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	return p.additionalExtend(ctx, in, moduleParams, nil, "ExploreList", argumentModuleParams)
 }
 
-func (p *Provider) additionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32,
-	capability string, argumentModuleParams map[string]interface{},
-) ([]search.Result, error) {
+func (p *Provider) additionalExtend(ctx context.Context, in []search.Result, moduleParams map[string]interface{}, searchVector []float32, capability string, argumentModuleParams map[string]interface{}) ([]search.Result, error) {
 	toBeExtended := in
 	if len(toBeExtended) > 0 {
 		class, err := p.getClassFromSearchResult(toBeExtended)
 		if err != nil {
 			return nil, err
 		}
+
 		allAdditionalProperties := map[string]modulecapabilities.AdditionalProperty{}
 		for _, module := range p.GetAll() {
 			if p.shouldIncludeClassArgument(class, module.Name(), module.Type()) {
@@ -727,7 +723,7 @@ func (p *Provider) VectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	panic("VectorFromParams was called without any known params present")
+	return nil, "", fmt.Errorf("could not vectorize input for collection %v with search-type %v, targetVector %v and parameters %v. Make sure a vectorizer module is configured for this class", className, param, targetVector, params)
 }
 
 // CrossClassVectorFromSearchParam gets a vector for a given argument without
@@ -756,7 +752,7 @@ func (p *Provider) CrossClassVectorFromSearchParam(ctx context.Context,
 		}
 	}
 
-	panic("VectorFromParams was called without any known params present")
+	return nil, "", fmt.Errorf("could not vectorize input for Explore with search-type %v and parameters %v. Make sure a vectorizer module is configured", param, params)
 }
 
 func (p *Provider) getTargetVector(class *models.Class, params interface{}) (string, error) {
@@ -811,7 +807,7 @@ func (p *Provider) VectorFromInput(ctx context.Context,
 		}
 	}
 
-	return nil, fmt.Errorf("VectorFromInput was called without vectorizer")
+	return nil, fmt.Errorf("VectorFromInput was called without vectorizer on class %v for input %v", className, input)
 }
 
 // ParseClassifierSettings parses and adds classifier specific settings
@@ -874,8 +870,7 @@ func (p *Provider) GetMeta() (map[string]interface{}, error) {
 }
 
 func (p *Provider) getClass(className string) (*models.Class, error) {
-	sch := p.schemaGetter.GetSchemaSkipAuth()
-	class := sch.FindClassByName(schema.ClassName(className))
+	class := p.schemaGetter.ReadOnlyClass(className)
 	if class == nil {
 		return nil, errors.Errorf("class %q not found in schema", className)
 	}

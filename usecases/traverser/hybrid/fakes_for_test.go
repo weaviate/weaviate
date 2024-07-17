@@ -44,6 +44,10 @@ func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
+func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
+	return f.schema.GetClass(class)
+}
+
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	return nil
 }
@@ -72,6 +76,10 @@ func (f *fakeSchemaManager) ClusterHealthScore() int {
 	return 0
 }
 
+func (f *fakeSchemaManager) Statistics() map[string]any {
+	return nil
+}
+
 func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 ) (map[string]string, error) {
 	return nil, nil
@@ -81,6 +89,12 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ""
 }
 
-func (f *fakeSchemaManager) TenantShard(class, tenant string) (string, string) {
-	return "", ""
+func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	return nil, nil
+}
+
+func (f *fakeSchemaManager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
 }

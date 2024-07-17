@@ -40,6 +40,10 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 	return f.schema
 }
 
+func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
+	return f.schema.GetClass(class)
+}
+
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	panic("not implemented")
 }
@@ -52,9 +56,20 @@ func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) 
 	return []string{shard}, nil
 }
 
-func (f *fakeSchemaGetter) TenantShard(class, tenant string) (string, string) {
-	return tenant, models.TenantActivityStatusHOT
+func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	res := map[string]string{}
+	for _, t := range tenants {
+		res[t] = models.TenantActivityStatusHOT
+	}
+	return res, nil
 }
+
+func (f *fakeSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+	res := map[string]string{}
+	res[tenant] = models.TenantActivityStatusHOT
+	return res, nil
+}
+
 func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return string(uuid) }
 
 func (f *fakeSchemaGetter) Nodes() []string {
@@ -71,6 +86,10 @@ func (f *fakeSchemaGetter) ClusterHealthScore() int {
 
 func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
 ) (map[string]string, error) {
+	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) Statistics() map[string]any {
 	panic("not implemented")
 }
 
@@ -201,7 +220,7 @@ func (f *fakeVectorRepoKNN) VectorSearch(ctx context.Context,
 	return nil, fmt.Errorf("vector class search not implemented in fake")
 }
 
-func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects objects.BatchObjects, repl *additional.ReplicationProperties) (objects.BatchObjects, error) {
+func (f *fakeVectorRepoKNN) BatchPutObjects(ctx context.Context, objects objects.BatchObjects, repl *additional.ReplicationProperties, schemaVersion uint64) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -274,7 +293,7 @@ func (f *fakeVectorRepoContextual) ZeroShotSearch(ctx context.Context, vector []
 	panic("not implemented")
 }
 
-func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects objects.BatchObjects, repl *additional.ReplicationProperties) (objects.BatchObjects, error) {
+func (f *fakeVectorRepoContextual) BatchPutObjects(ctx context.Context, objects objects.BatchObjects, repl *additional.ReplicationProperties, schemaVersion uint64) (objects.BatchObjects, error) {
 	f.Lock()
 	defer f.Unlock()
 	for _, batchObject := range objects {

@@ -241,7 +241,7 @@ func delete2Objects(t *testing.T, repo *DB, className string) {
 		},
 		DryRun: false,
 		Output: "verbose",
-	}, nil, "")
+	}, nil, "", 0)
 	require.Nil(t, err)
 	require.Equal(t, 2, len(batchDeleteRes.Objects), "Objects deleted")
 }
@@ -417,7 +417,7 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 				require.Nil(t, err)
 
 				assert.Nil(t, batchRes[0].Err)
@@ -453,7 +453,7 @@ func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
 		}
 	}
 
-	repo.BatchPutObjects(context.Background(), batch, nil)
+	repo.BatchPutObjects(context.Background(), batch, nil, 0)
 }
 
 func testBatchImportObjects(repo *DB) func(t *testing.T) {
@@ -502,7 +502,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 				require.Nil(t, err)
 
 				assert.Nil(t, batchRes[0].Err)
@@ -586,7 +586,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
@@ -647,7 +647,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				}
 
 				t.Run("can import", func(t *testing.T) {
-					batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+					batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 					require.Nil(t, err)
 
 					assert.Nil(t, batchRes[0].Err)
@@ -738,7 +738,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 			}
 
 			t.Run("can import", func(t *testing.T) {
-				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				batchRes, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("element errors are marked correctly", func(t *testing.T) {
@@ -795,7 +795,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 				defer cancel()
 
-				batchRes, err := repo.BatchPutObjects(ctx, batch, nil)
+				batchRes, err := repo.BatchPutObjects(ctx, batch, nil, 0)
 				require.Nil(t, err, "there shouldn't be an overall error, only individual ones")
 
 				t.Run("some elements have error'd due to context", func(t *testing.T) {
@@ -851,7 +851,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					}
 				}
 
-				res, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				res, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 				require.Nil(t, err)
 				assertAllItemsErrorFree(t, res)
 			}
@@ -932,7 +932,7 @@ func testBatchImportGeoObjects(repo *DB) func(t *testing.T) {
 					}
 				}
 
-				res, err := repo.BatchPutObjects(context.Background(), batch, nil)
+				res, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
 				require.Nil(t, err)
 				assertAllItemsErrorFree(t, res)
 			}
@@ -1013,7 +1013,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "", 0)
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -1032,7 +1032,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "minimal"), nil, "")
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "minimal"), nil, "", 0)
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -1084,7 +1084,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 				},
 				DryRun: false,
 				Output: "verbose",
-			}, nil, "")
+			}, nil, "", 0)
 			require.Nil(t, err)
 			require.Equal(t, int64(2), batchDeleteRes.Matches)
 			require.Equal(t, 2, len(batchDeleteRes.Objects))
@@ -1103,7 +1103,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 			beforeDelete := len(res)
 			require.True(t, beforeDelete > 0)
 			// dryRun == true, only test how many objects can be deleted
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil, "")
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil, "", 0)
 			require.Nil(t, err)
 			require.Equal(t, int64(beforeDelete), batchDeleteRes.Matches)
 			require.Equal(t, beforeDelete, len(batchDeleteRes.Objects))
@@ -1146,7 +1146,7 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 		}
 		t.Run("batch delete journey", func(t *testing.T) {
 			// delete objects to limit
-			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
+			batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "", 0)
 			require.Nil(t, err)
 			objectsMatches := batchDeleteRes.Matches
 
@@ -1155,14 +1155,14 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 			deletedObjectsCount := 0
 			for {
 				// delete objects to limit
-				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil, "")
+				batchDeleteRes, err := repo.BatchDeleteObjects(context.Background(), getParams(false, "verbose"), nil, "", 0)
 				require.Nil(t, err)
 				matches, deleted := batchDeleteRes.Matches, len(batchDeleteRes.Objects)
 				require.Equal(t, leftToDelete, matches)
 				require.True(t, deleted > 0)
 				deletedObjectsCount += deleted
 
-				batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "")
+				batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), nil, "", 0)
 				require.Nil(t, err)
 				leftToDelete = batchDeleteRes.Matches
 

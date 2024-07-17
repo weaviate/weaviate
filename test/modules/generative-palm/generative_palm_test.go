@@ -28,14 +28,14 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
-		companies := []struct {
-			id                strfmt.UUID
-			name, description string
+		planets := []struct {
+			ID                strfmt.UUID
+			Name, Description string
 		}{
 			{
-				id:   strfmt.UUID("00000000-0000-0000-0000-000000000001"),
-				name: "Earth",
-				description: `
+				ID:   strfmt.UUID("00000000-0000-0000-0000-000000000001"),
+				Name: "Earth",
+				Description: `
 				The Earth's surface is predominantly covered by oceans, accounting for about 71% of its total area, while continents provide 
 				the stage for bustling cities, towering mountains, and sprawling forests. Its atmosphere, composed mostly of nitrogen and oxygen, 
 				protects life from harmful solar radiation and regulates the planet's climate, creating the conditions necessary for life to flourish.
@@ -45,9 +45,9 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				`,
 			},
 			{
-				id:   strfmt.UUID("00000000-0000-0000-0000-000000000002"),
-				name: "Mars",
-				description: `
+				ID:   strfmt.UUID("00000000-0000-0000-0000-000000000002"),
+				Name: "Mars",
+				Description: `
 				Mars, often called the "Red Planet" due to its rusty reddish hue, is the fourth planet from the Sun in our solar system. 
 				It's a world of stark contrasts and mysterious allure, captivating the imaginations of scientists, explorers, and dreamers alike.
 
@@ -58,7 +58,7 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 			},
 		}
 		// Define class
-		className := "BooksGenerativeTest"
+		className := "PlanetsGenerativeTest"
 		class := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
@@ -145,13 +145,13 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					for _, company := range companies {
+					for _, company := range planets {
 						obj := &models.Object{
 							Class: class.Class,
-							ID:    company.id,
+							ID:    company.ID,
 							Properties: map[string]interface{}{
-								"name":        company.name,
-								"description": company.description,
+								"name":        company.Name,
+								"description": company.Description,
 							},
 						}
 						helper.CreateObject(t, obj)
@@ -159,9 +159,9 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 					}
 				})
 				t.Run("check objects existence", func(t *testing.T) {
-					for _, company := range companies {
-						t.Run(company.id.String(), func(t *testing.T) {
-							obj, err := helper.GetObject(t, class.Class, company.id, "vector")
+					for _, company := range planets {
+						t.Run(company.ID.String(), func(t *testing.T) {
+							obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
 							require.NoError(t, err)
 							require.NotNil(t, obj)
 							require.Len(t, obj.Vectors, 1)

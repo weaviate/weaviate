@@ -44,13 +44,16 @@ func (db *DB) Backupable(ctx context.Context, classes []string) error {
 
 // ListBackupable returns a list of all classes which can be backed up.
 func (db *DB) ListBackupable() []string {
-	cs := make([]string, 0, len(db.indices))
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
+
+	cs := make([]string, 0, len(db.indices))
+
 	for _, idx := range db.indices {
 		cls := string(idx.Config.ClassName)
 		cs = append(cs, cls)
 	}
+
 	return cs
 }
 
@@ -295,9 +298,7 @@ func (i *Index) marshalShardingState() ([]byte, error) {
 }
 
 func (i *Index) marshalSchema() ([]byte, error) {
-	schema := i.getSchema.GetSchemaSkipAuth()
-
-	b, err := schema.GetClass(i.Config.ClassName).MarshalBinary()
+	b, err := i.getSchema.ReadOnlyClass(i.Config.ClassName.String()).MarshalBinary()
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal schema")
 	}

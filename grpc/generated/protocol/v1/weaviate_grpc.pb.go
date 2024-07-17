@@ -22,6 +22,7 @@ type WeaviateClient interface {
 	Search(ctx context.Context, in *SearchRequest, opts ...grpc.CallOption) (*SearchReply, error)
 	BatchObjects(ctx context.Context, in *BatchObjectsRequest, opts ...grpc.CallOption) (*BatchObjectsReply, error)
 	BatchDelete(ctx context.Context, in *BatchDeleteRequest, opts ...grpc.CallOption) (*BatchDeleteReply, error)
+	TenantsGet(ctx context.Context, in *TenantsGetRequest, opts ...grpc.CallOption) (*TenantsGetReply, error)
 }
 
 type weaviateClient struct {
@@ -59,6 +60,15 @@ func (c *weaviateClient) BatchDelete(ctx context.Context, in *BatchDeleteRequest
 	return out, nil
 }
 
+func (c *weaviateClient) TenantsGet(ctx context.Context, in *TenantsGetRequest, opts ...grpc.CallOption) (*TenantsGetReply, error) {
+	out := new(TenantsGetReply)
+	err := c.cc.Invoke(ctx, "/weaviate.v1.Weaviate/TenantsGet", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // WeaviateServer is the server API for Weaviate service.
 // All implementations must embed UnimplementedWeaviateServer
 // for forward compatibility
@@ -66,22 +76,25 @@ type WeaviateServer interface {
 	Search(context.Context, *SearchRequest) (*SearchReply, error)
 	BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error)
 	BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error)
+	TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error)
 	mustEmbedUnimplementedWeaviateServer()
 }
 
 // UnimplementedWeaviateServer must be embedded to have forward compatible implementations.
-type UnimplementedWeaviateServer struct{}
+type UnimplementedWeaviateServer struct {
+}
 
 func (UnimplementedWeaviateServer) Search(context.Context, *SearchRequest) (*SearchReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Search not implemented")
 }
-
 func (UnimplementedWeaviateServer) BatchObjects(context.Context, *BatchObjectsRequest) (*BatchObjectsReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BatchObjects not implemented")
 }
-
 func (UnimplementedWeaviateServer) BatchDelete(context.Context, *BatchDeleteRequest) (*BatchDeleteReply, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BatchDelete not implemented")
+}
+func (UnimplementedWeaviateServer) TenantsGet(context.Context, *TenantsGetRequest) (*TenantsGetReply, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TenantsGet not implemented")
 }
 func (UnimplementedWeaviateServer) mustEmbedUnimplementedWeaviateServer() {}
 
@@ -150,6 +163,24 @@ func _Weaviate_BatchDelete_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Weaviate_TenantsGet_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TenantsGetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(WeaviateServer).TenantsGet(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/weaviate.v1.Weaviate/TenantsGet",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(WeaviateServer).TenantsGet(ctx, req.(*TenantsGetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Weaviate_ServiceDesc is the grpc.ServiceDesc for Weaviate service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -168,6 +199,10 @@ var Weaviate_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BatchDelete",
 			Handler:    _Weaviate_BatchDelete_Handler,
+		},
+		{
+			MethodName: "TenantsGet",
+			Handler:    _Weaviate_TenantsGet_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

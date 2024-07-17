@@ -19,8 +19,10 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path/filepath"
 	goruntime "runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
 
@@ -36,16 +38,18 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
-	txstore "github.com/weaviate/weaviate/adapters/repos/transactions"
+	rCluster "github.com/weaviate/weaviate/cluster"
+	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
-	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -55,6 +59,8 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
+	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
+	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
@@ -77,6 +83,8 @@ import (
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
+	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
@@ -92,8 +100,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
+	"github.com/weaviate/weaviate/usecases/schema"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/schema/migrate"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -136,10 +144,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.TenantActivity = tenantactivity.NewHandler()
+
 		// only monitoring tool supported at the moment is prometheus
 		enterrors.GoWrapper(func() {
 			mux := http.NewServeMux()
 			mux.Handle("/metrics", promhttp.Handler())
+			mux.Handle("/tenant-activity", appState.TenantActivity)
 			http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
 		}, appState.Logger)
 	}
@@ -183,8 +194,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
 
 	var vectorRepo vectorRepo
-	var vectorMigrator migrate.Migrator
-	var migrator migrate.Migrator
+	// var vectorMigrator schema.Migrator
+	// var migrator schema.Migrator
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		promMetrics := monitoring.GetMetrics()
@@ -231,9 +242,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
-	vectorMigrator = db.NewMigrator(repo, appState.Logger)
+	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.TenantActivity.SetSource(appState.DB)
+	}
+	migrator := db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
-	migrator = vectorMigrator
+	// migrator = vectorMigrator
 	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err = schemaRepo.Open(); err != nil {
@@ -262,24 +276,63 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-	// TODO: configure http transport for efficient intra-cluster comm
-	schemaTxClient := clients.NewClusterSchema(appState.ClusterHttpClient)
-	schemaTxPersistence := txstore.NewStore(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	schemaTxPersistence.SetUmarshalFn(schemaUC.UnmarshalTransaction)
-	if err := schemaTxPersistence.Open(); err != nil {
+	server2port, err := parseNode2Port(appState)
+	if len(server2port) == 0 || err != nil {
 		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("could not open tx repo")
-		os.Exit(1)
-
+			WithField("action", "startup").
+			WithField("raft-join", appState.ServerConfig.Config.Raft.Join).
+			WithError(err).
+			Fatal("parsing raft-join")
 	}
 
-	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
+	nodeName := appState.Cluster.LocalName()
+	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
+	addrs := strings.Split(nodeAddr, ":")
+	dataPath := appState.ServerConfig.Config.Persistence.DataPath
+
+	rConfig := rCluster.Config{
+		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
+		NodeID:                 nodeName,
+		Host:                   addrs[0],
+		RaftPort:               appState.ServerConfig.Config.Raft.Port,
+		RPCPort:                appState.ServerConfig.Config.Raft.InternalRPCPort,
+		RaftRPCMessageMaxSize:  appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
+		BootstrapTimeout:       appState.ServerConfig.Config.Raft.BootstrapTimeout,
+		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
+		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
+		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
+		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		DB:                     nil,
+		Parser:                 schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator),
+		NodeNameToPortMap:      server2port,
+		NodeToAddressResolver:  appState.Cluster,
+		Logger:                 appState.Logger,
+		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
+		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
+	}
+	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
+		if strings.Contains(name, rConfig.NodeID) {
+			rConfig.Voter = true
+			break
+		}
+	}
+
+	appState.ClusterService = rCluster.New(rConfig)
+	executor := schema.NewExecutor(migrator,
+		appState.ClusterService.SchemaReader(),
+		appState.Logger, backup.RestoreClassDir(dataPath),
+	)
+	schemaManager, err := schemaUC.NewManager(migrator,
+		appState.ClusterService.Raft,
+		appState.ClusterService.SchemaReader(),
+		schemaRepo,
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, schemaTxClient,
-		schemaTxPersistence, scaler,
+		appState.Modules, appState.Cluster, scaler,
 	)
 	if err != nil {
 		appState.Logger.
@@ -289,10 +342,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
-
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo)
+	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
-	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo)
+	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
 		schemaManager, repo, appState.Modules)
@@ -304,36 +356,44 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
-	err = vectorRepo.WaitForStartup(ctx)
+	appState.Traverser = traverser.NewTraverser(appState.ServerConfig, appState.Locks,
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
+		appState.Modules, traverser.NewMetrics(appState.Metrics),
+		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
+
+	updateSchemaCallback := makeUpdateSchemaCall(appState)
+	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
+
+	// while we accept an overall longer startup, e.g. due to a recovery, we
+	// still want to limit the module startup context, as that's mostly service
+	// discovery / dependency checking
+	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	err = initModules(moduleCtx, appState)
 	if err != nil {
 		appState.Logger.
-			WithError(err).
-			WithField("action", "startup").
-			Fatal("db didn't start up")
-		os.Exit(1)
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't initialize")
 	}
 
-	if err := schemaManager.StartServing(ctx); err != nil {
-		appState.Logger.
-			WithError(err).
-			WithField("action", "startup").
-			Fatal("schema manager: resume dangling txs")
-		os.Exit(1)
+	enterrors.GoWrapper(func() {
+		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
+			appState.Logger.
+				WithField("action", "startup").
+				WithError(err).
+				Fatal("could not open cloud meta store")
+		}
+	}, appState.Logger)
 
-	}
+	// TODO-RAFT: refactor remove this sleep
+	// this sleep was used to block GraphQL and give time to RAFT to start.
+	time.Sleep(2 * time.Second)
 
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 	appState.BatchManager = batchManager
-	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
-		appState.Modules, traverser.NewMetrics(appState.Metrics),
-		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
-	appState.Traverser = objectsTraverser
-
-	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
-	schemaManager.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
@@ -369,23 +429,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	configureServer = makeConfigureServer(appState)
 
-	// while we accept an overall longer startup, e.g. due to a recovery, we
-	// still want to limit the module startup context, as that's mostly service
-	// discovery / dependency checking
-	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-
-	err = initModules(moduleCtx, appState)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
-	}
-
-	// manually update schema once
-	schema := schemaManager.GetSchemaSkipAuth()
-	updateSchemaCallback(schema)
-
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
 		appState.Logger.
@@ -400,6 +443,32 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	return appState
+}
+
+func parseNode2Port(appState *state.State) (m map[string]int, err error) {
+	m = make(map[string]int, len(appState.ServerConfig.Config.Raft.Join))
+	for _, raftNamePort := range appState.ServerConfig.Config.Raft.Join {
+		np := strings.Split(raftNamePort, ":")
+		if np[0] == appState.Cluster.LocalName() {
+			m[np[0]] = appState.ServerConfig.Config.Raft.Port
+			continue
+		}
+		if m[np[0]], err = strconv.Atoi(np[1]); err != nil {
+			return m, fmt.Errorf("expect integer as raft port: got %s:: %w", raftNamePort, err)
+		}
+	}
+
+	return m, nil
+}
+
+// parseVotersNames parses names of all voters.
+// If we reach this point, we assume that the configuration is valid
+func parseVotersNames(cfg config.Raft) (m map[string]struct{}) {
+	m = make(map[string]struct{}, cfg.BootstrapExpect)
+	for _, raftNamePort := range cfg.Join[:cfg.BootstrapExpect] {
+		m[strings.Split(raftNamePort, ":")[0]] = struct{}{}
+	}
+	return m
 }
 
 func configureAPI(api *operations.WeaviateAPI) http.Handler {
@@ -443,7 +512,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
 		appState.DB, appState.Modules,
-		appState.Cluster,
+		membership{appState.Cluster, appState.ClusterService},
+		appState.SchemaManager,
 		appState.Logger)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
@@ -489,11 +559,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		if err := appState.SchemaManager.Shutdown(ctx); err != nil {
-			panic(err)
-		}
-
-		if err := appState.DB.Shutdown(ctx); err != nil {
+		if err := appState.ClusterService.Close(ctx); err != nil {
 			panic(err)
 		}
 	}
@@ -567,7 +633,11 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
 		Debug("initialized schema")
 
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, logger)
+	var nonStorageNodes map[string]struct{}
+	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
+		nonStorageNodes = parseVotersNames(cfg)
+	}
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
@@ -575,7 +645,6 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	}
 
 	appState.Cluster = clusterState
-
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("startup routine complete")
@@ -794,6 +863,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modgenerativeollama.Name]; ok {
+		appState.Modules.Register(modgenerativeollama.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeollama.Name).
+			Debug("enabled module")
+	}
+
 	if _, ok := enabledModules[modgenerativedummy.Name]; ok {
 		appState.Modules.Register(modgenerativedummy.New())
 		appState.Logger.
@@ -922,6 +999,30 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modollama.Name]; ok {
+		appState.Modules.Register(modollama.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modollama.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativeoctoai.Name]; ok {
+		appState.Modules.Register(modgenerativeoctoai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativeoctoai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modtext2vecoctoai.Name]; ok {
+		appState.Modules.Register(modtext2vecoctoai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecoctoai.Name).
+			Debug("enabled module")
+	}
+
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("completed registering modules")
@@ -986,7 +1087,12 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
 	enterrors.GoWrapper(func() {
-		fmt.Println(http.ListenAndServe(":6060", nil))
+		portNumber := config.Profiling.Port
+		if portNumber == 0 {
+			fmt.Println(http.ListenAndServe(":6060", nil))
+		} else {
+			http.ListenAndServe(fmt.Sprintf(":%d", portNumber), nil)
+		}
 	}, logger)
 
 	if config.Profiling.BlockProfileRate > 0 {
@@ -1052,4 +1158,14 @@ func limitResources(appState *state.State) {
 
 func telemetryEnabled(state *state.State) bool {
 	return !state.ServerConfig.Config.DisableTelemetry
+}
+
+type membership struct {
+	*cluster.State
+	raft *rCluster.Service
+}
+
+func (m membership) LeaderID() string {
+	_, id := m.raft.LeaderWithID()
+	return id
 }

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,8 +31,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
-	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
@@ -59,6 +61,7 @@ type flat struct {
 
 	compression string
 	bqCache     cache.Cache[uint64]
+	count       uint64
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -86,7 +89,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		pool:              newPools(),
 		store:             store,
 	}
-	index.initBuckets(context.Background())
+	if err := index.initBuckets(context.Background()); err != nil {
+		return nil, fmt.Errorf("init flat index buckets: %w", err)
+	}
+
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
@@ -175,8 +181,13 @@ func (index *flat) getCompressedBucketName() string {
 }
 
 func (index *flat) initBuckets(ctx context.Context) error {
+	// TODO: Forced compaction should not stay an all or nothing option.
+	//       This is only a temporary measure until dynamic compaction
+	//       behavior is implemented.
+	//       See: https://github.com/weaviate/weaviate/issues/5241
+	forceCompaction := shouldForceCompaction()
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
-		lsmkv.WithForceCompation(true),
+		lsmkv.WithForceCompation(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
 	); err != nil {
@@ -184,7 +195,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	}
 	if index.isBQ() {
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
-			lsmkv.WithForceCompation(true),
+			lsmkv.WithForceCompation(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
 		); err != nil {
@@ -192,6 +203,11 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// TODO: Remove this function when gh-5241 is completed. See flat::initBuckets for more details.
+func shouldForceCompaction() bool {
+	return !entcfg.Enabled(os.Getenv("FLAT_INDEX_DISABLE_FORCED_COMPACTION"))
 }
 
 func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -267,6 +283,8 @@ func (index *flat) Add(id uint64, vector []float32) error {
 		slice = make([]byte, len(vectorBQ)*8)
 		index.storeCompressedVector(id, byteSliceFromUint64Slice(vectorBQ, slice))
 	}
+	newCount := atomic.LoadUint64(&index.count)
+	atomic.StoreUint64(&index.count, newCount+1)
 	return nil
 }
 
@@ -587,14 +605,14 @@ func (index *flat) SearchByVectorDistance(vector []float32, targetDistance float
 	return resultIDs, resultDist, nil
 }
 
-func (index *flat) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
+func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	parsed, ok := updated.(flatent.UserConfig)
 	if !ok {
 		callback()
 		return errors.Errorf("config is not UserConfig, but %T", updated)
 	}
 
-	// Store automatically as a lock here would be very expensive, this value is
+	// Store atomically as a lock here would be very expensive, this value is
 	// read on every single user-facing search, which can be highly concurrent
 	atomic.StoreInt64(&index.rescore, extractCompressionRescore(parsed))
 
@@ -641,10 +659,39 @@ func (index *flat) PostStartup() {
 	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
 	defer cursor.Close()
 
+	// The idea here is to first read everything from disk in one go, then grow
+	// the cache just once before inserting all vectors. A previous iteration
+	// would grow the cache as part of the cursor loop and this ended up making
+	// up 75% of the CPU time needed. This new implementation with two loops is
+	// much more efficient and only ever-so-slightly more memory-consuming (about
+	// one additional struct per vector while loading. Should be negligible)
+	type vec struct {
+		id  uint64
+		vec []uint64
+	}
+
+	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
+	// this slice dynamically should be quite cheap compared to other operations
+	// involved here, e.g. disk reads.
+	vecs := make([]vec, 0, 10_000)
+	maxID := uint64(0)
+
 	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
 		id := binary.BigEndian.Uint64(key)
-		index.bqCache.Grow(id)
-		index.bqCache.Preload(id, uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)))
+		vecs = append(vecs, vec{
+			id:  id,
+			vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
+		})
+		if id > maxID {
+			maxID = id
+		}
+	}
+
+	// Grow cache just once
+	index.bqCache.Grow(maxID)
+
+	for _, vec := range vecs {
+		index.bqCache.Preload(vec.id, vec.vec)
 	}
 }
 
@@ -716,7 +763,7 @@ func validateImmutableField(u immutableParameter,
 	return nil
 }
 
-func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
+func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) error {
 	initialParsed, ok := initial.(flatent.UserConfig)
 	if !ok {
 		return errors.Errorf("initial is not UserConfig, but %T", initial)
@@ -733,10 +780,6 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 			accessor: func(c flatent.UserConfig) interface{} { return c.Distance },
 		},
 		{
-			name:     "bq.cache",
-			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Cache },
-		},
-		{
 			name:     "pq.cache",
 			accessor: func(c flatent.UserConfig) interface{} { return c.PQ.Cache },
 		},
@@ -748,6 +791,10 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 			name:     "bq",
 			accessor: func(c flatent.UserConfig) interface{} { return c.BQ.Enabled },
 		},
+		// as of v1.25.2, updating the BQ cache setting is now possible.
+		// Note that the change does not take effect until the tenant is
+		// reloaded, either from a complete restart or from
+		// activating/deactivating it.
 	}
 
 	for _, u := range immutableFields {
@@ -756,4 +803,8 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 		}
 	}
 	return nil
+}
+
+func (index *flat) AlreadyIndexed() uint64 {
+	return atomic.LoadUint64(&index.count)
 }

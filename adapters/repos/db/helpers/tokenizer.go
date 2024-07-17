@@ -17,7 +17,11 @@ import (
 	"sync"
 	"unicode"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
+
 	"github.com/go-ego/gse"
+	koDict "github.com/ikawaha/kagome-dict-ko"
+	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -25,23 +29,32 @@ var (
 	gseTokenizer     *gse.Segmenter
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
+	KagomeKrEnabled  = false
 )
 
+// Optional tokenizers can be enabled with an environment variable like:
+// 'ENABLE_TOKENIZER_XXX', e.g. 'ENABLE_TOKENIZER_GSE', 'ENABLE_TOKENIZER_KAGOME_KR'
 var Tokenizations []string = []string{
 	models.PropertyTokenizationWord,
 	models.PropertyTokenizationLowercase,
 	models.PropertyTokenizationWhitespace,
 	models.PropertyTokenizationField,
 	models.PropertyTokenizationTrigram,
-	models.PropertyTokenizationGse,
 }
 
 func init() {
+	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
+	}
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
+	}
 	init_gse()
+	_ = initializeKagomeTokenizerKr()
 }
 
 func init_gse() {
-	if os.Getenv("USE_GSE") == "true" {
+	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 		UseGse = true
 	}
 	if UseGse {
@@ -71,6 +84,8 @@ func Tokenize(tokenization string, in string) []string {
 		return tokenizetrigram(in)
 	case models.PropertyTokenizationGse:
 		return tokenizeGSE(in)
+	case models.PropertyTokenizationKagomeKr:
+		return tokenizeKagomeKr(in)
 	default:
 		return []string{}
 	}
@@ -90,9 +105,21 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		return tokenizetrigramWithWildcards(in)
 	case models.PropertyTokenizationGse:
 		return tokenizeGSE(in)
+	case models.PropertyTokenizationKagomeKr:
+		return tokenizeKagomeKr(in)
 	default:
 		return []string{}
 	}
+}
+
+func removeEmptyStrings(terms []string) []string {
+	for i := 0; i < len(terms); i++ {
+		if terms[i] == "" || terms[i] == " " {
+			terms = append(terms[:i], terms[i+1:]...)
+			i--
+		}
+	}
+	return terms
 }
 
 // tokenizeField trims white spaces
@@ -150,16 +177,61 @@ func tokenizeGSE(in string) []string {
 	defer gseTokenizerLock.Unlock()
 	terms := gseTokenizer.CutAll(in)
 
-	// Remove empty strings from terms
-	for i := 0; i < len(terms); i++ {
-		if terms[i] == "" || terms[i] == " " {
-			terms = append(terms[:i], terms[i+1:]...)
-			i--
-		}
-	}
+	terms = removeEmptyStrings(terms)
 
 	alpha := tokenizeWord(in)
 	return append(terms, alpha...)
+}
+
+type KagomeTokenizers struct {
+	Korean *kagomeTokenizer.Tokenizer
+}
+
+var (
+	tokenizers     KagomeTokenizers
+	kagomeInitLock sync.Mutex
+)
+
+func initializeKagomeTokenizerKr() error {
+	// Acquire lock to prevent initialization race
+	kagomeInitLock.Lock()
+	defer kagomeInitLock.Unlock()
+
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+		if tokenizers.Korean != nil {
+			return nil
+		}
+
+		dictInstance := koDict.Dict()
+		tokenizer, err := kagomeTokenizer.New(dictInstance)
+		if err != nil {
+			return err
+		}
+
+		tokenizers.Korean = tokenizer
+		KagomeKrEnabled = true
+		return nil
+	}
+
+	return nil
+}
+
+func tokenizeKagomeKr(in string) []string {
+	tokenizer := tokenizers.Korean
+	if tokenizer == nil || !KagomeKrEnabled {
+		return []string{}
+	}
+
+	kagomeTokens := tokenizer.Tokenize(in)
+	terms := make([]string, 0, len(kagomeTokens))
+
+	for _, token := range kagomeTokens {
+		if token.Surface != "EOS" && token.Surface != "BOS" {
+			terms = append(terms, token.Surface)
+		}
+	}
+
+	return removeEmptyStrings(terms)
 }
 
 // tokenizeWordWithWildcards splits on any non-alphanumerical except wildcard-symbols and

@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 )
 
@@ -37,7 +36,7 @@ func (c *Classifier) run(params models.Classification,
 	ctx, cancel := contextWithTimeout(30 * time.Minute)
 	defer cancel()
 
-	go c.monitorClassification(ctx, cancel, schema.ClassName(params.Class))
+	go c.monitorClassification(ctx, cancel, params.Class)
 
 	c.logBegin(params, filters)
 	unclassifiedItems, err := c.vectorRepo.GetUnclassified(ctx,
@@ -69,9 +68,7 @@ func (c *Classifier) run(params models.Classification,
 	c.succeedRun(params)
 }
 
-func (c *Classifier) monitorClassification(ctx context.Context, cancelFn context.CancelFunc,
-	className schema.ClassName,
-) {
+func (c *Classifier) monitorClassification(ctx context.Context, cancelFn context.CancelFunc, className string) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -79,8 +76,7 @@ func (c *Classifier) monitorClassification(ctx context.Context, cancelFn context
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			schema := c.schemaGetter.GetSchemaSkipAuth()
-			class := schema.FindClassByName(className)
+			class := c.schemaGetter.ReadOnlyClass(className)
 			if class == nil {
 				cancelFn()
 				return
@@ -123,7 +119,7 @@ func (c *Classifier) getClassifyParams(params models.Classification,
 	filters Filters, unclassifiedItems []search.Result,
 ) modulecapabilities.ClassifyParams {
 	return modulecapabilities.ClassifyParams{
-		Schema:            c.schemaGetter.GetSchemaSkipAuth(),
+		GetClass:          c.schemaGetter.ReadOnlyClass,
 		Params:            params,
 		Filters:           filters,
 		UnclassifiedItems: unclassifiedItems,
