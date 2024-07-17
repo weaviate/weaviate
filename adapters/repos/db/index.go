@@ -1492,7 +1492,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 {
+	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
 		shard, release, err := i.getLocalShardNoShutdown(shardNames[0])
 		if err != nil {
 			return nil, nil, err
@@ -1550,6 +1550,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 				if i.Config.ForceFullReplicasSearch {
 					// Force a search on all the replicas for the shard
 					remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
+						i.logger,
 						shardName, searchVector, targetVector, limit, filters,
 						nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName())
 					// Only return an error if we failed to query remote shards AND we had no local shard to query
@@ -1593,16 +1594,16 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 {
-		return out, dists, nil
-	}
-
-	// If we are force querying all shards, we need to run deduplication on the result.
+	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
 		}
+	}
+
+	if len(shardNames) == 1 {
+		return out, dists, nil
 	}
 
 	if len(shardNames) > 1 && groupBy != nil {
