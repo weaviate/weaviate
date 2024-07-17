@@ -9,19 +9,16 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package configbase
+package sentry
 
-func Enabled(value string) bool {
-	if value == "" {
-		return false
+import (
+	libsentry "github.com/getsentry/sentry-go"
+)
+
+func Recover(err any) {
+	if !Enabled() {
+		return
 	}
 
-	if value == "on" ||
-		value == "enabled" ||
-		value == "1" ||
-		value == "true" {
-		return true
-	}
-
-	return false
+	libsentry.CurrentHub().Recover(err)
 }
