@@ -253,7 +253,6 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 		shard, ok := m.Sharding.Physical[name]
 		if !ok {
 			return fmt.Errorf("shard %s not found", name)
-			// continue
 		}
 
 		if req.Action == command.TenantProcessRequest_ACTION_UNFREEZING {
