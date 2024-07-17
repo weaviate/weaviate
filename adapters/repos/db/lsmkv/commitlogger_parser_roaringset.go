@@ -32,7 +32,7 @@ func (p *commitloggerParser) doRoaringSet() error {
 			return errors.Wrap(err, "read commit type")
 		}
 
-		if !CommitTypeRoaringSet.Is(commitType) {
+		if !CommitTypeRoaringSet.Is(commitType) && !CommitTypeRoaringSetList.Is(commitType) {
 			return errors.Errorf("found a %s commit on a roaringset bucket", commitType.String())
 		}
 
@@ -50,7 +50,7 @@ func (p *commitloggerParser) doRoaringSet() error {
 			}
 		case 1:
 			{
-				err = p.parseRoaringSetNodeV1()
+				err = p.parseRoaringSetNodeV1(commitType)
 			}
 		default:
 			{
@@ -69,13 +69,16 @@ func (p *commitloggerParser) parseRoaringSetNodeV0() error {
 	return p.parseRoaringSetNode(p.reader)
 }
 
-func (p *commitloggerParser) parseRoaringSetNodeV1() error {
+func (p *commitloggerParser) parseRoaringSetNodeV1(commitType CommitType) error {
 	reader, err := p.doRecord()
 	if err != nil {
 		return err
 	}
-
-	return p.parseRoaringSetNode(reader)
+	if commitType == CommitTypeRoaringSetList {
+		return p.parseRoaringSetListNode(reader)
+	} else {
+		return p.parseRoaringSetNode(reader)
+	}
 }
 
 func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
@@ -94,6 +97,28 @@ func (p *commitloggerParser) parseRoaringSetNode(reader io.Reader) error {
 	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
 	key := segment.PrimaryKey()
 	if err := p.memtable.roaringSetAddRemoveBitmaps(key, segment.Additions(), segment.Deletions()); err != nil {
+		return errors.Wrap(err, "add/remove bitmaps")
+	}
+
+	return nil
+}
+
+func (p *commitloggerParser) parseRoaringSetListNode(reader io.Reader) error {
+	lenBuf := make([]byte, 8)
+	if _, err := io.ReadFull(reader, lenBuf); err != nil {
+		return errors.Wrap(err, "read segment len")
+	}
+	segmentLen := binary.LittleEndian.Uint64(lenBuf)
+
+	segBuf := make([]byte, segmentLen)
+	copy(segBuf, lenBuf)
+	if _, err := io.ReadFull(reader, segBuf[8:]); err != nil {
+		return errors.Wrap(err, "read segment contents")
+	}
+
+	segment := roaringset.NewSegmentNodeListFromBuffer(segBuf)
+	key := segment.PrimaryKey()
+	if err := p.memtable.roaringSetAddRemoveLists(key, segment.Additions(), segment.Deletions()); err != nil {
 		return errors.Wrap(err, "add/remove bitmaps")
 	}
 

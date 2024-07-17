@@ -200,3 +200,89 @@ func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex
 
 	return out, nil
 }
+
+// SegmentNodeList is inspired by the roaringset.SegmentNode, keeping the
+// same fuctionality, but stores lists of []uint64 instead of bitmaps.
+// This code is here tu support recovering from WALs created on 1.26
+//
+//   - [*SegmentNodeList.Additions]
+//   - [*SegmentNodeList.Deletions]
+//   - [*SegmentNodeList.PrimaryKey]
+//
+// to access the contents. Those helpers in turn do not require a decoding
+// step. Instead of returning Roaring Bitmaps, it returns []uint64 slices.
+// This makes the indexing time much faster, as we don't have to create the
+// roaring bitmaps for each WAL insert. It also makes it smaller on disk, as we
+// don't have to store the roaring bitmap, but only the list of uint64s.
+//
+// The internal structure of the data is close to the original SegmentNode,
+// storing []uint64 instead of roaring bitmaps. The structure is as follows:
+//
+//	byte begin-start    | description
+//	--------------------|-----------------------------------------------------
+//	0-8                 | uint64 indicating the total length of the node,
+//	                    | this is used in cursors to identify the next node.
+//	8-16                | uint64 length indicator for additions
+//	                    | len(additions)*size(uint64) -> x
+//	16-(x+16)           | additions []uint64
+//	(x+16)-(x+24)       | uint64 length indicator for deletions
+//	                    | len(deletions)*size(uint64) -> y
+//	(x+24)-(x+y+24)     | deletions []uint64
+//	(x+y+24)-(x+y+28)   | uint32 length indicator for primary key length -> z
+//	(x+y+28)-(x+y+z+28) | primary key
+type SegmentNodeList struct {
+	data []byte
+}
+
+// Len indicates the total length of the [SegmentNodeList]. When reading multiple
+// segments back-2-back, such as in a cursor situation, the offset of element
+// (n+1) is the offset of element n + Len()
+func (sn *SegmentNodeList) Len() uint64 {
+	return binary.LittleEndian.Uint64(sn.data[0:8])
+}
+
+// Additions returns the additions []uint64 with shared state. Only use
+// this method if you can guarantee that you will only use it while holding a
+// maintenance lock or can otherwise be sure that no compaction can occur. If
+// you can't guarantee that, instead use [*SegmentNodeList.AdditionsWithCopy].
+func (sn *SegmentNodeList) Additions() []uint64 {
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	results := make([]uint64, len(bData)/8)
+	for i := 0; i < len(bData); i += 8 {
+		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
+	}
+	return results
+}
+
+// Deletions returns the deletions []uint64 with shared state. Only use
+// this method if you can guarantee that you will only use it while holding a
+// maintenance lock or can otherwise be sure that no compaction can occur. If
+// you can't guarantee that, instead use [*SegmentNodeList.DeletionsWithCopy].
+func (sn *SegmentNodeList) Deletions() []uint64 {
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	bData := rw.ReadBytesFromBufferWithUint64LengthIndicator()
+	results := make([]uint64, len(bData)/8)
+	for i := 0; i < len(bData); i += 8 {
+		results[i/8] = binary.LittleEndian.Uint64(bData[i : i+8])
+	}
+	return results
+}
+
+func (sn *SegmentNodeList) PrimaryKey() []byte {
+	rw := byteops.NewReadWriter(sn.data)
+	rw.MoveBufferToAbsolutePosition(8)
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	return rw.ReadBytesFromBufferWithUint32LengthIndicator()
+}
+
+// NewSegmentNodeFromBuffer creates a new segment node by using the underlying
+// buffer without copying data. Only use this when you can be sure that it's
+// safe to share the data or create your own copy.
+func NewSegmentNodeListFromBuffer(buf []byte) *SegmentNodeList {
+	return &SegmentNodeList{data: buf}
+}
