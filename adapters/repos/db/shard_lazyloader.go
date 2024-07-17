@@ -32,11 +32,13 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -241,14 +243,14 @@ func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVector []f
 	return l.shard.ObjectVectorSearch(ctx, searchVector, targetVector, targetDist, limit, filters, sort, groupBy, additional)
 }
 
-func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schema.VectorIndexConfig) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
 	return l.shard.UpdateVectorIndexConfig(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schema.VectorIndexConfig) error {
+func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
@@ -291,9 +293,9 @@ func (l *LazyLoadShard) drop() error {
 	// - remove entire shard directory
 	// use lock to prevent eventual concurrent droping and loading
 	l.mutex.Lock()
-	if !l.loaded {
-		defer l.mutex.Unlock()
+	defer l.mutex.Unlock()
 
+	if !l.loaded {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -322,35 +324,13 @@ func (l *LazyLoadShard) drop() error {
 
 		return nil
 	}
-	l.mutex.Unlock()
 
 	return l.shard.drop()
 }
 
-func (l *LazyLoadShard) addIDProperty(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.addIDProperty(ctx)
-}
-
-func (l *LazyLoadShard) addDimensionsProperty(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.addDimensionsProperty(ctx)
-}
-
-func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.addTimestampProperties(ctx)
-}
-
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, prop *models.Property, eg *enterrors.ErrorGroupWrapper) {
+func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	l.mustLoad()
-	l.shard.createPropertyIndex(ctx, prop, eg)
+	return l.shard.createPropertyIndex(ctx, eg, props...)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {
@@ -399,11 +379,11 @@ func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 	l.shard.publishDimensionMetrics(ctx)
 }
 
-func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
+func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
 	}
-	return l.shard.Aggregate(ctx, params)
+	return l.shard.Aggregate(ctx, params, modules)
 }
 
 func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDocument) error {
@@ -424,10 +404,21 @@ func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.isLoaded() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
 		return nil
 	}
+
 	return l.shard.Shutdown(ctx)
+}
+
+func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
+	if err := l.Load(context.Background()); err != nil {
+		return nil, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
+	}
+	return l.shard.preventShutdown()
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
@@ -507,13 +498,6 @@ func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, m
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
 	l.mustLoad()
 	return l.shard.abortReplication(ctx, shardID)
-}
-
-func (l *LazyLoadShard) reinit(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.reinit(ctx)
 }
 
 func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.WriteCloser, error) {
@@ -624,4 +608,19 @@ func (l *LazyLoadShard) isLoaded() bool {
 	defer l.mutex.Unlock()
 
 	return l.loaded
+}
+
+func (l *LazyLoadShard) Activity() int32 {
+	var loaded bool
+	l.mutex.Lock()
+	loaded = l.loaded
+	l.mutex.Unlock()
+
+	if !loaded {
+		// don't force-load the shard, just report the same number every time, so
+		// the caller can figure out there was no activity
+		return 0
+	}
+
+	return l.shard.Activity()
 }

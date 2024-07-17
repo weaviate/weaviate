@@ -41,9 +41,11 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 	dirName := t.TempDir()
 
 	t.Run("memtable-only", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)
@@ -116,9 +118,11 @@ func roaringsetInsertAndSetAdd(ctx context.Context, t *testing.T, opts []BucketO
 	})
 
 	t.Run("with a single flush in between updates", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, "", nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
+
+		defer b.Shutdown(ctx)
 
 		// so big it effectively never triggers as part of this test
 		b.SetMemtableThreshold(1e9)

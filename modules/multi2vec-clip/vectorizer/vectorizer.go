@@ -16,7 +16,6 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/multi2vec-clip/ent"
@@ -46,13 +45,13 @@ type ClassSettings interface {
 	ImageFieldsWeights() ([]float32, error)
 	TextField(property string) bool
 	TextFieldsWeights() ([]float32, error)
+	Properties() ([]string, error)
 	InferenceURL() string
 }
 
-func (v *Vectorizer) Object(ctx context.Context, object *models.Object,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) Object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
-	vec, err := v.object(ctx, object.ID, comp, cfg)
+	vec, err := v.object(ctx, object, cfg)
 	return vec, nil, err
 }
 
@@ -68,50 +67,34 @@ func (v *Vectorizer) VectorizeImage(ctx context.Context, id, image string, cfg m
 	return res.ImageVectors[0], nil
 }
 
-func (v *Vectorizer) object(ctx context.Context, id strfmt.UUID,
-	comp moduletools.VectorizablePropsComparator, cfg moduletools.ClassConfig,
+func (v *Vectorizer) object(ctx context.Context, object *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	ichek := NewClassSettings(cfg)
-	prevVector := comp.PrevVector()
-	if cfg.TargetVector() != "" {
-		prevVector = comp.PrevVectorForName(cfg.TargetVector())
-	}
-
-	vectorize := prevVector == nil
 
 	// vectorize image and text
 	texts := []string{}
 	images := []string{}
 
-	it := comp.PropsIterator()
-	for propName, propValue, ok := it.Next(); ok; propName, propValue, ok = it.Next() {
-		switch typed := propValue.(type) {
-		case string:
-			if ichek.ImageField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				images = append(images, typed)
-			}
-			if ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed)
-			}
+	if object.Properties != nil {
+		schemamap := object.Properties.(map[string]interface{})
+		for _, propName := range moduletools.SortStringKeys(schemamap) {
+			switch val := schemamap[propName].(type) {
+			case string:
+				if ichek.ImageField(propName) {
+					images = append(images, val)
+				}
+				if ichek.TextField(propName) {
+					texts = append(texts, val)
+				}
 
-		case []string:
-			if ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
-				texts = append(texts, typed...)
-			}
+			case []string:
+				if ichek.TextField(propName) {
+					texts = append(texts, val...)
+				}
+			default: // properties that are not part of the object
 
-		case nil:
-			if ichek.ImageField(propName) || ichek.TextField(propName) {
-				vectorize = vectorize || comp.IsChanged(propName)
 			}
 		}
-	}
-
-	// no property was changed, old vector can be used
-	if !vectorize {
-		return prevVector, nil
 	}
 
 	vectors := [][]float32{}
@@ -145,23 +128,7 @@ func (v *Vectorizer) getWeights(ichek ClassSettings) ([]float32, error) {
 	weights = append(weights, textFieldsWeights...)
 	weights = append(weights, imageFieldsWeights...)
 
-	normalizedWeights := v.normalizeWeights(weights)
+	normalizedWeights := moduletools.NormalizeWeights(weights)
 
 	return normalizedWeights, nil
-}
-
-func (v *Vectorizer) normalizeWeights(weights []float32) []float32 {
-	if len(weights) > 0 {
-		var denominator float32
-		for i := range weights {
-			denominator += weights[i]
-		}
-		normalizer := 1 / denominator
-		normalized := make([]float32, len(weights))
-		for i := range weights {
-			normalized[i] = weights[i] * normalizer
-		}
-		return normalized
-	}
-	return nil
 }

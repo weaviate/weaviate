@@ -15,23 +15,49 @@ import (
 	"math"
 	"runtime"
 	"sync"
+
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 type Action func(taskIndex uint64)
 
-func Concurrently(n uint64, action Action) {
+func Concurrently(log logrus.FieldLogger, n uint64, action Action) {
 	n64 := float64(n)
 	workerCount := runtime.GOMAXPROCS(0)
 	wg := &sync.WaitGroup{}
 	split := uint64(math.Ceil(n64 / float64(workerCount)))
 	for worker := uint64(0); worker < uint64(workerCount); worker++ {
+		workerID := worker
+
 		wg.Add(1)
-		go func(workerID uint64) {
+		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			for i := workerID * split; i < uint64(math.Min(float64((workerID+1)*split), n64)); i++ {
 				action(i)
 			}
-		}(worker)
+		}, log)
 	}
 	wg.Wait()
+}
+
+func ConcurrentlyWithError(log logrus.FieldLogger, n uint64, action func(taskIndex uint64) error) error {
+	n64 := float64(n)
+	workerCount := runtime.GOMAXPROCS(0)
+	eg := enterrors.NewErrorGroupWrapper(log)
+	eg.SetLimit(workerCount)
+	split := uint64(math.Ceil(n64 / float64(workerCount)))
+	for worker := uint64(0); worker < uint64(workerCount); worker++ {
+		workerID := worker
+		eg.Go(func() error {
+			for i := workerID * split; i < uint64(math.Min(float64((workerID+1)*split), n64)); i++ {
+				err := action(i)
+				if err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+	return eg.Wait()
 }

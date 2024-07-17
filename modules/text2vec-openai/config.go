@@ -14,18 +14,19 @@ package modopenai
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
 )
 
 func (m *OpenAIModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
-		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
-		"baseURL":            vectorizer.DefaultBaseURL,
-		"model":              vectorizer.DefaultOpenAIModel,
+		"vectorizeClassName": ent.DefaultVectorizeClassName,
+		"baseURL":            ent.DefaultBaseURL,
+		"model":              ent.DefaultOpenAIModel,
 	}
 }
 
@@ -33,15 +34,15 @@ func (m *OpenAIModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{
-		"skip":                  !vectorizer.DefaultPropertyIndexed,
-		"vectorizePropertyName": vectorizer.DefaultVectorizePropertyName,
+		"skip":                  !ent.DefaultPropertyIndexed,
+		"vectorizePropertyName": ent.DefaultVectorizePropertyName,
 	}
 }
 
 func (m *OpenAIModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
-	settings := vectorizer.NewClassSettings(cfg)
+	settings := ent.NewClassSettings(cfg)
 	return settings.Validate(class)
 }
 

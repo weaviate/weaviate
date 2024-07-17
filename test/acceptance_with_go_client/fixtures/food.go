@@ -14,6 +14,7 @@ package fixtures
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -113,6 +114,10 @@ func CreateSchemaPizzaForTenants(t *testing.T, client *weaviate.Client) {
 	createSchema(t, client, classForTenants(classPizza()))
 }
 
+func CreateSchemaPizzaForTenantsWithReplication(t *testing.T, client *weaviate.Client, replicationFactor int64) {
+	createSchema(t, client, classWithReplication(classForTenants(classPizza()), replicationFactor))
+}
+
 func CreateSchemaSoupForTenants(t *testing.T, client *weaviate.Client) {
 	createSchema(t, client, classForTenants(classSoup()))
 }
@@ -131,6 +136,12 @@ func createSchema(t *testing.T, client *weaviate.Client, class *models.Class) {
 	err := client.Schema().ClassCreator().
 		WithClass(class).
 		Do(context.Background())
+
+	// TODO shall be removed with the DB is idempotent
+	// delete class before trying to create in case it was existing.
+	if err != nil && strings.Contains(err.Error(), "exists") {
+		return
+	}
 
 	require.Nil(t, err)
 }
@@ -166,6 +177,13 @@ func classRisotto() *models.Class {
 func classForTenants(class *models.Class) *models.Class {
 	class.MultiTenancyConfig = &models.MultiTenancyConfig{
 		Enabled: true,
+	}
+	return class
+}
+
+func classWithReplication(class *models.Class, replicationFactor int64) *models.Class {
+	class.ReplicationConfig = &models.ReplicationConfig{
+		Factor: replicationFactor,
 	}
 	return class
 }

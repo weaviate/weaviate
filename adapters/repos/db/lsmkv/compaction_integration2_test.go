@@ -133,7 +133,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(context.TODO(), dirName, "", nullLogger2(), nil,
+		b, err := NewBucketCreator().NewBucket(context.TODO(), dirName, "", nullLogger2(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 

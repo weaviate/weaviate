@@ -24,6 +24,7 @@ dist_tmp
 
 # No weaviate bins
 ./weaviate
+cmd/weaviate-server/weaviate*
 
 # Logs
 logs
@@ -110,5 +111,6 @@ cmd/weaviate-server/__debug_bin*
 
 # python test
 .venv
+venv
 **/__pycache__
 *.pyc

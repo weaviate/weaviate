@@ -96,7 +96,11 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"vectorizeClassName": true,
 					},
 				},
-				"multiTenancyConfig": map[string]interface{}{"enabled": false},
+				"multiTenancyConfig": map[string]interface{}{
+					"enabled":              false,
+					"autoTenantCreation":   false,
+					"autoTenantActivation": false,
+				},
 			},
 		},
 	}

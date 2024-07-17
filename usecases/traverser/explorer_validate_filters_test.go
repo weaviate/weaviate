@@ -400,7 +400,7 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 						search.AssertExpectations(t)
 					})
 
-					t.Run("response must contain concepts", func(t *testing.T) {
+					t.Run("response must contain concepts13", func(t *testing.T) {
 						require.Len(t, res, 1)
 						assert.Equal(t,
 							map[string]interface{}{

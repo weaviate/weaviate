@@ -15,12 +15,17 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/modules/text2vec-cohere/ent"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // as used in the nearText searcher
 func TestVectorizingTexts(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
 	type testCase struct {
 		name                string
 		input               []string
@@ -77,7 +82,7 @@ func TestVectorizingTexts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, logger)
 
 			settings := &fakeClassConfig{
 				cohereModel: test.cohereModel,
@@ -87,7 +92,9 @@ func TestVectorizingTexts(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
-			assert.Equal(t, test.expectedCohereModel, client.lastConfig.Model)
+			conf := ent.NewClassSettings(client.lastConfig)
+
+			assert.Equal(t, test.expectedCohereModel, conf.Model())
 		})
 	}
 }

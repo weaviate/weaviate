@@ -17,6 +17,7 @@ import (
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -72,6 +73,32 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 	return nodes.NewNodesGetOK().WithPayload(status)
 }
 
+func (n *nodesHandlers) getNodesStatistics(params cluster.ClusterGetStatisticsParams, principal *models.Principal) middleware.Responder {
+	nodeStatistics, err := n.manager.GetNodeStatistics(params.HTTPRequest.Context(), principal)
+	if err != nil {
+		return n.handleGetNodesError(err)
+	}
+
+	synchronized := map[string]struct{}{}
+	for _, stats := range nodeStatistics {
+		if stats.Status == nil || *stats.Status != models.StatisticsStatusHEALTHY {
+			synchronized = nil
+			break
+		}
+		if stats.Raft != nil {
+			synchronized[stats.Raft.AppliedIndex] = struct{}{}
+		}
+	}
+
+	statistics := &models.ClusterStatisticsResponse{
+		Statistics:   nodeStatistics,
+		Synchronized: len(synchronized) == 1,
+	}
+
+	n.metricRequestsTotal.logOk("")
+	return cluster.NewClusterGetStatisticsOK().WithPayload(statistics)
+}
+
 func (n *nodesHandlers) handleGetNodesError(err error) middleware.Responder {
 	n.metricRequestsTotal.logError("", err)
 	if errors.As(err, &enterrors.ErrNotFound{}) {
@@ -101,6 +128,8 @@ func setupNodesHandlers(api *operations.WeaviateAPI,
 		NodesGetHandlerFunc(h.getNodesStatus)
 	api.NodesNodesGetClassHandler = nodes.
 		NodesGetClassHandlerFunc(h.getNodesStatusByClass)
+	api.ClusterClusterGetStatisticsHandler = cluster.
+		ClusterGetStatisticsHandlerFunc(h.getNodesStatistics)
 }
 
 type nodesRequestsTotal struct {

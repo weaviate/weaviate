@@ -95,7 +95,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			return err
 		}
 	}
-	compressionhelpers.Concurrently(uint64(len(data)),
+	compressionhelpers.Concurrently(h.logger, uint64(len(data)),
 		func(index uint64) {
 			if data[index] == nil {
 				return

@@ -20,6 +20,5 @@ func (e *Explorer) validateSort(className string, sort []filters.Sort) error {
 	if len(sort) == 0 {
 		return nil
 	}
-	sch := e.schemaGetter.GetSchemaSkipAuth()
-	return filters.ValidateSort(sch, schema.ClassName(className), sort)
+	return filters.ValidateSort(e.schemaGetter.ReadOnlyClass, schema.ClassName(className), sort)
 }

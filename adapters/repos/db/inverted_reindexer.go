@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -52,8 +51,10 @@ type ShardInvertedReindexer struct {
 }
 
 func NewShardInvertedReindexer(shard ShardLike, logger logrus.FieldLogger) *ShardInvertedReindexer {
-	class, _ := schema.GetClassByName(shard.Index().getSchema.GetSchemaSkipAuth().Objects,
-		shard.Index().Config.ClassName.String())
+	class := shard.Index().getSchema.ReadOnlyClass(shard.Index().Config.ClassName.String())
+	if class == nil {
+		return nil
+	}
 
 	return &ShardInvertedReindexer{
 		logger: logger,
@@ -193,7 +194,9 @@ func (r *ShardInvertedReindexer) pauseStoreActivity(ctx context.Context) error {
 	if err := r.shard.Store().FlushMemtables(ctx); err != nil {
 		return errors.Wrapf(err, "failed flushing memtables for shard '%s'", r.shard.Name())
 	}
-	r.shard.Store().UpdateBucketsStatus(storagestate.StatusReadOnly)
+	if err := r.shard.Store().UpdateBucketsStatus(storagestate.StatusReadOnly); err != nil {
+		return errors.Wrapf(err, "failed pausing compaction for shard '%s'", r.shard.ID())
+	}
 
 	r.logger.
 		WithField("action", "inverted reindex").
@@ -207,7 +210,9 @@ func (r *ShardInvertedReindexer) resumeStoreActivity(ctx context.Context, task S
 	if err := r.shard.Store().ResumeCompaction(ctx); err != nil {
 		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", r.shard.Name())
 	}
-	r.shard.Store().UpdateBucketsStatus(storagestate.StatusReady)
+	if err := r.shard.Store().UpdateBucketsStatus(storagestate.StatusReady); err != nil {
+		return errors.Wrapf(err, "failed resuming compaction for shard '%s'", r.shard.ID())
+	}
 	if err := task.OnPostResumeStore(ctx, r.shard); err != nil {
 		return errors.Wrap(err, "failed OnPostResumeStore")
 	}

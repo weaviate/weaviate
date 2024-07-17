@@ -283,7 +283,7 @@ func NewHNSWPQCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-	quantizer, err := NewProductQuantizer(cfg, distance, dimensions)
+	quantizer, err := NewProductQuantizer(cfg, distance, dimensions, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +316,7 @@ func RestoreHNSWPQCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders)
+	quantizer, err := NewProductQuantizerWithEncoders(cfg, distance, dimensions, encoders, logger)
 	if err != nil {
 		return nil, err
 	}

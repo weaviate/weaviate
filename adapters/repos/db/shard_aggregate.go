@@ -16,9 +16,10 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/usecases/modules"
 )
 
-func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params) (*aggregation.Result, error) {
+func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	var queue *IndexQueue
 
 	// we only need the index queue for vector search
@@ -34,6 +35,6 @@ func (s *Shard) Aggregate(ctx context.Context, params aggregation.Params) (*aggr
 
 	return aggregator.New(s.store, params, s.index.getSchema, s.index.classSearcher,
 		s.index.stopwords, s.versioner.Version(), queue, s.index.logger, s.GetPropertyLengthTracker(),
-		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
+		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory, modules).
 		Do(ctx)
 }

@@ -27,5 +27,5 @@ func NewIndexChecker(cfg moduletools.ClassConfig) *indexChecker {
 }
 
 func (ic *indexChecker) Validate(class *models.Class) error {
-	return ic.BaseClassSettings.Validate()
+	return ic.BaseClassSettings.ValidateClassSettings()
 }

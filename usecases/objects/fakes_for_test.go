@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/versioned"
 )
 
 const FindObjectFn = "func(context.Context, string, strfmt.UUID, " +
@@ -45,6 +47,7 @@ type fakeSchemaManager struct {
 	}
 	GetSchemaResponse schema.Schema
 	GetschemaErr      error
+	tenantsEnabled    bool
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -66,15 +69,21 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 	return f.GetSchemaResponse, f.GetschemaErr
 }
 
+func (f *fakeSchemaManager) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+	return f.GetSchema(principal)
+}
+
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) { return "", nil }
-func (f *fakeSchemaManager) TenantShard(class, tenant string) string        { return tenant }
+
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { return "" }
 
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, class := range classes {
+	if f.GetSchemaResponse.Objects == nil {
+		return nil, f.GetschemaErr
+	}
+	for _, class := range f.GetSchemaResponse.Objects.Classes {
 		if class.Class == name {
 			return class, f.GetschemaErr
 		}
@@ -82,9 +91,38 @@ func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Prin
 	return nil, f.GetschemaErr
 }
 
+func (f *fakeSchemaManager) GetConsistentClass(ctx context.Context, principal *models.Principal,
+	name string, consistency bool,
+) (*models.Class, uint64, error) {
+	cls, err := f.GetClass(ctx, principal, name)
+	return cls, 0, err
+}
+
+func (f *fakeSchemaManager) GetCachedClass(ctx context.Context,
+	principal *models.Principal, names ...string,
+) (map[string]versioned.Class, error) {
+	res := map[string]versioned.Class{}
+	for _, name := range names {
+		cls, err := f.GetClass(ctx, principal, name)
+		if err != nil {
+			return res, err
+		}
+		res[name] = versioned.Class{Class: cls}
+	}
+	return res, nil
+}
+
+func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
+	c, err := f.GetClass(context.TODO(), nil, name)
+	if err != nil {
+		return nil
+	}
+	return c
+}
+
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
-) error {
+) (*models.Class, uint64, error) {
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
@@ -98,44 +136,50 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 		classes = []*models.Class{class}
 	}
 	f.GetSchemaResponse.Objects.Classes = classes
-	return nil
+	return class, 0, nil
 }
 
 func (f *fakeSchemaManager) AddClassProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property,
-) error {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, c := range classes {
-		if c.Class == class {
-			props := c.Properties
-			if props != nil {
-				props = append(props, property)
-			} else {
-				props = []*models.Property{property}
+	class *models.Class, merge bool, newProps ...*models.Property,
+) (*models.Class, uint64, error) {
+	existing := map[string]int{}
+	var existedClass *models.Class
+	for _, c := range f.GetSchemaResponse.Objects.Classes {
+		if c.Class == class.Class {
+			existedClass = c
+			for idx, p := range c.Properties {
+				existing[strings.ToLower(p.Name)] = idx
 			}
-			c.Properties = props
 			break
 		}
 	}
-	return nil
+
+	// update existed
+	for _, prop := range newProps {
+		if idx, exists := existing[strings.ToLower(prop.Name)]; exists {
+			prop.NestedProperties, _ = schema.MergeRecursivelyNestedProperties(existedClass.Properties[idx].NestedProperties,
+				prop.NestedProperties)
+			existedClass.Properties[idx] = prop
+		} else {
+			existedClass.Properties = append(existedClass.Properties, prop)
+		}
+	}
+
+	return class, 0, nil
 }
 
-func (f *fakeSchemaManager) MergeClassObjectProperty(ctx context.Context, principal *models.Principal,
-	class string, property *models.Property,
-) error {
-	classes := f.GetSchemaResponse.Objects.Classes
-	for _, c := range classes {
-		if c.Class == class {
-			for i, prop := range c.Properties {
-				if prop.Name == property.Name {
-					c.Properties[i].NestedProperties, _ = schema.MergeRecursivelyNestedProperties(
-						c.Properties[i].NestedProperties, property.NestedProperties)
-					break
-				}
-			}
-			break
-		}
-	}
+func (f *fakeSchemaManager) AddTenants(ctx context.Context,
+	principal *models.Principal, class string, tenants []*models.Tenant,
+) (uint64, error) {
+	f.tenantsEnabled = true
+	return 0, nil
+}
+
+func (f *fakeSchemaManager) MultiTenancy(class string) models.MultiTenancyConfig {
+	return models.MultiTenancyConfig{Enabled: f.tenantsEnabled}
+}
+
+func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return nil
 }
 
@@ -204,47 +248,47 @@ func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Resul
 }
 
 func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
-	vectors models.Vectors, repl *additional.ReplicationProperties,
+	vectors models.Vectors, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
 	args := f.Called(concept, vector)
 	return args.Error(0)
 }
 
 func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchObjects, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
 
 func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,
-	repl *additional.ReplicationProperties,
+	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchReferences, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
 
 func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
-	repl *additional.ReplicationProperties, tenant string,
+	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
 	args := f.Called(params)
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string) error {
+func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error {
 	args := f.Called(merge)
 	return args.Error(0)
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
+	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	args := f.Called(className, id)
 	return args.Error(0)
 }
 
 func (f *fakeVectorRepo) AddReference(ctx context.Context, source *crossref.RefSource,
-	target *crossref.Ref, repl *additional.ReplicationProperties, tenant string,
+	target *crossref.Ref, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	args := f.Called(source, target)
 	return args.Error(0)
@@ -341,7 +385,7 @@ func (p *fakeModulesProvider) UsingRef2Vec(moduleName string) bool {
 }
 
 func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.Object, class *models.Class,
-	compFactory moduletools.PropsComparatorFactory, findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
+	findObjFn modulecapabilities.FindObjectFn, logger logrus.FieldLogger,
 ) error {
 	args := p.Called(object, findObjFn)
 	switch vec := args.Get(0).(type) {
@@ -354,6 +398,25 @@ func (p *fakeModulesProvider) UpdateVector(ctx context.Context, object *models.O
 	default:
 		return args.Error(1)
 	}
+}
+
+func (p *fakeModulesProvider) BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
+	findObjectFn modulecapabilities.FindObjectFn,
+	logger logrus.FieldLogger,
+) (map[int]error, error) {
+	args := p.Called()
+
+	for _, obj := range objects {
+		switch vec := args.Get(0).(type) {
+		case models.C11yVector:
+			obj.Vector = vec
+		case []float32:
+			obj.Vector = vec
+		default:
+		}
+	}
+
+	return nil, nil
 }
 
 func (p *fakeModulesProvider) VectorizerName(className string) (string, error) {

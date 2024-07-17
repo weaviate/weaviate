@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"golang.org/x/sys/cpu"
 )
 
 func L2PureGo(a, b []float32) float32 {
@@ -32,7 +33,7 @@ func L2PureGo(a, b []float32) float32 {
 }
 
 func Test_L2_DistanceImplementation(t *testing.T) {
-	lengths := []int{1, 4, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777}
+	lengths := []int{1, 2, 3, 4, 5, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777, 1000, 1536}
 
 	for _, length := range lengths {
 		t.Run(fmt.Sprintf("with vector l=%d", length), func(t *testing.T) {
@@ -44,15 +45,20 @@ func Test_L2_DistanceImplementation(t *testing.T) {
 			}
 
 			control := L2PureGo(x, y)
-			asmResult := asm.L2(x, y)
 
+			asmResult := asm.L2_Neon(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
+
+			if cpu.ARM64.HasSVE {
+				asmResult := asm.L2_SVE(x, y)
+				assert.InEpsilon(t, control, asmResult, 0.01)
+			}
 		})
 	}
 }
 
 func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
-	lengths := []int{1, 4, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777}
+	lengths := []int{1, 2, 3, 4, 5, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777, 1000, 1536}
 
 	for _, length := range lengths {
 		t.Run(fmt.Sprintf("with vector l=%d", length), func(t *testing.T) {
@@ -64,16 +70,20 @@ func Test_L2_DistanceImplementation_OneNegativeValue(t *testing.T) {
 			}
 
 			control := L2PureGo(x, y)
-			asmResult := asm.L2(x, y)
-
+			asmResult := asm.L2_Neon(x, y)
 			assert.InEpsilon(t, control, asmResult, 0.01)
+
+			if cpu.ARM64.HasSVE {
+				asmResult := asm.L2_SVE(x, y)
+				assert.InEpsilon(t, control, asmResult, 0.01)
+			}
 		})
 	}
 }
 
-func Benchmark_L2_PureGo_VS_Neon(b *testing.B) {
+func Benchmark_L2_PureGo_VS_SIMD(b *testing.B) {
 	r := getRandomSeed()
-	lengths := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 600, 768, 1024}
+	lengths := []int{1, 2, 3, 4, 5, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777, 1000, 1536}
 	for _, length := range lengths {
 		b.Run(fmt.Sprintf("vector dim=%d", length), func(b *testing.B) {
 			x := make([]float32, length)
@@ -93,7 +103,13 @@ func Benchmark_L2_PureGo_VS_Neon(b *testing.B) {
 
 			b.Run("asm Neon", func(b *testing.B) {
 				for i := 0; i < b.N; i++ {
-					asm.L2(x, y)
+					asm.L2_Neon(x, y)
+				}
+			})
+
+			b.Run("asm SVE", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					asm.L2_Neon(x, y)
 				}
 			})
 		})

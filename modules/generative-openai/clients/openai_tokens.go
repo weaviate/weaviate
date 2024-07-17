@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pkoukk/tiktoken-go"
+	"github.com/weaviate/tiktoken-go"
 )
 
 func getTokensCount(model string, messages []message) (int, error) {

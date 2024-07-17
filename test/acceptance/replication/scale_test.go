@@ -33,7 +33,7 @@ func multiShardScaleOut(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		WithWeaviateCluster().
+		With3NodeCluster().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)
@@ -53,12 +53,12 @@ func multiShardScaleOut(t *testing.T) {
 		"desiredCount": 1,
 	}
 
-	t.Run("create schema", func(t *testing.T) {
+	t.Run("CreateSchema", func(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 		helper.CreateClass(t, articleClass)
 	})
 
-	t.Run("insert paragraphs", func(t *testing.T) {
+	t.Run("InsertParagraphs", func(t *testing.T) {
 		batch := make([]*models.Object, len(paragraphIDs))
 		for i, id := range paragraphIDs {
 			batch[i] = articles.NewParagraph().
@@ -69,7 +69,7 @@ func multiShardScaleOut(t *testing.T) {
 		createObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
-	t.Run("insert articles", func(t *testing.T) {
+	t.Run("InsertArticles", func(t *testing.T) {
 		batch := make([]*models.Object, len(articleIDs))
 		for i, id := range articleIDs {
 			batch[i] = articles.NewArticle().
@@ -80,7 +80,7 @@ func multiShardScaleOut(t *testing.T) {
 		createObjects(t, compose.GetWeaviateNode2().URI(), batch)
 	})
 
-	t.Run("add references", func(t *testing.T) {
+	t.Run("AddReferences", func(t *testing.T) {
 		refs := make([]*models.BatchReference, len(articleIDs))
 		for i := range articleIDs {
 			refs[i] = &models.BatchReference{
@@ -98,17 +98,20 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("assert paragraphs were scaled out", func(t *testing.T) {
-		n := getNodes(t, compose.GetWeaviate().URI())
-		var shardsFound int
-		for _, node := range n.Nodes {
-			for _, shard := range node.Shards {
-				if shard.Class == paragraphClass.Class {
-					assert.EqualValues(t, 10, shard.ObjectCount)
-					shardsFound++
+		// shard.ObjectCount is eventually consistent, see Bucket::CountAsync()
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+			n := getNodes(t, compose.GetWeaviate().URI())
+			var shardsFound int
+			for _, node := range n.Nodes {
+				for _, shard := range node.Shards {
+					if shard.Class == paragraphClass.Class {
+						assert.EqualValues(collect, int64(10), shard.ObjectCount)
+						shardsFound++
+					}
 				}
 			}
-		}
-		assert.Equal(t, 2, shardsFound)
+			assert.Equal(collect, 2, shardsFound)
+		}, 10*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("scale out articles", func(t *testing.T) {
@@ -118,21 +121,24 @@ func multiShardScaleOut(t *testing.T) {
 	})
 
 	t.Run("assert articles were scaled out", func(t *testing.T) {
-		n := getNodes(t, compose.GetWeaviate().URI())
-		var shardsFound int
-		for _, node := range n.Nodes {
-			for _, shard := range node.Shards {
-				if shard.Class == articleClass.Class {
-					assert.EqualValues(t, 10, shard.ObjectCount)
-					shardsFound++
+		// shard.ObjectCount is eventually consistent, see Bucket::CountAsync()
+		assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+			n := getNodes(t, compose.GetWeaviate().URI())
+			var shardsFound int
+			for _, node := range n.Nodes {
+				for _, shard := range node.Shards {
+					if shard.Class == articleClass.Class {
+						assert.EqualValues(collect, int64(10), shard.ObjectCount)
+						shardsFound++
+					}
 				}
 			}
-		}
-		assert.Equal(t, 2, shardsFound)
+			assert.Equal(collect, 2, shardsFound)
+		}, 10*time.Second, 100*time.Millisecond)
 	})
 
 	t.Run("kill a node and check contents of remaining node", func(t *testing.T) {
-		stopNode(ctx, t, compose, compose.GetWeaviateNode2().Name())
+		stopNodeAt(ctx, t, compose, 2)
 		p := gqlGet(t, compose.GetWeaviate().URI(), paragraphClass.Class, replica.One)
 		assert.Len(t, p, 10)
 		a := gqlGet(t, compose.GetWeaviate().URI(), articleClass.Class, replica.One)

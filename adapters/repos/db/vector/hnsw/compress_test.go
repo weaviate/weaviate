@@ -15,6 +15,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -88,6 +90,7 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 	vectors_size := 10
 	vectors, _ := testinghelpers.RandomVecs(vectors_size, 0, dimensions)
 	distancer := distancer.NewL2SquaredProvider()
+	logger, _ := test.NewNullLogger()
 
 	uc := ent.UserConfig{}
 	uc.MaxConnections = maxNeighbors
@@ -123,9 +126,9 @@ func Test_NoRaceCompressReturnsErrorWhenNotEnoughData(t *testing.T) {
 	}, uc, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	defer index.Shutdown(context.Background())
-	compressionhelpers.Concurrently(uint64(len(vectors)), func(id uint64) {
-		index.Add(uint64(id), vectors[id])
-	})
+	assert.Nil(t, compressionhelpers.ConcurrentlyWithError(logger, uint64(len(vectors)), func(id uint64) error {
+		return index.Add(uint64(id), vectors[id])
+	}))
 
 	cfg := ent.PQConfig{
 		Enabled: true,

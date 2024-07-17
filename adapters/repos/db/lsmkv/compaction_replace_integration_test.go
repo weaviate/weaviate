@@ -128,7 +128,7 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -348,7 +348,7 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -461,7 +461,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -552,7 +552,7 @@ func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -633,7 +633,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations(ctx context.Context, 
 	dirName := t.TempDir()
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 
@@ -699,7 +699,7 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 			dirName := t.TempDir()
 
 			t.Run("init bucket", func(t *testing.T) {
-				b, err := NewBucket(ctx, dirName, dirName, nullLogger(), nil,
+				b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, nullLogger(), nil,
 					cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 				require.Nil(t, err)
 

@@ -18,16 +18,14 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // A component-test like test suite that makes sure that every available UC is
 // potentially protected with the Authorization plugin
-
 func Test_Schema_Authorization(t *testing.T) {
 	type testCase struct {
 		methodName       string
@@ -43,16 +41,28 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedResource: "schema/*",
 		},
 		{
+			methodName:       "GetConsistentSchema",
+			expectedVerb:     "list",
+			additionalArgs:   []interface{}{false},
+			expectedResource: "schema/*",
+		},
+		{
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{"classname"},
 			expectedVerb:     "list",
 			expectedResource: "schema/*",
 		},
 		{
-			methodName:       "GetShardsStatus",
-			additionalArgs:   []interface{}{"className", "tenant"},
+			methodName:       "GetConsistentClass",
+			additionalArgs:   []interface{}{"classname", false},
 			expectedVerb:     "list",
-			expectedResource: "schema/className/shards",
+			expectedResource: "schema/*",
+		},
+		{
+			methodName:       "GetCachedClass",
+			additionalArgs:   []interface{}{"classname"},
+			expectedVerb:     "list",
+			expectedResource: "schema/*",
 		},
 		{
 			methodName:       "AddClass",
@@ -74,13 +84,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "AddClassProperty",
-			additionalArgs:   []interface{}{"somename", &models.Property{}},
-			expectedVerb:     "update",
-			expectedResource: "schema/objects",
-		},
-		{
-			methodName:       "MergeClassObjectProperty",
-			additionalArgs:   []interface{}{"somename", &models.Property{}},
+			additionalArgs:   []interface{}{&models.Class{}, false, &models.Property{}},
 			expectedVerb:     "update",
 			expectedResource: "schema/objects",
 		},
@@ -95,6 +99,12 @@ func Test_Schema_Authorization(t *testing.T) {
 			additionalArgs:   []interface{}{"className", "shardName", "targetStatus"},
 			expectedVerb:     "update",
 			expectedResource: "schema/className/shards/shardName",
+		},
+		{
+			methodName:       "ShardsStatus",
+			additionalArgs:   []interface{}{"className", "tenant"},
+			expectedVerb:     "list",
+			expectedResource: "schema/className/shards",
 		},
 		{
 			methodName:       "AddTenants",
@@ -122,6 +132,18 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:     "get",
 			expectedResource: tenantsPath,
 		},
+		{
+			methodName:       "GetConsistentTenants",
+			additionalArgs:   []interface{}{"className", false, []string{}},
+			expectedVerb:     "get",
+			expectedResource: tenantsPath,
+		},
+		{
+			methodName:       "ConsistentTenantExists",
+			additionalArgs:   []interface{}{"className", false, "P1"},
+			expectedVerb:     "get",
+			expectedResource: tenantsPath,
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
@@ -130,17 +152,22 @@ func Test_Schema_Authorization(t *testing.T) {
 			testedMethods[i] = test.methodName
 		}
 
-		for _, method := range allExportedMethods(&Manager{}) {
+		for _, method := range allExportedMethods(&Handler{}) {
 			switch method {
-			case "RegisterSchemaUpdateCallback", "UpdateMeta", "GetSchemaSkipAuth",
-				"IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock", "TryLock",
-				"RLocker", "TryRLock", "Nodes", "NodeName", "ClusterHealthScore",
-				"ClusterStatus", "ResolveParentNodes", "CopyShardingState", "TxManager",
-				"RestoreClass", "ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard",
-				"RLockGuard", "ShardReplicas", "StartServing", "Shutdown", "EqualEnough":
-				// internal methods to indicate readiness state don't require auth on
-				// methods which are exported because other packages need to call them
-				// for maintenance and other regular jobs, but aren't user facing
+			case "RegisterSchemaUpdateCallback",
+				// introduced by sync.Mutex in go 1.18
+				"UpdateMeta", "GetSchemaSkipAuth", "IndexedInverted", "RLock", "RUnlock", "Lock", "Unlock",
+				"TryLock", "RLocker", "TryRLock", "CopyShardingState", "TxManager", "RestoreClass",
+				"ShardOwner", "TenantShard", "ShardFromUUID", "LockGuard", "RLockGuard", "ShardReplicas",
+				// internal methods to indicate readiness state
+				"StartServing", "Shutdown", "Statistics",
+				// Cluster/nodes related endpoint
+				"JoinNode", "RemoveNode", "Nodes", "NodeName", "ClusterHealthScore", "ClusterStatus", "ResolveParentNodes",
+				// revert to schema v0 (non raft)
+				"StoreSchemaV1":
+				// don't require auth on methods which are exported because other
+				// packages need to call them for maintenance and other regular jobs,
+				// but aren't user facing
 				continue
 			}
 			assert.Contains(t, testedMethods, method)
@@ -149,26 +176,21 @@ func Test_Schema_Authorization(t *testing.T) {
 
 	t.Run("verify the tested methods require correct permissions from the Authorizer", func(t *testing.T) {
 		principal := &models.Principal{}
-		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := &authDenier{}
-				manager, err := NewManager(&NilMigrator{}, newFakeRepo(),
-					logger, authorizer, config.Config{},
-					dummyParseVectorConfig, &fakeVectorizerValidator{},
-					dummyValidateInvertedConfig, &fakeModuleConfig{},
-					&fakeClusterState{hosts: []string{"node1"}}, &fakeTxClient{},
-					&fakeTxPersistence{}, &fakeScaleOutManager{})
-				require.Nil(t, err)
+				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
+				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
 
 				var args []interface{}
-				if test.methodName == "GetSchema" {
+				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {
 					// no context on this method
 					args = append([]interface{}{principal}, test.additionalArgs...)
 				} else {
 					args = append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				}
-				out, _ := callFuncByName(manager, test.methodName, args...)
+				out, _ := callFuncByName(handler, test.methodName, args...)
 
 				require.Len(t, authorizer.calls, 1, "Authorizer must be called")
 				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
