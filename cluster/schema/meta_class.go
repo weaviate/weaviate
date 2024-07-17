@@ -334,10 +334,9 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			if p, err = m.unfreeze(nodeID, i, req, p); err != nil {
 				return n, err
 			}
-			if req.Tenants[i] == nil {
-				continue
+			if req.Tenants[i] != nil {
+				u.Status = req.Tenants[i].Status
 			}
-			u.Status = req.Tenants[i].Status
 
 		case toFrozen && !frozenShard:
 			m.freeze(i, req, p)
