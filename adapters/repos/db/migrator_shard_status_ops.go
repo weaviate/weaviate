@@ -183,7 +183,6 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 	for _, name := range unfreeze {
 		name := name
 		eg.Go(func() error {
-
 			// # is a delineator shall come from RAFT and it's away e.g. tenant1#node1
 			// to identify which node path in the cloud shall we get the data from.
 			// it's made because nodeID could be changed on download based on new candidates
