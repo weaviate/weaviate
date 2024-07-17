@@ -96,12 +96,10 @@ func New() *Module {
 			Before: func(c *cli.Context) error {
 				retryCount := c.Int("retry-count")
 				workerCount := c.Int("numworkers")
-				printJSON := c.Bool("json")
-				logLevel := c.String("log")
 				isStat := c.Bool("stat")
 				endpointURL := c.String("endpoint-url")
 
-				log.Init(logLevel, printJSON)
+				log.Init("error", false) // print level error only
 				parallel.Init(workerCount)
 
 				if retryCount < 0 {
