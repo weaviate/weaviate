@@ -204,6 +204,8 @@ func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex
 // SegmentNodeList is inspired by the roaringset.SegmentNode, keeping the
 // same fuctionality, but stores lists of []uint64 instead of bitmaps.
 // This code is here tu support recovering from WALs created on 1.26
+// As with SegmentNode, it uses a single []byte internally. As a result
+// there is no decode step required at runtime. Instead you can use
 //
 //   - [*SegmentNodeList.Additions]
 //   - [*SegmentNodeList.Deletions]
@@ -280,9 +282,94 @@ func (sn *SegmentNodeList) PrimaryKey() []byte {
 	return rw.ReadBytesFromBufferWithUint32LengthIndicator()
 }
 
+func NewSegmentNodeList(
+	key []byte, additions, deletions []uint64,
+) (*SegmentNodeList, error) {
+	if len(key) > math.MaxUint32 {
+		return nil, fmt.Errorf("key too long, max length is %d", math.MaxUint32)
+	}
+
+	// convert the additions and deletions []uint64 to byte slices
+	additionsBuf := make([]byte, 8*len(additions))
+	for i, v := range additions {
+		binary.LittleEndian.PutUint64(additionsBuf[i*8:], v)
+	}
+
+	deletionsBuf := make([]byte, 8*len(deletions))
+	for i, v := range deletions {
+		binary.LittleEndian.PutUint64(deletionsBuf[i*8:], v)
+	}
+
+	// offset + 2*uint64 length indicators + uint32 length indicator + payloads
+	expectedSize := 8 + 8 + 8 + 4 + len(additionsBuf) + len(deletionsBuf) + len(key)
+	sn := SegmentNodeList{
+		data: make([]byte, expectedSize),
+	}
+
+	rw := byteops.NewReadWriter(sn.data)
+
+	// reserve the first 8 bytes for the offset, which we will write at the very
+	// end
+	rw.MoveBufferPositionForward(8)
+	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(additionsBuf); err != nil {
+		return nil, err
+	}
+
+	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(deletionsBuf); err != nil {
+		return nil, err
+	}
+
+	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {
+		return nil, err
+	}
+
+	offset := rw.Position
+	rw.MoveBufferToAbsolutePosition(0)
+	rw.WriteUint64(uint64(offset))
+
+	return &sn, nil
+}
+
+// ToBuffer returns the internal buffer without copying data. Only use this,
+// when you can be sure that it's safe to share the data, or create your own
+// copy.
+//
+// It truncates the buffer at is own length, in case it was initialized with a
+// long buffer that only had a beginning offset, but no end. Such a situation
+// may occur with cursors. If we then returned the whole buffer and don't know
+// what the caller plans on doing with the data, we risk passing around too
+// much memory. Truncating at the length prevents this and has no other
+// negative effects.
+func (sn *SegmentNodeList) ToBuffer() []byte {
+	return sn.data[:sn.Len()]
+}
+
 // NewSegmentNodeFromBuffer creates a new segment node by using the underlying
 // buffer without copying data. Only use this when you can be sure that it's
 // safe to share the data or create your own copy.
 func NewSegmentNodeListFromBuffer(buf []byte) *SegmentNodeList {
 	return &SegmentNodeList{data: buf}
+}
+
+// KeyIndexAndWriteTo is a helper to flush a memtables full of SegmentNodes. It
+// writes itself into the given writer and returns a [segmentindex.Key] with
+// start and end indicators (respecting SegmentNodeList.Offset). Those keys can
+// then be used to build an index for the nodes. The combination of index and
+// node make up an LSM segment.
+//
+// RoaringSets do not support secondary keys, thus the segmentindex.Key will
+// only ever contain a primary key.
+func (sn *SegmentNodeList) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex.Key, error) {
+	out := segmentindex.Key{}
+
+	n, err := w.Write(sn.data)
+	if err != nil {
+		return out, err
+	}
+
+	out.ValueStart = offset
+	out.ValueEnd = offset + n
+	out.Key = sn.PrimaryKey()
+
+	return out, nil
 }
