@@ -23,6 +23,7 @@ import (
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -244,6 +245,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 
 		if err != nil {
+			// Initializing a shard should normally not fail. If it does, this could
+			// mean that this setup requires further attention, e.g. to manually fix
+			// a data corruption. This makes it a prime use case for sentry:
+			entsentry.CaptureException(err)
 			// spawn a new context as we cannot guarantee that the init context is
 			// still valid, but we want to make sure that we have enough time to clean
 			// up the partial init
