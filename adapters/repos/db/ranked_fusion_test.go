@@ -41,6 +41,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/traverser/hybrid"
+	"sort"
+	"math"
+	"math/rand"
 )
 
 type TestDoc struct {
@@ -243,6 +246,157 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 
 	return class
 }
+func FuzzRFJourney(f *testing.F) {
+	f.Add(float64(0.5), float64(0.5), uint64(1), uint64(2), uint64(3), "apple", "banana", "cherry")
+	f.Add(float64(0.4), float64(0.6), uint64(10), uint64(20), uint64(30), "dog", "cat", "bird")
+
+	f.Fuzz(func(t *testing.T, weight1 float64, weight2 float64, docId1 uint64, docId2 uint64, docId3 uint64, title1 string, title2 string, title3 string) {
+		weight1 = math.Max(0, math.Min(1, weight1))
+		weight2 = math.Max(0, math.Min(1, weight2))
+
+		// Setup (similar to before)
+		dirName := t.TempDir()
+		logger := logrus.New()
+		schemaGetter := &fakeSchemaGetter{
+			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
+			shardState: singleShardState(),
+		}
+		repo, err := New(logger, Config{
+			RootPath:                  dirName,
+			QueryMaximumResults:       10000,
+			MaxImportGoroutinesFactor: 1,
+			QueryLimit:                20,
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+		require.Nil(t, err)
+		repo.SetSchemaGetter(schemaGetter)
+		require.Nil(t, repo.WaitForStartup(context.TODO()))
+		defer repo.Shutdown(context.Background())
+
+		// Function to generate random vector
+		randomVector := func() []float32 {
+			v := make([]float32, 5)
+			for i := range v {
+				v[i] = rand.Float32()
+			}
+			return v
+		}
+
+		// Create documents with fuzzed data
+		doc1 := &search.Result{
+			ID:    strfmt.UUID(uuid.New().String()),
+			DocID: &docId1,
+			Schema: map[string]interface{}{
+				"title": title1,
+			},
+			Vector:             randomVector(),
+			Score:              rand.Float32(),
+			SecondarySortValue: rand.Float32(),
+		}
+
+		doc2 := &search.Result{
+			ID:    strfmt.UUID(uuid.New().String()),
+			DocID: &docId2,
+			Schema: map[string]interface{}{
+				"title": title2,
+			},
+			Vector:             randomVector(),
+			Score:              rand.Float32(),
+			SecondarySortValue: rand.Float32(),
+		}
+
+		doc3 := &search.Result{
+			ID:    strfmt.UUID(uuid.New().String()),
+			DocID: &docId3,
+			Schema: map[string]interface{}{
+				"title": title3,
+			},
+			Vector:             randomVector(),
+			Score:              rand.Float32(),
+			SecondarySortValue: rand.Float32(),
+		}
+
+		allDocs := []*search.Result{doc1, doc2, doc3}
+
+		// Choose a random document to search for
+		searchDoc := allDocs[rand.Intn(len(allDocs))]
+
+		// Create result sets
+		resultSet1 := make([]*search.Result, len(allDocs))
+		resultSet2 := make([]*search.Result, len(allDocs))
+		copy(resultSet1, allDocs)
+		copy(resultSet2, allDocs)
+
+		// Sort resultSet1 by vector similarity (assuming cosine similarity)
+		sort.Slice(resultSet1, func(i, j int) bool {
+			sim1 := cosineSimilarity(searchDoc.Vector, resultSet1[i].Vector)
+			sim2 := cosineSimilarity(searchDoc.Vector, resultSet2[j].Vector)
+			return sim1 > sim2
+		})
+
+		// Sort resultSet2 by title similarity (assuming Levenshtein distance)
+		sort.Slice(resultSet2, func(i, j int) bool {
+			dist1 := levenshteinDistance(searchDoc.AdditionalProperties["title"].(string), resultSet2[i].AdditionalProperties["title"].(string))
+			dist2 := levenshteinDistance(searchDoc.AdditionalProperties["title"].(string), resultSet2[j].AdditionalProperties["title"].(string))
+			return dist1 < dist2
+		})
+
+		// Run fusion ranking
+		hybridResults := hybrid.FusionRanked([]float64{weight1, weight2},
+			[][]*search.Result{resultSet1, resultSet2}, []string{"vector", "title"})
+
+		// Assertions
+		require.Equal(t, 3, len(hybridResults))
+		require.Equal(t, searchDoc.ID, hybridResults[0].ID, "Expected search document to be ranked first")
+		require.True(t, hybridResults[0].Score >= hybridResults[1].Score)
+		require.True(t, hybridResults[1].Score >= hybridResults[2].Score)
+	})
+}
+
+// Helper function to calculate cosine similarity
+func cosineSimilarity(a, b []float32) float64 {
+	var dotProduct float64
+	var normA, normB float64
+	for i := range a {
+		dotProduct += float64(a[i] * b[i])
+		normA += float64(a[i] * a[i])
+		normB += float64(b[i] * b[i])
+	}
+	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
+}
+
+// Helper function to calculate Levenshtein distance
+func levenshteinDistance(s1, s2 string) int {
+	m := len(s1)
+	n := len(s2)
+	d := make([][]int, m+1)
+	for i := range d {
+		d[i] = make([]int, n+1)
+	}
+	for i := 0; i <= m; i++ {
+		d[i][0] = i
+	}
+	for j := 0; j <= n; j++ {
+		d[0][j] = j
+	}
+	for j := 1; j <= n; j++ {
+		for i := 1; i <= m; i++ {
+			if s1[i-1] == s2[j-1] {
+				d[i][j] = d[i-1][j-1]
+			} else {
+				min := d[i-1][j]
+				if d[i][j-1] < min {
+					min = d[i][j-1]
+				}
+				if d[i-1][j-1] < min {
+					min = d[i-1][j-1]
+				}
+				d[i][j] = min + 1
+			}
+		}
+	}
+	return d[m][n]
+}
+
 
 func TestRFJourney(t *testing.T) {
 	dirName := t.TempDir()
