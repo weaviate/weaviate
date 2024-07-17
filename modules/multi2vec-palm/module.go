@@ -19,12 +19,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/multi2vec-palm/clients"
 	"github.com/weaviate/weaviate/modules/multi2vec-palm/vectorizer"
-	"github.com/weaviate/weaviate/usecases/configbase"
 )
 
 const Name = "multi2vec-palm"
@@ -119,7 +119,7 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	if apiKey == "" {
 		apiKey = os.Getenv("PALM_APIKEY")
 	}
-	useGoogleAuth := configbase.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
+	useGoogleAuth := entcfg.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
 	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 
 	m.imageVectorizer = vectorizer.New(client)
