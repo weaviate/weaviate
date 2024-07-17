@@ -62,7 +62,7 @@ func FromEnv(config *Config) error {
 		config.DisableLazyLoadShards = true
 	}
 
-	if configbase.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
+	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
 		config.ForceFullReplicasSearch = true
 	}
 
