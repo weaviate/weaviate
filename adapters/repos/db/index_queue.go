@@ -245,6 +245,27 @@ func (q *IndexQueue) Close() error {
 	return nil
 }
 
+// Reset the queue with the given VectorIndex.
+// - discard any pending vectors
+// - reset the checkpoint to 0
+// Requires the queue to be paused.
+func (q *IndexQueue) ResetWith(v batchIndexer) error {
+	if !q.paused.Load() {
+		return errors.New("index queue must be paused to reset")
+	}
+
+	q.Index = v
+	err := q.Checkpoints.Update(q.shardID, q.targetVector, 0)
+	if err != nil {
+		return errors.Wrap(err, "update checkpoint")
+	}
+
+	q.lastPushed.Store(nil)
+	q.dims.Store(0)
+	q.queue.Reset()
+	return nil
+}
+
 // Push adds a list of vectors to the queue.
 func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) error {
 	if ctx.Err() != nil {
@@ -683,8 +704,11 @@ func (q *IndexQueue) checkCompressionSettings() bool {
 // pause indexing and wait for the workers to finish their current tasks
 // related to this queue.
 func (q *IndexQueue) PauseIndexing() {
+	if !q.paused.CompareAndSwap(false, true) {
+		q.Logger.Warn("attempted to pause indexing, but it is already paused")
+		return
+	}
 	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
-	q.paused.Store(true)
 	q.jobWg.Wait()
 	q.Logger.Debug("indexing paused")
 	q.metrics.Paused()
@@ -692,7 +716,10 @@ func (q *IndexQueue) PauseIndexing() {
 
 // resume indexing
 func (q *IndexQueue) ResumeIndexing() {
-	q.paused.Store(false)
+	if !q.paused.CompareAndSwap(true, false) {
+		q.Logger.Warn("attempted to resume indexing, but it is already running")
+		return
+	}
 	q.Logger.Debug("indexing resumed")
 	q.metrics.Resumed()
 }
@@ -1052,6 +1079,22 @@ func (q *vectorQueue) ResetDeleted(ids ...uint64) {
 	for _, id := range ids {
 		delete(q.deleted.m, id)
 	}
+	q.deleted.Unlock()
+}
+
+func (q *vectorQueue) Reset() {
+	q.fullChunks.Lock()
+	q.fullChunks.list = list.New()
+	q.fullChunks.Unlock()
+
+	q.curBatch.Lock()
+	if q.curBatch.c != nil {
+		q.curBatch.c = nil
+	}
+	q.curBatch.Unlock()
+
+	q.deleted.Lock()
+	q.deleted.m = make(map[uint64]struct{})
 	q.deleted.Unlock()
 }
 

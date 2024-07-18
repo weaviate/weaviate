@@ -853,6 +853,67 @@ func TestIndexQueue(t *testing.T) {
 
 		close(release)
 	})
+
+	t.Run("reset queue", func(t *testing.T) {
+		var idx1, idx2 mockBatchIndexer
+		indexed1 := make(chan []uint64)
+		indexed2 := make(chan []uint64)
+		idx1.addBatchFn = func(id []uint64, vector [][]float32) error {
+			indexed1 <- id
+			return nil
+		}
+		idx2.addBatchFn = func(id []uint64, vector [][]float32) error {
+			indexed2 <- id
+			return nil
+		}
+
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx1, startWorker(t, 2), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     4,
+			IndexInterval: 200 * time.Millisecond,
+		}, nil)
+		require.NoError(t, err)
+		defer q.Close()
+
+		// insert some data
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
+
+		// Call ResetWith without pausing the queue
+		err = q.ResetWith(&idx2)
+		require.Error(t, err)
+
+		// pause the queue
+		q.PauseIndexing()
+		err = q.ResetWith(&idx2)
+		require.NoError(t, err)
+
+		checkpoint, exists, err := q.Checkpoints.Get("1", "")
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.EqualValues(t, 0, checkpoint)
+		require.Nil(t, q.lastPushed.Load())
+		require.Zero(t, q.dims.Load())
+
+		// insert some data
+		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
+		pushVector(t, ctx, q, 4, []float32{10, 11, 12})
+		pushVector(t, ctx, q, 5, []float32{13, 14, 15})
+		pushVector(t, ctx, q, 6, []float32{16, 17, 18})
+
+		require.EqualValues(t, 4, q.Size())
+
+		// resume the queue
+		q.ResumeIndexing()
+
+		select {
+		case <-indexed1:
+			t.Fatal("should not have been called")
+		case ids := <-indexed2:
+			require.Equal(t, []uint64{3, 4, 5, 6}, ids)
+		case <-time.After(5 * time.Second):
+			t.Fatal("should have been called")
+		}
+	})
 }
 
 func BenchmarkPush(b *testing.B) {

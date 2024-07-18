@@ -12,13 +12,13 @@
 package rest
 
 import (
-	"fmt"
+	"context"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/configbase"
 )
@@ -26,35 +26,7 @@ import (
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger
 
-	http.HandleFunc("/debug/maintenance", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-
-		maintenanceFilePath := filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, "MAINTENANCE")
-		if _, err := os.Stat(maintenanceFilePath); err == nil {
-			logger.WithField("file", maintenanceFilePath).Error("maintenance mode already enabled")
-			w.WriteHeader(http.StatusBadRequest)
-			return
-		}
-
-		err := os.WriteFile(maintenanceFilePath, []byte(`Delete this file to disable maintenance mode`), 0o600)
-		if err != nil {
-			logger.WithError(err).Error("failed to enable maintenance mode")
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		logger.WithField("file", maintenanceFilePath).Warn("server will go into maintenance mode on next restart. Delete the file to disable maintenance mode")
-	}))
-
 	http.HandleFunc("/debug/reindex/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !appState.DB.IsInMaintenanceMode() {
-			http.Error(w, "server is not in maintenance mode", http.StatusServiceUnavailable)
-			return
-		}
-
 		if !configbase.Enabled(os.Getenv("ASYNC_INDEXING")) {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 			return
@@ -87,40 +59,51 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		if size := shard.Queue().Size(); size > 0 {
-			logger.WithField("queue_size", size).Warn("queue is not empty")
+		// Get the vector index
+		var vidx db.VectorIndex
+		if vecIdxID == "main" {
+			vidx = shard.VectorIndex()
+		} else {
+			vidx = shard.VectorIndexes()[vecIdxID]
 		}
 
-		q := shard.Queue()
-		q.PauseIndexing()
-
-		// TODO: use Drop
-		commitLogPath := fmt.Sprintf("%s/%s/%s/%s.hnsw.commitlog.d", idx.Config.RootPath, idx.ID(), shardName, vecIdxID)
-
-		if _, err := os.Stat(commitLogPath); os.IsNotExist(err) {
-			logger.WithField("commitLogPath", commitLogPath).Error("commit log not found")
-			http.Error(w, "commit log not found", http.StatusNotFound)
+		if vidx == nil {
+			logger.WithField("shard", shardName).Error("vector index not found")
+			http.Error(w, "vector index not found", http.StatusNotFound)
 			return
 		}
 
-		err := os.RemoveAll(commitLogPath)
+		// Reset the queue
+		var q *db.IndexQueue
+		if vecIdxID == "main" {
+			q = shard.Queue()
+		} else {
+			q = shard.Queues()[vecIdxID]
+		}
+		if q == nil {
+			logger.WithField("shard", shardName).Error("index queue not found")
+			http.Error(w, "index queue not found", http.StatusNotFound)
+			return
+		}
+
+		// Reset the vector index
+		err := shard.DebugResetVectorIndex(context.Background(), vecIdxID)
 		if err != nil {
-			logger.WithField("commitLogPath", commitLogPath).WithError(err).Error("failed to remove commit log")
-			http.Error(w, "failed to remove commit log", http.StatusInternalServerError)
+			logger.WithField("shard", shardName).WithError(err).Error("failed to reset vector index")
+			http.Error(w, "failed to reset vector index", http.StatusInternalServerError)
 			return
 		}
 
-		// TODO use the target vector if provided
-		err = q.Checkpoints.Update(shard.ID(), "", 0)
-		if err != nil {
-			logger.WithField("shard", shardName).WithError(err).Error("failed to update checkpoint")
-			http.Error(w, "failed to update checkpoint", http.StatusInternalServerError)
-			return
-		}
+		// Reindex in the background
+		go func() {
+			err = q.PreloadShard(shard)
+			if err != nil {
+				logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
+				return
+			}
+		}()
 
-		// TODO: reindex here
-
-		logger.WithField("shard", shardName).Info("index commit log removed successfully. Reindexing will start on next restart.")
+		logger.WithField("shard", shardName).Info("reindexing started")
 
 		w.WriteHeader(http.StatusAccepted)
 	}))

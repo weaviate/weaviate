@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -222,4 +223,138 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 	require.Equal(t, batchSize, int(shd.Counter().Get()))
 
 	require.Nil(t, idx.drop())
+}
+
+func TestShard_DebugResetVectorIndex(t *testing.T) {
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Unsetenv("ASYNC_INDEXING")
+
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true /* withCheckpoints */)
+
+	amount := 1500
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	var objs []*storobj.Object
+	for i := 0; i < amount; i++ {
+		obj := testObject(className)
+		objs = append(objs, obj)
+	}
+
+	errs := shd.PutObjectBatch(ctx, objs)
+	for _, err := range errs {
+		require.Nil(t, err)
+	}
+
+	oldIdx := shd.VectorIndex()
+
+	// wait for the first batch to be indexed
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if shd.Queue().Size() <= 500 {
+			break
+		}
+	}
+
+	err := shd.DebugResetVectorIndex(ctx, "")
+	require.Nil(t, err)
+
+	newIdx := shd.VectorIndex()
+
+	// the new index should be different from the old one.
+	// pointer comparison is enough here
+	require.NotEqual(t, oldIdx, newIdx)
+
+	// queue should be empty after reset
+	require.EqualValues(t, 0, shd.Queue().Size())
+
+	// make sure the new index does not contain any of the objects
+	for _, obj := range objs {
+		if newIdx.ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+		}
+	}
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Unsetenv("ASYNC_INDEXING")
+
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShardWithSettings(
+		t,
+		ctx,
+		&models.Class{Class: className},
+		hnsw.UserConfig{},
+		false,
+		true,
+		func(i *Index) {
+			i.vectorIndexUserConfigs = make(map[string]schema.VectorIndexConfig)
+			i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
+		},
+	)
+
+	amount := 1500
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	var objs []*storobj.Object
+	for i := 0; i < amount; i++ {
+		obj := testObject(className)
+		objs = append(objs, obj)
+	}
+
+	errs := shd.PutObjectBatch(ctx, objs)
+	for _, err := range errs {
+		require.Nil(t, err)
+	}
+
+	oldIdx := shd.VectorIndexes()["foo"]
+	q := shd.Queues()["foo"]
+
+	// wait for the first batch to be indexed
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if q.Size() <= 500 {
+			break
+		}
+	}
+
+	err := shd.DebugResetVectorIndex(ctx, "foo")
+	require.Nil(t, err)
+
+	newIdx := shd.VectorIndexes()["foo"]
+
+	// the new index should be different from the old one.
+	// pointer comparison is enough here
+	require.NotEqual(t, oldIdx, newIdx)
+
+	// queue should be empty after reset
+	require.EqualValues(t, 0, q.Size())
+
+	// make sure the new index does not contain any of the objects
+	for _, obj := range objs {
+		if newIdx.ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+		}
+	}
+
+	require.Nil(t, idx.drop())
+	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
