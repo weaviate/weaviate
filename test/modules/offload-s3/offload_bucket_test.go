@@ -62,8 +62,7 @@ func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3(bucketname).
-			WithBackendS3(bucketname).
+			WithOffloadS3(bucketname, "us-west-1").
 			WithText2VecContextionary().
 			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
 			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").

@@ -38,7 +38,15 @@ var bucketName = "bucket"
 
 func Test_S3Backend_Backup(t *testing.T) {
 	ctx := context.Background()
-	compose, err := docker.New().WithMinIO().WithBackendS3(bucketName).Start(ctx)
+
+	t.Log("setup env")
+	region := "eu-west-1"
+	t.Setenv(envAwsRegion, region)
+	t.Setenv(envS3AccessKey, "aws_access_key")
+	t.Setenv(envS3SecretKey, "aws_secret_key")
+	t.Setenv(envS3Bucket, bucketName)
+
+	compose, err := docker.New().WithBackendS3(bucketName, region).Start(ctx)
 	if err != nil {
 		t.Fatal(errors.Wrapf(err, "cannot start"))
 	}
@@ -61,15 +69,8 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
-	region := "eu-west-1"
 	endpoint := os.Getenv(envMinioEndpoint)
 	metadataFilename := "backup.json"
-
-	t.Log("setup env")
-	t.Setenv(envAwsRegion, region)
-	t.Setenv(envS3AccessKey, "aws_access_key")
-	t.Setenv(envS3SecretKey, "aws_secret_key")
-	t.Setenv(envS3Bucket, bucketName)
 
 	t.Run("store backup meta in s3", func(t *testing.T) {
 		t.Setenv(envS3UseSSL, "false")
@@ -141,15 +142,9 @@ func moduleLevelCopyObjects(t *testing.T) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
-	bucketName := "bucket"
-	region := "eu-west-1"
 	endpoint := os.Getenv(envMinioEndpoint)
 
 	t.Log("setup env")
-	t.Setenv(envAwsRegion, region)
-	t.Setenv(envS3AccessKey, "aws_access_key")
-	t.Setenv(envS3SecretKey, "aws_secret_key")
-	t.Setenv(envS3Bucket, bucketName)
 
 	t.Run("copy objects", func(t *testing.T) {
 		t.Setenv(envS3UseSSL, "false")
@@ -178,15 +173,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
-	bucketName := "bucket"
-	region := "eu-west-1"
 	endpoint := os.Getenv(envMinioEndpoint)
-
-	t.Log("setup env")
-	t.Setenv(envAwsRegion, region)
-	t.Setenv(envS3AccessKey, "aws_access_key")
-	t.Setenv(envS3SecretKey, "aws_secret_key")
-	t.Setenv(envS3Bucket, bucketName)
 
 	t.Run("copy files", func(t *testing.T) {
 		fpaths := moduleshelper.CreateTestFiles(t, dataDir)
