@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -77,6 +79,7 @@ type Compose struct {
 	enableModules              []string
 	defaultVectorizerModule    string
 	withMinIO                  bool
+	withMinIOBucketName        string
 	withGCS                    bool
 	withAzurite                bool
 	withBackendFilesystem      bool
@@ -120,6 +123,13 @@ func New() *Compose {
 func (d *Compose) WithMinIO() *Compose {
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
+	return d
+}
+
+func (d *Compose) WithMinIOBucket(bucket string) *Compose {
+	d.withMinIO = true
+	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
+	d.withMinIOBucketName = bucket
 	return d
 }
 
@@ -435,12 +445,20 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
 		containers = append(containers, container)
+
+		if d.withMinIOBucketName != "" {
+			if err := createBucket(ctx, container.URI(), "us-west-2", d.withMinIOBucketName); err != nil {
+				return nil, err
+			}
+		}
+
 		if d.withBackendS3 {
+			envSettings["BACKUP_S3_BUCKET"] = d.withBackendS3Bucket
+			envSettings["OFFLOAD_S3_BUCKET"] = d.withBackendS3Bucket
+			envSettings["OFFLOAD_S3_BUCKET_AUTO_CREATE"] = "true"
 			for k, v := range container.envSettings {
 				envSettings[k] = v
 			}
-			envSettings["BACKUP_S3_BUCKET"] = d.withBackendS3Bucket
-			envSettings["OFFLOAD_S3_BUCKET"] = d.withBackendS3Bucket
 		}
 	}
 	if d.withGCS {
@@ -613,10 +631,10 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
-		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", hostname)
-		}
 		containers = append(containers, container)
+		if err != nil {
+			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
+		}
 	}
 
 	return &DockerCompose{network, containers}, nil
@@ -736,4 +754,26 @@ func copySettings(s map[string]string) map[string]string {
 		copy[k] = v
 	}
 	return copy
+}
+
+func createBucket(ctx context.Context, endpoint, region, bucketName string) error {
+	client, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewEnvAWS(),
+		Region: region,
+		Secure: false,
+	})
+	if err != nil {
+		return err
+	}
+
+	err = client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
+	minioErr, ok := err.(minio.ErrorResponse)
+	if ok {
+		// the bucket persists from a previous test.
+		// if the bucket already exists, we can proceed
+		if minioErr.Code == "BucketAlreadyOwnedByYou" {
+			return nil
+		}
+	}
+	return err
 }
