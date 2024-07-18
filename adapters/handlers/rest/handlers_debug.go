@@ -20,11 +20,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func setupDebugHandlers(appState *state.State) {
-	logger := appState.Logger
+	logger := appState.Logger.WithField("handler", "debug")
 
 	http.HandleFunc("/debug/reindex/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
@@ -95,13 +96,13 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		// Reindex in the background
-		go func() {
+		errors.GoWrapper(func() {
 			err = q.PreloadShard(shard)
 			if err != nil {
 				logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
 				return
 			}
-		}()
+		}, logger)
 
 		logger.WithField("shard", shardName).Info("reindexing started")
 
