@@ -85,7 +85,9 @@ type Compose struct {
 	withBackendS3              bool
 	withBackendS3Buckets       []string
 	withBackupS3Bucket         string
+	withBackupS3Region         string
 	withOffloadS3Bucket        string
+	withOffloadS3Region        string
 	withBackendGCS             bool
 	withBackendGCSBucket       string
 	withBackendAzure           bool
@@ -119,12 +121,6 @@ type Compose struct {
 
 func New() *Compose {
 	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string)}
-}
-
-func (d *Compose) WithMinIO() *Compose {
-	d.withMinIO = true
-	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
-	return d
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -178,18 +174,22 @@ func (d *Compose) WithBackendFilesystem() *Compose {
 	return d
 }
 
-func (d *Compose) WithBackendS3(bucket string) *Compose {
+// WithBackendS3 will prepare MinIO
+func (d *Compose) WithBackendS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
 	d.withBackupS3Bucket = bucket
+	d.withBackupS3Region = region
 	d.withBackendS3Buckets = append(d.withBackendS3Buckets, bucket)
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
 }
 
-func (d *Compose) WithOffloadS3(bucket string) *Compose {
+// WithOffloadS3 will prepare MinIO
+func (d *Compose) WithOffloadS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
 	d.withOffloadS3Bucket = bucket
+	d.withOffloadS3Region = region
 	d.withBackendS3Buckets = append(d.withBackendS3Buckets, bucket)
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modsloads3.Name)
@@ -447,7 +447,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 				if bName == "" {
 					continue
 				}
-				if err := createBucket(ctx, container.URI(), "us-west-2", bName); err != nil {
+				if err := createBucket(ctx, container.URI(), "eu-west-1", bName); err != nil {
 					return nil, err
 				}
 			}
@@ -772,7 +772,6 @@ func createBucket(ctx context.Context, endpoint, region, bucketName string) erro
 	if err != nil {
 		return err
 	}
-
 	err = client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
 	minioErr, ok := err.(minio.ErrorResponse)
 	if ok {

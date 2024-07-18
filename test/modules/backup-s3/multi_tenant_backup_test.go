@@ -41,7 +41,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviate().
 			Start(ctx)
@@ -72,7 +72,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateCluster(2).
 			Start(ctx)
