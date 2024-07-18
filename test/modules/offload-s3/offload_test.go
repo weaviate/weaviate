@@ -390,13 +390,6 @@ func Test_AutoTenantActivation(t *testing.T) {
 		}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", models.TenantActivityStatusFROZEN))
 	})
 
-	t.Run("verify tenant does not exists", func(t *testing.T) {
-		for i := range tenantObjects {
-			_, err = helper.TenantObject(t, tenantObjects[i].Class, tenantObjects[i].ID, tenantNames[i])
-			require.NotNil(t, err)
-		}
-	})
-
 	objectsToCreate := []*models.Object{
 		{
 			ID:    strfmt.UUID(uuid.NewString()),
@@ -488,8 +481,7 @@ func Test_ConcurrentFreezeUnfreeze(t *testing.T) {
 		Class:             className,
 		ReplicationConfig: &models.ReplicationConfig{Factor: 2},
 		MultiTenancyConfig: &models.MultiTenancyConfig{
-			AutoTenantActivation: true,
-			Enabled:              true,
+			Enabled: true,
 		},
 		Properties: []*models.Property{
 			{

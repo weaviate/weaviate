@@ -431,7 +431,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		}
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := &errorcompounder.SafeErrorCompounder{}
 	if len(hot) > 0 {
 		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
 		idx.shardTransferMutex.RLock()
