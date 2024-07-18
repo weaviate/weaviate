@@ -19,15 +19,15 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/configbase"
 )
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger
 
 	http.HandleFunc("/debug/reindex/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !configbase.Enabled(os.Getenv("ASYNC_INDEXING")) {
+		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 			return
 		}
