@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/configbase"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -172,15 +173,6 @@ func (m *Module) Init(ctx context.Context,
 		m.Bucket = bucket
 	}
 
-	var autoCreateBucket bool
-	if autoCreateBucketStr := os.Getenv(s3BucketAutoCreate); autoCreateBucketStr != "" {
-		v, err := strconv.ParseBool(autoCreateBucketStr)
-		if err != nil {
-			return err
-		}
-		autoCreateBucket = v
-	}
-
 	if endpoint := os.Getenv(s3Endpoint); endpoint != "" {
 		m.Endpoint = endpoint
 	}
@@ -201,7 +193,7 @@ func (m *Module) Init(ctx context.Context,
 		m.Concurrency = conccN
 	}
 
-	if autoCreateBucket {
+	if configbase.Enabled(os.Getenv(s3BucketAutoCreate)) {
 		if err := m.create(ctx); err != nil && !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
 			return fmt.Errorf("can't create offload bucket: %s at endpoint %s %w", m.Bucket, m.Endpoint, err)
 		}

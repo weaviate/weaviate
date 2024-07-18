@@ -631,7 +631,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_JOIN")
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
 		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", hostname)
+			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
 	}
