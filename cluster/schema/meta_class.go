@@ -512,7 +512,7 @@ func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsReq
 	newNodes, ok := partitions[name]
 	if !ok {
 		req.Tenants[i] = nil
-		return p, fmt.Errorf("can not assign new nodes to shard %s: %w", name, err)
+		return p, fmt.Errorf("can not assign new nodes to shard %s, it didn't exist in the new partitions", name)
 	}
 
 	oldNodes := p.BelongsToNodes
