@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -323,12 +324,23 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 		ids, dists, err = queue.SearchByVectorDistance(
 			searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "vector search by distance")
+			// This should normally not fail. A failure here could indicate that more
+			// attention is required, for example because data is corrupted. That's
+			// why this error is explicitly pushed to sentry.
+			err = fmt.Errorf("vector search by distance: %w", err)
+			entsentry.CaptureException(err)
+
+			return nil, nil, err
 		}
 	} else {
 		ids, dists, err = queue.SearchByVector(searchVector, limit, allowList)
 		if err != nil {
-			return nil, nil, errors.Wrap(err, "vector search")
+			// This should normally not fail. A failure here could indicate that more
+			// attention is required, for example because data is corrupted. That's
+			// why this error is explicitly pushed to sentry.
+			err = fmt.Errorf("vector search: %w", err)
+			entsentry.CaptureException(err)
+			return nil, nil, err
 		}
 	}
 	if len(ids) == 0 {

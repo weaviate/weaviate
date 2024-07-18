@@ -22,3 +22,11 @@ func Recover(err any) {
 
 	libsentry.CurrentHub().Recover(err)
 }
+
+func CaptureException(err error) {
+	if !Enabled() {
+		return
+	}
+
+	libsentry.CaptureException(err)
+}
