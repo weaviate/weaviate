@@ -135,11 +135,15 @@ func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
 }
 
 func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentReplaceNode, error) {
-	r, err := s.segment.newNodeReader(offset)
-	if err != nil {
-		return segmentReplaceNode{}, err
+	if s.nodeReader == nil {
+		nodeReader, err := s.segment.newNodeReader(offset)
+		if err != nil {
+			return segmentReplaceNode{}, err
+		}
+		s.nodeReader = nodeReader
 	}
-	out, err := ParseReplaceNode(r, s.segment.secondaryIndexCount)
+
+	out, err := ParseReplaceNode(s.nodeReader, s.segment.secondaryIndexCount)
 	if out.tombstone {
 		return out, lsmkv.Deleted
 	}
@@ -156,7 +160,6 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 		if err != nil {
 			return err
 		}
-
 		s.nodeReader = nodeReader
 	}
 
