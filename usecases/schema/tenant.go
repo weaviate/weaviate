@@ -30,6 +30,10 @@ import (
 
 var regexTenantName = regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`)
 
+const (
+	ErrMsgMaxAllowedTenants = "maximum number of tenants allowed to be updated simultaneously is 100. Please reduce the number of tenants in your request and try again"
+)
+
 // tenantsPath is the main path used for authorization
 const tenantsPath = "schema/tenants"
 
@@ -68,6 +72,10 @@ func (h *Handler) AddTenants(ctx context.Context,
 }
 
 func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {
+	if len(tenants) > 100 {
+		err = uco.NewErrInvalidUserInput(ErrMsgMaxAllowedTenants)
+		return
+	}
 	uniq := make(map[string]*models.Tenant)
 	for i, requested := range tenants {
 		if !regexTenantName.MatchString(requested.Name) {
@@ -82,9 +90,11 @@ func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err 
 			return
 		}
 		_, found := uniq[requested.Name]
-		if !found {
-			uniq[requested.Name] = requested
+		if found {
+			err = uco.NewErrInvalidUserInput("tenant name %s existed multiple times", requested.Name)
+			return
 		}
+		uniq[requested.Name] = requested
 	}
 	validated = make([]*models.Tenant, len(uniq))
 	i := 0
