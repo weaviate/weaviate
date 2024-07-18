@@ -18,8 +18,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -83,11 +81,9 @@ type Compose struct {
 	withAzurite                bool
 	withBackendFilesystem      bool
 	withBackendS3              bool
-	withBackendS3Buckets       []string
+	withBackendS3Buckets       map[string]string
 	withBackupS3Bucket         string
-	withBackupS3Region         string
 	withOffloadS3Bucket        string
-	withOffloadS3Region        string
 	withBackendGCS             bool
 	withBackendGCSBucket       string
 	withBackendAzure           bool
@@ -120,7 +116,7 @@ type Compose struct {
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string)}
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), withBackendS3Buckets: make(map[string]string)}
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -178,8 +174,7 @@ func (d *Compose) WithBackendFilesystem() *Compose {
 func (d *Compose) WithBackendS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
 	d.withBackupS3Bucket = bucket
-	d.withBackupS3Region = region
-	d.withBackendS3Buckets = append(d.withBackendS3Buckets, bucket)
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
@@ -189,8 +184,7 @@ func (d *Compose) WithBackendS3(bucket, region string) *Compose {
 func (d *Compose) WithOffloadS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
 	d.withOffloadS3Bucket = bucket
-	d.withOffloadS3Region = region
-	d.withBackendS3Buckets = append(d.withBackendS3Buckets, bucket)
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modsloads3.Name)
 	return d
@@ -436,22 +430,11 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	envSettings["DISABLE_TELEMETRY"] = "true"
 	containers := []*DockerContainer{}
 	if d.withMinIO {
-		container, err := startMinIO(ctx, networkName)
+		container, err := startMinIO(ctx, networkName, d.withBackendS3Buckets)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
 		containers = append(containers, container)
-
-		if len(d.withBackendS3Buckets) > 0 {
-			for _, bName := range d.withBackendS3Buckets {
-				if bName == "" {
-					continue
-				}
-				if err := createBucket(ctx, container.URI(), "eu-west-1", bName); err != nil {
-					return nil, err
-				}
-			}
-		}
 
 		if d.withBackendS3 {
 			if d.withBackupS3Bucket != "" {
@@ -761,25 +744,4 @@ func copySettings(s map[string]string) map[string]string {
 		copy[k] = v
 	}
 	return copy
-}
-
-func createBucket(ctx context.Context, endpoint, region, bucketName string) error {
-	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewEnvAWS(),
-		Region: region,
-		Secure: false,
-	})
-	if err != nil {
-		return err
-	}
-	err = client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
-	minioErr, ok := err.(minio.ErrorResponse)
-	if ok {
-		// the bucket persists from a previous test.
-		// if the bucket already exists, we can proceed
-		if minioErr.Code == "BucketAlreadyOwnedByYou" {
-			return nil
-		}
-	}
-	return err
 }
