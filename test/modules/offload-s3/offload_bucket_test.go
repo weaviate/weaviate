@@ -39,7 +39,7 @@ func Test_OffloadBucketNotAutoCreate(t *testing.T) {
 	t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 	compose, err := docker.New().
-		WithOffloadS3("offloading").
+		WithOffloadS3("offloading", "us-west-1").
 		WithText2VecContextionary().
 		WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
 		WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").

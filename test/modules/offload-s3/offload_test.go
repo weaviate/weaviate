@@ -46,7 +46,7 @@ func Test_Upload_DownloadS3Journey(t *testing.T) {
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("offloading").
+			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
@@ -260,7 +260,7 @@ func Test_AutoTenantActivation(t *testing.T) {
 	t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 	compose, err := docker.New().
-		WithOffloadS3("offloading").
+		WithOffloadS3("offloading", "us-west-1").
 		WithText2VecContextionary().
 		With3NodeCluster().
 		Start(ctx)
@@ -462,7 +462,7 @@ func Test_ConcurrentFreezeUnfreeze(t *testing.T) {
 	t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 	compose, err := docker.New().
-		WithOffloadS3("offloading").
+		WithOffloadS3("offloading", "us-west-1").
 		WithText2VecContextionary().
 		With3NodeCluster().
 		Start(ctx)
