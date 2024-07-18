@@ -226,8 +226,7 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 }
 
 func TestShard_DebugResetVectorIndex(t *testing.T) {
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Unsetenv("ASYNC_INDEXING")
+	t.Setenv("ASYNC_INDEXING", "true")
 
 	ctx := testCtx()
 	className := "TestClass"
@@ -287,8 +286,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 }
 
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Unsetenv("ASYNC_INDEXING")
+	t.Setenv("ASYNC_INDEXING", "true")
 
 	ctx := testCtx()
 	className := "TestClass"
