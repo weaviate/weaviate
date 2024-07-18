@@ -146,11 +146,6 @@ func Test_DownloadS3Journey(t *testing.T) {
 			}
 		})
 
-		t.Run("verify tenant does not exists", func(t *testing.T) {
-			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
-			require.NotNil(t, err)
-		})
-
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenantsGRPC(t, className)
@@ -162,6 +157,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 					}
 				}
 			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN))
+		})
+
+		t.Run("verify tenant does not exists", func(t *testing.T) {
+			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
+			require.NotNil(t, err)
 		})
 
 		t.Run("updating tenant status to HOT", func(t *testing.T) {
@@ -335,11 +335,6 @@ func Test_DownloadS3Journey(t *testing.T) {
 			}
 		})
 
-		t.Run("verify tenant does not exists", func(t *testing.T) {
-			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
-			require.NotNil(t, err)
-		})
-
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenantsGRPC(t, className)
@@ -351,6 +346,11 @@ func Test_DownloadS3Journey(t *testing.T) {
 					}
 				}
 			}, 5*time.Second, time.Second, fmt.Sprintf("tenant was never %s", pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_FROZEN))
+		})
+
+		t.Run("verify tenant does not exists", func(t *testing.T) {
+			_, err = helper.TenantObject(t, tenantObjects[0].Class, tenantObjects[0].ID, tenantNames[0])
+			require.NotNil(t, err)
 		})
 
 		t.Run("updating tenant status to COLD", func(t *testing.T) {
