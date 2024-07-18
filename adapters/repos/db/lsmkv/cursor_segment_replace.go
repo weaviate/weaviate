@@ -17,7 +17,10 @@ import (
 )
 
 type segmentCursorReplace struct {
-	segment      *segment
+	segment *segment
+
+	nodeReader *nodeReader
+
 	nextOffset   uint64
 	reusableNode *segmentReplaceNode
 	reusableBORW byteops.ReadWriter
@@ -43,6 +46,8 @@ func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
 }
 
 func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
+	s.nodeReader = nil
+
 	node, err := s.segment.index.Seek(key)
 	if err != nil {
 		return nil, nil, err
@@ -81,6 +86,7 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 }
 
 func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
+	s.nodeReader = nil
 	s.nextOffset = s.segment.dataStartPos
 	err := s.parseReplaceNodeInto(nodeOffset{start: s.nextOffset},
 		s.segment.contents[s.nextOffset:])
@@ -114,6 +120,7 @@ func (s *segmentCursorReplace) nextWithAllKeys() (segmentReplaceNode, error) {
 }
 
 func (s *segmentCursorReplace) firstWithAllKeys() (segmentReplaceNode, error) {
+	s.nodeReader = nil
 	s.nextOffset = s.segment.dataStartPos
 	parsed, err := s.parseReplaceNode(nodeOffset{start: s.nextOffset})
 	// make sure to set the next offset before checking the error. The error
@@ -144,12 +151,16 @@ func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byt
 		return s.parse(buf)
 	}
 
-	r, err := s.segment.newNodeReader(offset)
-	if err != nil {
-		return err
+	if s.nodeReader == nil {
+		nodeReader, err := s.segment.newNodeReader(offset)
+		if err != nil {
+			return err
+		}
+
+		s.nodeReader = nodeReader
 	}
 
-	err = ParseReplaceNodeIntoPread(r, s.segment.secondaryIndexCount, s.reusableNode)
+	err := ParseReplaceNodeIntoPread(s.nodeReader, s.segment.secondaryIndexCount, s.reusableNode)
 	if err != nil {
 		return err
 	}
