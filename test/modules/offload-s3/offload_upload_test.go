@@ -433,10 +433,6 @@ func Test_UploadS3Journey(t *testing.T) {
 			}
 		})
 
-		t.Run("terminate Minio", func(t *testing.T) {
-			require.Nil(t, compose.TerminateContainer(ctx, docker.MinIO))
-		})
-
 		t.Run("updating tenant status", func(t *testing.T) {
 			helper.UpdateTenants(t, className, []*models.Tenant{
 				{
@@ -456,6 +452,10 @@ func Test_UploadS3Journey(t *testing.T) {
 					break
 				}
 			}
+		})
+
+		t.Run("terminate Minio", func(t *testing.T) {
+			require.Nil(t, compose.TerminateContainer(ctx, docker.MinIO))
 		})
 
 		t.Run("verify tenant status HOT", func(xt *testing.T) {
