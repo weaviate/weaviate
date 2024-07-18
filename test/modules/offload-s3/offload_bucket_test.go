@@ -30,28 +30,29 @@ import (
 )
 
 func Test_OffloadBucketNotAutoCreate(t *testing.T) {
-	t.Run("shall fail because bucket doesn't exists", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		defer cancel()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-		t.Log("pre-instance env setup")
-		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
-		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
+	t.Log("pre-instance env setup")
+	t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
+	t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
-		compose, err := docker.New().
-			WithOffloadS3("offloading").
-			WithText2VecContextionary().
-			WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
-			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
-			With3NodeCluster().
-			Start(ctx)
-		require.NotNil(t, err)
+	compose, err := docker.New().
+		WithOffloadS3("offloading").
+		WithText2VecContextionary().
+		WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
+		WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
+		WithWeaviate().
+		Start(ctx)
+	require.NotNil(t, err)
 
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	})
+	if err := compose.Terminate(ctx); err != nil {
+		t.Fatalf("failed to terminate test containers: %s", err.Error())
+	}
+}
 
+func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 	t.Run("success because created manually in minio", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
