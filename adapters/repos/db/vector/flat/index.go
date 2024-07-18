@@ -814,16 +814,32 @@ func (index *flat) AlreadyIndexed() uint64 {
 
 func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var distFunc func(nodeID uint64) (float32, error)
+	defaultDistFunc := func(nodeID uint64) (float32, error) {
+		vec, err := index.vectorById(nodeID)
+		if err != nil {
+			return 0, err
+		}
+		dist, _, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		if err != nil {
+			return 0, err
+		}
+		return dist, nil
+	}
 	switch index.compression {
 	case compressionBQ:
-		queryVecEncode := index.bq.Encode(queryVector)
-		distFunc = func(nodeID uint64) (float32, error) {
-			vec, err := index.bqCache.Get(context.Background(), nodeID)
-			if err != nil {
-				return 0, err
+		if index.bqCache == nil {
+			distFunc = defaultDistFunc
+		} else {
+			queryVecEncode := index.bq.Encode(queryVector)
+			distFunc = func(nodeID uint64) (float32, error) {
+				vec, err := index.bqCache.Get(context.Background(), nodeID)
+				if err != nil {
+					return 0, err
+				}
+				return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
 			}
-			return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
 		}
+
 	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
