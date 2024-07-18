@@ -63,7 +63,6 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
@@ -95,7 +94,6 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 

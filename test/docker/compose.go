@@ -79,12 +79,13 @@ type Compose struct {
 	enableModules              []string
 	defaultVectorizerModule    string
 	withMinIO                  bool
-	withMinIOBucketName        string
 	withGCS                    bool
 	withAzurite                bool
 	withBackendFilesystem      bool
 	withBackendS3              bool
-	withBackendS3Bucket        string
+	withBackendS3Buckets       []string
+	withBackupS3Bucket         string
+	withOffloadS3Bucket        string
 	withBackendGCS             bool
 	withBackendGCSBucket       string
 	withBackendAzure           bool
@@ -123,13 +124,6 @@ func New() *Compose {
 func (d *Compose) WithMinIO() *Compose {
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
-	return d
-}
-
-func (d *Compose) WithMinIOBucket(bucket string) *Compose {
-	d.withMinIO = true
-	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
-	d.withMinIOBucketName = bucket
 	return d
 }
 
@@ -186,7 +180,8 @@ func (d *Compose) WithBackendFilesystem() *Compose {
 
 func (d *Compose) WithBackendS3(bucket string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withBackupS3Bucket = bucket
+	d.withBackendS3Buckets = append(d.withBackendS3Buckets, bucket)
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
@@ -194,7 +189,8 @@ func (d *Compose) WithBackendS3(bucket string) *Compose {
 
 func (d *Compose) WithOffloadS3(bucket string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withOffloadS3Bucket = bucket
+	d.withBackendS3Buckets = append(d.withBackendS3Buckets, bucket)
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modsloads3.Name)
 	return d
@@ -446,16 +442,27 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 
-		if d.withMinIOBucketName != "" {
-			if err := createBucket(ctx, container.URI(), "us-west-2", d.withMinIOBucketName); err != nil {
-				return nil, err
+		if len(d.withBackendS3Buckets) > 0 {
+			for _, bName := range d.withBackendS3Buckets {
+				if bName == "" {
+					continue
+				}
+				if err := createBucket(ctx, container.URI(), "us-west-2", bName); err != nil {
+					return nil, err
+				}
 			}
 		}
 
 		if d.withBackendS3 {
-			envSettings["BACKUP_S3_BUCKET"] = d.withBackendS3Bucket
-			envSettings["OFFLOAD_S3_BUCKET"] = d.withBackendS3Bucket
-			envSettings["OFFLOAD_S3_BUCKET_AUTO_CREATE"] = "true"
+			if d.withBackupS3Bucket != "" {
+				envSettings["BACKUP_S3_BUCKET"] = d.withBackupS3Bucket
+			}
+
+			if d.withOffloadS3Bucket != "" {
+				envSettings["OFFLOAD_S3_BUCKET"] = d.withOffloadS3Bucket
+				envSettings["OFFLOAD_S3_BUCKET_AUTO_CREATE"] = "true"
+			}
+
 			for k, v := range container.envSettings {
 				envSettings[k] = v
 			}

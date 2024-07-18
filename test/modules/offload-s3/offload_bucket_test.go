@@ -63,7 +63,7 @@ func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 
 		compose, err := docker.New().
 			WithOffloadS3(bucketname).
-			WithMinIOBucket(bucketname).
+			WithBackendS3(bucketname).
 			WithText2VecContextionary().
 			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
 			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
