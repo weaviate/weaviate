@@ -115,7 +115,7 @@ def test_near_object(named_collection: NamedCollection) -> None:
         properties={"title1": "apple", "title2": "cocoa"},
     )
     uuid2 = collection.data.insert(
-        properties={"title1": "cocoa", "title2": "apple"},
+        properties={"title1": "banana", "title2": "cocoa"},
     )
     collection.data.insert(
         properties={"title1": "mountain", "title2": "ridge line"},
