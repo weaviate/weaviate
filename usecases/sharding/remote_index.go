@@ -13,12 +13,13 @@ package sharding
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -106,7 +107,7 @@ func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", owner)
+		return fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.PutObject(ctx, host, ri.class, shardName, obj)
@@ -168,7 +169,7 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return false, errors.Errorf("resolve node name %q to host", owner)
+		return false, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.Exists(ctx, host, ri.class, shardName, id)
@@ -184,7 +185,7 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", owner)
+		return fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id)
@@ -200,7 +201,7 @@ func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", owner)
+		return fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc)
@@ -217,7 +218,7 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", owner)
+		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.GetObject(ctx, host, ri.class, shardName, id, props, additional)
@@ -233,10 +234,42 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", owner)
+		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids)
+}
+
+type ReplicasSearchResult struct {
+	Objects []*storobj.Object
+	Scores  []float32
+	Node    string
+}
+
+func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
+	log logrus.FieldLogger,
+	shard string,
+	queryVec []float32,
+	targetVector string,
+	limit int,
+	filters *filters.LocalFilter,
+	keywordRanking *searchparams.KeywordRanking,
+	sort []filters.Sort,
+	cursor *filters.Cursor,
+	groupBy *searchparams.GroupBy,
+	adds additional.Properties,
+	replEnabled bool,
+	localNode string,
+) ([]ReplicasSearchResult, error) {
+	remoteShardQuery := func(node, host string) (ReplicasSearchResult, error) {
+		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
+			queryVec, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, adds)
+		if err != nil {
+			return ReplicasSearchResult{}, err
+		}
+		return ReplicasSearchResult{Objects: objs, Scores: scores, Node: node}, nil
+	}
+	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode)
 }
 
 func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
@@ -300,7 +333,7 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return nil, errors.Errorf("resolve node name %q to host", owner)
+		return nil, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters)
@@ -332,7 +365,7 @@ func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) 
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return 0, errors.Errorf("resolve node name %q to host", owner)
+		return 0, fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)
@@ -346,7 +379,7 @@ func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (st
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return "", errors.Errorf("resolve node name %q to host", owner)
+		return "", fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
@@ -360,10 +393,66 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
-		return errors.Errorf("resolve node name %q to host", owner)
+		return fmt.Errorf("resolve node name %q to host", owner)
 	}
 
 	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus)
+}
+
+func (ri *RemoteIndex) queryAllReplicas(
+	ctx context.Context,
+	log logrus.FieldLogger,
+	shard string,
+	do func(nodeName, host string) (ReplicasSearchResult, error),
+	localNode string,
+) (resp []ReplicasSearchResult, err error) {
+	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
+	if err != nil || len(replicas) == 0 {
+		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
+	}
+
+	queryOne := func(replica string) (ReplicasSearchResult, error) {
+		host, ok := ri.nodeResolver.NodeHostname(replica)
+		if !ok || host == "" {
+			return ReplicasSearchResult{}, fmt.Errorf("unable to resolve node name %q to host", replica)
+		}
+		return do(replica, host)
+	}
+
+	queryAll := func(replicas []string) (resp []ReplicasSearchResult, err error) {
+		var searchResult ReplicasSearchResult
+		var errList error
+		for _, node := range replicas {
+			// Skip local node to ensure we don't query again our local shard -> it is handled separately in the search
+			if node == localNode {
+				continue
+			}
+
+			if errC := ctx.Err(); errC != nil {
+				errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, errC))
+				continue
+			}
+
+			if searchResult, err = queryOne(node); err != nil {
+				errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
+				continue
+			}
+			resp = append(resp, searchResult)
+		}
+		if errList != nil {
+			// Simply log the errors but don't return them unless we have no valid result
+			log.Warnf("errors happened during full replicas search for shard '%s' errors: %s", shard, errList)
+		}
+
+		if len(resp) == 0 {
+			return nil, errList
+		}
+		if len(resp) != len(replicas)-1 {
+			log.Warnf("full replicas search has less results than the count of replicas: have=%d want=%d", len(resp), len(replicas)-1)
+		}
+		return resp, nil
+	}
+	return queryAll(replicas)
 }
 
 func (ri *RemoteIndex) queryReplicas(
@@ -381,7 +470,7 @@ func (ri *RemoteIndex) queryReplicas(
 	queryOne := func(replica string) (interface{}, error) {
 		host, ok := ri.nodeResolver.NodeHostname(replica)
 		if !ok || host == "" {
-			return nil, errors.Errorf("resolve node name %q to host", replica)
+			return nil, fmt.Errorf("resolve node name %q to host", replica)
 		}
 		return do(replica, host)
 	}

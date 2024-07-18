@@ -17,11 +17,13 @@ import (
 	"io"
 	"os"
 	"path"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -61,11 +63,12 @@ import (
 const IdLockPoolSize = 128
 
 type ShardLike interface {
-	Index() *Index                                                                      // Get the parent index
-	Name() string                                                                       // Get the shard name
-	Store() *lsmkv.Store                                                                // Get the underlying store
-	NotifyReady()                                                                       // Set shard status to ready
-	GetStatus() storagestate.Status                                                     // Return the shard status
+	Index() *Index                  // Get the parent index
+	Name() string                   // Get the shard name
+	Store() *lsmkv.Store            // Get the underlying store
+	NotifyReady()                   // Set shard status to ready
+	GetStatus() storagestate.Status // Return the shard status
+	GetStatusNoLoad() storagestate.Status
 	UpdateStatus(status string) error                                                   // Set shard status
 	FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]strfmt.UUID, error) // Search and return document ids
 
@@ -213,6 +216,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 ) (_ *Shard, err error) {
 	before := time.Now()
 
+	index.logger.WithFields(logrus.Fields{
+		"action": "init_shard",
+		"shard":  shardName,
+		"index":  index.ID(),
+	}).Debugf("initializing shard %q", shardName)
+
 	s := &Shard{
 		index:       index,
 		name:        shardName,
@@ -228,7 +237,21 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	defer func() {
+		p := recover()
+		if p != nil {
+			err = fmt.Errorf("unexpected error initializing shard %q of index %q: %v", shardName, index.ID(), p)
+			index.logger.WithError(err).WithFields(logrus.Fields{
+				"index": index.ID(),
+				"shard": shardName,
+			}).Error("panic during shard initialization")
+			debug.PrintStack()
+		}
+
 		if err != nil {
+			// Initializing a shard should normally not fail. If it does, this could
+			// mean that this setup requires further attention, e.g. to manually fix
+			// a data corruption. This makes it a prime use case for sentry:
+			entsentry.CaptureException(err)
 			// spawn a new context as we cannot guarantee that the init context is
 			// still valid, but we want to make sure that we have enough time to clean
 			// up the partial init

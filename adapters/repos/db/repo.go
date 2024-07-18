@@ -201,6 +201,7 @@ type Config struct {
 	GitHash                   string
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
+	ForceFullReplicasSearch   bool
 	Replication               replication.GlobalConfig
 }
 

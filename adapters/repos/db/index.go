@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -551,6 +552,7 @@ type IndexConfig struct {
 	ReplicationFactor         int64
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
+	ForceFullReplicasSearch   bool
 
 	TrackVectorDimensions bool
 }
@@ -795,6 +797,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+					entsentry.Recover(err)
 					debug.PrintStack()
 				}
 			}()
@@ -1440,7 +1443,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 {
+	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
 		if i.localShard(shardNames[0]) != nil {
 			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, targetVector, dist, limit, filters,
 				sort, groupBy, additional, shardNames[0])
@@ -1465,37 +1468,64 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	for _, shardName := range shardNames {
 		shardName := shardName
 		eg.Go(func() error {
-			var (
-				res      []*storobj.Object
-				resDists []float32
-				nodeName string
-				err      error
-			)
-
-			if shard := i.localShard(shardName); shard != nil {
-				nodeName = i.getSchema.NodeName()
-				res, resDists, err = shard.ObjectVectorSearch(
+			shard := i.localShard(shardName)
+			// Query local shard if available
+			if shard != nil {
+				localShardResult, localShardScores, err := shard.ObjectVectorSearch(
 					ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
+				// Append result to out
+				if i.replicationEnabled() {
+					storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
+				}
+				m.Lock()
+				out = append(out, localShardResult...)
+				dists = append(dists, localShardScores...)
+				m.Unlock()
+			}
 
-			} else {
-				res, resDists, nodeName, err = i.remote.SearchShard(ctx,
-					shardName, searchVector, targetVector, limit, filters,
-					nil, sort, nil, groupBy, additional, i.replicationEnabled())
-				if err != nil {
-					return errors.Wrapf(err, "remote shard %s", shardName)
+			// If we have no local shard or if we force the query to reach all replicas
+			if shard == nil || i.Config.ForceFullReplicasSearch {
+				if i.Config.ForceFullReplicasSearch {
+					// Force a search on all the replicas for the shard
+					remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
+						i.logger,
+						shardName, searchVector, targetVector, limit, filters,
+						nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName())
+					// Only return an error if we failed to query remote shards AND we had no local shard to query
+					if err != nil && shard == nil {
+						return errors.Wrapf(err, "remote shard %s", shardName)
+					}
+					// Append the result of the search to the outgoing result
+					for _, remoteShardResult := range remoteSearchResults {
+						if i.replicationEnabled() {
+							storobj.AddOwnership(remoteShardResult.Objects, remoteShardResult.Node, shardName)
+						}
+						m.Lock()
+						out = append(out, remoteShardResult.Objects...)
+						dists = append(dists, remoteShardResult.Scores...)
+						m.Unlock()
+					}
+				} else {
+					// Search only what is necessary
+					remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
+						shardName, searchVector, targetVector, limit, filters,
+						nil, sort, nil, groupBy, additional, i.replicationEnabled())
+					if err != nil {
+						return errors.Wrapf(err, "remote shard %s", shardName)
+					}
+
+					if i.replicationEnabled() {
+						storobj.AddOwnership(remoteResult, nodeName, shardName)
+					}
+					m.Lock()
+					out = append(out, remoteResult...)
+					dists = append(dists, remoteDists...)
+					m.Unlock()
 				}
 			}
-			if i.replicationEnabled() {
-				storobj.AddOwnership(res, nodeName, shardName)
-			}
-
-			m.Lock()
-			out = append(out, res...)
-			dists = append(dists, resDists...)
-			m.Unlock()
 
 			return nil
 		}, shardName)
@@ -1503,6 +1533,14 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+
+	// If we are force querying all replicas, we need to run deduplication on the result.
+	if i.Config.ForceFullReplicasSearch {
+		out, dists, err = searchResultDedup(out, dists)
+		if err != nil {
+			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
+		}
 	}
 
 	if len(shardNames) == 1 {
@@ -1549,8 +1587,20 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, errShardNotFound
 	}
 
-	if shard.GetStatus() == storagestate.StatusLoading {
+	// Hacky fix here
+	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search
+	// will force a lazy loaded shard to load
+	// However we also have cases (related to FORCE_FULL_REPLICAS_SEARCH) where we want to avoid waiting for a shard to
+	// load, therefore we only call GetStatusNoLoad if replication is enabled -> another replica will be able to answer
+	// the request and we want to exit early
+	if i.replicationEnabled() && shard.GetStatusNoLoad() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+	} else {
+		if shard.GetStatus() == storagestate.StatusLoading {
+			// This effectively never happens with lazy loaded shard as GetStatus will wait for the lazy shard to load
+			// and then status will never be "StatusLoading"
+			return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		}
 	}
 
 	if searchVector == nil {

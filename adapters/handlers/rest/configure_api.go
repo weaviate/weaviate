@@ -97,6 +97,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+
+	"github.com/getsentry/sentry-go"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -139,6 +141,24 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			mux.Handle("/metrics", promhttp.Handler())
 			http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
 		}, appState.Logger)
+	}
+
+	if appState.ServerConfig.Config.Sentry.Enabled {
+		err := sentry.Init(sentry.ClientOptions{
+			Dsn:              appState.ServerConfig.Config.Sentry.DSN,
+			Debug:            appState.ServerConfig.Config.Sentry.Debug,
+			AttachStacktrace: true,
+		})
+		if err != nil {
+			appState.Logger.WithError(err).Error("sentry initialization failed")
+			os.Exit(1)
+		}
+
+		sentry.ConfigureScope(func(scope *sentry.Scope) {
+			for key, value := range appState.ServerConfig.Config.Sentry.Tags {
+				scope.SetTag(key, value)
+			}
+		})
 	}
 
 	limitResources(appState)
@@ -194,6 +214,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
 		DisableLazyLoadShards:     appState.ServerConfig.Config.DisableLazyLoadShards,
+		ForceFullReplicasSearch:   appState.ServerConfig.Config.ForceFullReplicasSearch,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -461,6 +482,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
+
+		if appState.ServerConfig.Config.Sentry.Enabled {
+			sentry.Flush(2 * time.Second)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
