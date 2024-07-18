@@ -111,7 +111,7 @@ func TestAddTenants(t *testing.T) {
 			tenants: []*models.Tenant{
 				{Name: "Aaaa", ActivityStatus: "DOES_NOT_EXIST_1"},
 				{Name: "Bbbb", ActivityStatus: "DOES_NOT_EXIST_2"},
-				{Name: "Bbbb", ActivityStatus: "WARM"},
+				{Name: "Bbbb2", ActivityStatus: "WARM"},
 			},
 			errMsgs: []string{
 				"invalid activity status",
