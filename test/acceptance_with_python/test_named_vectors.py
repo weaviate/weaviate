@@ -115,7 +115,7 @@ def test_near_object(named_collection: NamedCollection) -> None:
         properties={"title1": "apple", "title2": "cocoa"},
     )
     uuid2 = collection.data.insert(
-        properties={"title1": "cocoa", "title2": "apple"},
+        properties={"title1": "banana", "title2": "cocoa"},
     )
     collection.data.insert(
         properties={"title1": "mountain", "title2": "ridge line"},
@@ -597,33 +597,33 @@ def test_gql_near_object(named_collection: NamedCollection):
         },
     )
 
-    # use collection for auto cleanup etc, but we need the client to use gql directly
-    client = weaviate.connect_to_local()
     uuid_str = '"' + str(uuid1) + '"'
-    gql = client.graphql_raw_query(
-        """{
-          Get {
-            """
-        + collection.name
-        + """(
-          nearObject: {
-            id: """
-        + uuid_str
-        + """
-            """
-        + GQL_TARGETS
-        + """
-          }
-        ) """
-        + GQL_RETURNS
-        + """
+    # use collection for auto cleanup etc, but we need the client to use gql directly
+    with weaviate.connect_to_local() as client:
+        gql = client.graphql_raw_query(
+            """{
+            Get {
+                """
+            + collection.name
+            + """(
+            nearObject: {
+                id: """
+            + uuid_str
+            + """
+                """
+            + GQL_TARGETS
+            + """
+            }
+            ) """
+            + GQL_RETURNS
+            + """
+            }
         }
-      }
-    }"""
-    )
+        }"""
+        )
 
-    assert gql.get[collection.name][0]["_additional"]["distance"] == 1
-    assert gql.get[collection.name][1]["_additional"]["distance"] == 2
+    assert gql.get[collection.name][0]["_additional"]["distance"] == 0
+    assert gql.get[collection.name][1]["_additional"]["distance"] == 1
 
 
 def test_test_multi_target_near_vector_gql(collection_factory: CollectionFactory):
