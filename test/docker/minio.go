@@ -62,8 +62,11 @@ func startMinIO(ctx context.Context, networkName string, buckets map[string]stri
 			if err != nil {
 				return nil, fmt.Errorf("failed to create bucket %s: %s", bName, err.Error())
 			}
+			_, _, err = container.Exec(ctx, []string{"mc", "mb", "--region", region, fmt.Sprintf("data/%s", bName)})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create bucket %s: %s", bName, err.Error())
+			}
 		}
-
 	}
 	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {
