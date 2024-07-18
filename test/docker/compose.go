@@ -127,9 +127,10 @@ func (d *Compose) WithMinIO() *Compose {
 }
 
 func (d *Compose) WithMinIOBucket(bucket string) *Compose {
-	c := d.WithMinIO()
-	c.withMinIOBucketName = bucket
-	return c
+	d.withMinIO = true
+	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
+	d.withMinIOBucketName = bucket
+	return d
 }
 
 func (d *Compose) WithGCS() *Compose {
