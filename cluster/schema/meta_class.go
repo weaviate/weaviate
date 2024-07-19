@@ -331,7 +331,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 
 		switch {
 		case !toFrozen && frozenShard:
-			if p, err = m.unfreeze(nodeID, i, req, p); err != nil {
+			if err = m.unfreeze(nodeID, i, req, &p); err != nil {
 				return n, err
 			}
 			if req.Tenants[i] != nil {
@@ -499,20 +499,20 @@ func (m *metaClass) freeze(i int, req *command.UpdateTenantsRequest, shard shard
 // it keeps the requested state ACTIVE/INACTIVE in memory.
 // it updates the tenant status to UNFREEZING in RAFT schema.
 // NOTE: can make some of the requests nil.
-func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsRequest, p sharding.Physical) (sharding.Physical, error) {
+func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsRequest, p *sharding.Physical) error {
 	name := req.Tenants[i].Name
 	process := m.shardProcess(name, command.TenantProcessRequest_ACTION_UNFREEZING)
 
 	partitions, err := m.Sharding.GetPartitions(req.ClusterNodes, []string{name}, m.Class.ReplicationConfig.Factor)
 	if err != nil {
 		req.Tenants[i] = nil
-		return p, fmt.Errorf("get partitions: %w", err)
+		return fmt.Errorf("get partitions: %w", err)
 	}
 
 	newNodes, ok := partitions[name]
 	if !ok {
 		req.Tenants[i] = nil
-		return p, fmt.Errorf("can not assign new nodes to shard %s, it didn't exist in the new partitions", name)
+		return fmt.Errorf("can not assign new nodes to shard %s, it didn't exist in the new partitions", name)
 	}
 
 	oldNodes := p.BelongsToNodes
@@ -543,10 +543,10 @@ func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsReq
 	if _, exists := newToOld[nodeID]; !exists {
 		// it does not belong to the new partitions
 		req.Tenants[i] = nil
-		return p, nil
+		return nil
 	}
 	m.ShardProcesses[shardProcessID(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_UNFREEZING)] = process
 	req.Tenants[i].Name = fmt.Sprintf("%s#%s", req.Tenants[i].Name, newToOld[nodeID])
 	req.Tenants[i].Status = p.Status
-	return p, nil
+	return nil
 }
