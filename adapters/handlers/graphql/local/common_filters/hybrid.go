@@ -37,6 +37,12 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		}
 	}
 	var args searchparams.HybridSearch
+	targetVectors, combination, err := ExtractTargets(source)
+	if err != nil {
+		return &searchparams.HybridSearch{}, nil, err
+	}
+	args.TargetVectors = targetVectors
+
 	namedSearchesI := source["searches"]
 	if namedSearchesI != nil {
 		namedSearchess := namedSearchesI.([]interface{})
@@ -51,7 +57,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 
 		if namedSearches["nearVector"] != nil {
 			nearVector := namedSearches["nearVector"].(map[string]interface{})
-			arguments, _, _ := ExtractNearVector(nearVector)
+			arguments, _, _ := ExtractNearVector(nearVector, targetVectors)
 			args.NearVectorParams = &arguments
 
 		}
@@ -83,7 +89,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 
 		case subsearch["nearVector"] != nil:
 			nearVector := subsearch["nearVector"].(map[string]interface{})
-			arguments, _, _ := ExtractNearVector(nearVector)
+			arguments, _, _ := ExtractNearVector(nearVector, targetVectors)
 
 			weightedSearchResults = append(weightedSearchResults, searchparams.WeightedSearchResult{
 				SearchParams: arguments,
@@ -135,12 +141,6 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 			args.Properties[i] = value.(string)
 		}
 	}
-
-	targetVectors, combination, err := ExtractTargets(source)
-	if err != nil {
-		return &searchparams.HybridSearch{}, nil, err
-	}
-	args.TargetVectors = targetVectors
 
 	args.Type = "hybrid"
 

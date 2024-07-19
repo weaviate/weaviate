@@ -22,14 +22,12 @@ import (
 	"path"
 	"path/filepath"
 	"runtime/debug"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -51,6 +49,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -70,7 +69,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 const IdLockPoolSize = 128
@@ -259,6 +257,12 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 ) (_ *Shard, err error) {
 	before := time.Now()
 
+	index.logger.WithFields(logrus.Fields{
+		"action": "init_shard",
+		"shard":  shardName,
+		"index":  index.ID(),
+	}).Debugf("initializing shard %q", shardName)
+
 	s := &Shard{
 		index:       index,
 		class:       class,
@@ -290,6 +294,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 
 		if err != nil {
+			// Initializing a shard should normally not fail. If it does, this could
+			// mean that this setup requires further attention, e.g. to manually fix
+			// a data corruption. This makes it a prime use case for sentry:
+			entsentry.CaptureException(err)
 			// spawn a new context as we cannot guarantee that the init context is
 			// still valid, but we want to make sure that we have enough time to clean
 			// up the partial init
@@ -703,6 +711,8 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 		return nil
 	}
 
+	s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
+
 	if err := os.MkdirAll(s.pathHashTree(), os.ModePerm); err != nil {
 		return err
 	}
@@ -762,8 +772,15 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 			s.hashtree = ht
 		}
 
-		f.Close()
-		os.Remove(hashtreeFilename)
+		err = f.Close()
+		if err != nil {
+			return err
+		}
+
+		err = os.Remove(hashtreeFilename)
+		if err != nil {
+			return err
+		}
 	}
 
 	if s.hashtree != nil {
@@ -773,17 +790,22 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
 			Info("hashtree successfully initialized")
+
 		s.initHashBeater()
 		return nil
 	}
 
 	var ht hashtree.AggregatedHashTree
 
-	if partitioningEnabled {
+	// TODO (jeroiraz): for simplificy sake a compact hashtree is always used
+	// the multi-segment hashtree is an optimized implementation but it still requires
+	// further evaluation
+	/*if partitioningEnabled {
 		ht, err = s.buildCompactHashTree()
 	} else {
 		ht, err = s.buildMultiSegmentHashTree(ctx)
-	}
+	}*/
+	ht, err = s.buildCompactHashTree()
 	if err != nil {
 		return err
 	}
@@ -809,7 +831,7 @@ func (s *Shard) initHashTree(ctx context.Context) error {
 					WithField("action", "async_replication").
 					WithField("class_name", s.class.Class).
 					WithField("shard_name", s.name).
-					WithField("objectCount", objCount).
+					WithField("object_count", objCount).
 					Infof("hashtree initialization is progress...")
 			}
 
@@ -860,9 +882,12 @@ func (s *Shard) UpdateAsyncReplication(ctx context.Context, enabled bool) error 
 			if err != nil {
 				return errors.Wrapf(err, "hashtree initialization on shard %q", s.ID())
 			}
+
+			return nil
 		}
 
-		if s.hashBeaterCtx.Err() != nil {
+		if s.hashBeaterCtx == nil || s.hashBeaterCtx.Err() != nil {
+			s.hashBeaterCtx, s.hashBeaterCancelFunc = context.WithCancel(context.Background())
 			s.initHashBeater()
 		}
 
@@ -882,6 +907,7 @@ func (s *Shard) buildCompactHashTree() (hashtree.AggregatedHashTree, error) {
 	return hashtree.NewCompactHashTree(math.MaxUint64, 16)
 }
 
+/*
 func (s *Shard) shardState(ctx context.Context) (*sharding.State, error) {
 	// when a class was just created, the shard state may not be already updated
 	// specially when an incoming request is trigering the shard creation or loading
@@ -945,6 +971,7 @@ func (s *Shard) buildMultiSegmentHashTree(ctx context.Context) (hashtree.Aggrega
 
 	return hashtree.NewMultiSegmentHashTree(segments, 16)
 }
+*/
 
 func (s *Shard) closeHashTree() error {
 	var b [8]byte
@@ -966,6 +993,11 @@ func (s *Shard) closeHashTree() error {
 	}
 
 	err = w.Flush()
+	if err != nil {
+		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
+	}
+
+	err = f.Sync()
 	if err != nil {
 		return fmt.Errorf("storing hashtree in %q: %w", hashtreeFilename, err)
 	}
@@ -1092,6 +1124,11 @@ func (s *Shard) drop() (err error) {
 	s.propertyIndicesLock.Unlock()
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
+	}
+
+	// remove shard dir
+	if err := os.RemoveAll(s.path()); err != nil {
+		return fmt.Errorf("delete shard dir: %w", err)
 	}
 
 	s.metrics.baseMetrics.FinishUnloadingShard(s.index.Config.ClassName.String())

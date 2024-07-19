@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -146,6 +147,8 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 			// happy path
 			return
 		}
+
+		entsentry.Recover(p)
 
 		err = fmt.Errorf("unexpected error loading bucket %q at path %q: %v",
 			bucketName, s.rootDir, p)
