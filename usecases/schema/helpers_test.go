@@ -99,7 +99,7 @@ func (f *fakeDB) ReloadLocalDB(ctx context.Context, all []command.UpdateClassReq
 	return nil
 }
 
-func (f *fakeDB) DeleteClass(class string) error {
+func (f *fakeDB) DeleteClass(class string, hasFrozen bool) error {
 	return nil
 }
 
@@ -268,7 +268,7 @@ func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class, ss *shar
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) DropClass(ctx context.Context, className string) error {
+func (f *fakeMigrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
 	args := f.Called(ctx, className)
 	return args.Error(0)
 }
