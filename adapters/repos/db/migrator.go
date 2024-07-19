@@ -144,31 +144,18 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	return nil
 }
 
-func (m *Migrator) DropClass(ctx context.Context, className string) error {
+func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	// get shards before deletion for cloud deletion after local schema
-	shards, err := m.db.schemaGetter.TenantsShards(className)
-	if err != nil {
-		return err
-	}
-
 	if err := m.db.DeleteIndex(schema.ClassName(className)); err != nil {
 		return err
 	}
 
-	if m.cloud == nil {
-		return nil
-	}
-
-	for _, status := range shards {
-		if status == models.TenantActivityStatusFROZEN ||
-			status == models.TenantActivityStatusFREEZING {
-			return m.cloud.Delete(ctx, className, "", "")
-		}
+	if m.cloud != nil && hasFrozen {
+		return m.cloud.Delete(ctx, className, "", "")
 	}
 
 	return nil

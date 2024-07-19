@@ -223,11 +223,25 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) error {
+	var hasFrozen bool
+	tenants, err := s.schema.getTenants(cmd.Class, nil)
+	if err != nil {
+		return err
+	}
+
+	for _, t := range tenants {
+		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+			hasFrozen = true
+			break
+		}
+	}
+
 	return s.apply(
 		applyOp{
 			op:                    cmd.GetType().String(),
 			updateSchema:          func() error { s.schema.deleteClass(cmd.Class); return nil },
-			updateStore:           func() error { return s.db.DeleteClass(cmd.Class) },
+			updateStore:           func() error { return s.db.DeleteClass(cmd.Class, hasFrozen) },
 			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
