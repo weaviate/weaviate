@@ -18,8 +18,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/minio/minio-go/v7"
-	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/pkg/errors"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
@@ -79,12 +77,13 @@ type Compose struct {
 	enableModules              []string
 	defaultVectorizerModule    string
 	withMinIO                  bool
-	withMinIOBucketName        string
 	withGCS                    bool
 	withAzurite                bool
 	withBackendFilesystem      bool
 	withBackendS3              bool
-	withBackendS3Bucket        string
+	withBackendS3Buckets       map[string]string
+	withBackupS3Bucket         string
+	withOffloadS3Bucket        string
 	withBackendGCS             bool
 	withBackendGCSBucket       string
 	withBackendAzure           bool
@@ -117,20 +116,7 @@ type Compose struct {
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string)}
-}
-
-func (d *Compose) WithMinIO() *Compose {
-	d.withMinIO = true
-	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
-	return d
-}
-
-func (d *Compose) WithMinIOBucket(bucket string) *Compose {
-	d.withMinIO = true
-	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
-	d.withMinIOBucketName = bucket
-	return d
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), withBackendS3Buckets: make(map[string]string)}
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -184,17 +170,21 @@ func (d *Compose) WithBackendFilesystem() *Compose {
 	return d
 }
 
-func (d *Compose) WithBackendS3(bucket string) *Compose {
+// WithBackendS3 will prepare MinIO
+func (d *Compose) WithBackendS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withBackupS3Bucket = bucket
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
 }
 
-func (d *Compose) WithOffloadS3(bucket string) *Compose {
+// WithOffloadS3 will prepare MinIO
+func (d *Compose) WithOffloadS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withOffloadS3Bucket = bucket
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modsloads3.Name)
 	return d
@@ -440,22 +430,22 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	envSettings["DISABLE_TELEMETRY"] = "true"
 	containers := []*DockerContainer{}
 	if d.withMinIO {
-		container, err := startMinIO(ctx, networkName)
+		container, err := startMinIO(ctx, networkName, d.withBackendS3Buckets)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
 		containers = append(containers, container)
 
-		if d.withMinIOBucketName != "" {
-			if err := createBucket(ctx, container.URI(), "us-west-2", d.withMinIOBucketName); err != nil {
-				return nil, err
-			}
-		}
-
 		if d.withBackendS3 {
-			envSettings["BACKUP_S3_BUCKET"] = d.withBackendS3Bucket
-			envSettings["OFFLOAD_S3_BUCKET"] = d.withBackendS3Bucket
-			envSettings["OFFLOAD_S3_BUCKET_AUTO_CREATE"] = "true"
+			if d.withBackupS3Bucket != "" {
+				envSettings["BACKUP_S3_BUCKET"] = d.withBackupS3Bucket
+			}
+
+			if d.withOffloadS3Bucket != "" {
+				envSettings["OFFLOAD_S3_BUCKET"] = d.withOffloadS3Bucket
+				envSettings["OFFLOAD_S3_BUCKET_AUTO_CREATE"] = "true"
+			}
+
 			for k, v := range container.envSettings {
 				envSettings[k] = v
 			}
@@ -754,26 +744,4 @@ func copySettings(s map[string]string) map[string]string {
 		copy[k] = v
 	}
 	return copy
-}
-
-func createBucket(ctx context.Context, endpoint, region, bucketName string) error {
-	client, err := minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewEnvAWS(),
-		Region: region,
-		Secure: false,
-	})
-	if err != nil {
-		return err
-	}
-
-	err = client.MakeBucket(ctx, bucketName, minio.MakeBucketOptions{})
-	minioErr, ok := err.(minio.ErrorResponse)
-	if ok {
-		// the bucket persists from a previous test.
-		// if the bucket already exists, we can proceed
-		if minioErr.Code == "BucketAlreadyOwnedByYou" {
-			return nil
-		}
-	}
-	return err
 }
