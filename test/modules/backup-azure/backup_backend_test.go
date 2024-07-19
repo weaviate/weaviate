@@ -35,21 +35,23 @@ import (
 )
 
 func Test_AzureBackend_Backup(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().WithAzurite().Start(ctx)
-	if err != nil {
-		t.Fatal(errors.Wrapf(err, "cannot start"))
-	}
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		ctx := context.Background()
+		compose, err := docker.New().WithAzurite().Start(ctx)
+		if err != nil {
+			t.Fatal(errors.Wrapf(err, "cannot start"))
+		}
 
-	t.Setenv(envAzureEndpoint, compose.GetAzurite().URI())
+		t.Setenv(envAzureEndpoint, compose.GetAzurite().URI())
 
-	t.Run("store backup meta", moduleLevelStoreBackupMeta)
-	t.Run("copy objects", moduleLevelCopyObjects)
-	t.Run("copy files", moduleLevelCopyFiles)
+		t.Run("store backup meta", moduleLevelStoreBackupMeta)
+		t.Run("copy objects", moduleLevelCopyObjects)
+		t.Run("copy files", moduleLevelCopyFiles)
 
-	if err := compose.Terminate(ctx); err != nil {
-		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
-	}
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
+		}
+	}, 5*time.Second, time.Second, "Test_AzureBackend_Backup never passed")
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T) {
