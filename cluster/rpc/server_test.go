@@ -74,7 +74,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.Internal)
+				assert.Equal(t, st.Code(), codes.ResourceExhausted)
 				assert.ErrorContains(t, st.Err(), types.ErrLeaderNotFound.Error())
 			},
 		},
@@ -154,7 +154,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
-				assert.Equal(t, st.Code(), codes.NotFound)
+				assert.Equal(t, st.Code(), codes.ResourceExhausted)
 				assert.ErrorContains(t, st.Err(), types.ErrNotLeader.Error())
 			},
 		},
