@@ -99,7 +99,7 @@ func (f *fakeDB) ReloadLocalDB(ctx context.Context, all []command.UpdateClassReq
 	return nil
 }
 
-func (f *fakeDB) DeleteClass(class string) error {
+func (f *fakeDB) DeleteClass(class string, hasFrozen bool) error {
 	return nil
 }
 
