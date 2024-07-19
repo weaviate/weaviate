@@ -95,10 +95,10 @@ func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	x, ok := m.Sharding.Physical[shard]
 
 	if !ok {
-		return "", 0, ErrShardNotFound
+		return "", 0, fmt.Errorf("%w: shard %s", ErrShardNotFound, shard)
 	}
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
-		return "", 0, fmt.Errorf("owner node not found")
+		return "", 0, fmt.Errorf("owner node not found for shard %s", shard)
 	}
 	return x.BelongsToNodes[0], m.version(), nil
 }
