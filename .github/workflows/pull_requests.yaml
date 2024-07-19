@@ -347,6 +347,7 @@ jobs:
       CLUSTER_HOSTNAME: node1
       RAFT_BOOTSTRAP_EXPECT: 1
       RAFT_JOIN: node1
+      GRPC_PORT: 50052
     steps:
       - uses: actions/checkout@v4
       - name: Download binaries
