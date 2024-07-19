@@ -120,9 +120,9 @@ func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
 	return nil
 }
 
-func (e *executor) DeleteClass(cls string) error {
+func (e *executor) DeleteClass(cls string, hasFrozen bool) error {
 	ctx := context.Background()
-	if err := e.migrator.DropClass(ctx, cls); err != nil {
+	if err := e.migrator.DropClass(ctx, cls, hasFrozen); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "delete_class",
 			"class":  cls,
