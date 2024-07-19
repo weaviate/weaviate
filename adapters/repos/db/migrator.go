@@ -144,7 +144,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	return nil
 }
 
-func (m *Migrator) DropClass(ctx context.Context, className string) error {
+func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
@@ -154,9 +154,10 @@ func (m *Migrator) DropClass(ctx context.Context, className string) error {
 		return err
 	}
 
-	if m.cloud != nil {
+	if m.cloud != nil && hasFrozen {
 		return m.cloud.Delete(ctx, className, "", "")
 	}
+
 	return nil
 }
 
