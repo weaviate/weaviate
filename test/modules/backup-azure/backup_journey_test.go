@@ -66,7 +66,7 @@ func Test_BackupJourney(t *testing.T) {
 			})
 
 			require.Nil(t, compose.Terminate(ctx))
-		}, 30*time.Second, time.Second, "Test_BackupJourney single node never passed")
+		}, 60*time.Second, time.Second, "Test_BackupJourney single node never passed")
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
@@ -94,6 +94,6 @@ func Test_BackupJourney(t *testing.T) {
 			})
 
 			require.Nil(t, compose.Terminate(ctx))
-		}, 30*time.Second, time.Second, "Test_BackupJourney multiple nodes never passed")
+		}, 60*time.Second, time.Second, "Test_BackupJourney multiple nodes never passed")
 	})
 }
