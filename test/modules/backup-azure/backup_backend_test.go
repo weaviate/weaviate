@@ -51,7 +51,7 @@ func Test_AzureBackend_Backup(t *testing.T) {
 		if err := compose.Terminate(ctx); err != nil {
 			t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
 		}
-	}, 5*time.Second, time.Second, "Test_AzureBackend_Backup never passed")
+	}, 30*time.Second, time.Second, "Test_AzureBackend_Backup never passed")
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T) {

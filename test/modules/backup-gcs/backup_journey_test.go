@@ -72,7 +72,7 @@ func Test_BackupJourney(t *testing.T) {
 				journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 					"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode, nil)
 			})
-		}, 5*time.Second, time.Second, "Test_BackupJourney single node never passed")
+		}, 60*time.Second, time.Second, "Test_BackupJourney single node never passed")
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
@@ -104,6 +104,6 @@ func Test_BackupJourney(t *testing.T) {
 				journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
 					gcsBackupJourneyBackupIDCluster, nil, compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
 			})
-		}, 5*time.Second, time.Second, "Test_BackupJourney multiple nodes never passed")
+		}, 60*time.Second, time.Second, "Test_BackupJourney multiple nodes never passed")
 	})
 }

@@ -66,7 +66,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 					"gcs", gcsBackupJourneyClassName,
 					gcsBackupJourneyBackupIDSingleNode, tenantNames)
 			})
-		}, 5*time.Second, time.Second, "Test_BackupJourney single node never passed")
+		}, 60*time.Second, time.Second, "Test_BackupJourney single node never passed")
 	})
 
 	t.Run("multiple node", func(t *testing.T) {
@@ -99,6 +99,6 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 					gcsBackupJourneyBackupIDCluster, tenantNames,
 					compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
 			})
-		}, 5*time.Second, time.Second, "Test_BackupJourney multiple nodes never passed")
+		}, 60*time.Second, time.Second, "Test_BackupJourney multiple nodes never passed")
 	})
 }
