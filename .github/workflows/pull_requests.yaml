@@ -324,7 +324,7 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork }}  && !startsWith(github.ref, 'refs/heads/build') # no PRs from fork
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Modules-Acceptance-Tests-large, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
     name: push-docker
-    runs-on: ubuntu-latest-8-cores    
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
