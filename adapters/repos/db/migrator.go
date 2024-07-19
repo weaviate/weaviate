@@ -150,17 +150,18 @@ func (m *Migrator) DropClass(ctx context.Context, className string) error {
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
+	// get shards before deletion for cloud deletion after local schema
+	shards, err := m.db.schemaGetter.TenantsShards(className)
+	if err != nil {
+		return err
+	}
+
 	if err := m.db.DeleteIndex(schema.ClassName(className)); err != nil {
 		return err
 	}
 
 	if m.cloud == nil {
 		return nil
-	}
-
-	shards, err := m.db.schemaGetter.TenantsShards(className)
-	if err != nil {
-		return err
 	}
 
 	for _, status := range shards {
