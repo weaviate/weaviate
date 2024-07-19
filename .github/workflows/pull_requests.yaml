@@ -252,7 +252,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-only-fast", "--acceptance-go-client", "--acceptance-only-graphql", "--acceptance-only-replication", "--acceptance-only-python"]
+        test: [
+          "--acceptance-only-fast",
+          "--acceptance-only-graphql",
+          "--acceptance-only-replication",
+          "--acceptance-go-client-only-fast",
+          "--acceptance-go-client-named-vectors",
+          "--acceptance-only-python"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
