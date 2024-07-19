@@ -53,6 +53,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
@@ -418,6 +419,12 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 	})
 }
 
+// ForEachShard applies func f on each shard in the index.
+//
+// WARNING: only use this if you expect all LazyLoadShards to be loaded!
+// Calling this method may lead to shards being force-loaded, causing
+// unexpected CPU spikes. If you only want to apply f on loaded shards,
+// call ForEachLoadedShard instead.
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
@@ -532,7 +539,7 @@ func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error 
 
 	i.Config.AsyncReplicationEnabled = enabled
 
-	err := i.ForEachShard(func(name string, shard ShardLike) error {
+	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.UpdateAsyncReplication(ctx, enabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
@@ -849,6 +856,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
 					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+					entsentry.Recover(err)
 					debug.PrintStack()
 				}
 			}()
@@ -1526,7 +1534,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 {
+	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
 		shard, release, err := i.getLocalShardNoShutdown(shardNames[0])
 		if err != nil {
 			return nil, nil, err
@@ -1585,7 +1593,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 				if i.Config.ForceFullReplicasSearch {
 					// Force a search on all the replicas for the shard
 					remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
-						shardName, searchVectors, targetVectors, limit, filters,
+						i.logger, shardName, searchVectors, targetVectors, limit, filters,
 						nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
 					// Only return an error if we failed to query remote shards AND we had no local shard to query
 					if err != nil && shard == nil {
@@ -1628,16 +1636,16 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 		return nil, nil, err
 	}
 
-	if len(shardNames) == 1 {
-		return out, dists, nil
-	}
-
-	// If we are force querying all shards, we need to run deduplication on the result.
+	// If we are force querying all replicas, we need to run deduplication on the result.
 	if i.Config.ForceFullReplicasSearch {
 		out, dists, err = searchResultDedup(out, dists)
 		if err != nil {
 			return nil, nil, fmt.Errorf("could not deduplicate result after full replicas search: %w", err)
 		}
+	}
+
+	if len(shardNames) == 1 {
+		return out, dists, nil
 	}
 
 	if len(shardNames) > 1 && groupBy != nil {

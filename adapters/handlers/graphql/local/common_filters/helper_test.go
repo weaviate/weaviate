@@ -82,7 +82,7 @@ func (m *mockResolver) ReportArgs(params mockParams, args map[string]interface{}
 	}
 
 	if params.reportNearVector {
-		nearVec, _, err := ExtractNearVector(args["nearVector"].(map[string]interface{}))
+		nearVec, _, err := ExtractNearVector(args["nearVector"].(map[string]interface{}), nil)
 		if err != nil {
 			return nil, err
 		}

@@ -22,6 +22,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -216,6 +217,10 @@ func (f *fakeModuleConfig) ValidateClass(ctx context.Context, class *models.Clas
 	return nil
 }
 
+func (f *fakeModuleConfig) GetByName(name string) modulecapabilities.Module {
+	return nil
+}
+
 type fakeVectorizerValidator struct {
 	valid []string
 }
@@ -327,17 +332,12 @@ func (f *fakeMigrator) UpdateInvertedIndexConfig(ctx context.Context, className 
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+func (f *fakeMigrator) UpdateReplicationConfig(ctx context.Context, className string, cfg *models.ReplicationConfig) error {
 	return nil
 }
 
 func (f *fakeMigrator) WaitForStartup(ctx context.Context) error {
 	args := f.Called(ctx)
-	return args.Error(0)
-}
-
-func (f *fakeMigrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
-	args := f.Called(ctx, className, enabled)
 	return args.Error(0)
 }
 
