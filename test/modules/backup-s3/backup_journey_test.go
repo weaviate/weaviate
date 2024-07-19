@@ -51,7 +51,7 @@ func Test_BackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviate().
 			Start(ctx)
@@ -63,7 +63,6 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
@@ -83,7 +82,7 @@ func Test_BackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviateCluster(2).
 			Start(ctx)
@@ -95,7 +94,6 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 

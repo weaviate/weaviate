@@ -36,7 +36,7 @@ func Test_UploadS3Journey(t *testing.T) {
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("offloading").
+			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
@@ -205,7 +205,7 @@ func Test_UploadS3Journey(t *testing.T) {
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("weaviate-offload").
+			WithOffloadS3("weaviate-offload", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
@@ -347,7 +347,7 @@ func Test_UploadS3Journey(t *testing.T) {
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("offloading").
+			WithOffloadS3("offloading", "us-west-1").
 			WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
 			WithText2VecContextionary().
 			With3NodeCluster().
