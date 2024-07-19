@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.26.0-rc.0"
+    "version": "1.26.0-rc.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -4947,9 +4947,14 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active and ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `HOT` + "`" + `, ` + "`" + `COLD` + "`" + ` and also ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `FREEZING` + "`" + ` - tenant is transitioning from HOT/COLD to FROZEN, ` + "`" + `UNFREEZING` + "`" + ` - tenant is transitioning from FROZEN to HOT/COLD",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `ACTIVE` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `ACTIVE` + "`" + ` - tenant is fully active and ` + "`" + `INACTIVE` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + ` and also ` + "`" + `OFFLOADED` + "`" + ` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `OFFLOADING` + "`" + ` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, ` + "`" + `ONLOADING` + "`" + ` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names ` + "`" + `HOT` + "`" + ` (now ` + "`" + `ACTIVE` + "`" + `), ` + "`" + `COLD` + "`" + ` (now ` + "`" + `INACTIVE` + "`" + `), ` + "`" + `FROZEN` + "`" + ` (now ` + "`" + `OFFLOADED` + "`" + `), ` + "`" + `FREEZING` + "`" + ` (now ` + "`" + `OFFLOADING` + "`" + `), ` + "`" + `UNFREEZING` + "`" + ` (now ` + "`" + `ONLOADING` + "`" + `).",
           "type": "string",
           "enum": [
+            "ACTIVE",
+            "INACTIVE",
+            "OFFLOADED",
+            "OFFLOADING",
+            "ONLOADING",
             "HOT",
             "COLD",
             "FROZEN",
@@ -5315,7 +5320,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.26.0-rc.0"
+    "version": "1.26.0-rc.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -10513,9 +10518,14 @@ func init() {
       "type": "object",
       "properties": {
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `HOT` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `HOT` + "`" + ` - tenant is fully active and ` + "`" + `COLD` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `HOT` + "`" + `, ` + "`" + `COLD` + "`" + ` and also ` + "`" + `FROZEN` + "`" + ` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `FREEZING` + "`" + ` - tenant is transitioning from HOT/COLD to FROZEN, ` + "`" + `UNFREEZING` + "`" + ` - tenant is transitioning from FROZEN to HOT/COLD",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit ` + "`" + `ACTIVE` + "`" + `) and required for updating tenant. For creation, allowed values are ` + "`" + `ACTIVE` + "`" + ` - tenant is fully active and ` + "`" + `INACTIVE` + "`" + ` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, ` + "`" + `ACTIVE` + "`" + `, ` + "`" + `INACTIVE` + "`" + ` and also ` + "`" + `OFFLOADED` + "`" + ` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: ` + "`" + `OFFLOADING` + "`" + ` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, ` + "`" + `ONLOADING` + "`" + ` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names ` + "`" + `HOT` + "`" + ` (now ` + "`" + `ACTIVE` + "`" + `), ` + "`" + `COLD` + "`" + ` (now ` + "`" + `INACTIVE` + "`" + `), ` + "`" + `FROZEN` + "`" + ` (now ` + "`" + `OFFLOADED` + "`" + `), ` + "`" + `FREEZING` + "`" + ` (now ` + "`" + `OFFLOADING` + "`" + `), ` + "`" + `UNFREEZING` + "`" + ` (now ` + "`" + `ONLOADING` + "`" + `).",
           "type": "string",
           "enum": [
+            "ACTIVE",
+            "INACTIVE",
+            "OFFLOADED",
+            "OFFLOADING",
+            "ONLOADING",
             "HOT",
             "COLD",
             "FROZEN",

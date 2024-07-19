@@ -105,7 +105,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 
 	var nearVectorParams *searchparams.NearVector
 	if nearVector, ok := p.Args["nearVector"]; ok {
-		p, _, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+		p, _, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}), nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
 		}

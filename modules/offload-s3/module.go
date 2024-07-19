@@ -21,13 +21,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/peak/s5cmd/v2/command"
-	"github.com/peak/s5cmd/v2/log"
-	"github.com/peak/s5cmd/v2/log/stat"
-	"github.com/peak/s5cmd/v2/parallel"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
+	"github.com/weaviate/s5cmd/v2/command"
+	"github.com/weaviate/s5cmd/v2/log"
+	"github.com/weaviate/s5cmd/v2/log/stat"
+	"github.com/weaviate/s5cmd/v2/parallel"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -35,11 +36,12 @@ import (
 )
 
 const (
-	Name        = "offload-s3"
-	s3Endpoint  = "OFFLOAD_S3_ENDPOINT"
-	s3Bucket    = "OFFLOAD_S3_BUCKET"
-	concurrency = "OFFLOAD_S3_CONCURRENCY"
-	timeout     = "OFFLOAD_TIMEOUT"
+	Name               = "offload-s3"
+	s3Endpoint         = "OFFLOAD_S3_ENDPOINT"
+	s3BucketAutoCreate = "OFFLOAD_S3_BUCKET_AUTO_CREATE"
+	s3Bucket           = "OFFLOAD_S3_BUCKET"
+	concurrency        = "OFFLOAD_S3_CONCURRENCY"
+	timeout            = "OFFLOAD_TIMEOUT"
 )
 
 // verify we implement the modules.Module interface
@@ -63,7 +65,7 @@ func New() *Module {
 		Bucket:      "weaviate-offload",
 		Concurrency: 25,
 		DataPath:    config.DefaultPersistenceDataPath,
-		timeout:     10 * time.Second,
+		timeout:     120 * time.Second,
 		// we use custom cli app to avoid some bugs in underlying dependencies
 		// specially with .After implementation.
 		app: &cli.App{
@@ -96,12 +98,10 @@ func New() *Module {
 			Before: func(c *cli.Context) error {
 				retryCount := c.Int("retry-count")
 				workerCount := c.Int("numworkers")
-				printJSON := c.Bool("json")
-				logLevel := c.String("log")
 				isStat := c.Bool("stat")
 				endpointURL := c.String("endpoint-url")
 
-				log.Init(logLevel, printJSON)
+				log.Init("error", false) // print level error only
 				parallel.Init(workerCount)
 
 				if retryCount < 0 {
@@ -169,18 +169,15 @@ func (m *Module) Init(ctx context.Context,
 		m.DataPath = path
 	}
 
-	bucket := os.Getenv(s3Bucket)
-	if bucket != "" {
+	if bucket := os.Getenv(s3Bucket); bucket != "" {
 		m.Bucket = bucket
 	}
 
-	endpoint := os.Getenv(s3Endpoint)
-	if endpoint != "" {
+	if endpoint := os.Getenv(s3Endpoint); endpoint != "" {
 		m.Endpoint = endpoint
 	}
 
-	eTimeout := os.Getenv(timeout)
-	if eTimeout != "" {
+	if eTimeout := os.Getenv(timeout); eTimeout != "" {
 		timeoutN, err := time.ParseDuration(fmt.Sprintf("%ss", eTimeout))
 		if err != nil {
 			return err
@@ -188,8 +185,7 @@ func (m *Module) Init(ctx context.Context,
 		m.timeout = time.Duration(timeoutN.Seconds()) * time.Second
 	}
 
-	concc := os.Getenv(concurrency)
-	if concc != "" {
+	if concc := os.Getenv(concurrency); concc != "" {
 		conccN, err := strconv.Atoi(concc)
 		if err != nil {
 			return err
@@ -197,17 +193,21 @@ func (m *Module) Init(ctx context.Context,
 		m.Concurrency = conccN
 	}
 
-	// create offloading bucket
-	err := m.create(ctx)
-	if err != nil && !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
-		return fmt.Errorf("can't create offload bucket %s %w", m.Endpoint, err)
+	if entcfg.Enabled(os.Getenv(s3BucketAutoCreate)) {
+		if err := m.create(ctx); err != nil && !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
+			return fmt.Errorf("can't create offload bucket: %s at endpoint %s %w", m.Bucket, m.Endpoint, err)
+		}
+	} else {
+		if err := m.list(ctx); err != nil {
+			return fmt.Errorf("can't find offload bucket: %s at endpoint %s %w", m.Bucket, m.Endpoint, err)
+		}
 	}
 
 	m.logger.WithFields(logrus.Fields{
 		concurrency:             m.Concurrency,
 		timeout:                 m.timeout,
-		endpoint:                m.Endpoint,
-		bucket:                  m.Bucket,
+		s3Endpoint:              m.Endpoint,
+		s3Bucket:                m.Bucket,
 		"PERSISTENCE_DATA_PATH": m.DataPath,
 	}).Info("offload module loaded")
 	return nil
@@ -215,6 +215,18 @@ func (m *Module) Init(ctx context.Context,
 
 func (m *Module) RootHandler() http.Handler {
 	return nil
+}
+
+func (m *Module) list(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+	cmd := []string{
+		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
+		"ls",
+		fmt.Sprintf("s3://%s", m.Bucket),
+	}
+
+	return m.app.RunContext(ctx, cmd)
 }
 
 func (m *Module) create(ctx context.Context) error {

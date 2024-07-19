@@ -20,8 +20,8 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -82,17 +82,17 @@ func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
 	return s.schema.Restore(rc, parser)
 }
 
-func (s *SchemaManager) PreApplyFilter(req *api.ApplyRequest) error {
+func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 	classInfo := s.schema.ClassInfo(req.Class)
 
 	// Discard restoring a class if it already exists
-	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
+	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
 		s.log.WithField("class", req.Class).Info("class already restored")
 		return fmt.Errorf("class name %s already exists", req.Class)
 	}
 
 	// Discard adding class if the name already exists or a similar one exists
-	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
+	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
 		if other := s.schema.ClassEqual(req.Class); other == req.Class {
 			return fmt.Errorf("class name %s already exists", req.Class)
 		} else if other != "" {
@@ -116,6 +116,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
+		migrateRangeIndexPropIfNeeded(&v.Class)
 		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
@@ -376,4 +377,17 @@ func (s *SchemaManager) apply(op applyOp) error {
 		s.db.TriggerSchemaUpdateCallbacks()
 	}
 	return nil
+}
+
+// IndexRangeFilters was introduced with 1.26, so objects which were created
+// on an older version, will have this value set to nil when the instance is
+// upgraded. If we come across a property with nil IndexRangeFilters, it
+// needs to be set as false, to avoid false positive class differences on
+// comparison during class updates.
+func migrateRangeIndexPropIfNeeded(class *models.Class) {
+	for _, prop := range class.Properties {
+		if prop.IndexRangeFilters == nil {
+			prop.IndexRangeFilters = func() *bool { f := false; return &f }()
+		}
+	}
 }
