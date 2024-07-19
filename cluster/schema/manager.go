@@ -226,7 +226,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) 
 	var hasFrozen bool
 	tenants, err := s.schema.getTenants(cmd.Class, nil)
 	if err != nil {
-		return err
+		hasFrozen = false
 	}
 
 	for _, t := range tenants {
