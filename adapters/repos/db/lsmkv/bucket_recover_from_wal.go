@@ -72,7 +72,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 
 		b.logger.WithField("action", "lsm_recover_from_active_wal").
 			WithField("path", path).
-			Warning("active write-ahead-log found. Did weaviate crash prior to this? Trying to recover...")
+			Warning("active write-ahead-log found. Did weaviate crash prior to this or the tenant on/loaded from the cloud? Trying to recover...")
 
 		meteredReader := diskio.NewMeteredReader(bufio.NewReader(cl.file), b.metrics.TrackStartupReadWALDiskIO)
 
