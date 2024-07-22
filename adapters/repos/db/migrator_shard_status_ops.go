@@ -130,8 +130,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 				}
 			}
 
-			err = m.cloud.Upload(ctx, class, name, m.nodeId)
-			if err != nil {
+			if err := m.cloud.Upload(ctx, class, name, m.nodeId); err != nil {
 				m.logger.WithFields(logrus.Fields{
 					"action": "upload_tenant_from_cloud",
 					"error":  err,
