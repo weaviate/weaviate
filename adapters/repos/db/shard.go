@@ -157,6 +157,9 @@ type ShardLike interface {
 	hasGeoIndex() bool
 
 	Metrics() *Metrics
+
+	// Debug methods
+	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages

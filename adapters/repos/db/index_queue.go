@@ -65,7 +65,7 @@ type IndexQueue struct {
 
 	pqMaxPool *pqMaxPool
 
-	checkpoints *indexcheckpoint.Checkpoints
+	Checkpoints *indexcheckpoint.Checkpoints
 
 	paused atomic.Bool
 
@@ -195,7 +195,7 @@ func NewIndexQueue(
 		Index:             index,
 		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
-		checkpoints:       checkpoints,
+		Checkpoints:       checkpoints,
 		metrics:           NewIndexQueueMetrics(opts.Logger, promMetrics, className, shard.Name(), targetVector),
 	}
 
@@ -242,6 +242,27 @@ func (q *IndexQueue) Close() error {
 
 	q.Logger.Debug("index queue closed")
 
+	return nil
+}
+
+// Reset the queue with the given VectorIndex.
+// - discard any pending vectors
+// - reset the checkpoint to 0
+// Requires the queue to be paused.
+func (q *IndexQueue) ResetWith(v batchIndexer) error {
+	if !q.paused.Load() {
+		return errors.New("index queue must be paused to reset")
+	}
+
+	q.Index = v
+	err := q.Checkpoints.Update(q.shardID, q.targetVector, 0)
+	if err != nil {
+		return errors.Wrap(err, "update checkpoint")
+	}
+
+	q.lastPushed.Store(nil)
+	q.dims.Store(0)
+	q.queue.Reset()
 	return nil
 }
 
@@ -354,7 +375,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	}
 
 	// load non-indexed vectors and add them to the queue
-	checkpoint, exists, err := q.checkpoints.Get(q.shardID, q.targetVector)
+	checkpoint, exists, err := q.Checkpoints.Get(q.shardID, q.targetVector)
 	if err != nil {
 		return errors.Wrap(err, "get last indexed id")
 	}
@@ -439,7 +460,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		WithField("took", time.Since(start)).
 		WithField("shard_id", q.shardID).
 		WithField("target_vector", q.targetVector).
-		Debug("enqueued vectors from last indexed checkpoint")
+		Info("enqueued vectors from last indexed checkpoint")
 
 	return nil
 }
@@ -451,8 +472,8 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 func (q *IndexQueue) Drop() error {
 	_ = q.Close()
 
-	if q.checkpoints != nil {
-		return q.checkpoints.Delete(q.shardID, q.targetVector)
+	if q.Checkpoints != nil {
+		return q.Checkpoints.Delete(q.shardID, q.targetVector)
 	}
 
 	q.Logger.Debug("index queue dropped")
@@ -668,8 +689,8 @@ func (q *IndexQueue) checkCompressionSettings() bool {
 	}
 
 	if ci.AlreadyIndexed() > uint64(shouldCompressAt) {
-		q.pauseIndexing()
-		err := ci.TurnOnCompression(q.resumeIndexing)
+		q.PauseIndexing()
+		err := ci.TurnOnCompression(q.ResumeIndexing)
 		if err != nil {
 			q.Logger.WithError(err).Error("failed to turn on compression")
 		}
@@ -682,17 +703,23 @@ func (q *IndexQueue) checkCompressionSettings() bool {
 
 // pause indexing and wait for the workers to finish their current tasks
 // related to this queue.
-func (q *IndexQueue) pauseIndexing() {
+func (q *IndexQueue) PauseIndexing() {
+	if !q.paused.CompareAndSwap(false, true) {
+		q.Logger.Warn("attempted to pause indexing, but it is already paused")
+		return
+	}
 	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
-	q.paused.Store(true)
 	q.jobWg.Wait()
 	q.Logger.Debug("indexing paused")
 	q.metrics.Paused()
 }
 
 // resume indexing
-func (q *IndexQueue) resumeIndexing() {
-	q.paused.Store(false)
+func (q *IndexQueue) ResumeIndexing() {
+	if !q.paused.CompareAndSwap(true, false) {
+		q.Logger.Warn("attempted to resume indexing, but it is already running")
+		return
+	}
 	q.Logger.Debug("indexing resumed")
 	q.metrics.Resumed()
 }
@@ -920,7 +947,7 @@ func (q *vectorQueue) persistCheckpoint(minID uint64) {
 		checkpoint = 0
 	}
 
-	err := q.IndexQueue.checkpoints.Update(q.IndexQueue.shardID, q.IndexQueue.targetVector, checkpoint)
+	err := q.IndexQueue.Checkpoints.Update(q.IndexQueue.shardID, q.IndexQueue.targetVector, checkpoint)
 	if err != nil {
 		q.IndexQueue.Logger.WithError(err).Error("update checkpoint")
 	}
@@ -1052,6 +1079,22 @@ func (q *vectorQueue) ResetDeleted(ids ...uint64) {
 	for _, id := range ids {
 		delete(q.deleted.m, id)
 	}
+	q.deleted.Unlock()
+}
+
+func (q *vectorQueue) Reset() {
+	q.fullChunks.Lock()
+	q.fullChunks.list = list.New()
+	q.fullChunks.Unlock()
+
+	q.curBatch.Lock()
+	if q.curBatch.c != nil {
+		q.curBatch.c = nil
+	}
+	q.curBatch.Unlock()
+
+	q.deleted.Lock()
+	q.deleted.m = make(map[uint64]struct{})
 	q.deleted.Unlock()
 }
 
