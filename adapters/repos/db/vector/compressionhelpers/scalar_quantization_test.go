@@ -237,6 +237,80 @@ func Test_NoRaceRandomSQDistanceByteToByte(t *testing.T) {
 	}
 }
 
+func FuzzSQDistanceByteToByte(f *testing.F) {
+    // Add some seed corpus
+    f.Add(int64(1), uint8(100), uint8(10), uint8(150), uint8(10))
+
+    f.Fuzz(func(t *testing.T, seed int64, vSize, qSize, dims, k uint8) {
+        // Ensure reasonable values
+        vSize = vSize%100 + 1  // 1 to 100
+        qSize = qSize%20 + 1   // 1 to 20
+        dims = dims%200 + 1    // 1 to 200
+        k = k%10 + 1           // 1 to 10
+
+        distancers := []distancer.Provider{
+            distancer.NewL2SquaredProvider(),
+            distancer.NewCosineDistanceProvider(),
+            distancer.NewDotProductProvider(),
+        }
+
+        data, queries := testinghelpers.RandomVecs( int(vSize), int(qSize), int(dims))
+        testinghelpers.Normalize(data)
+        testinghelpers.Normalize(queries)
+
+        for _, distancer := range distancers {
+            sq := compressionhelpers.NewScalarQuantizer(data, distancer)
+            neighbors := make([][]uint64, qSize)
+            for j, y := range queries {
+                neighbors[j], _ = testinghelpers.BruteForce(logrus.New(), data, y, int(k), distancerWrapper(distancer))
+            }
+
+            xCompressed := make([][]byte, vSize)
+            for i, x := range data {
+                xCompressed[i] = sq.Encode(x)
+            }
+
+            var relevant uint64
+            mutex := sync.Mutex{}
+            ellapsed := time.Duration(0)
+
+            compressionhelpers.Concurrently(logrus.New(), uint64(len(queries)), func(i uint64) {
+                heap := priorityqueue.NewMax[any](int(k))
+                cd := sq.NewCompressedQuantizerDistancer(sq.Encode(queries[i]))
+                for j := range xCompressed {
+                    before := time.Now()
+                    d, _, _ := cd.Distance(xCompressed[j])
+                    ell := time.Since(before)
+                    mutex.Lock()
+                    ellapsed += ell
+                    mutex.Unlock()
+                    if heap.Len() < int(k) || heap.Top().Dist > d {
+                        if heap.Len() == int(k) {
+                            heap.Pop()
+                        }
+                        heap.Insert(uint64(j), d)
+                    }
+                }
+                results := make([]uint64, 0, k)
+                for heap.Len() > 0 {
+                    results = append(results, heap.Pop().ID)
+                }
+                hits := matchesInLists(neighbors[i][:k], results)
+                mutex.Lock()
+                relevant += hits
+                mutex.Unlock()
+            })
+
+            recall := float32(relevant) / float32(int(k)*len(queries))
+            latency := float32(ellapsed.Microseconds()) / float32(len(queries))
+
+            // Use assertions instead of printing
+            assert.GreaterOrEqual(t, recall, float32(0.7), "Recall for %s should be at least 0.7", distancer.Type())
+            assert.Less(t, latency, float32(1000), "Latency for %s should be less than 1000 microseconds", distancer.Type())
+        }
+    })
+}
+
 func matchesInLists(control []uint64, results []uint64) uint64 {
 	desired := map[uint64]struct{}{}
 	for _, relevant := range control {
