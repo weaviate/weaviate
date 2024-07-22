@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/config"
@@ -24,10 +25,14 @@ import (
 // ConfigOpts all map to environment variables. For example:
 //   - SENTRY_ENABLED=true -> ConfigOpts.Enabled=true
 type ConfigOpts struct {
-	Enabled bool              `json:"enabled" yaml:"enabled"`
-	DSN     string            `json:"dsn" yaml:"dsn"`
-	Debug   bool              `json:"debug" yaml:"debug"`
-	Tags    map[string]string `json:"tags" yaml:"tags"`
+	Enabled        bool              `json:"enabled" yaml:"enabled"`
+	DSN            string            `json:"dsn" yaml:"dsn"`
+	Debug          bool              `json:"debug" yaml:"debug"`
+	Tags           map[string]string `json:"tags" yaml:"tags"`
+	Release        string            `json:"release" yaml:"release"`
+	Environment    string            `json:"environment" yaml:"environment"`
+	TracingEnabled bool              `json:"tracing_enabled" yaml:"tracing_enabled"`
+	SampleRate     float64           `json:"sample_rate" yaml:"sample_rate"`
 }
 
 // Config Global Singleton that can be accessed from anywhere in the app. This
@@ -52,7 +57,21 @@ func InitSentryConfig() (*ConfigOpts, error) {
 		return nil, fmt.Errorf("sentry enabled but no DSN provided")
 	}
 
+	Config.Environment = os.Getenv("SENTRY_ENVIRONMENT")
+	if Config.Environment == "" {
+		Config.Environment = "unknown"
+	}
+
+	Config.TracingEnabled = config.Enabled(os.Getenv("SENTRY_TRACING_ENABLED"))
+	if sampleRate, err := strconv.ParseFloat(os.Getenv("SENTRY_SAMPLE_RATE"), 64); err == nil && sampleRate <= 1.0 && sampleRate >= 0.0 {
+		Config.SampleRate = sampleRate
+	} else {
+		// By default always assume a very conservative sampling rate
+		Config.SampleRate = 0.05
+	}
+
 	Config.Debug = config.Enabled(os.Getenv("SENTRY_DEBUG"))
+	Config.Release = os.Getenv("SENTRY_RELEASE")
 
 	if tags, err := parseTags(); err != nil {
 		return nil, err
