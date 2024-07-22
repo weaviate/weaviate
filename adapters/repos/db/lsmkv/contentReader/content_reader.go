@@ -126,8 +126,8 @@ type Pread struct {
 }
 
 func (c Pread) ReadValue(offset uint64) (byte, uint64) {
-	b := make([]byte, 1)
-	return c.ReadRange(offset, 1, b)
+	slice, offset := c.ReadRange(offset, 1, nil)
+	return slice[0], offset
 }
 
 func (c Pread) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64) {
