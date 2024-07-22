@@ -1,7 +1,7 @@
 import weaviate
 import weaviate.classes as wvc
 
-from conftest import CollectionFactory
+from .conftest import CollectionFactory
 
 
 def test_requesting_more_than_the_default_limit(collection_factory: CollectionFactory) -> None:
