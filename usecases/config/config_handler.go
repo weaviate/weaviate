@@ -40,8 +40,12 @@ import (
 // spec only needs to be parsed once.
 var ServerVersion string
 
-// GitHash keeps the current git hash commit information
-var GitHash = "unknown"
+var (
+	// GitHash keeps the current git hash commit information
+	GitHash = "unknown"
+	// DockerImageTag keeps the docker tag the weaviate binary was built in
+	DockerImageTag = "unknown"
+)
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
