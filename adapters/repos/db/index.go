@@ -573,6 +573,8 @@ type IndexConfig struct {
 	ForceFullReplicasSearch   bool
 
 	TrackVectorDimensions bool
+
+	PropsToIndexRangeFilters map[string][]string
 }
 
 func indexID(class schema.ClassName) string {

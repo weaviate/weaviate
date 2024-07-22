@@ -179,6 +179,8 @@ type ShardLike interface {
 	// shard. The absolute value has no meaning, it's only purpose is to compare
 	// the previous value to the current value.
 	Activity() int32
+
+	ForcedHasRangeableIndex(property *models.Property) bool
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
@@ -1225,7 +1227,7 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 
 func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	for _, prop := range props {
-		if !inverted.HasAnyInvertedIndex(prop) {
+		if !(inverted.HasAnyInvertedIndex(prop) || s.ForcedHasRangeableIndex(prop)) {
 			continue
 		}
 
@@ -1266,6 +1268,12 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return storagestate.ErrStatusReadOnly
 	}
 
+	forcedHasRangeableIndex := s.ForcedHasRangeableIndex(prop)
+	createOrLoadBucket := s.store.CreateOrLoadBucket
+	if forcedHasRangeableIndex {
+		createOrLoadBucket = s.store.CreateOrLoadBucketNoCompaction
+	}
+
 	bucketOpts := []lsmkv.BucketOption{
 		s.memtableDirtyConfig(),
 		s.dynamicMemtableSizing(),
@@ -1288,7 +1296,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			}
 		}
 
-		if err := s.store.CreateOrLoadBucket(ctx,
+		if err := createOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),
 			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 		); err != nil {
@@ -1310,14 +1318,19 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 	}
 
-	if inverted.HasRangeableIndex(prop) {
-		if err := s.store.CreateOrLoadBucket(ctx,
+	if inverted.HasRangeableIndex(prop) || forcedHasRangeableIndex {
+		opts := append(bucketOpts,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithUseBloomFilter(false),
+			lsmkv.WithCalcCountNetAdditions(false),
+		)
+		if forcedHasRangeableIndex {
+			opts = append(opts, lsmkv.WithKeepTombstones(true))
+		}
+
+		if err := createOrLoadBucket(ctx,
 			helpers.BucketRangeableFromPropNameLSM(prop.Name),
-			append(bucketOpts,
-				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
-				lsmkv.WithUseBloomFilter(false),
-				lsmkv.WithCalcCountNetAdditions(false),
-			)...,
+			opts...,
 		); err != nil {
 			return err
 		}
@@ -1654,4 +1667,44 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 
 func (s *Shard) Activity() int32 {
 	return s.activityTracker.Load()
+}
+
+func (s *Shard) ForcedHasRangeableIndex(property *models.Property) bool {
+	return forcedHasRangeableIndex(s.index.Config, property)
+}
+
+func forcedHasRangeableIndex(config IndexConfig, property *models.Property) bool {
+	if !isPropToIndexRangeFilters(config, property.Name) {
+		return false
+	}
+	return checkEligibleForForcedHasRangeableIndex(property) == nil
+}
+
+func isPropToIndexRangeFilters(config IndexConfig, propName string) bool {
+	if _, ok := config.PropsToIndexRangeFilters[config.ClassName.String()]; !ok {
+		return false
+	}
+	for _, prop := range config.PropsToIndexRangeFilters[config.ClassName.String()] {
+		if prop == propName {
+			return true
+		}
+	}
+	return false
+}
+
+func checkEligibleForForcedHasRangeableIndex(property *models.Property) error {
+	switch dt, _ := schema.AsPrimitive(property.DataType); dt {
+	case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeDate:
+		// ok
+	default:
+		return fmt.Errorf("property %q has unsupported data type %q", property.Name, dt.String())
+	}
+
+	if inverted.HasRangeableIndex(property) {
+		return fmt.Errorf("property %q already has rangeable index", property.Name)
+	}
+	if !inverted.HasFilterableIndex(property) {
+		return fmt.Errorf("property %q needs filterable index as source", property.Name)
+	}
+	return nil
 }

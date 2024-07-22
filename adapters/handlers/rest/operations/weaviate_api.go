@@ -187,6 +187,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsPropertiesAddHandler: schema.SchemaObjectsPropertiesAddHandlerFunc(func(params schema.SchemaObjectsPropertiesAddParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesAdd has not yet been implemented")
 		}),
+		SchemaSchemaObjectsPropertiesUpdateHandler: schema.SchemaObjectsPropertiesUpdateHandlerFunc(func(params schema.SchemaObjectsPropertiesUpdateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.SchemaObjectsPropertiesUpdate has not yet been implemented")
+		}),
 		SchemaSchemaObjectsShardsGetHandler: schema.SchemaObjectsShardsGetHandlerFunc(func(params schema.SchemaObjectsShardsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsShardsGet has not yet been implemented")
 		}),
@@ -352,6 +355,8 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsGetHandler schema.SchemaObjectsGetHandler
 	// SchemaSchemaObjectsPropertiesAddHandler sets the operation handler for the schema objects properties add operation
 	SchemaSchemaObjectsPropertiesAddHandler schema.SchemaObjectsPropertiesAddHandler
+	// SchemaSchemaObjectsPropertiesUpdateHandler sets the operation handler for the schema objects properties update operation
+	SchemaSchemaObjectsPropertiesUpdateHandler schema.SchemaObjectsPropertiesUpdateHandler
 	// SchemaSchemaObjectsShardsGetHandler sets the operation handler for the schema objects shards get operation
 	SchemaSchemaObjectsShardsGetHandler schema.SchemaObjectsShardsGetHandler
 	// SchemaSchemaObjectsShardsUpdateHandler sets the operation handler for the schema objects shards update operation
@@ -577,6 +582,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsPropertiesAddHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesAddHandler")
+	}
+	if o.SchemaSchemaObjectsPropertiesUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.SchemaObjectsPropertiesUpdateHandler")
 	}
 	if o.SchemaSchemaObjectsShardsGetHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsShardsGetHandler")
@@ -871,6 +879,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesAdd(o.context, o.SchemaSchemaObjectsPropertiesAddHandler)
+	if o.handlers["PATCH"] == nil {
+		o.handlers["PATCH"] = make(map[string]http.Handler)
+	}
+	o.handlers["PATCH"]["/schema/{className}/properties"] = schema.NewSchemaObjectsPropertiesUpdate(o.context, o.SchemaSchemaObjectsPropertiesUpdateHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

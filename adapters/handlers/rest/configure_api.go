@@ -237,7 +237,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// longer start up if the required minimum is now higher than 1. We want
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
-		Replication: replication.GlobalConfig{MinimumFactor: 1},
+		Replication:              replication.GlobalConfig{MinimumFactor: 1},
+		PropsToIndexRangeFilters: appState.ServerConfig.Config.IndexRangeFiltersPropsAtStartup,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -388,6 +389,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
+	storeReadyCtx, storeReadyCancel := context.WithCancel(context.Background())
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
@@ -395,6 +397,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				WithError(err).
 				Fatal("could not open cloud meta store")
 		}
+		storeReadyCancel()
 	}, appState.Logger)
 
 	// TODO-RAFT: refactor remove this sleep
@@ -421,6 +424,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancel(context.Background())
 	reindexFinished := make(chan error, 1)
 
+	if len(appState.ServerConfig.Config.IndexRangeFiltersPropsAtStartup) > 0 {
+		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTask_RangeFilters")
+	}
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
 		reindexTaskNames = append(reindexTaskNames, "ShardInvertedReindexTaskSetToRoaringSet")
 	}
@@ -431,10 +437,27 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {
+			// wait until meta store is ready, as reindex tasks needs schema
+			<-storeReadyCtx.Done()
+
+			start := time.Now()
 			appState.Logger.
-				WithField("action", "startup").
-				Info("Reindexing inverted indexes")
-			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
+				WithField("action", "inverted_reindex").
+				WithField("start", start.String()).
+				Info("Started reindexing inverted indexes")
+
+			err := migrator.InvertedReindex(reindexCtx, reindexTaskNames...)
+			reindexFinished <- err
+
+			entry := appState.Logger.
+				WithField("action", "inverted_reindex").
+				WithField("took", time.Since(start))
+
+			if err != nil {
+				entry.WithError(err).Errorf("inverted reindexing failed")
+			} else {
+				entry.Info("inverted reindexing succeeded")
+			}
 		}, appState.Logger)
 	}
 
