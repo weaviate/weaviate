@@ -46,7 +46,7 @@ type Service struct {
 // Raft store will be initialized and ready to be started. To start the service call Open().
 func New(cfg Config) *Service {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
-	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize)
+	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled)
 	fsm := NewFSM(cfg)
 	raft := NewRaft(&fsm, cl)
 	return &Service{
@@ -54,7 +54,7 @@ func New(cfg Config) *Service {
 		raftAddr:          fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
 		config:            &cfg,
 		rpcClient:         cl,
-		rpcServer:         rpc.NewServer(&fsm, raft, addr, cfg.Logger, cfg.RaftRPCMessageMaxSize),
+		rpcServer:         rpc.NewServer(&fsm, raft, addr, cfg.Logger, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled),
 		logger:            cfg.Logger,
 		closeBootstrapper: make(chan struct{}),
 		closeWaitForDB:    make(chan struct{}),
