@@ -337,6 +337,11 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
+	s.log.WithFields(logrus.Fields{
+		"action":  "updateTenantsProcess",
+		"node":    req.Node,
+		"request": req.TenantsProcesses,
+	}).Debug("updateTenantsProcess")
 
 	return s.apply(
 		applyOp{
