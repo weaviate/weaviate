@@ -1,6 +1,6 @@
 import weaviate.classes as wvc
 
-from conftest import CollectionFactory
+from .conftest import CollectionFactory
 
 
 def test_create_named_vectors_with_and_without_vectorizer(

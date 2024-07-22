@@ -1,7 +1,7 @@
 import pytest
 from weaviate.exceptions import WeaviateQueryError
 
-from conftest import CollectionFactory
+from .conftest import CollectionFactory
 import weaviate.classes as wvc
 
 
