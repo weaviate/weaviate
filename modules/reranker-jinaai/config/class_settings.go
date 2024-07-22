@@ -43,37 +43,15 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("reranker-jinaai")}
 }
 
+func (ic *classSettings) Model() string {
+	return ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, modelProperty, "", DefaultJinaaiModel)
+}
+
 func (ic *classSettings) Validate(class *models.Class) error {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return errors.New("empty config")
-	}
-	model := ic.getStringProperty(modelProperty, DefaultJinaaiModel)
-	if model == nil || !ic.validateModel(*model) {
+	model := ic.Model()
+	if !basesettings.ValidateSetting(model, availableJinaaiModels) {
 		return errors.Errorf("wrong Jinaai model name, available model names are: %v", availableJinaaiModels)
 	}
 
 	return nil
-}
-
-func (ic *classSettings) getStringProperty(name string, defaultValue string) *string {
-	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
-	return &asString
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableJinaaiModels, model)
-}
-
-func (ic *classSettings) Model() string {
-	return *ic.getStringProperty(modelProperty, DefaultJinaaiModel)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
 }
