@@ -249,9 +249,6 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	defer m.Unlock()
 
 	for idx := range req.TenantsProcesses {
-		if req.TenantsProcesses[idx] == nil || req.TenantsProcesses[idx].Tenant == nil {
-			continue
-		}
 		name := req.TenantsProcesses[idx].Tenant.Name
 		shard, ok := m.Sharding.Physical[name]
 		if !ok {
