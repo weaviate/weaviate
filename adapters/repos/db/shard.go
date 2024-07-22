@@ -166,6 +166,8 @@ type ShardLike interface {
 	// shard. The absolute value has no meaning, it's only purpose is to compare
 	// the previous value to the current value.
 	Activity() int32
+	// Debug methods
+	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
