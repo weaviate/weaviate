@@ -138,7 +138,6 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 						"name":   class,
 						"tenant": name,
 					}).Error("HaltForTransfer")
-					ec.Add(err)
 					cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
 						Tenant: &command.Tenant{
 							Name:   name,
@@ -146,6 +145,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 						},
 						Op: command.TenantsProcess_OP_ABORT,
 					}
+					ec.Add(err)
 					return fmt.Errorf("attempt to mark begin offloading: %w", err)
 				}
 			}
@@ -252,8 +252,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
-			err := m.cloud.Download(ctx, class, name, nodeID)
-			if err != nil {
+			if err := m.cloud.Download(ctx, class, name, nodeID); err != nil {
 				m.logger.WithFields(logrus.Fields{
 					"action": "download_tenant_from_cloud",
 					"error":  err,
