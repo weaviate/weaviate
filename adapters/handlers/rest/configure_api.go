@@ -159,6 +159,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		err := sentry.Init(sentry.ClientOptions{
 			Dsn:              appState.ServerConfig.Config.Sentry.DSN,
 			Debug:            appState.ServerConfig.Config.Sentry.Debug,
+			Release:          "weaviate@" + config.DockerImageTag,
+			Environment:      appState.ServerConfig.Config.Sentry.Environment,
+			EnableTracing:    appState.ServerConfig.Config.Sentry.TracingEnabled,
+			SampleRate:       appState.ServerConfig.Config.Sentry.SampleRate,
 			AttachStacktrace: true,
 		})
 		if err != nil {
@@ -479,6 +483,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 	appState := MakeAppState(ctx, connectorOptionGroup)
 
+	appState.Logger.WithFields(logrus.Fields{
+		"server_version":   config.ServerVersion,
+		"docker_image_tag": config.DockerImageTag,
+	}).Infof("configured versions")
+
 	api.ServeError = openapierrors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
@@ -488,7 +497,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
-		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
+		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "docker_image_tag": config.DockerImageTag}).Infof(msg, args...)
 	}
 
 	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, // the DB is the vectorrepo
