@@ -103,6 +103,19 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 			originalStatus := models.TenantActivityStatusHOT
 			shard, release, err := idx.getLocalShardNoShutdown(name)
 			if err != nil {
+				m.logger.WithFields(logrus.Fields{
+					"action": "get_local_shard_no_shutdown",
+					"error":  err,
+					"name":   class,
+					"tenant": name,
+				}).Error("getLocalShardNoShutdown")
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{
+						Name:   name,
+						Status: originalStatus,
+					},
+					Op: command.TenantsProcess_OP_ABORT,
+				}
 				ec.Add(err)
 				return nil
 			}
@@ -126,6 +139,13 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 						"tenant": name,
 					}).Error("HaltForTransfer")
 					ec.Add(err)
+					cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+						Tenant: &command.Tenant{
+							Name:   name,
+							Status: originalStatus,
+						},
+						Op: command.TenantsProcess_OP_ABORT,
+					}
 					return fmt.Errorf("attempt to mark begin offloading: %w", err)
 				}
 			}
@@ -160,6 +180,16 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 		})
 	}
 	eg.Wait()
+
+	if len(cmd.TenantsProcesses) == 0 {
+		m.logger.WithFields(logrus.Fields{
+			"errors":  ec.ToError().Error(),
+			"action":  "update_tenants_process",
+			"name":    class,
+			"process": cmd.TenantsProcesses,
+		}).Error("empty UpdateTenantsProcess")
+		return
+	}
 
 	enterrors.GoWrapper(func() {
 		if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
@@ -207,6 +237,12 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			// when the tenant is unfrozen
 			split := strings.Split(name, "#")
 			if len(split) < 2 {
+				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
+					Tenant: &command.Tenant{
+						Name: name,
+					},
+					Op: command.TenantsProcess_OP_ABORT,
+				}
 				err := fmt.Errorf("can't detect the old node name")
 				ec.Add(err)
 				return err
@@ -248,6 +284,16 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 		})
 	}
 	eg.Wait()
+
+	if len(cmd.TenantsProcesses) == 0 {
+		m.logger.WithFields(logrus.Fields{
+			"errors":  ec.ToError().Error(),
+			"action":  "update_tenants_process",
+			"name":    class,
+			"process": cmd.TenantsProcesses,
+		}).Error("empty UpdateTenantsProcess")
+		return
+	}
 
 	enterrors.GoWrapper(func() {
 		if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
