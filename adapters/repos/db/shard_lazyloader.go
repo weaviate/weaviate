@@ -327,6 +327,13 @@ func (l *LazyLoadShard) drop() error {
 	return l.shard.drop()
 }
 
+func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.DebugResetVectorIndex(ctx, targetVector)
+}
+
 func (l *LazyLoadShard) addIDProperty(ctx context.Context) error {
 	if err := l.Load(ctx); err != nil {
 		return err

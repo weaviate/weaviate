@@ -133,7 +133,6 @@ func getCores() (int, error) {
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := startupRoutine(ctx, options)
-	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		// only monitoring tool supported at the moment is prometheus
@@ -235,6 +234,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
+	setupDebugHandlers(appState)
+	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
+
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
 	migrator = vectorMigrator
@@ -276,7 +278,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("action", "startup").WithError(err).
 			Fatal("could not open tx repo")
 		os.Exit(1)
-
 	}
 
 	schemaManager, err := schemaUC.NewManager(migrator, schemaRepo,
