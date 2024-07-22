@@ -347,6 +347,13 @@ func (l *LazyLoadShard) drop() error {
 	return l.shard.drop()
 }
 
+func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.DebugResetVectorIndex(ctx, targetVector)
+}
+
 func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
 	l.mustLoad()
 	return l.shard.createPropertyIndex(ctx, eg, props...)

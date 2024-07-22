@@ -308,7 +308,10 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 
 	return n, s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
+			op: cmd.GetType().String(),
+			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
+			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
+			// the DB update.
 			updateSchema: func() error { n, err = s.schema.updateTenants(cmd.Class, cmd.Version, req); return err },
 			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
