@@ -1,7 +1,7 @@
 import weaviate
 import weaviate.classes as wvc
 
-from conftest import CollectionFactory
+from .conftest import CollectionFactory
 
 
 def test_batch_update_empty_list(collection_factory: CollectionFactory) -> None:
