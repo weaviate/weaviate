@@ -219,13 +219,13 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	// 2. If the user has provided nearVector parameters, use them in a nearVector search
 	// 3. (Default) Do a vector search with the default parameters (the old hybrid search)
 
-	eg := enterrors.NewErrorGroupWrapper(e.logger)
-	eg.SetLimit(_NUMCPU)
-
 	resultsCount := 1
 	if params.HybridSearch.Alpha != 0 && params.HybridSearch.Alpha != 1 {
 		resultsCount = 2
 	}
+
+	eg := enterrors.NewErrorGroupWrapper(e.logger)
+	eg.SetLimit(resultsCount)
 
 	results = make([][]*search.Result, resultsCount)
 	weights = make([]float64, resultsCount)
