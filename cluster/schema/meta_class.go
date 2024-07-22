@@ -238,38 +238,56 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) e
 	return nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (n int, err error) {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (int, error) {
 	m.Lock()
 	defer m.Unlock()
 
+	// For each requested tenant update we'll check if we the schema is missing that shard. If we have any missing shard
+	// we'll return an error but any other successful shard will be updated.
+	// If we're not adding a new shard we'll then check if the activity status needs to be changed
+	// If the activity status is changed we will deep copy the tenant and update the status
 	missingShards := []string{}
-	ps := m.Sharding.Physical
-	for i, u := range req.Tenants {
-		p, ok := ps[u.Name]
+	writeIndex := 0
+	for _, requestTenant := range req.Tenants {
+		schemaTenant, ok := m.Sharding.Physical[requestTenant.Name]
+		// If we can't find the shard add it to missing shards to error later
 		if !ok {
-			missingShards = append(missingShards, u.Name)
-			req.Tenants[i] = nil
+			missingShards = append(missingShards, requestTenant.Name)
 			continue
 		}
-		if p.ActivityStatus() == u.Status {
-			req.Tenants[i] = nil
+		// If the status is currently the same as the one requested just ignore
+		if schemaTenant.ActivityStatus() == requestTenant.Status {
 			continue
 		}
-		copy := p.DeepCopy()
-		copy.Status = u.Status
-		ps[u.Name] = copy
-		if !slices.Contains(copy.BelongsToNodes, nodeID) {
-			req.Tenants[i] = nil
-		}
-		n++
-	}
+		schemaTenant = schemaTenant.DeepCopy()
+		schemaTenant.Status = requestTenant.Status
+		// Update the schema tenant representation with the deep copy (necessary as the initial is a shallow copy from
+		// the map read
+		m.Sharding.Physical[schemaTenant.Name] = schemaTenant
 
+		// If the shard is not stored on that node skip updating the request tenant as there will be nothing to load on
+		// the DB side
+		if !slices.Contains(schemaTenant.BelongsToNodes, nodeID) {
+			continue
+		}
+
+		// Save the "valid" tenant on writeIndex and increment. This allows us to filter in place in req.Tenants the
+		// tenants that actually have a change to process
+		req.Tenants[writeIndex] = requestTenant
+		writeIndex++
+	}
+	// Remove the ignore tenants from the request to act as filter on the subsequent DB update
+	req.Tenants = req.Tenants[:writeIndex]
+
+	// Check for any missing shard to return an error
+	var err error
 	if len(missingShards) > 0 {
 		err = fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)
 	}
+	// Update the version of the shard to the current version
 	m.ShardVersion = v
-	req.Tenants = removeNilTenants(req.Tenants)
-	return
+
+	return writeIndex, err
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
