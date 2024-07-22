@@ -28,7 +28,7 @@ function release() {
     weaviate_version="preview-${pr_title}-${git_hash}"
   fi
 
-  args=("--build-arg=GITHASH=$git_hash" "--build-arg=DOCKER_IMAGE_TAG=$weaviate_version" --platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
+  args=("--build-arg=GITHASH=$git_hash" "--build-arg=DOCKER_IMAGE_TAG=$weaviate_version" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
