@@ -31,8 +31,8 @@ import (
 // swagger:model Tenant
 type Tenant struct {
 
-	// activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. For creation, allowed values are `HOT` - tenant is fully active and `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `HOT`, `COLD` and also `FROZEN` - as COLD, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `FREEZING` - tenant is transitioning from HOT/COLD to FROZEN, `UNFREEZING` - tenant is transitioning from FROZEN to HOT/COLD
-	// Enum: [HOT COLD FROZEN FREEZING UNFREEZING]
+	// activity status of the tenant's shard. Optional for creating tenant (implicit `ACTIVE`) and required for updating tenant. For creation, allowed values are `ACTIVE` - tenant is fully active and `INACTIVE` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `ACTIVE`, `INACTIVE` and also `OFFLOADED` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `OFFLOADING` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, `ONLOADING` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names `HOT` (now `ACTIVE`), `COLD` (now `INACTIVE`), `FROZEN` (now `OFFLOADED`), `FREEZING` (now `OFFLOADING`), `UNFREEZING` (now `ONLOADING`).
+	// Enum: [ACTIVE INACTIVE OFFLOADED OFFLOADING ONLOADING HOT COLD FROZEN FREEZING UNFREEZING]
 	ActivityStatus string `json:"activityStatus,omitempty"`
 
 	// name of the tenant
@@ -57,7 +57,7 @@ var tenantTypeActivityStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["HOT","COLD","FROZEN","FREEZING","UNFREEZING"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["ACTIVE","INACTIVE","OFFLOADED","OFFLOADING","ONLOADING","HOT","COLD","FROZEN","FREEZING","UNFREEZING"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -66,6 +66,21 @@ func init() {
 }
 
 const (
+
+	// TenantActivityStatusACTIVE captures enum value "ACTIVE"
+	TenantActivityStatusACTIVE string = "ACTIVE"
+
+	// TenantActivityStatusINACTIVE captures enum value "INACTIVE"
+	TenantActivityStatusINACTIVE string = "INACTIVE"
+
+	// TenantActivityStatusOFFLOADED captures enum value "OFFLOADED"
+	TenantActivityStatusOFFLOADED string = "OFFLOADED"
+
+	// TenantActivityStatusOFFLOADING captures enum value "OFFLOADING"
+	TenantActivityStatusOFFLOADING string = "OFFLOADING"
+
+	// TenantActivityStatusONLOADING captures enum value "ONLOADING"
+	TenantActivityStatusONLOADING string = "ONLOADING"
 
 	// TenantActivityStatusHOT captures enum value "HOT"
 	TenantActivityStatusHOT string = "HOT"

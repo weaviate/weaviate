@@ -120,6 +120,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			TrackVectorDimensions:     m.db.config.TrackVectorDimensions,
 			AvoidMMap:                 m.db.config.AvoidMMap,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
+			ForceFullReplicasSearch:   m.db.config.ForceFullReplicasSearch,
 			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
 			AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 		},
@@ -143,7 +144,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	return nil
 }
 
-func (m *Migrator) DropClass(ctx context.Context, className string) error {
+func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
@@ -153,9 +154,10 @@ func (m *Migrator) DropClass(ctx context.Context, className string) error {
 		return err
 	}
 
-	if m.cloud != nil {
+	if m.cloud != nil && hasFrozen {
 		return m.cloud.Delete(ctx, className, "", "")
 	}
+
 	return nil
 }
 
@@ -414,23 +416,23 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 	frozen := make([]string, 0, len(updates))
 	unfreezing := make([]string, 0, len(updates))
 
-	for _, tName := range updates {
-		switch tName.Status {
+	for _, tenant := range updates {
+		switch tenant.Status {
 		case models.TenantActivityStatusHOT:
-			hot = append(hot, tName.Name)
+			hot = append(hot, tenant.Name)
 		case models.TenantActivityStatusCOLD:
-			cold = append(cold, tName.Name)
+			cold = append(cold, tenant.Name)
+		case models.TenantActivityStatusFROZEN:
+			frozen = append(frozen, tenant.Name)
 
-		case models.TenantActivityStatusFROZEN: // never arrives from user
-			frozen = append(frozen, tName.Name)
 		case types.TenantActivityStatusFREEZING: // never arrives from user
-			freezing = append(freezing, tName.Name)
+			freezing = append(freezing, tenant.Name)
 		case types.TenantActivityStatusUNFREEZING: // never arrives from user
-			unfreezing = append(freezing, tName.Name)
+			unfreezing = append(unfreezing, tenant.Name)
 		}
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := &errorcompounder.SafeErrorCompounder{}
 	if len(hot) > 0 {
 		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
 		idx.shardTransferMutex.RLock()
@@ -640,7 +642,11 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	return idx.updateInvertedIndexConfig(ctx, conf)
 }
 
-func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string, cfg *models.ReplicationConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
@@ -651,17 +657,15 @@ func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string
 		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
 	}
 
-	idx.Config.ReplicationFactor.Store(factor)
-	return nil
-}
+	{
+		idx.Config.ReplicationFactor.Store(cfg.Factor)
 
-func (m *Migrator) UpdateAsyncReplication(ctx context.Context, className string, enabled bool) error {
-	idx := m.db.GetIndex(schema.ClassName(className))
-	if idx == nil {
-		return errors.Errorf("cannot update inverted index config of non-existing index for %s", className)
+		if err := idx.updateAsyncReplication(ctx, cfg.AsyncEnabled); err != nil {
+			return fmt.Errorf("update async replication for class %q: %w", className, err)
+		}
 	}
 
-	return idx.updateAsyncReplication(ctx, enabled)
+	return nil
 }
 
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {

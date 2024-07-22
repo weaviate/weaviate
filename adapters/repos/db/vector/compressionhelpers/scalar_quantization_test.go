@@ -187,7 +187,7 @@ func Test_NoRaceRandomSQDistanceByteToByte(t *testing.T) {
 	qSize := 10
 	dims := 150
 	k := 10
-	data, queries := testinghelpers.RandomVecs(vSize, qSize, dims)
+	data, queries := testinghelpers.RandomVecsFixedSeed(vSize, qSize, dims)
 	testinghelpers.Normalize(data)
 	testinghelpers.Normalize(queries)
 	for _, distancer := range distancers {

@@ -48,7 +48,7 @@ func (e *Extender) AdditionalPropertyFn(ctx context.Context,
 	return e.Multi(ctx, in, limit)
 }
 
-func (e *Extender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (e *Extender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 

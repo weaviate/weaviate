@@ -240,6 +240,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 				Offset: 0,
 				Limit:  100,
 			},
+			Properties: search.SelectProperties{{Name: "author"}},
 		})
 
 		require.Nil(t, err)
@@ -255,6 +256,7 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 				Offset: 0,
 				Limit:  1,
 			},
+			Properties: search.SelectProperties{{Name: "author"}},
 		})
 
 		require.Nil(t, err)

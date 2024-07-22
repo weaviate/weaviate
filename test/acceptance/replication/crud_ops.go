@@ -246,7 +246,7 @@ func gqlTenantGet(t *testing.T, host, class string, cl replica.ConsistencyLevel,
 		cl = replica.Quorum
 	}
 
-	q := fmt.Sprintf("{Get {%s (tenant: %q, consistencyLevel: %s)", class, tenant, cl) + " {%s}}}"
+	q := fmt.Sprintf("{Get {%s (tenant: %q, consistencyLevel: %s, limit: 1000)", class, tenant, cl) + " {%s}}}"
 	if len(fields) == 0 {
 		fields = []string{"_additional{id isConsistent}"}
 	}

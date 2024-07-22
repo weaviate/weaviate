@@ -76,19 +76,20 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("DropClass", Anything, Anything).Return(nil)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteClass("A"))
+		assert.Nil(t, x.DeleteClass("A", false))
 	})
 	t.Run("DropClassWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("DropClass", Anything, Anything).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
-		assert.Nil(t, x.DeleteClass("A"))
+		assert.Nil(t, x.DeleteClass("A", false))
 	})
 
 	t.Run("UpdateIndex", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(nil)
+		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}))
@@ -97,6 +98,7 @@ func TestExecutor(t *testing.T) {
 	t.Run("UpdateVectorIndexConfig", func(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(ErrAny)
+		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)
@@ -105,6 +107,7 @@ func TestExecutor(t *testing.T) {
 		migrator := &fakeMigrator{}
 		migrator.On("UpdateVectorIndexConfig", Anything, "A", Anything).Return(nil)
 		migrator.On("UpdateInvertedIndexConfig", Anything, "A", Anything).Return(ErrAny)
+		migrator.On("UpdateReplicationConfig", context.Background(), "A", false).Return(nil)
 
 		x := newMockExecutor(migrator, store)
 		assert.ErrorIs(t, x.UpdateClass(api.UpdateClassRequest{Class: cls}), ErrAny)

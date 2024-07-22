@@ -64,7 +64,7 @@ var defaultConfig = config.Config{
 	QueryMaximumResults: 100,
 }
 
-func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) {
+func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {
 	class := &models.Class{
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 		InvertedIndexConfig: BM25FinvertedConfig(k1, b, "none"),
@@ -77,7 +77,10 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 			},
 		},
 	}
-
+	props := make([]string, len(class.Properties))
+	for i, prop := range class.Properties {
+		props[i] = prop.Name
+	}
 	schema := schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{class},
@@ -105,6 +108,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 		err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
+	return props
 }
 
 func TestHybrid(t *testing.T) {
@@ -124,7 +128,7 @@ func TestHybrid(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	SetupStandardTestData(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props := SetupStandardTestData(t, repo, schemaGetter, logger, 1.2, 0.75)
 
 	idx := repo.GetIndex("StandardTest")
 	require.NotNil(t, idx)
@@ -138,7 +142,7 @@ func TestHybrid(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 
@@ -163,7 +167,7 @@ func TestBIER(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	SetupStandardTestData(t, repo, schemaGetter, logger, 1.2, 0.75)
+	props := SetupStandardTestData(t, repo, schemaGetter, logger, 1.2, 0.75)
 
 	idx := repo.GetIndex("StandardTest")
 	require.NotNil(t, idx)
@@ -177,7 +181,7 @@ func TestBIER(t *testing.T) {
 	for _, query := range queries {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: query.Query}
 		addit := additional.Properties{}
-		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, _ := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 
 		fmt.Printf("query for %s returned %d results\n", query.Query, len(res))
 		// fmt.Printf("Results: %v\n", res)
@@ -573,6 +577,7 @@ func TestRFJourney(t *testing.T) {
 				Offset: 0,
 				Limit:  6,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider(logger)
@@ -610,6 +615,7 @@ func TestRFJourney(t *testing.T) {
 				Offset: 0,
 				Limit:  -1,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider(logger)
@@ -649,6 +655,7 @@ func TestRFJourney(t *testing.T) {
 				Offset: 2,
 				Limit:  1,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider(logger)
@@ -690,6 +697,7 @@ func TestRFJourney(t *testing.T) {
 				Offset: 4,
 				Limit:  1,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider(logger)
@@ -814,7 +822,8 @@ func TestRFJourneyWithFilters(t *testing.T) {
 				Offset: 0,
 				Limit:  100,
 			},
-			Filters: filter1,
+			Filters:    filter1,
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider(logger)
@@ -845,6 +854,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 				Offset: 0,
 				Limit:  -1,
 			},
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider(logger)
@@ -884,7 +894,8 @@ func TestRFJourneyWithFilters(t *testing.T) {
 				Offset: 0,
 				Limit:  -1,
 			},
-			Filters: filter,
+			Filters:    filter,
+			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
 		prov := modules.NewProvider(logger)

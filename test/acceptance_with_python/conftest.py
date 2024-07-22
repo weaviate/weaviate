@@ -159,5 +159,13 @@ def named_collection(
 
 
 def _sanitize_collection_name(name: str) -> str:
-    name = name.replace("[", "").replace("]", "").replace("-", "").replace(" ", "").replace(".", "")
+    name = (
+        name.replace("[", "")
+        .replace("]", "")
+        .replace("-", "")
+        .replace(" ", "")
+        .replace(".", "")
+        .replace("{", "")
+        .replace("}", "")
+    )
     return name[0].upper() + name[1:]

@@ -336,12 +336,12 @@ func (s *Shard) filePutter(ctx context.Context,
 // OverwriteObjects if their state didn't change in the meantime
 // It returns nil if all object have been successfully overwritten
 // and otherwise a list of failed operations.
-func (i *Index) OverwriteObjects(ctx context.Context,
+func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
 	result := make([]replica.RepairResponse, 0, len(updates)/2)
 
-	s, release, err := i.getOrInitLocalShardNoShutdown(ctx, shard)
+	s, release, err := idx.getOrInitLocalShardNoShutdown(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
@@ -358,7 +358,15 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 		}
 		// valid update
 		found, err := s.ObjectByIDErrDeleted(ctx, data.ID, nil, additional.Properties{})
-		if err != nil && errors.Is(err, lsmkv.Deleted) {
+		if errors.Is(err, lsmkv.Deleted) && idx.Config.AsyncReplicationEnabled {
+			// TODO: A temporary limitation of async replication is that delete operations
+			// 		 are not propagated. Because of this, any deleted objects which are still
+			//		 found on any other node in the cluster will be written back to the nodes
+			//		 which successfully processed the delete. If we don't handle this limitation
+			// 		 in this manner, the node which is unaware of the delete will be an in
+			//		 infinite loop attempting to propagate the object.
+			err = nil
+		} else if err != nil && errors.Is(err, lsmkv.Deleted) {
 			continue
 		}
 		var curUpdateTime int64 // 0 means object doesn't exist on this node

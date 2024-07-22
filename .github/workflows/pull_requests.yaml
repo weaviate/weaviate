@@ -77,7 +77,7 @@ jobs:
         run: |
           echo "${{ env.SKIPPED_VULN }}" | tr ' ' '\n' > .trivyignore
       - name: Run Trivy vulnerability scanner for the built image
-        uses: aquasecurity/trivy-action@0.22.0
+        uses: aquasecurity/trivy-action@0.24.0
         with:
           image-ref: 'weaviate:${{ github.sha }}'
           exit-code: '1'
@@ -252,7 +252,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-only-fast", "--acceptance-go-client", "--acceptance-only-graphql", "--acceptance-only-replication", "--acceptance-only-python"]
+        test: [
+          "--acceptance-only-fast",
+          "--acceptance-only-graphql",
+          "--acceptance-only-replication",
+          "--acceptance-go-client-only-fast",
+          "--acceptance-go-client-named-vectors",
+          "--acceptance-only-python"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -347,6 +354,7 @@ jobs:
       CLUSTER_HOSTNAME: node1
       RAFT_BOOTSTRAP_EXPECT: 1
       RAFT_JOIN: node1
+      GRPC_PORT: 50052
     steps:
       - uses: actions/checkout@v4
       - name: Download binaries

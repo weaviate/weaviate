@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 const (
@@ -309,6 +310,15 @@ func EstimateObjectMemory(object *models.Object) int64 {
 	// prevent OOM crashes. Given the fuzziness and async style of the
 	// memtracking somewhat decent estimate should be good enough.
 	return int64(len(object.Vector)*4 + 30)
+}
+
+func EstimateStorObjectMemory(object *storobj.Object) int64 {
+	// Note: The estimation is not super accurate. It assumes that the
+	// memory is mostly used by the vector of float32 + the fixed
+	// overhead. It assumes a fixed overhead of 46 Bytes per object
+	// (30 Bytes from the data field models.Object + 16 Bytes from
+	// remaining data fields of storobj.Object).
+	return int64(len(object.Vector)*4 + 46)
 }
 
 func EstimateObjectDeleteMemory() int64 {
