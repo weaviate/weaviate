@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sync"
 
+	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -43,7 +44,7 @@ const serviceConfig = `
 					"ABORTED",
 					"RESOURCE_EXHAUSTED",
 					"INTERNAL",
-					"UNAVAILABLE"					
+					"UNAVAILABLE"
 				]
 			}
 		}
@@ -72,11 +73,14 @@ type Client struct {
 	// change we store that setting to re-use it. We set a custom limit to ensure that big queries that would exceed the
 	// default maximum can still get through
 	rpcMessageMaxSize int
+
+	// sentryEnabled will configure the RPC client to set spans and captures traces using sentry SDK
+	sentryEnabled bool
 }
 
 // NewClient returns a Client using the rpcAddressResolver to resolve raft nodes and configured with rpcMessageMaxSize
-func NewClient(r rpcAddressResolver, rpcMessageMaxSize int) *Client {
-	return &Client{addrResolver: r, rpcMessageMaxSize: rpcMessageMaxSize}
+func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool) *Client {
+	return &Client{addrResolver: r, rpcMessageMaxSize: rpcMessageMaxSize, sentryEnabled: sentryEnabled}
 }
 
 // Join will contact the node at leaderRaftAddr and try to join this node to the cluster leaded by leaderRaftAddress using req
@@ -193,12 +197,14 @@ func (cl *Client) getConn(leaderRaftAddr string) (*grpc.ClientConn, error) {
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	cl.leaderRpcConn, err = grpc.Dial(
-		addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithDefaultServiceConfig(serviceConfig),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMessageMaxSize)),
-	)
+	var options []grpc.DialOption
+	if cl.sentryEnabled {
+		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
+	}
+	options = append(options, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	options = append(options, grpc.WithDefaultServiceConfig(serviceConfig))
+	options = append(options, grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMessageMaxSize)))
+	cl.leaderRpcConn, err = grpc.Dial(addr, options...)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
