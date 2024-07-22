@@ -284,5 +284,5 @@ func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
 	}
 
 	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
-	return bufio.NewReader(r), nil
+	return bufio.NewReaderSize(r, 32768), nil
 }
