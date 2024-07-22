@@ -127,8 +127,7 @@ type Pread struct {
 
 func (c Pread) ReadValue(offset uint64) (byte, uint64) {
 	b := make([]byte, 1)
-	c.contentFile.ReadAt(b, int64(c.startOffset+offset))
-	return b[0], offset + 1
+	return c.ReadRange(offset, 1, b)
 }
 
 func (c Pread) ReadRange(offset uint64, length uint64, outBuf []byte) ([]byte, uint64) {
