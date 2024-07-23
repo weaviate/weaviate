@@ -282,8 +282,8 @@ func Test_Compactor(t *testing.T) {
 		t.Run("[keep] "+test.name, func(t *testing.T) {
 			dir := t.TempDir()
 
-			leftCursor := NewSegmentCursor(test.left)
-			rightCursor := NewSegmentCursor(test.right)
+			leftCursor := NewSegmentCursorMmap(test.left)
+			rightCursor := NewSegmentCursorMmap(test.right)
 
 			segmentFile := filepath.Join(dir, "result.db")
 			f, err := os.Create(segmentFile)
@@ -305,7 +305,7 @@ func Test_Compactor(t *testing.T) {
 
 			require.NoError(t, f.Close())
 
-			cu := NewSegmentCursor(segmentBytes[:header.IndexStart-segmentindex.HeaderSize])
+			cu := NewSegmentCursorMmap(segmentBytes[:header.IndexStart-segmentindex.HeaderSize])
 
 			i := 0
 			for k, l, ok := cu.First(); ok; k, l, ok = cu.Next() {
@@ -326,8 +326,8 @@ func Test_Compactor(t *testing.T) {
 		t.Run("[cleanup] "+test.name, func(t *testing.T) {
 			dir := t.TempDir()
 
-			leftCursor := NewSegmentCursor(test.left)
-			rightCursor := NewSegmentCursor(test.right)
+			leftCursor := NewSegmentCursorMmap(test.left)
+			rightCursor := NewSegmentCursorMmap(test.right)
 
 			segmentFile := filepath.Join(dir, "result.db")
 			f, err := os.Create(segmentFile)
@@ -349,7 +349,7 @@ func Test_Compactor(t *testing.T) {
 
 			require.NoError(t, f.Close())
 
-			cu := NewSegmentCursor(segmentBytes[:header.IndexStart-segmentindex.HeaderSize])
+			cu := NewSegmentCursorMmap(segmentBytes[:header.IndexStart-segmentindex.HeaderSize])
 
 			i := 0
 			for k, l, ok := cu.First(); ok; k, l, ok = cu.Next() {
