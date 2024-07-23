@@ -272,8 +272,11 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	defer cancel()
 
 	c.log.WithFields(logrus.Fields{
-		"action":   "ctx_with_timeout",
+		"action":   "coordinator_can_commit",
 		"duration": c.timeoutCanCommit,
+		"level":    req.Level,
+		"method":   req.Method,
+		"backend":  req.Backend,
 	}).Debug("context.WithTimeout")
 
 	type nodeHost struct {
@@ -401,8 +404,11 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 	defer cancel()
 
 	c.log.WithFields(logrus.Fields{
-		"action":   "ctx_with_timeout",
+		"action":   "coordinator_query_all",
 		"duration": c.timeoutQueryStatus,
+		"nodes":    nodes,
+		"method":   req.Method,
+		"backend":  req.Backend,
 	}).Debug("context.WithTimeout")
 
 	rs := make([]partialStatus, len(nodes))

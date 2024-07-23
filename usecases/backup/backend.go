@@ -265,7 +265,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	defer cancel()
 
 	u.log.WithFields(logrus.Fields{
-		"action":   "ctx_with_timeout",
+		"action":   "upload_class",
 		"duration": storeTimeout,
 	}).Debug("context.WithTimeout")
 

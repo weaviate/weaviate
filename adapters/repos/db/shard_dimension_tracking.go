@@ -130,7 +130,7 @@ func (s *Shard) initDimensionTracking() {
 		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
 		defer cancel()
 		s.index.logger.WithFields(logrus.Fields{
-			"action":   "ctx_with_timeout",
+			"action":   "init_dimension_tracking",
 			"duration": 30 * time.Minute,
 		}).Debug("context.WithTimeout")
 
@@ -152,7 +152,7 @@ func (s *Shard) initDimensionTracking() {
 						ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
 						defer cancel()
 						s.index.logger.WithFields(logrus.Fields{
-							"action":   "ctx_with_timeout",
+							"action":   "init_dimension_tracking",
 							"duration": 30 * time.Minute,
 						}).Debug("context.WithTimeout")
 						s.publishDimensionMetrics(ctx)

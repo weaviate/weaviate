@@ -1817,7 +1817,7 @@ func (i *Index) drop() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	i.logger.WithFields(logrus.Fields{
-		"action":   "ctx_with_timeout",
+		"action":   "drop_index",
 		"duration": 60 * time.Second,
 	}).Debug("context.WithTimeout")
 
