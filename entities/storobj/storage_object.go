@@ -17,6 +17,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"runtime"
+	"time"
 
 	"github.com/buger/jsonparser"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/entities/additional"
+	errwrap "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -240,7 +243,70 @@ type bucket interface {
 	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
 }
 
+const ObjectsRetrievalChunkSize = 25
+
 func ObjectsByDocID(bucket bucket, ids []uint64,
+	additional additional.Properties,
+) ([]*Object, error) {
+	if len(ids) <= ObjectsRetrievalChunkSize {
+		// fairly small result set, not worth parallelizing
+		return objectsByDocIDSequential(bucket, ids, additional)
+	}
+
+	// larger results set, may benefit from parallelization
+	return objectsByDocIDParallel(bucket, ids, additional)
+}
+
+func objectsByDocIDParallel(bucket bucket, ids []uint64,
+	addProp additional.Properties,
+) ([]*Object, error) {
+	// TODO: Remove debug logs
+	before := time.Now()
+	defer func() {
+		fmt.Printf("objectsByDocIDParallel took %s\n", time.Since(before))
+	}()
+
+	parallel := int(math.Ceil(float64(len(ids)) / float64(ObjectsRetrievalChunkSize)))
+
+	out := make([]*Object, len(ids))
+
+	// recalculate the chunk size for edge cases such as 26 object, when the
+	// cutoff is 25. It wouldn't make sense to split this into 2 chunks of 25 and
+	// 1, but rather into two chunks of 13.
+	chunkSize := len(ids) / parallel
+
+	// TODO logger
+	eg := errwrap.NewErrorGroupWrapper(nil)
+
+	// prevent unbounded concurrency on massive chunks
+	// it's fine to use a multiple of GOMAXPROCS here, as the goroutines are
+	// mostly IO-bound
+	eg.SetLimit(2 * runtime.GOMAXPROCS(0))
+	for chunk := 0; chunk < parallel; chunk++ {
+		start := chunk * chunkSize
+		end := start + chunkSize
+		if chunk == parallel-1 {
+			end = len(ids)
+		}
+
+		eg.Go(func() error {
+			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp)
+			if err != nil {
+				return err
+			}
+			copy(out[start:end], objs)
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties,
 ) ([]*Object, error) {
 	if bucket == nil {
