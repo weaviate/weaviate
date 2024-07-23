@@ -75,6 +75,7 @@ import (
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
+	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
@@ -833,6 +834,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankerdummy.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankerjinaai.Name]; ok {
+		appState.Modules.Register(modrerankerjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankerjinaai.Name).
 			Debug("enabled module")
 	}
 
