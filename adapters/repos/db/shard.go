@@ -258,7 +258,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 			defer cancel()
 			s.index.logger.WithFields(logrus.Fields{
-				"action":   "ctx_with_timeout",
+				"action":   "new_shard",
 				"duration": 120 * time.Second,
 			}).Debug("context.WithTimeout")
 
@@ -624,7 +624,7 @@ func (s *Shard) drop() error {
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
 	s.index.logger.WithFields(logrus.Fields{
-		"action":   "ctx_with_timeout",
+		"action":   "drop_shard",
 		"duration": 5 * time.Second,
 	}).Debug("context.WithTimeout")
 

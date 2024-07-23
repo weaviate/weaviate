@@ -445,7 +445,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	n.graph.logger.WithFields(logrus.Fields{
-		"action":   "ctx_with_timeout",
+		"action":   "pick_entrypoint",
 		"duration": 60 * time.Second,
 	}).Debug("context.WithTimeout")
 

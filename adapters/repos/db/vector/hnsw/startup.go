@@ -230,7 +230,7 @@ func (h *hnsw) prefillCache() {
 		defer cancel()
 
 		h.logger.WithFields(logrus.Fields{
-			"action":   "ctx_with_timeout",
+			"action":   "prefill_cache",
 			"duration": 60 * time.Minute,
 		}).Debug("context.WithTimeout")
 

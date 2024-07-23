@@ -84,7 +84,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 			defer cancel()
 
 			t.logger.WithFields(logrus.Fields{
-				"action":   "ctx_with_timeout",
+				"action":   "broadcast_transaction",
 				"duration": 30 * time.Second,
 			}).Debug("context.WithTimeout")
 
@@ -131,7 +131,7 @@ func (t *TxBroadcaster) BroadcastAbortTransaction(rootCtx context.Context, tx *T
 			defer cancel()
 
 			t.logger.WithFields(logrus.Fields{
-				"action":   "ctx_with_timeout",
+				"action":   "broadcast_abort_transaction",
 				"duration": 30 * time.Second,
 			}).Debug("context.WithTimeout")
 
@@ -161,7 +161,7 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *
 		defer cancel()
 
 		t.logger.WithFields(logrus.Fields{
-			"action":   "ctx_with_timeout",
+			"action":   "broadcast_commit_transaction",
 			"duration": 30 * time.Second,
 		}).Debug("context.WithTimeout")
 
