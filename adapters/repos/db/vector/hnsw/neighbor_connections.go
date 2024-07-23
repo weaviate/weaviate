@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -443,6 +444,10 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	// underlying object store and we cannot retrieve the vector in time, etc.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	n.graph.logger.WithFields(logrus.Fields{
+		"action":   "ctx_with_timeout",
+		"duration": 60 * time.Second,
+	}).Debug("context.WithTimeout")
 
 	for {
 		if err := ctx.Err(); err != nil {
