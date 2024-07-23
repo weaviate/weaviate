@@ -12,8 +12,10 @@
 package storobj
 
 import (
-	"crypto/rand"
+	cryptorand "crypto/rand"
+	"encoding/binary"
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -705,7 +707,7 @@ func TestVectorFromBinary(t *testing.T) {
 func TestStorageInvalidObjectMarshalling(t *testing.T) {
 	t.Run("invalid className", func(t *testing.T) {
 		invalidClassName := make([]byte, maxClassNameLength+1)
-		rand.Read(invalidClassName[:])
+		cryptorand.Read(invalidClassName[:])
 
 		invalidObj := FromObject(
 			&models.Object{
@@ -755,4 +757,105 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 		_, err := invalidObj.MarshalBinary()
 		require.ErrorContains(t, err, "could not marshal 'vector' max length exceeded")
 	})
+}
+
+func TestObjectsByDocID(t *testing.T) {
+	type test struct {
+		name     string
+		inputIDs []uint64
+		// there is no flag for expected output as that is deterministic based on
+		// the doc ID, we use a convention for the UUID and set a specific prop
+		// exactly to the doc ID.
+	}
+
+	// the main variable is the input length here which has an effect on chunking
+	// and parallelization
+	tests := []test{
+		{
+			name:     "10 objects - consecutive from beginning",
+			inputIDs: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+		},
+		{
+			name: "30 objects - consecutive from beginning, should be enough to force parallelization",
+			inputIDs: []uint64{
+				0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
+				17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
+			},
+		},
+		{
+			name:     "100 objects - random - should perfectly match the chunk size",
+			inputIDs: pickRandomIDsBetween(0, 1000, 100),
+		},
+		{
+			name:     "99 objects - random - slightly below ideal chunk size",
+			inputIDs: pickRandomIDsBetween(0, 1000, 99),
+		},
+		{
+			name:     "101 objects - random - slightly above ideal chunk size",
+			inputIDs: pickRandomIDsBetween(0, 1000, 101),
+		},
+		{
+			name:     "117 objects - random - because why not",
+			inputIDs: pickRandomIDsBetween(0, 1000, 117),
+		},
+	}
+
+	bucket := genFakeBucket(t)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{})
+			require.Nil(t, err)
+			require.Len(t, res, len(test.inputIDs))
+
+			for i, obj := range res {
+				expectedDocID := test.inputIDs[i]
+				assert.Equal(t, expectedDocID, uint64(obj.Properties().(map[string]any)["i"].(float64)))
+				expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd168%03d", expectedDocID))
+				assert.Equal(t, expectedUUID, obj.ID())
+			}
+		})
+	}
+}
+
+type fakeBucket struct {
+	objects map[uint64][]byte
+}
+
+func (f *fakeBucket) GetBySecondary(_ int, _ []byte) ([]byte, error) {
+	panic("not implemented")
+}
+
+func (f *fakeBucket) GetBySecondaryWithBuffer(indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
+	docID := binary.LittleEndian.Uint64(docIDBytes)
+	objBytes := f.objects[uint64(docID)]
+	if len(lsmBuf) < len(objBytes) {
+		lsmBuf = make([]byte, len(objBytes))
+	}
+
+	copy(lsmBuf, objBytes)
+	return lsmBuf[:len(objBytes)], lsmBuf, nil
+}
+
+func genFakeBucket(t *testing.T) *fakeBucket {
+	bucket := &fakeBucket{objects: map[uint64][]byte{}}
+	for i := uint64(0); i < 1000; i++ {
+		obj := New(i)
+		obj.SetProperties(map[string]any{"i": i})
+		obj.SetClass("MyClass")
+		obj.SetID(strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd168%03d", i)))
+		objBytes, err := obj.MarshalBinary()
+		require.Nil(t, err)
+		bucket.objects[i] = objBytes
+	}
+
+	return bucket
+}
+
+func pickRandomIDsBetween(start, end uint64, count int) []uint64 {
+	ids := make([]uint64, count)
+	for i := 0; i < count; i++ {
+		ids[i] = start + uint64(rand.Intn(int(end-start)))
+	}
+	return ids
 }
