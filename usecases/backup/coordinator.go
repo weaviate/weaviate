@@ -271,6 +271,11 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
+	c.log.WithFields(logrus.Fields{
+		"action":   "ctx_with_timeout",
+		"duration": c.timeoutCanCommit,
+	}).Debug("context.WithTimeout")
+
 	type nodeHost struct {
 		node, host string
 	}
@@ -394,6 +399,11 @@ func (c *coordinator) commit(ctx context.Context,
 func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutQueryStatus)
 	defer cancel()
+
+	c.log.WithFields(logrus.Fields{
+		"action":   "ctx_with_timeout",
+		"duration": c.timeoutQueryStatus,
+	}).Debug("context.WithTimeout")
 
 	rs := make([]partialStatus, len(nodes))
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
