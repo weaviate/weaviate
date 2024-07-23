@@ -60,7 +60,7 @@ import (
 // Levels help the "eligible for compaction" cycle to find suitable compaction
 // pairs.
 type Compactor struct {
-	left, right  *SegmentCursor
+	left, right  SegmentCursor
 	currentLevel uint16
 	// Tells if deletions or keys without corresponding values
 	// can be removed from merged segment.
@@ -74,7 +74,7 @@ type Compactor struct {
 // NewCompactor from left (older) and right (newer) seeker. See [Compactor] for
 // an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
-func NewCompactor(w io.WriteSeeker, left, right *SegmentCursor,
+func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
 	level uint16, cleanupDeletions bool,
 ) *Compactor {
 	return &Compactor{
@@ -165,7 +165,7 @@ func (c *Compactor) writeHeader(startOfIndex uint64) error {
 // nodeCompactor is a helper type to improve the code structure of merging
 // nodes in a compaction
 type nodeCompactor struct {
-	left, right *SegmentCursor
+	left, right SegmentCursor
 	bufw        *bufio.Writer
 	written     int
 

@@ -47,6 +47,7 @@ import (
 //						| deletion indicator and bitmaps are used only for key == 0
 type SegmentNode struct {
 	data []byte
+	rw   byteops.ReadWriter
 }
 
 // Len indicates the total length of the [SegmentNode]. When reading multiple
@@ -56,32 +57,29 @@ func (sn *SegmentNode) Len() uint64 {
 	return binary.LittleEndian.Uint64(sn.data[0:8])
 }
 
+func (sn *SegmentNode) Key() uint8 {
+	sn.rw.MoveBufferToAbsolutePosition(8)
+	return sn.rw.ReadUint8()
+}
+
 // Additions returns the additions roaring bitmap with shared state. Only use
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur.
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(9)
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
+	sn.rw.MoveBufferToAbsolutePosition(9)
+	return sroar.FromBuffer(sn.rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 // Deletions returns the deletions roaring bitmap with shared state. Only use
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur.
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	if key := rw.ReadUint8(); key != 0 {
-		return sroar.NewBitmap()
+	sn.rw.MoveBufferToAbsolutePosition(8)
+	if key := sn.rw.ReadUint8(); key != 0 {
+		return nil
 	}
-	rw.DiscardBytesFromBufferWithUint64LengthIndicator()
-	return sroar.FromBuffer(rw.ReadBytesFromBufferWithUint64LengthIndicator())
-}
-
-func (sn *SegmentNode) Key() uint8 {
-	rw := byteops.NewReadWriter(sn.data)
-	rw.MoveBufferToAbsolutePosition(8)
-	return rw.ReadUint8()
+	sn.rw.DiscardBytesFromBufferWithUint64LengthIndicator()
+	return sroar.FromBuffer(sn.rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
 func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode, error) {
@@ -96,9 +94,9 @@ func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode
 		expectedSize += 8 + len(deletionsBuf)
 	}
 
-	sn := SegmentNode{data: make([]byte, expectedSize)}
+	data := make([]byte, expectedSize)
+	rw := byteops.NewReadWriter(data)
 
-	rw := byteops.NewReadWriter(sn.data)
 	// reserve the first 8 bytes for the offset, which will be written at the very end
 	rw.MoveBufferPositionForward(8)
 	rw.CopyBytesToBuffer([]byte{key})
@@ -117,7 +115,10 @@ func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode
 	rw.MoveBufferToAbsolutePosition(0)
 	rw.WriteUint64(uint64(offset))
 
-	return &sn, nil
+	return &SegmentNode{
+		data: data,
+		rw:   rw,
+	}, nil
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,
@@ -138,5 +139,8 @@ func (sn *SegmentNode) ToBuffer() []byte {
 // buffer without copying data. Only use this when you can be sure that it's
 // safe to share the data or create your own copy.
 func NewSegmentNodeFromBuffer(buf []byte) *SegmentNode {
-	return &SegmentNode{data: buf}
+	return &SegmentNode{
+		data: buf,
+		rw:   byteops.NewReadWriter(buf),
+	}
 }
