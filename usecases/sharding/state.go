@@ -310,7 +310,9 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 	partitions := make(map[string][]string, len(shards))
 	nodeSet := make(map[string]bool)
 	for _, name := range shards {
-		if existedShard, alreadyExists := s.Physical[name]; alreadyExists && existedShard.Status != models.TenantActivityStatusFROZEN {
+		if existedShard, exists := s.Physical[name]; exists &&
+			existedShard.Status != models.TenantActivityStatusFROZEN &&
+			existedShard.Status != models.TenantActivityStatusFREEZING {
 			continue
 		}
 		owners := make([]string, 0, replFactor)

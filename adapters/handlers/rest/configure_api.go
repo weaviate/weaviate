@@ -145,7 +145,6 @@ func getCores() (int, error) {
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := startupRoutine(ctx, options)
-	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity = tenantactivity.NewHandler()
@@ -163,6 +162,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		err := sentry.Init(sentry.ClientOptions{
 			Dsn:              appState.ServerConfig.Config.Sentry.DSN,
 			Debug:            appState.ServerConfig.Config.Sentry.Debug,
+			Release:          "weaviate@" + config.DockerImageTag,
+			Environment:      appState.ServerConfig.Config.Sentry.Environment,
+			EnableTracing:    appState.ServerConfig.Config.Sentry.TracingEnabled,
+			SampleRate:       appState.ServerConfig.Config.Sentry.SampleRate,
 			AttachStacktrace: true,
 		})
 		if err != nil {
@@ -250,6 +253,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.TenantActivity.SetSource(appState.DB)
 	}
 
+	setupDebugHandlers(appState)
+	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
+
 	migrator := db.NewMigrator(repo, appState.Logger)
 	migrator.SetNode(appState.Cluster.LocalName())
 	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
@@ -292,6 +298,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("raft-join", appState.ServerConfig.Config.Raft.Join).
 			WithError(err).
 			Fatal("parsing raft-join")
+		os.Exit(1)
 	}
 
 	nodeName := appState.Cluster.LocalName()
@@ -490,6 +497,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 	appState := MakeAppState(ctx, connectorOptionGroup)
 
+	appState.Logger.WithFields(logrus.Fields{
+		"server_version":   config.ServerVersion,
+		"docker_image_tag": config.DockerImageTag,
+	}).Infof("configured versions")
+
 	api.ServeError = openapierrors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
@@ -499,7 +511,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
-		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
+		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "docker_image_tag": config.DockerImageTag}).Infof(msg, args...)
 	}
 
 	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, // the DB is the vectorrepo
