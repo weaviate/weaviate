@@ -531,6 +531,8 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 		allMsAndProps[len(allMsAndProps)-2], allMsAndProps[0] = allMsAndProps[0], allMsAndProps[len(allMsAndProps)-2]
 	}
 
+	needsResort := false
+
 	var docMapPairs []terms.DocPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	for i, mAndProps := range allMsAndProps {
@@ -558,11 +560,13 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
 					continue
 				}
+				key := binary.BigEndian.Uint64(val.Key)
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+
 				docMapPairs = append(docMapPairs,
 					terms.DocPointerWithScore{
-						Id:         binary.BigEndian.Uint64(val.Key),
+						Id:         key,
 						Frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 						PropLength: math.Float32frombits(propLenBits),
 					})
@@ -594,6 +598,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 					docMapPairs[ind].PropLength += math.Float32frombits(propLenBits)
 					docMapPairs[ind].Frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
+					needsResort = true
 					docMapPairs = append(docMapPairs,
 						terms.DocPointerWithScore{
 							Id:         binary.BigEndian.Uint64(val.Key),
@@ -611,6 +616,11 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 		termResult.exhausted = true
 		return termResult, docMapPairsIndices, nil
 	}
+
+	if needsResort {
+		sort.Sort(terms.ById(docMapPairs))
+	}
+
 	termResult.data = docMapPairs
 
 	n := float64(len(docMapPairs))

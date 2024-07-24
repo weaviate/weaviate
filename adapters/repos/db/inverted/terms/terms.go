@@ -23,6 +23,20 @@ type DocPointerWithScore struct {
 	PropLength float32
 }
 
+type ById []DocPointerWithScore
+
+func (s ById) Len() int {
+	return len(s)
+}
+
+func (s ById) Less(i, j int) bool {
+	return s[i].Id < s[j].Id
+}
+
+func (s ById) Swap(i, j int) {
+	s[i], s[j] = s[j], s[i]
+}
+
 type Term interface {
 	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, DocPointerWithScore)
 	AdvanceAtLeast(minID uint64)
