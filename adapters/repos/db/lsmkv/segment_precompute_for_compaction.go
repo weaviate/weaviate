@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
@@ -73,6 +74,8 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
+	compactionMutex := sync.RWMutex{}
+
 	seg := &segment{
 		level: header.Level,
 		// trim the .tmp suffix to make sure the naming rules for the files we
@@ -94,6 +97,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		logger:                logger,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
+		CompactionMutex:       &compactionMutex,
 	}
 
 	if seg.secondaryIndexCount > 0 {

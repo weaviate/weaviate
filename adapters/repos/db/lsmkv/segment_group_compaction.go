@@ -304,10 +304,6 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	if err != nil {
 		return err
 	}
-
-	leftSegment := sg.segments[old1]
-	rightSegment := sg.segments[old2]
-
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
 		updatedCountNetAdditions, sg.logger,
@@ -318,6 +314,16 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
+
+	leftSegment := sg.segments[old1]
+	rightSegment := sg.segments[old2]
+
+	leftSegment.CompactionMutex.Lock()
+	defer leftSegment.CompactionMutex.Unlock()
+	rightSegment.CompactionMutex.Lock()
+	defer rightSegment.CompactionMutex.Unlock()
+	leftSegment.Closing = true
+	rightSegment.Closing = true
 
 	if err := leftSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")

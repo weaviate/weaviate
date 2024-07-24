@@ -16,10 +16,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -70,51 +71,15 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	}
 }
 
-func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
-	className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking,
-) ([]*storobj.Object, []float32, error) {
-	// WEAVIATE-471 - If a property is not searchable, return an error
-	for _, property := range keywordRanking.Properties {
-		if !PropertyHasSearchableIndex(b.getClass(className.String()), property) {
-			return nil, nil, inverted.NewMissingSearchableIndexError(property)
-		}
-	}
-
-	class := b.getClass(className.String())
-	if class == nil {
-		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
-	}
-
-	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "wand")
-	}
-
-	return objs, scores, nil
-}
-
-func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
-	return b.propLenTracker.(*JsonShardMetaData)
-}
-
-func (b *BM25Searcher) wand(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
-) ([]*storobj.Object, []float32, error) {
-	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
-
+func (b *BM25Searcher) extractTermInformation(class *models.Class, params searchparams.KeywordRanking) (map[string][]string, map[string][]int, map[string][]string, map[string]float32, float64, error) {
 	var stopWordDetector *stopwords.Detector
+	var err error
 	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
-		var err error
 		stopWordDetector, err = stopwords.NewDetectorFromConfig(*(class.InvertedIndexConfig.Stopwords))
-		if err != nil {
-			return nil, nil, err
-		}
 	}
-
-	// There are currently cases, for different tokenization:
-	// word, lowercase, whitespace and field.
-	// Query is tokenized and respective properties are then searched for the search terms,
-	// results at the end are combined using WAND
+	if err != nil {
+		return nil, nil, nil, nil, 0, err
+	}
 
 	queryTermsByTokenization := map[string][]string{}
 	duplicateBoostsByTokenization := map[string][]int{}
@@ -126,14 +91,12 @@ func (b *BM25Searcher) wand(
 		queryTermsByTokenization[tokenization] = queryTerms
 		duplicateBoostsByTokenization[tokenization] = dupBoosts
 
-		// stopword filtering for word tokenization
 		if tokenization == models.PropertyTokenizationWord {
 			queryTerms, dupBoosts = b.removeStopwordsFromQueryTerms(queryTermsByTokenization[tokenization],
 				duplicateBoostsByTokenization[tokenization], stopWordDetector)
 			queryTermsByTokenization[tokenization] = queryTerms
 			duplicateBoostsByTokenization[tokenization] = dupBoosts
 		}
-
 		propNamesByTokenization[tokenization] = make([]string, 0)
 	}
 
@@ -150,65 +113,229 @@ func (b *BM25Searcher) wand(
 
 		propMean, err := b.GetPropertyLengthTracker().PropertyMean(property)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, nil, 0, err
 		}
 		averagePropLength += float64(propMean)
 
 		prop, err := schema.GetPropertyByName(class, property)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, nil, 0, err
 		}
 
 		switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
 		case schema.DataTypeText, schema.DataTypeTextArray:
 			if _, exists := propNamesByTokenization[prop.Tokenization]; !exists {
-				return nil, nil, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
+				return nil, nil, nil, nil, 0, fmt.Errorf("cannot handle tokenization '%v' of property '%s'",
 					prop.Tokenization, prop.Name)
 			}
 			propNamesByTokenization[prop.Tokenization] = append(propNamesByTokenization[prop.Tokenization], property)
 		default:
-			return nil, nil, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
+			return nil, nil, nil, nil, 0, fmt.Errorf("cannot handle datatype '%v' of property '%s'", dt, prop.Name)
+		}
+	}
+	averagePropLength = averagePropLength / float64(len(params.Properties))
+
+	return queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, nil
+}
+
+func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
+	className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking,
+) ([]*storobj.Object, []float32, error) {
+	// WEAVIATE-471 - If a property is not searchable, return an error
+	for _, property := range keywordRanking.Properties {
+		if !PropertyHasSearchableIndex(b.getClass(className.String()), property) {
+			return nil, nil, inverted.NewMissingSearchableIndexError(property)
+		}
+	}
+	class := b.getClass(className.String())
+	if class == nil {
+		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
+	}
+
+	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "wand")
+	}
+	return objs, scores, nil
+}
+
+func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
+	return b.propLenTracker.(*JsonShardMetaData)
+}
+
+func (b *BM25Searcher) wand(
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
+) ([]*storobj.Object, []float32, error) {
+	useWandDisk := os.Getenv("USE_WAND_DISK") == "true"
+	useWandDiskForced := os.Getenv("USE_WAND_DISK") == "force"
+	validateWandDisk := os.Getenv("USE_WAND_DISK") == "validate"
+	validateWandDiskForced := os.Getenv("USE_WAND_DISK") == "validate-force"
+	if useWandDisk || useWandDiskForced {
+		return b.wandDiskMem(ctx, filterDocIds, class, params, limit, useWandDiskForced)
+	} else if validateWandDisk || validateWandDiskForced {
+		return b.validateWand(ctx, filterDocIds, class, params, limit, validateWandDiskForced)
+	} else {
+		return b.wandMem(ctx, filterDocIds, class, params, limit)
+	}
+}
+
+func (b *BM25Searcher) validateWand(
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, useWandDiskForced bool,
+) ([]*storobj.Object, []float32, error) {
+	objsD, scoresD, errD := b.wandDiskMem(ctx, filterDocIds, class, params, limit, useWandDiskForced)
+	objsM, scoresM, errM := b.wandMem(ctx, filterDocIds, class, params, limit)
+	if errD != nil {
+		return nil, nil, errD
+	}
+	if errM != nil {
+		return nil, nil, errM
+	}
+
+	var err error
+	// compare results and scores
+	if len(objsD) != len(objsM) {
+		fmt.Printf("different number of results: disk %d, mem %d", len(objsD), len(objsM))
+		err = fmt.Errorf("different number of results: disk %d, mem %d", len(objsD), len(objsM))
+	}
+	if len(scoresD) != len(scoresM) {
+		fmt.Printf("different number of scores: disk %d, mem %d", len(objsD), len(objsM))
+		err = fmt.Errorf("different number of scores: disk %d, mem %d", len(scoresD), len(scoresM))
+	}
+
+	if err != nil {
+		for i := range objsM {
+			if len(objsD) <= i && len(objsM) <= i {
+				fmt.Printf("disk %v,%v mem %v,%v\n", scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+			}
+		}
+		// return nil, nil, err
+	}
+
+	for i := range objsM {
+		if len(objsD) <= i && len(objsM) <= i {
+			if objsD[i].ID() != objsM[i].ID() {
+				err = fmt.Errorf("different IDs at index %d: disk %v,%v mem %v,%v", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+				fmt.Printf("different IDs at index %d: disk %v,%v mem %v,%v\n", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+				break
+			}
+			if scoresD[i] != scoresM[i] {
+				err = fmt.Errorf("different scores at index %d: disk %v,%v mem %v,%v", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+				fmt.Printf("different scores at index %d: disk %v,%v mem %v,%v\n", i, scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+				break
+			}
 		}
 	}
 
-	averagePropLength = averagePropLength / float64(len(params.Properties))
+	if err != nil {
+		for i := range objsM {
+			if len(objsD) <= i && len(objsM) <= i {
+				fmt.Printf("disk %v,%v mem %v,%v\n", scoresD[i], objsD[i].ID(), scoresM[i], objsM[i].ID())
+			}
+		}
+		// return nil, nil, err
+	}
 
-	// 100 is a reasonable expected capacity for the total number of terms to query.
-	results := make(terms, 0, 100)
-	indices := make([]map[uint64]int, 0, 100)
+	return objsM, scoresM, errM
+}
+
+// global var to store wand times
+/*
+var (
+	wandMemTimes     []float64 = make([]float64, 5)
+	wandMemCounter   int       = 0
+	wandMemLastClass string
+	wandMemStats     []float64 = make([]float64, 1)
+)
+*/
+func (b *BM25Searcher) wandMem(ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
+	/*
+		if wandMemLastClass == "" {
+			wandMemLastClass = string(class.Class)
+		}
+		if wandMemLastClass != string(class.Class) {
+			fmt.Printf(" MEM,%v", wandMemLastClass)
+			sum := 0.
+			for i := 0; i < len(wandMemTimes); i++ {
+				fmt.Printf(",%8.2f", wandMemTimes[i]/float64(wandMemCounter))
+				sum += wandMemTimes[i] / float64(wandMemCounter)
+			}
+			fmt.Printf(",%8.2f", sum)
+
+			// for i := 0; i < len(wandMemStats); i++ {
+			//	fmt.Printf(",%8.2f", wandMemStats[i]/float64(wandMemCounter))
+			// }
+			fmt.Printf("\n")
+			wandMemCounter = 0
+			wandMemLastClass = string(class.Class)
+			wandMemTimes = make([]float64, len(wandMemTimes))
+			wandMemStats = make([]float64, len(wandMemStats))
+		}
+
+		wandMemCounter++
+		wandTimesId := 0
+
+		// start timer
+		startTime := float64(time.Now().UnixNano()) / 1e6
+	*/
+
+	// get number of objects
+	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
+
+	// stopword filtering for word tokenization
+	queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, err := b.extractTermInformation(class, params)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
+	// wandTimesId++
+
+	objsM, scoresM, errM := b.wandMemScoring(ctx, queryTermsByTokenization, duplicateBoostsByTokenization, propNamesByTokenization, propertyBoosts, averagePropLength, N, filterDocIds, params, limit)
+
+	return objsM, scoresM, errM
+}
+
+func (b *BM25Searcher) wandMemScoring(ctx context.Context, queryTermsByTokenization map[string][]string, duplicateBoostsByTokenization map[string][]int, propNamesByTokenization map[string][]string, propertyBoosts map[string]float32, averagePropLength float64, N float64, filterDocIds helpers.AllowList, params searchparams.KeywordRanking, limit int) ([]*storobj.Object, []float32, error) {
+	// wandTimesId := 1
+	// startTime := float64(time.Now().UnixNano()) / 1e6
+
+	tokenCount := 0
+	for tokenization, propNames := range propNamesByTokenization {
+		if len(propNames) > 0 {
+			tokenCount += len(queryTermsByTokenization[tokenization])
+		}
+	}
+
+	results := make([]terms.Term, tokenCount)
+	indices := make([]map[uint64]int, tokenCount)
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
-	var resultsLock sync.Mutex
-
-	for _, tokenization := range helpers.Tokenizations {
-		propNames := propNamesByTokenization[tokenization]
+	tokenIndex := 0
+	for tokenization, propNames := range propNamesByTokenization {
+		propNames := propNames
 		if len(propNames) > 0 {
-			queryTerms, duplicateBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+			for queryTermId, queryTerm := range queryTermsByTokenization[tokenization] {
+				tokenization := tokenization
+				queryTerm := queryTerm
+				queryTermId := queryTermId
+				tokenIndexInner := tokenIndex
 
-			// stopword filtering for word tokenization
-			if tokenization == models.PropertyTokenizationWord {
-				queryTerms, duplicateBoosts = b.removeStopwordsFromQueryTerms(
-					queryTerms, duplicateBoosts, stopWordDetector)
-			}
-
-			for i := range queryTerms {
-				j := i
+				dupBoost := duplicateBoostsByTokenization[tokenization][queryTermId]
 
 				eg.Go(func() (err error) {
-					termResult, docIndices, termErr := b.createTerm(ctx, N, filterDocIds, queryTerms[j], propNames,
-						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
+					termResult, docIndices, termErr := b.createTerm(ctx, N, filterDocIds, queryTerm, propNames, propertyBoosts, dupBoost, params.AdditionalExplanations)
 					if termErr != nil {
 						err = termErr
 						return
 					}
-					resultsLock.Lock()
-					results = append(results, termResult)
-					indices = append(indices, docIndices)
-					resultsLock.Unlock()
+					results[tokenIndexInner] = termResult
+					indices[tokenIndexInner] = docIndices
 					return
-				}, "query_term", queryTerms[j], "prop_names", propNames, "has_filter", filterDocIds != nil)
+				}, "query_term", queryTerm, "prop_names", propNames, "has_filter", filterDocIds != nil)
+
+				tokenIndex++
 			}
 		}
 	}
@@ -223,12 +350,28 @@ func (b *BM25Searcher) wand(
 		}
 	}
 
+	// wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
+	// wandTimesId++
+	// startTime = float64(time.Now().UnixNano()) / 1e6
+
 	// the results are needed in the original order to be able to locate frequency/property length for the top-results
-	resultsOriginalOrder := make(terms, len(results))
+	resultsOriginalOrder := make([]terms.Term, len(results))
 	copy(resultsOriginalOrder, results)
 
-	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
-	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
+	resultsTerms := results
+
+	topKHeap := b.getTopKHeap(limit, resultsTerms, averagePropLength)
+
+	// wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
+	// wandTimesId++
+	// startTime = float64(time.Now().UnixNano()) / 1e6
+
+	objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
+
+	// wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
+	// wandTimesId++
+
+	return objects, scores, err
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
@@ -259,7 +402,7 @@ WordLoop:
 }
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
-	results terms, indices []map[uint64]int, additionalExplanations bool,
+	results terms.Terms, indices []map[uint64]int, additionalExplanations bool,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
@@ -298,19 +441,21 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 			if obj.AdditionalProperties() == nil {
 				obj.Object.Additional = make(map[string]interface{})
 			}
+
 			for j, result := range results {
 				if termIndex, ok := indices[j][res.ID]; ok {
-					queryTerm := result.queryTerm
-					if len(result.data) <= termIndex {
+					queryTerm := result.QueryTerm()
+					if len(result.Data()) <= termIndex {
 						b.logger.Warnf(
 							"Skipping object explanation in BM25: term index %v is out of range for query term %v, length %d, id %v",
-							termIndex, queryTerm, len(result.data), res.ID)
+							termIndex, queryTerm, len(result.Data()), res.ID)
 						continue
 					}
-					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.data[termIndex].frequency
-					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.data[termIndex].propLength
+					obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.Data()[termIndex].Frequency
+					obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.Data()[termIndex].PropLength
 				}
 			}
+
 		}
 		objects = append(objects, obj)
 		scores = append(scores, res.Dist)
@@ -319,17 +464,17 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 	return objects, scores, nil
 }
 
-func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64,
+func (b *BM25Searcher) getTopKHeap(limit int, results terms.Terms, averagePropLength float64,
 ) *priorityqueue.Queue[any] {
-	topKHeap := priorityqueue.NewMin[any](limit)
+	topKHeap := priorityqueue.NewMinScoreAndId[any](limit)
 	worstDist := float64(-10000) // tf score can be negative
 	sort.Sort(results)
 	for {
-		if results.completelyExhausted() || results.pivot(worstDist) {
+		if results.CompletelyExhausted() || results.Pivot(worstDist) {
 			return topKHeap
 		}
 
-		id, score := results.scoreNext(averagePropLength, b.config)
+		id, score := results.ScoreNext(averagePropLength, b.config)
 
 		if topKHeap.Len() < limit || topKHeap.Top().Dist < float32(score) {
 			topKHeap.Insert(id, float32(score))
@@ -348,8 +493,8 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds helpers.AllowList, query string,
 	propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int,
 	additionalExplanations bool,
-) (term, map[uint64]int, error) {
-	termResult := term{queryTerm: query}
+) (terms.Term, map[uint64]int, error) {
+	termResult := &termMem{queryTerm: query}
 	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
 	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
@@ -395,7 +540,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 		allMsAndProps[len(allMsAndProps)-2], allMsAndProps[0] = allMsAndProps[0], allMsAndProps[len(allMsAndProps)-2]
 	}
 
-	var docMapPairs []docPointerWithScore = nil
+	var docMapPairs []terms.DocPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
 	for i, mAndProps := range allMsAndProps {
 		m := mAndProps.MapPairs
@@ -415,7 +560,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
-			docMapPairs = make([]docPointerWithScore, 0, len(m))
+			docMapPairs = make([]terms.DocPointerWithScore, 0, len(m))
 			docMapPairsIndices = make(map[uint64]int, len(m))
 			for k, val := range m {
 				if len(val.Value) < 8 {
@@ -425,10 +570,10 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
 				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 				docMapPairs = append(docMapPairs,
-					docPointerWithScore{
-						id:         binary.BigEndian.Uint64(val.Key),
-						frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
-						propLength: math.Float32frombits(propLenBits),
+					terms.DocPointerWithScore{
+						Id:         binary.BigEndian.Uint64(val.Key),
+						Frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
+						PropLength: math.Float32frombits(propLenBits),
 					})
 				if includeIndicesForLastElement {
 					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
@@ -450,19 +595,19 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 						b.logger.Warnf("Skipping pair in BM25: Index %d is out of range for key %d, length %d.", ind, key, len(docMapPairs))
 						continue
 					}
-					if ind < len(docMapPairs) && docMapPairs[ind].id != key {
-						b.logger.Warnf("Skipping pair in BM25: id at %d in doc map pairs, %d, differs from current key, %d", ind, docMapPairs[ind].id, key)
+					if ind < len(docMapPairs) && docMapPairs[ind].Id != key {
+						b.logger.Warnf("Skipping pair in BM25: id at %d in doc map pairs, %d, differs from current key, %d", ind, docMapPairs[ind].Id, key)
 						continue
 					}
 
-					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
-					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
+					docMapPairs[ind].PropLength += math.Float32frombits(propLenBits)
+					docMapPairs[ind].Frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
 				} else {
 					docMapPairs = append(docMapPairs,
-						docPointerWithScore{
-							id:         binary.BigEndian.Uint64(val.Key),
-							frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
-							propLength: math.Float32frombits(propLenBits),
+						terms.DocPointerWithScore{
+							Id:         binary.BigEndian.Uint64(val.Key),
+							Frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
+							PropLength: math.Float32frombits(propLenBits),
 						})
 					if includeIndicesForLastElement {
 						docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
@@ -493,140 +638,68 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 	}
 
 	termResult.posPointer = 0
-	termResult.idPointer = termResult.data[0].id
+	termResult.idPointer = termResult.data[0].Id
 	return termResult, docMapPairsIndices, nil
 }
 
-type term struct {
+type termMem struct {
 	// doubles as max impact (with tf=1, the max impact would be 1*idf), if there
 	// is a boost for a queryTerm, simply apply it here once
 	idf float64
 
 	idPointer  uint64
 	posPointer uint64
-	data       []docPointerWithScore
+	data       []terms.DocPointerWithScore
 	exhausted  bool
 	queryTerm  string
 }
 
-func (t *term) scoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+func (t *termMem) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
 	id := t.idPointer
 	pair := t.data[t.posPointer]
-	freq := float64(pair.frequency)
-	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.propLength)/averagePropLength))
+	freq := float64(pair.Frequency)
+	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength))
 
 	// advance
 	t.posPointer++
 	if t.posPointer >= uint64(len(t.data)) {
 		t.exhausted = true
 	} else {
-		t.idPointer = t.data[t.posPointer].id
+		t.idPointer = t.data[t.posPointer].Id
 	}
 
 	return id, tf * t.idf
 }
 
-func (t *term) advanceAtLeast(minID uint64) {
+func (t *termMem) AdvanceAtLeast(minID uint64) {
 	for t.idPointer < minID {
 		t.posPointer++
 		if t.posPointer >= uint64(len(t.data)) {
 			t.exhausted = true
 			return
 		}
-		t.idPointer = t.data[t.posPointer].id
+		t.idPointer = t.data[t.posPointer].Id
 	}
 }
 
-type terms []term
-
-func (t terms) completelyExhausted() bool {
-	for i := range t {
-		if !t[i].exhausted {
-			return false
-		}
-	}
-	return true
+func (t *termMem) IsExhausted() bool {
+	return t.exhausted
 }
 
-func (t terms) pivot(minScore float64) bool {
-	minID, pivotPoint, abort := t.findMinID(minScore)
-	if abort {
-		return true
-	}
-	if pivotPoint == 0 {
-		return false
-	}
-
-	t.advanceAllAtLeast(minID)
-	sort.Sort(t)
-	return false
+func (t *termMem) IdPointer() uint64 {
+	return t.idPointer
 }
 
-func (t terms) advanceAllAtLeast(minID uint64) {
-	for i := range t {
-		t[i].advanceAtLeast(minID)
-	}
+func (t *termMem) QueryTerm() string {
+	return t.queryTerm
 }
 
-func (t terms) findMinID(minScore float64) (uint64, int, bool) {
-	cumScore := float64(0)
-
-	for i, term := range t {
-		if term.exhausted {
-			continue
-		}
-		cumScore += term.idf
-		if cumScore >= minScore {
-			return term.idPointer, i, false
-		}
-	}
-
-	return 0, 0, true
+func (t *termMem) IDF() float64 {
+	return t.idf
 }
 
-func (t terms) findFirstNonExhausted() (int, bool) {
-	for i := range t {
-		if !t[i].exhausted {
-			return i, true
-		}
-	}
-
-	return -1, false
-}
-
-func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
-	pos, ok := t.findFirstNonExhausted()
-	if !ok {
-		// done, nothing left to score
-		return 0, 0
-	}
-
-	id := t[pos].idPointer
-	var cumScore float64
-	for i := pos; i < len(t); i++ {
-		if t[i].idPointer != id || t[i].exhausted {
-			continue
-		}
-		_, score := t[i].scoreAndAdvance(averagePropLength, config)
-		cumScore += score
-	}
-
-	sort.Sort(t) // pointer was advanced in scoreAndAdvance
-
-	return id, cumScore
-}
-
-// provide sort interface
-func (t terms) Len() int {
-	return len(t)
-}
-
-func (t terms) Less(i, j int) bool {
-	return t[i].idPointer < t[j].idPointer
-}
-
-func (t terms) Swap(i, j int) {
-	t[i], t[j] = t[j], t[i]
+func (t *termMem) Data() []terms.DocPointerWithScore {
+	return t.data
 }
 
 type MapPairsAndPropName struct {
