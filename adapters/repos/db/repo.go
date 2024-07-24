@@ -162,7 +162,7 @@ func New(logger logrus.FieldLogger, config Config,
 		db.shutDownWg.Add(db.maxNumberGoroutines)
 		for i := 0; i < db.maxNumberGoroutines; i++ {
 			i := i
-			enterrors.GoWrapper(func() { db.worker(i == 0) }, db.logger)
+			enterrors.GoWrapper(func() { db.batchWorker(i == 0) }, db.logger)
 		}
 	} else {
 		logger.Info("async indexing enabled")
@@ -305,7 +305,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) worker(first bool) {
+func (db *DB) batchWorker(first bool) {
 	objectCounter := 0
 	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {

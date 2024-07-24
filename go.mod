@@ -59,6 +59,7 @@ require (
 	github.com/pkoukk/tiktoken-go v0.1.6
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/vmihailenco/msgpack/v5 v5.4.1
+	github.com/weaviate/fgprof v0.0.0-20240724124431-aab99fd9c876
 	github.com/weaviate/sroar v0.0.0-20230210105426-26108af5465d
 	golang.org/x/exp v0.0.0-20230510235704-dd950f8aeaea
 	golang.org/x/text v0.16.0
@@ -119,6 +120,7 @@ require (
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.0.0 // indirect
+	github.com/google/pprof v0.0.0-20240227163752-401108e1b7e7 // indirect
 	github.com/google/s2a-go v0.1.7 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
