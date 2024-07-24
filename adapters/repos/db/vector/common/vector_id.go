@@ -25,6 +25,10 @@ type VectorSlice struct {
 	Buff  []byte
 }
 
+type VectorUint64Slice struct {
+	Slice []uint64
+}
+
 type (
 	VectorForID[T float32 | byte | uint64] func(ctx context.Context, id uint64) ([]T, error)
 	TempVectorForID                        func(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error)
@@ -47,6 +51,36 @@ type TargetTempVectorForID struct {
 
 func (t TargetTempVectorForID) TempVectorForID(ctx context.Context, id uint64, container *VectorSlice) ([]float32, error) {
 	return t.TempVectorForIDThunk(ctx, id, container, t.TargetVector)
+}
+
+type TempVectorUint64Pool struct {
+	pool *sync.Pool
+}
+
+func NewTempUint64VectorsPool() *TempVectorUint64Pool {
+	return &TempVectorUint64Pool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return &VectorUint64Slice{
+					Slice: nil,
+				}
+			},
+		},
+	}
+}
+
+func (pool *TempVectorUint64Pool) Get(capacity int) *VectorUint64Slice {
+	container := pool.pool.Get().(*VectorUint64Slice)
+	if len(container.Slice) >= capacity {
+		container.Slice = container.Slice[:capacity]
+	} else {
+		container.Slice = make([]uint64, capacity)
+	}
+	return container
+}
+
+func (pool *TempVectorUint64Pool) Put(container *VectorUint64Slice) {
+	pool.pool.Put(container)
 }
 
 type TempVectorsPool struct {

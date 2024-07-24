@@ -29,7 +29,8 @@ type pools struct {
 	pqResults    *common.PqMaxPool
 	pqCandidates *pqMinPool
 
-	tempVectors *common.TempVectorsPool
+	tempVectors       *common.TempVectorsPool
+	tempVectorsUint64 *common.TempVectorUint64Pool
 }
 
 func newPools(maxConnectionsLayerZero int) *pools {
@@ -41,10 +42,11 @@ func newPools(maxConnectionsLayerZero int) *pools {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
 			},
 		},
-		pqHeuristic:  newPqMinWithIndexPool(maxConnectionsLayerZero),
-		pqResults:    common.NewPqMaxPool(maxConnectionsLayerZero),
-		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
-		tempVectors:  common.NewTempVectorsPool(),
+		pqHeuristic:       newPqMinWithIndexPool(maxConnectionsLayerZero),
+		pqResults:         common.NewPqMaxPool(maxConnectionsLayerZero),
+		pqCandidates:      newPqMinPool(maxConnectionsLayerZero),
+		tempVectors:       common.NewTempVectorsPool(),
+		tempVectorsUint64: common.NewTempUint64VectorsPool(),
 	}
 }
 
