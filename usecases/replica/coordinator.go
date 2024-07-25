@@ -229,6 +229,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			enterrors.GoWrapper(f, c.log)
 		}
 		wg.Wait()
+		// TODO if the same node returns above and in this loop, then we will have received level-1 acks thus not meeting the consistency level
 		if !fullReadWasSuccessful.Load() {
 			for j := 1; j < len(candidates); j++ {
 				err = backoff.Retry(
