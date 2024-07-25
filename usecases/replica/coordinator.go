@@ -193,6 +193,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 	candidates := state.Hosts
 	successfulReplies := atomic.Int32{} // TODO have backoff end once success we reaach level successful replies?
+	fullReadWasSuccessful := atomic.Bool{}
 	errors := make(chan _Result[T], len(candidates))
 	f := func() {
 		wg := sync.WaitGroup{}
@@ -211,6 +212,9 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 							fmt.Println("NATEE reply", idx, resp, err)
 							replyCh <- _Result[T]{resp, err}
 							successfulReplies.Add(1)
+							if idx == 0 {
+								fullReadWasSuccessful.Store(true)
+							}
 						}
 						// TODO is idx check needed for finder's GetOne, checkShardConsistency, CollectShardDifferences, FindUUIDs, Exists? In the current implementation does Pull always fail if the direct candidate (self node) errors/times out?
 						if idx != 0 && successfulReplies.Load() >= int32(level) {
@@ -231,6 +235,32 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		fmt.Println("NATEE waiting started")
 		wg.Wait()
 		fmt.Println("NATEE waiting done")
+		if !fullReadWasSuccessful.Load() {
+			fmt.Println("NATEE fullread failed")
+			for j := 1; j < len(candidates); j++ {
+				fmt.Println("NATEE fullread idx", j)
+				err = backoff.Retry(
+					func() error {
+						fmt.Println("NATEE fullread op starting", j)
+						resp, err := op(ctx, candidates[j], true)
+						fmt.Println("NATEE fullread op done", j, resp, err)
+						if err == nil {
+							fmt.Println("NATEE fullread reply", j, resp, err)
+							replyCh <- _Result[T]{resp, err}
+							successfulReplies.Add(1)
+							// fullReadWasSuccessful.Store(true) // unneeded?
+						}
+						return err
+					},
+					backoffConfig,
+				)
+				fmt.Println("NATEE fullread backoff done", j, err)
+				if err == nil {
+					break
+				}
+			}
+		}
+		fmt.Println("NATEE errors closing")
 		close(errors)
 		fmt.Println("NATEE errors closed")
 		if successfulReplies.Load() < int32(level) {

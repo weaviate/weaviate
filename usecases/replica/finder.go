@@ -203,10 +203,11 @@ func (f *Finder) Exists(ctx context.Context,
 	l ConsistencyLevel,
 	shard string,
 	id strfmt.UUID,
+	backoffConfig backoff.BackOff,
 ) (bool, error) {
 	c := newReadCoordinator[existReply](f, shard)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
-		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 9)
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x RepairResponse
 		if len(xs) == 1 {
 			x = xs[0]

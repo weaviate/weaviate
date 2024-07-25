@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/weaviate/weaviate/entities/models"
@@ -243,14 +244,15 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 func TestRepairerExistsWithALL(t *testing.T) {
 	var (
-		id        = strfmt.UUID("123")
-		cls       = "C1"
-		shard     = "SH1"
-		nodes     = []string{"A", "B", "C"}
-		ctx       = context.Background()
-		adds      = additional.Properties{}
-		proj      = search.SelectProperties{}
-		emptyItem = objects.Replica{}
+		id           = strfmt.UUID("123")
+		cls          = "C1"
+		shard        = "SH1"
+		nodes        = []string{"A", "B", "C"}
+		ctx          = context.Background()
+		adds         = additional.Properties{}
+		proj         = search.SelectProperties{}
+		emptyItem    = objects.Replica{}
+		shortBackoff = backoff.WithMaxRetries(&backoff.ConstantBackOff{Interval: 1 * time.Millisecond}, 2)
 	)
 
 	t.Run("ChangedObject", func(t *testing.T) {
@@ -282,7 +284,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -316,7 +318,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			assert.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
 		assert.Nil(t, err)
 		assert.Equal(t, true, got)
 	})
@@ -346,7 +348,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -371,7 +373,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -396,7 +398,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(item1, nil)
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -428,7 +430,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
 		assert.Nil(t, err)
 		assert.Equal(t, true, got)
 	})
@@ -447,7 +449,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
-		got, err := finder.Exists(ctx, All, shard, id)
+		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -457,14 +459,15 @@ func TestRepairerExistsWithALL(t *testing.T) {
 
 func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 	var (
-		id        = strfmt.UUID("123")
-		cls       = "C1"
-		shard     = "SH1"
-		nodes     = []string{"A", "B", "C"}
-		ctx       = context.Background()
-		adds      = additional.Properties{}
-		proj      = search.SelectProperties{}
-		emptyItem = objects.Replica{}
+		id           = strfmt.UUID("123")
+		cls          = "C1"
+		shard        = "SH1"
+		nodes        = []string{"A", "B", "C"}
+		ctx          = context.Background()
+		adds         = additional.Properties{}
+		proj         = search.SelectProperties{}
+		emptyItem    = objects.Replica{}
+		shortBackoff = backoff.WithMaxRetries(&backoff.ConstantBackOff{Interval: 1 * time.Millisecond}, 2)
 	)
 
 	t.Run("ChangedObject", func(t *testing.T) {
@@ -497,7 +500,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:3", "B:2")
@@ -528,7 +531,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			assert.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
 		assert.Nil(t, err)
 		assert.Equal(t, true, got)
 	})
@@ -557,7 +560,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -581,7 +584,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -604,7 +607,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[1], cls, shard, id, proj, adds).Return(item1, nil)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -635,7 +638,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
 		assert.Nil(t, err)
 		assert.Equal(t, true, got)
 	})
@@ -652,7 +655,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR0, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id)
+		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())

@@ -1193,7 +1193,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 			replProps = defaultConsistency()
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		return i.replicator.Exists(ctx, cl, shardName, id)
+		return i.replicator.Exists(ctx, cl, shardName, id, utils.DefaultExponentialBackOff())
 	}
 
 	shard, release, err := i.getLocalShardNoShutdown(shardName)

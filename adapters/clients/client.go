@@ -30,6 +30,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool,
 	numRetries int,
 ) (err error) {
+	// TODO when this context times out and is cancelled, does it mean we won't retry up above via Pull?
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)

@@ -406,3 +406,9 @@ func shouldRetry(code int) bool {
 		code == http.StatusTooManyRequests ||
 		code == http.StatusServiceUnavailable
 }
+
+// TODO swapping causes tests to fail
+// func shouldRetry2(code int) bool {
+// 	return code == http.StatusTooManyRequests ||
+// 		code == http.StatusServiceUnavailable
+// }
