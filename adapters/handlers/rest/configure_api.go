@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/fgprof"
+
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
@@ -1098,6 +1100,21 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
+	functionsToIgnoreInProfiling := []string{
+		"raft",
+		"http2",
+		"memberlist",
+		"selectgo", // various tickers
+		"cluster",
+		"rest",
+		"signal_recv",
+		"backgroundRead",
+		"SetupGoProfiling",
+		"serve",
+		"Serve",
+		"batchWorker",
+	}
+	http.DefaultServeMux.Handle("/debug/fgprof", fgprof.Handler(functionsToIgnoreInProfiling...))
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {

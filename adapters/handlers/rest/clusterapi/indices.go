@@ -201,12 +201,14 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 		case i.regexpObjectsOverwrite.MatchString(path):
 			if r.Method != http.MethodPut {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
 			}
 
 			i.putOverwriteObjects().ServeHTTP(w, r)
 		case i.regexObjectsDigest.MatchString(path):
 			if r.Method != http.MethodGet {
 				http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+				return
 			}
 
 			i.getObjectsDigest().ServeHTTP(w, r)
@@ -468,6 +470,7 @@ func (i *indices) getObject() http.Handler {
 			selectProperties, additional)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		if obj == nil {
@@ -480,6 +483,7 @@ func (i *indices) getObject() http.Handler {
 		objBytes, err := IndicesPayloads.SingleObject.Marshal(obj)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		IndicesPayloads.SingleObject.SetContentTypeHeader(w)
@@ -497,6 +501,7 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 	ok, err := i.shards.Exists(r.Context(), index, shard, strfmt.UUID(id))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	if ok {
@@ -527,6 +532,7 @@ func (i *indices) deleteObject() http.Handler {
 		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), schemaVersion)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		w.WriteHeader(http.StatusNoContent)
@@ -620,11 +626,13 @@ func (i *indices) getObjectsMulti() http.Handler {
 		objs, err := i.shards.MultiGetObjects(r.Context(), index, shard, ids)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		objsBytes, err := IndicesPayloads.ObjectList.Marshal(objs)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		IndicesPayloads.ObjectList.SetContentTypeHeader(w)
@@ -1033,11 +1041,13 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		sizeBytes, err := IndicesPayloads.GetShardQueueSizeResults.Marshal(size)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		IndicesPayloads.GetShardQueueSizeResults.SetContentTypeHeader(w)
@@ -1069,11 +1079,13 @@ func (i *indices) getGetShardStatus() http.Handler {
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		statusBytes, err := IndicesPayloads.GetShardStatusResults.Marshal(status)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		IndicesPayloads.GetShardStatusResults.SetContentTypeHeader(w)
