@@ -2,16 +2,22 @@ package segmentindex
 
 import (
 	"fmt"
-	"sync"
+	"math"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 func (t *DiskTree) QuantileKeys(q int) [][]byte {
+	// we will overfetch a bit because we will have q keys at level n, but in
+	// addition we can use all keys discovered on the way to get to level n. This
+	// will help us to get a more even distribution of keys – especially when
+	// multiple trees need to merged down the line (e.g. because there are many
+	// segements).
+	depth := int(math.Ceil(math.Log2(float64(q))))
 	bfs := parallelBFS{
 		dt:             t,
-		maxDepth:       8,
-		keysDiscovered: make(chan []byte),
+		maxDepth:       depth,
+		keysDiscovered: make([][]byte, 0, depth),
 	}
 
 	return bfs.run()
@@ -20,31 +26,20 @@ func (t *DiskTree) QuantileKeys(q int) [][]byte {
 type parallelBFS struct {
 	dt             *DiskTree
 	maxDepth       int
-	keysDiscovered chan []byte
-	wg             sync.WaitGroup
+	keysDiscovered [][]byte
 }
 
 func (bfs *parallelBFS) run() [][]byte {
-	bfs.wg.Add(1)
-	go bfs.parse(0, 0)
+	bfs.parse(0, 0)
 
-	var keys [][]byte
-	go func() {
-		for key := range bfs.keysDiscovered {
-			keys = append(keys, key)
-			bfs.wg.Done()
-		}
-	}()
-	bfs.wg.Wait()
-
-	close(bfs.keysDiscovered)
-
-	return keys
+	return bfs.keysDiscovered
 }
 
 func (bfs *parallelBFS) parse(offset uint64, level int) {
-	// TODO: check exit condition (when have we reached the end of the tree)
-	fmt.Printf("offset=%d, max=%d level=%d\n", offset, len(bfs.dt.data), level)
+	if offset+4 > uint64(len(bfs.dt.data)) || offset+4 < 4 {
+		// exit condition
+		return
+	}
 	rw := byteops.NewReadWriter(bfs.dt.data)
 	rw.Position = offset
 	keyLen := rw.ReadUint32()
@@ -54,9 +49,9 @@ func (bfs *parallelBFS) parse(offset uint64, level int) {
 		// TODO: handle error
 		panic(fmt.Errorf("copy node key: %w", err).Error())
 	}
-	bfs.keysDiscovered <- nodeKeyBuffer
+	bfs.keysDiscovered = append(bfs.keysDiscovered, nodeKeyBuffer)
 
-	if level+1 >= bfs.maxDepth {
+	if level+1 > bfs.maxDepth {
 		return
 	}
 
@@ -64,7 +59,6 @@ func (bfs *parallelBFS) parse(offset uint64, level int) {
 	leftChildPos := rw.ReadUint64()     // left child
 	rightChildPos := rw.ReadUint64()    // left child
 
-	bfs.wg.Add(2)
 	bfs.parse(leftChildPos, level+1)
 	bfs.parse(rightChildPos, level+1)
 }
