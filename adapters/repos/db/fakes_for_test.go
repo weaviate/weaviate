@@ -350,13 +350,13 @@ func (fakeReplicationClient) Exists(ctx context.Context, hostName, indexName,
 
 func (*fakeReplicationClient) FetchObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, numRetries int,
 ) (objects.Replica, error) {
 	return objects.Replica{}, nil
 }
 
 func (*fakeReplicationClient) DigestObjects(ctx context.Context,
-	hostName, indexName, shardName string, ids []strfmt.UUID,
+	hostName, indexName, shardName string, ids []strfmt.UUID, numRetries int,
 ) (result []replica.RepairResponse, err error) {
 	return nil, nil
 }

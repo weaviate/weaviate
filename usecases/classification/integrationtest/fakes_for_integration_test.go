@@ -582,7 +582,7 @@ func (c *fakeReplicationClient) Exists(ctx context.Context, host, index,
 
 func (f *fakeReplicationClient) FetchObject(_ context.Context, host, index,
 	shard string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, numRetries int,
 ) (objects.Replica, error) {
 	return objects.Replica{}, nil
 }
@@ -594,7 +594,7 @@ func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
 }
 
 func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID,
+	host, index, shard string, ids []strfmt.UUID, numRetries int,
 ) (result []replica.RepairResponse, err error) {
 	return nil, nil
 }
