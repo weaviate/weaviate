@@ -261,7 +261,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 
 	out := make([]*Object, len(ids))
 
-	chunkSize := max(len(ids)/parallel, 1)
+	chunkSize := max(int(math.Ceil(float64(len(ids))/float64(parallel))), 1)
 
 	eg := errwrap.NewErrorGroupWrapper(logger)
 
