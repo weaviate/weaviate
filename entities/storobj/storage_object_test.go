@@ -813,7 +813,7 @@ func TestObjectsByDocID(t *testing.T) {
 			for i, obj := range res {
 				expectedDocID := test.inputIDs[i]
 				assert.Equal(t, expectedDocID, uint64(obj.Properties().(map[string]any)["i"].(float64)))
-				expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd168%03d", expectedDocID))
+				expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd16%04d", expectedDocID))
 				assert.Equal(t, expectedUUID, obj.ID())
 			}
 		})
