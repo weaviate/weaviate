@@ -24,6 +24,7 @@ const (
 	StrategyMapCollection   = "mapcollection"
 	StrategyRoaringSet      = "roaringset"
 	StrategyRoaringSetRange = "roaringsetrange"
+	StrategyInverted        = "inverted"
 )
 
 func SegmentStrategyFromString(in string) segmentindex.Strategy {
@@ -38,6 +39,8 @@ func SegmentStrategyFromString(in string) segmentindex.Strategy {
 		return segmentindex.StrategyRoaringSet
 	case StrategyRoaringSetRange:
 		return segmentindex.StrategyRoaringSetRange
+	case StrategyInverted:
+		return segmentindex.StrategyInverted
 	default:
 		panic("unsupported strategy")
 	}
@@ -51,6 +54,7 @@ func IsExpectedStrategy(strategy string, expectedStrategies ...string) bool {
 			StrategyMapCollection,
 			StrategyRoaringSet,
 			StrategyRoaringSetRange,
+			StrategyInverted,
 		}
 	}
 

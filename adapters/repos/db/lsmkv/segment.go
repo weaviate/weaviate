@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,7 @@ import (
 
 	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/willf/bloom"
@@ -56,6 +58,14 @@ type segment struct {
 
 	CompactionMutex *sync.RWMutex
 	Closing         bool
+
+	// inverted strategy has a different data layout and a single key and value
+	// length for all nodes
+	invertedKeyLength   uint16
+	invertedValueLength uint16
+
+	tombstones       *sroar.Bitmap
+	tombstonesLoaded bool
 }
 
 type diskIndex interface {
@@ -122,6 +132,22 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	compactionMutex := &sync.RWMutex{}
 
+	dataStartPos := uint64(segmentindex.HeaderSize)
+	dataEndPos := header.IndexStart
+
+	var invertedKeyLength, invertedValueLength uint16
+	if header.Strategy == segmentindex.StrategyInverted {
+		// inverted strategy has a different data layout
+		// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+		invertedKeyLength = binary.LittleEndian.Uint16(contents[dataStartPos : dataStartPos+2])
+		invertedValueLength = binary.LittleEndian.Uint16(contents[dataStartPos+2 : dataStartPos+4])
+		keysLength := binary.LittleEndian.Uint64(contents[dataStartPos+4 : dataStartPos+12])
+
+		dataEndPos = dataStartPos + 12 + keysLength
+		// tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos+12+keysLength : dataStartPos+12+keysLength+8])
+		dataStartPos += 2 + 2 + 8
+	}
+
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
@@ -131,8 +157,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		segmentStartPos:       header.IndexStart,
 		segmentEndPos:         uint64(fileInfo.Size()),
 		strategy:              header.Strategy,
-		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:            header.IndexStart,
+		dataStartPos:          dataStartPos, // fixed value that's the same for all strategies
+		dataEndPos:            dataEndPos,
 		index:                 primaryDiskIndex,
 		logger:                logger,
 		metrics:               metrics,
@@ -141,6 +167,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
 		CompactionMutex:       compactionMutex,
+		invertedKeyLength:     invertedKeyLength,
+		invertedValueLength:   invertedValueLength,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -290,4 +318,33 @@ func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
 
 	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
 	return bufio.NewReader(r), nil
+}
+
+func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
+	}
+
+	if s.tombstonesLoaded {
+		return s.tombstones, nil
+	}
+
+	// 2 bytes for key length, 2 bytes for value length, 8 bytes for size of bitmap, rest is the bitmap
+	keyLengths := binary.LittleEndian.Uint64(s.contents[s.dataStartPos-8 : s.dataStartPos])
+
+	bitmapSize := binary.LittleEndian.Uint64(s.contents[s.dataStartPos+keyLengths : s.dataStartPos+keyLengths+8])
+
+	if bitmapSize == 0 {
+		s.tombstonesLoaded = true
+		return nil, nil
+	}
+
+	bitmapStart := s.dataStartPos + keyLengths + 8
+	bitmapEnd := bitmapStart + bitmapSize
+
+	bitmap := sroar.FromBuffer(s.contents[bitmapStart:bitmapEnd])
+
+	s.tombstones = bitmap
+	s.tombstonesLoaded = true
+	return s.tombstones, nil
 }

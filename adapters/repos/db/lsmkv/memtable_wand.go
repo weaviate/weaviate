@@ -17,7 +17,6 @@ import (
 	"sort"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -50,29 +49,25 @@ func (m *Memtable) countTombstones(key []byte) (int, int, error) {
 	return tombstones, nonTombstones, nil
 }
 
-func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowList, query string,
+func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds, blockList helpers.AllowList, query string, queryTermIndex int,
 	propName string, propertyBoosts map[string]float32, duplicateTextBoost int,
 	additionalExplanations bool,
-) (*TermMem, map[uint64]int, error) {
-	termResult := &TermMem{queryTerm: query}
-	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+) (*TermMem, error) {
+	termResult := &TermMem{queryTerm: query, queryTermIndex: queryTermIndex}
 
 	allMsAndProps := make(AllMapPairsAndPropName, 0, 1)
 
 	preM, err := m.keyMap.get([]byte(query))
 	if err != nil {
-		return termResult, nil, err
+		return termResult, err
 	}
 
-	var postM []MapPair
-	if filterDocIds != nil {
-		postM := make([]MapPair, 0, len(preM))
+	postM := make([]MapPair, 0, len(preM))
+	if filterDocIds != nil || (blockList != nil && blockList.Len() > 0) {
 		for _, val := range preM {
 			docID := binary.BigEndian.Uint64(val.Key)
-			if filterDocIds.Contains(docID) {
+			if ((filterDocIds != nil && filterDocIds.Contains(docID)) || filterDocIds == nil) && (blockList == nil || blockList.Len() == 0 || blockList.Contains(docID)) {
 				postM = append(postM, val)
-			} else {
-				filteredDocIDs.Set(docID)
 			}
 		}
 	} else {
@@ -93,27 +88,24 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 
 	var docMapPairs []terms.DocPointerWithScore = nil
 	var docMapPairsIndices map[uint64]int = nil
-	for i, mAndProps := range allMsAndProps {
+	for _, mAndProps := range allMsAndProps {
 		m := mAndProps.MapPairs
 		propName := mAndProps.propname
 
 		// The indices are needed for two things:
 		// a) combining the results of different properties
-		// b) Retrieve additional information that helps to understand the results when debugging. The retrieval is done
+		// (removed) b) Retrieve additional information that helps to understand the results when debugging. The retrieval is done
 		//    in a later step, after it is clear which objects are the most relevant
 		//
 		// When b) is not needed the results from the last property do not need to be added to the index-map as there
 		// won't be any follow-up combinations.
 		includeIndicesForLastElement := false
-		if additionalExplanations || i < len(allMsAndProps)-1 {
-			includeIndicesForLastElement = true
-		}
 
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
 			docMapPairs = make([]terms.DocPointerWithScore, 0, len(m))
 			docMapPairsIndices = make(map[uint64]int, len(m))
-			for k, val := range m {
+			for _, val := range m {
 				if len(val.Value) < 8 {
 					// logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
 					continue
@@ -126,9 +118,6 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 						Frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
 						PropLength: math.Float32frombits(propLenBits),
 					})
-				if includeIndicesForLastElement {
-					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
-				}
 			}
 		} else {
 			for _, val := range m {
@@ -168,7 +157,7 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 	}
 	if docMapPairs == nil {
 		termResult.exhausted = true
-		return termResult, docMapPairsIndices, nil
+		return termResult, nil
 	}
 	termResult.data = docMapPairs
 
@@ -180,12 +169,12 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds helpers.AllowLi
 		termResult.posPointer = 0
 		termResult.idPointer = 0
 		termResult.exhausted = true
-		return termResult, docMapPairsIndices, nil
+		return termResult, nil
 	}
 
 	termResult.posPointer = 0
 	termResult.idPointer = termResult.data[0].Id
-	return termResult, docMapPairsIndices, nil
+	return termResult, nil
 }
 
 type TermMem struct {
@@ -198,6 +187,8 @@ type TermMem struct {
 	data       []terms.DocPointerWithScore
 	exhausted  bool
 	queryTerm  string
+
+	queryTermIndex int
 }
 
 type MapPairsAndPropName struct {
@@ -220,7 +211,7 @@ func (m AllMapPairsAndPropName) Swap(i, j int) {
 	m[i], m[j] = m[j], m[i]
 }
 
-func (t *TermMem) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64) {
+func (t *TermMem) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, terms.DocPointerWithScore) {
 	id := t.idPointer
 	pair := t.data[t.posPointer]
 	freq := float64(pair.Frequency)
@@ -234,7 +225,7 @@ func (t *TermMem) ScoreAndAdvance(averagePropLength float64, config schema.BM25C
 		t.idPointer = t.data[t.posPointer].Id
 	}
 
-	return id, tf * t.idf
+	return id, tf * t.idf, pair
 }
 
 func (t *TermMem) AdvanceAtLeast(minID uint64) {
@@ -264,6 +255,6 @@ func (t *TermMem) IDF() float64 {
 	return t.idf
 }
 
-func (t *TermMem) Data() []terms.DocPointerWithScore {
-	return t.data
+func (t *TermMem) QueryTermIndex() int {
+	return t.queryTermIndex
 }

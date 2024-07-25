@@ -287,6 +287,32 @@ func (kv *MapPair) FromBytes(in []byte, keyOnly bool) error {
 	return nil
 }
 
+func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool, invertedKeyLen, invertedValueLen uint16) error {
+	var read uint16
+
+	// NOTE: A previous implementation was using copy statements in here to avoid
+	// sharing the memory. The general idea of that is good (protect against the
+	// mmaped memory being removed from a completed compaction), however this is
+	// the wrong place. By the time we are in this method, we can no longer
+	// control the memory safety of the "in" argument. Thus, such a copy must
+	// happen at a much earlier scope when a lock is held that protects against
+	// removing the segment. Such an implementation can now be found in
+	// segment_collection_strategy.go as part of the *segment.getCollection
+	// method. As a result all memory used here can now be considered read-only
+	// and is safe to be used indefinitely.
+
+	kv.Key = in[read : read+invertedKeyLen]
+	read += invertedKeyLen
+
+	if keyOnly {
+		return nil
+	}
+
+	kv.Value = in[read : read+invertedValueLen]
+	read += invertedValueLen
+	return nil
+}
+
 func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
 	var read uint16
 
@@ -322,6 +348,14 @@ func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
 	}
 
 	return nil
+}
+
+func (kv *MapPair) toInvertedPair() InvertedPair {
+	return InvertedPair{
+		Key:       kv.Key,
+		Value:     kv.Value,
+		Tombstone: kv.Tombstone,
+	}
 }
 
 type mapEncoder struct {

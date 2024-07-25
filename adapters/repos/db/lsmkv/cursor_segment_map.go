@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
@@ -82,8 +84,14 @@ func (s *segmentCursorMap) next() ([]byte, []MapPair, error) {
 
 	pairs := make([]MapPair, len(parsed.values))
 	for i := range pairs {
-		if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
-			return nil, nil, err
+		if s.segment.strategy == segmentindex.StrategyInverted {
+			if err := pairs[i].FromBytesInverted(parsed.values[i].value, true, s.segment.invertedKeyLength, s.segment.invertedValueLength); err != nil {
+				return nil, nil, err
+			}
+		} else {
+			if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
+				return nil, nil, err
+			}
 		}
 		pairs[i].Tombstone = parsed.values[i].tombstone
 	}
@@ -110,8 +118,14 @@ func (s *segmentCursorMap) first() ([]byte, []MapPair, error) {
 
 	pairs := make([]MapPair, len(parsed.values))
 	for i := range pairs {
-		if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
-			return nil, nil, err
+		if s.segment.strategy == segmentindex.StrategyInverted {
+			if err := pairs[i].FromBytesInverted(parsed.values[i].value, true, s.segment.invertedKeyLength, s.segment.invertedValueLength); err != nil {
+				return nil, nil, err
+			}
+		} else {
+			if err := pairs[i].FromBytes(parsed.values[i].value, false); err != nil {
+				return nil, nil, err
+			}
 		}
 		pairs[i].Tombstone = parsed.values[i].tombstone
 	}
@@ -123,6 +137,9 @@ func (s *segmentCursorMap) parseCollectionNode(offset nodeOffset) (segmentCollec
 	r, err := s.segment.newNodeReader(offset)
 	if err != nil {
 		return segmentCollectionNode{}, err
+	}
+	if s.segment.strategy == segmentindex.StrategyInverted {
+		return ParseInvertedNodeIntoCollectionNode(r)
 	}
 	return ParseCollectionNode(r)
 }
