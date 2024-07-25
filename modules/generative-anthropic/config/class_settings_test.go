@@ -14,7 +14,6 @@ package config
 import (
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -26,8 +25,8 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantModel         string
 		wantMaxTokens     int
 		wantTemperature   float64
-		wantK             int
-		wantP             float64
+		wantTopK          int
+		wantTopP          float64
 		wantStopSequences []string
 		wantBaseURL       string
 		wantErr           error
@@ -40,8 +39,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantModel:         "claude-3-5-sonnet-20240620",
 			wantMaxTokens:     4096,
 			wantTemperature:   1.0,
-			wantK:             0,
-			wantP:             0.0,
+			wantTopK:          0,
+			wantTopP:          0.0,
 			wantStopSequences: []string{},
 			wantBaseURL:       "https://api.anthropic.com",
 			wantErr:           nil,
@@ -53,8 +52,8 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":         "claude-3-opus-20240229",
 					"maxTokens":     3000,
 					"temperature":   0.7,
-					"k":             5,
-					"p":             0.9,
+					"topK":          5,
+					"topP":          0.9,
 					"stopSequences": []string{"stop1", "stop2"},
 					"baseURL":       "https://custom.anthropic.api",
 				},
@@ -62,21 +61,27 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantModel:         "claude-3-opus-20240229",
 			wantMaxTokens:     3000,
 			wantTemperature:   0.7,
-			wantK:             5,
-			wantP:             0.9,
+			wantTopK:          5,
+			wantTopP:          0.9,
 			wantStopSequences: []string{"stop1", "stop2"},
 			wantBaseURL:       "https://custom.anthropic.api",
 			wantErr:           nil,
 		},
 		{
-			name: "wrong model configured",
+			name: "new model name configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model": "wrong-model",
+					"model": "some-new-model-name",
 				},
 			},
-			wantErr: errors.Errorf("wrong Anthropic model name, available model names are: " +
-				"[claude-3-5-sonnet-20240620 claude-3-opus-20240229 claude-3-sonnet-20240229 claude-3-haiku-20240307]"),
+			wantModel:         "some-new-model-name",
+			wantMaxTokens:     4096,
+			wantTemperature:   1.0,
+			wantTopK:          0,
+			wantTopP:          0.0,
+			wantStopSequences: []string{},
+			wantBaseURL:       "https://api.anthropic.com",
+			wantErr:           nil,
 		},
 		{
 			name: "default settings with claude-3-haiku-20240307",
@@ -88,8 +93,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantModel:         "claude-3-haiku-20240307",
 			wantMaxTokens:     4096,
 			wantTemperature:   1.0,
-			wantK:             0,
-			wantP:             0.0,
+			wantTopK:          0,
+			wantTopP:          0.0,
 			wantStopSequences: []string{},
 			wantBaseURL:       "https://api.anthropic.com",
 			wantErr:           nil,
@@ -105,8 +110,8 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
-				assert.Equal(t, tt.wantK, ic.K())
-				assert.Equal(t, tt.wantP, ic.P())
+				assert.Equal(t, tt.wantTopK, ic.TopK())
+				assert.Equal(t, tt.wantTopP, ic.TopP())
 				assert.Equal(t, tt.wantStopSequences, ic.StopSequences())
 				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
 			}

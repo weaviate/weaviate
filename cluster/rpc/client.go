@@ -38,13 +38,12 @@ const serviceConfig = `
 				"MaxAttempts": 5,
 				"BackoffMultiplier": 2,
 				"InitialBackoff": "0.5s",
-				"MaxBackoff": "5s",
+				"MaxBackoff": "15s",
 				"RetryableStatusCodes": [
 					"ABORTED",
 					"RESOURCE_EXHAUSTED",
 					"INTERNAL",
-					"UNAVAILABLE",
-					"NOT_FOUND"
+					"UNAVAILABLE"					
 				]
 			}
 		}

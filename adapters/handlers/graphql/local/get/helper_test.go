@@ -49,7 +49,7 @@ func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -68,7 +68,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -97,7 +97,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	if len(param) > 0 {
 		return &fakeProjectorParams{
 			Enabled:      true,
@@ -129,7 +129,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return &pathBuilderParams{}
 }
 
@@ -567,7 +567,7 @@ func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, p
 	if additionalProperties := fmp.nearCustomTextModule.AdditionalProperties(); len(additionalProperties) > 0 {
 		if additionalProperty, ok := additionalProperties[name]; ok {
 			if additionalProperty.GraphQLExtractFunction != nil {
-				return additionalProperty.GraphQLExtractFunction(params)
+				return additionalProperty.GraphQLExtractFunction(params, nil)
 			}
 		}
 	}
@@ -614,7 +614,7 @@ func extractAdditionalParam(name string, args []*ast.Argument) interface{} {
 	switch name {
 	case "semanticPath", "featureProjection":
 		if ap, ok := additionalProperties[name]; ok {
-			return ap.GraphQLExtractFunction(args)
+			return ap.GraphQLExtractFunction(args, nil)
 		}
 		return nil
 	default:

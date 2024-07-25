@@ -160,8 +160,8 @@ func toRPCError(err error) error {
 
 	var ec codes.Code
 	switch {
-	case errors.Is(err, types.ErrNotLeader):
-		ec = codes.NotFound
+	case errors.Is(err, types.ErrNotLeader), errors.Is(err, types.ErrLeaderNotFound):
+		ec = codes.ResourceExhausted
 	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
 	default:

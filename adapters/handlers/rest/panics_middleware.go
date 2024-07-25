@@ -18,6 +18,8 @@ import (
 	"runtime/debug"
 	"syscall"
 
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -77,6 +79,9 @@ func handlePanics(logger logrus.FieldLogger, metricRequestsTotal restApiRequests
 	// This was not expected, so we want to print the stack, this will help us
 	// find the source of the issue if the user sends their logs
 	metricRequestsTotal.logServerError("", err)
+
+	entsentry.Recover(r)
+
 	debug.PrintStack()
 }
 

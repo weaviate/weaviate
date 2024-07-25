@@ -58,7 +58,7 @@ func (pb *PathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return nil, errors.New("unknown params")
 }
 
-func (pb *PathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (pb *PathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return &Params{}
 }
 

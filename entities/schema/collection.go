@@ -121,8 +121,8 @@ type Property struct {
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules
 	IndexSearchable bool `json:"indexSearchable,omitempty"`
 
-	// TODO roaring-set-range
-	IndexRangeable bool `json:"indexRangeable,omitempty"`
+	// Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date."
+	IndexRangeFilters bool `json:"indexRangeFilters,omitempty"`
 
 	// Configuration specific to modules this Weaviate instance has installed
 	ModuleConfig map[string]interface{} `json:"moduleConfig,omitempty"`
@@ -149,8 +149,8 @@ type NestedProperty struct {
 	// index searchable
 	IndexSearchable bool `json:"index_searchable,omitempty"`
 
-	// index rangeable
-	IndexRangeable bool `json:"index_rangeable,omitempty"`
+	// index range filters
+	IndexRangeFilters bool `json:"index_range_filters,omitempty"`
 
 	// nested properties
 	NestedProperties []NestedProperty `json:"nested_properties,omitempty"`
@@ -176,10 +176,10 @@ func NestedPropertyFromModel(m models.NestedProperty) NestedProperty {
 	} else {
 		n.IndexSearchable = true
 	}
-	if m.IndexRangeable != nil {
-		n.IndexRangeable = *m.IndexRangeable
+	if m.IndexRangeFilters != nil {
+		n.IndexRangeFilters = *m.IndexRangeFilters
 	} else {
-		n.IndexRangeable = false
+		n.IndexRangeFilters = false
 	}
 	n.Name = m.Name
 	n.Tokenization = m.Tokenization
@@ -206,8 +206,8 @@ func NestedPropertyToModel(n NestedProperty) models.NestedProperty {
 	m.IndexFilterable = &indexFilterable
 	indexSearchable := n.IndexSearchable
 	m.IndexSearchable = &indexSearchable
-	indexRangeable := n.IndexRangeable
-	m.IndexRangeable = &indexRangeable
+	indexRangeFilters := n.IndexRangeFilters
+	m.IndexRangeFilters = &indexRangeFilters
 	m.Name = n.Name
 	m.Tokenization = n.Tokenization
 	if len(n.NestedProperties) > 0 {
@@ -243,10 +243,10 @@ func PropertyFromModel(m models.Property) Property {
 	} else {
 		p.IndexSearchable = true
 	}
-	if m.IndexRangeable != nil {
-		p.IndexRangeable = *m.IndexRangeable
+	if m.IndexRangeFilters != nil {
+		p.IndexRangeFilters = *m.IndexRangeFilters
 	} else {
-		p.IndexRangeable = false
+		p.IndexRangeFilters = false
 	}
 	if v, ok := m.ModuleConfig.(map[string]interface{}); ok {
 		p.ModuleConfig = v
@@ -277,8 +277,8 @@ func PropertyToModel(p Property) models.Property {
 	m.IndexInverted = &indexInverted
 	indexSearchable := p.IndexSearchable
 	m.IndexSearchable = &indexSearchable
-	indexRangeable := p.IndexRangeable
-	m.IndexRangeable = &indexRangeable
+	indexRangeFilters := p.IndexRangeFilters
+	m.IndexRangeFilters = &indexRangeFilters
 	m.ModuleConfig = p.ModuleConfig
 	m.Name = p.Name
 	m.Tokenization = p.Tokenization

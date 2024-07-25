@@ -105,8 +105,8 @@ func (e *executor) UpdateClass(req api.UpdateClassRequest) error {
 		return fmt.Errorf("inverted index config: %w", err)
 	}
 
-	if err := e.migrator.UpdateReplicationFactor(ctx, className, req.Class.ReplicationConfig.Factor); err != nil {
-		return fmt.Errorf("replication index update: %w", err)
+	if err := e.migrator.UpdateReplicationConfig(ctx, className, req.Class.ReplicationConfig); err != nil {
+		return fmt.Errorf("update replication config: %w", err)
 	}
 
 	return nil
@@ -120,9 +120,9 @@ func (e *executor) UpdateIndex(req api.UpdateClassRequest) error {
 	return nil
 }
 
-func (e *executor) DeleteClass(cls string) error {
+func (e *executor) DeleteClass(cls string, hasFrozen bool) error {
 	ctx := context.Background()
-	if err := e.migrator.DropClass(ctx, cls); err != nil {
+	if err := e.migrator.DropClass(ctx, cls, hasFrozen); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "delete_class",
 			"class":  cls,
@@ -204,16 +204,22 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		return fmt.Errorf("class %q: %w", class, ErrNotFound)
 	}
 	// no error here because that means the process shouldn't be applied to db
-	if req.Process == nil {
+	if req.TenantsProcesses == nil {
 		return nil
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, []*UpdateTenantPayload{
-		{
-			Name:   req.Process.Tenant.Name,
-			Status: req.Process.Tenant.Status,
-		},
-	}); err != nil {
+	updates := []*UpdateTenantPayload{}
+	for idx := range req.TenantsProcesses {
+		if req.TenantsProcesses[idx] == nil || req.TenantsProcesses[idx].Tenant == nil {
+			continue
+		}
+		updates = append(updates, &UpdateTenantPayload{
+			Name:   req.TenantsProcesses[idx].Tenant.Name,
+			Status: req.TenantsProcesses[idx].Tenant.Status,
+		})
+	}
+
+	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",

@@ -221,6 +221,16 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 
 	cursor := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Cursor()
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+
+		if len(k) == 0 {
+			compressor.logger.WithFields(logrus.Fields{
+				"action": "hnsw_compressed_vector_cache_prefill",
+				"len":    len(v),
+				"lenk":   len(k),
+			}).Warn("skipping compressed vector with unexpected length")
+			continue
+		}
+
 		count++
 
 		id := compressor.loadId(k)
@@ -350,6 +360,7 @@ func NewHNSWSQCompressor(
 		compressedStore: store,
 		storeId:         binary.BigEndian.PutUint64,
 		loadId:          binary.BigEndian.Uint64,
+		logger:          logger,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -377,6 +388,7 @@ func RestoreHNSWSQCompressor(
 		compressedStore: store,
 		storeId:         binary.BigEndian.PutUint64,
 		loadId:          binary.BigEndian.Uint64,
+		logger:          logger,
 	}
 	sqVectorsCompressor.initCompressedStore()
 	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(

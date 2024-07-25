@@ -45,10 +45,6 @@ func TestGRPCTenants(t *testing.T) {
 			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNFREEZING,
 			activityStatus:     types.TenantActivityStatusUNFREEZING,
 		},
-		{
-			activityStatusGRPC: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_UNFROZEN,
-			activityStatus:     types.TenantActivityStatusUNFROZEN,
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.activityStatus, func(t *testing.T) {

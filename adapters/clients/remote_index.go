@@ -406,10 +406,11 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
+	properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination)
+		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}

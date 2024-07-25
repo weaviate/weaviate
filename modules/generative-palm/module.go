@@ -19,11 +19,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-palm/clients"
 	"github.com/weaviate/weaviate/modules/generative-palm/parameters"
-	"github.com/weaviate/weaviate/usecases/configbase"
 )
 
 const Name = "generative-palm"
@@ -66,7 +66,7 @@ func (m *GenerativePaLMModule) initAdditional(ctx context.Context, timeout time.
 	if apiKey == "" {
 		apiKey = os.Getenv("PALM_APIKEY")
 	}
-	useGoogleAuth := configbase.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
+	useGoogleAuth := entcfg.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
 	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)

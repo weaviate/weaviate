@@ -270,14 +270,18 @@ type ShardDifferenceReader struct {
 	RangeReader hashtree.AggregatedHashTreeRangeReader
 }
 
+func (f *Finder) NodeName() string {
+	return f.resolver.NodeName
+}
+
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree,
 ) (replyCh <-chan _Result[*ShardDifferenceReader], hosts []string, err error) {
 	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName)
 
-	sourceHost, ok := f.resolver.NodeHostname(f.resolver.NodeName)
+	sourceHost, ok := f.resolver.NodeHostname(f.NodeName())
 	if !ok {
-		return nil, nil, fmt.Errorf("getting host %s", f.resolver.NodeName)
+		return nil, nil, fmt.Errorf("getting host %s", f.NodeName())
 	}
 
 	op := func(ctx context.Context, host string, fullRead bool) (*ShardDifferenceReader, error) {

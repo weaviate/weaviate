@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -1341,6 +1343,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 					ClassName:  class.Class,
 					Pagination: &filters.Pagination{Limit: test.limit},
 					Filters:    test.filter,
+					Properties: search.SelectProperties{{Name: "name"}},
 				}
 				res, err := repo.Search(context.Background(), params)
 				require.Nil(t, err)

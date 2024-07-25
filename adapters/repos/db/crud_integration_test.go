@@ -449,6 +449,7 @@ func TestCRUD(t *testing.T) {
 			ClassName:  "TheBestThingClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    nil,
+			Properties: search.SelectProperties{{Name: "location"}, {Name: "stringProp"}, {Name: "phone"}},
 		}
 		res, err := repo.VectorSearch(context.Background(), params, []string{""}, [][]float32{searchVector})
 

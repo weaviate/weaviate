@@ -178,7 +178,8 @@ func NewFSM(cfg Config) Store {
 			IsLocalHost:       cfg.IsLocalHost,
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		}),
-		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
+		schemaManager: schema.NewSchemaManager(
+			cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
 	}
 }
 
@@ -577,13 +578,18 @@ func (st *Store) openDatabase(ctx context.Context) {
 		return
 	}
 
-	st.log.Info("loading local db")
-	if err := st.schemaManager.Load(ctx, st.cfg.NodeID); err != nil {
-		st.log.WithError(err).Error("cannot restore database")
-		panic("error restoring database")
+	if st.cfg.MetadataOnlyVoters {
+		st.log.Info("Not loading local DB as the node is metadata only")
+	} else {
+		st.log.Info("loading local db")
+		if err := st.schemaManager.Load(ctx, st.cfg.NodeID); err != nil {
+			st.log.WithError(err).Error("cannot restore database")
+			panic("error restoring database")
+		}
+		st.log.Info("local DB successfully loaded")
 	}
 
-	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("database has been successfully loaded")
+	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
 }
 
 // reloadDBFromSnapshot reloads the node's local db. If the db is already loaded, it will be reloaded.
@@ -594,7 +600,7 @@ func (st *Store) openDatabase(ctx context.Context) {
 // the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
 func (st *Store) reloadDBFromSnapshot() (success bool) {
 	defer func() {
-		if success {
+		if success && !st.cfg.MetadataOnlyVoters {
 			st.reloadDBFromSchema()
 		}
 	}()
@@ -613,7 +619,11 @@ func (st *Store) reloadDBFromSnapshot() (success bool) {
 }
 
 func (st *Store) reloadDBFromSchema() {
-	st.schemaManager.ReloadDBFromSchema()
+	if !st.cfg.MetadataOnlyVoters {
+		st.schemaManager.ReloadDBFromSchema()
+	} else {
+		st.log.Info("skipping reload DB from schema as the node is metadata only")
+	}
 	st.dbLoaded.Store(true)
 	st.lastAppliedIndexOnStart.Store(0)
 }

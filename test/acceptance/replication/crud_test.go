@@ -469,12 +469,18 @@ func eventualReplicaCRUD(t *testing.T) {
 	})
 }
 
+// stopNodeAt stops the node container at the given index.
+//
+// NOTE: the index is 1-based, so stopping the first node requires index=1, not 0
 func stopNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	<-time.After(1 * time.Second)
 	require.Nil(t, compose.StopAt(ctx, index, nil))
 	<-time.After(1 * time.Second) // give time for shutdown
 }
 
+// startNodeAt starts the node container at the given index.
+//
+// NOTE: the index is 1-based, so starting the first node requires index=1, not 0
 func startNodeAt(ctx context.Context, t *testing.T, compose *docker.DockerCompose, index int) {
 	t.Helper()
 	require.Nil(t, compose.StartAt(ctx, index))

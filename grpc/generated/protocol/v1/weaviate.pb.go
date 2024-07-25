@@ -3,9 +3,10 @@
 package protocol
 
 import (
+	reflect "reflect"
+
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
 )
 
 const (
@@ -65,6 +66,7 @@ var file_v1_weaviate_proto_goTypes = []interface{}{
 	(*BatchDeleteReply)(nil),    // 6: weaviate.v1.BatchDeleteReply
 	(*TenantsGetReply)(nil),     // 7: weaviate.v1.TenantsGetReply
 }
+
 var file_v1_weaviate_proto_depIdxs = []int32{
 	0, // 0: weaviate.v1.Weaviate.Search:input_type -> weaviate.v1.SearchRequest
 	1, // 1: weaviate.v1.Weaviate.BatchObjects:input_type -> weaviate.v1.BatchObjectsRequest

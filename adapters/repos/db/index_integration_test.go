@@ -16,6 +16,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"testing"
@@ -356,6 +357,9 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 			return filenames, nil
 		}
 		return nil, err
+	}
+	if len(indexRoot) == 0 {
+		return nil, fmt.Errorf("index root length is 0")
 	}
 	shardFiles, err := os.ReadDir(path.Join(rootDir, indexName, indexRoot[0].Name()))
 	if err != nil {

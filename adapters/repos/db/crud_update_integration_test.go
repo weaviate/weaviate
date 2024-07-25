@@ -96,6 +96,7 @@ func TestUpdateJourney(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
+				Properties: search.SelectProperties{{Name: "name"}},
 			}, []string{""}, [][]float32{searchVector})
 
 			expectedInAnyOrder := []interface{}{
@@ -175,6 +176,7 @@ func TestUpdateJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
+			Properties: search.SelectProperties{{Name: "name"}},
 		}, []string{""}, [][]float32{searchVector})
 
 		expectedInAnyOrder := []interface{}{
@@ -237,6 +239,7 @@ func TestUpdateJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
+			Properties: search.SelectProperties{{Name: "name"}},
 		}, []string{""}, [][]float32{searchVector})
 
 		expectedInAnyOrder := []interface{}{

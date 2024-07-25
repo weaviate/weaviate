@@ -296,6 +296,13 @@ func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tena
 	return err
 }
 
+func UpdateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	_, err := Client(t).Schema.TenantsUpdate(params, nil)
+	return err
+}
+
 func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	t.Helper()
 	params := schema.NewTenantsGetParams().WithClassName(class)
