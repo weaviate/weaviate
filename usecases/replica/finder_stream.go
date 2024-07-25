@@ -73,7 +73,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			if !resp.DigestRead {
 				contentIdx = len(votes)
 			}
-			// the resp has the sender...this could be a map that only stores the latest? or most recent non-err or split out errors vs non etc
+			// the resp has the sender...seems like we could leverage this to allow errors+successes in ch without giving up on the first err
 			votes = append(votes, objTuple{resp.sender, resp.UpdateTime, resp.Data, 0, nil})
 			for i := range votes { // count number of votes
 				if votes[i].UTime == resp.UpdateTime {

@@ -34,7 +34,8 @@ func DefaultExponentialBackOff() *backoff.ExponentialBackOff {
 }
 
 func NewExponentialBackOff(initialInterval time.Duration, maxInterval time.Duration,
-	maxElapsedTime time.Duration, multiplier float64, randomizationFactor float64) *backoff.ExponentialBackOff {
+	maxElapsedTime time.Duration, multiplier float64, randomizationFactor float64,
+) *backoff.ExponentialBackOff {
 	expBackoff := backoff.NewExponentialBackOff()
 	expBackoff.InitialInterval = initialInterval
 	expBackoff.MaxInterval = maxInterval
