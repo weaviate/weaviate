@@ -16,10 +16,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -760,17 +762,15 @@ func TestStorageInvalidObjectMarshalling(t *testing.T) {
 }
 
 func TestObjectsByDocID(t *testing.T) {
-	type test struct {
+	// the main variable is the input length here which has an effect on chunking
+	// and parallelization
+	tests := []struct {
 		name     string
 		inputIDs []uint64
 		// there is no flag for expected output as that is deterministic based on
 		// the doc ID, we use a convention for the UUID and set a specific prop
 		// exactly to the doc ID.
-	}
-
-	// the main variable is the input length here which has an effect on chunking
-	// and parallelization
-	tests := []test{
+	}{
 		{
 			name:     "10 objects - consecutive from beginning",
 			inputIDs: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
@@ -800,11 +800,13 @@ func TestObjectsByDocID(t *testing.T) {
 		},
 	}
 
-	bucket := genFakeBucket(t)
+	logger, _ := test.NewNullLogger()
+
+	bucket := genFakeBucket(t, 1000)
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{})
+			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, logger)
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -813,6 +815,42 @@ func TestObjectsByDocID(t *testing.T) {
 				assert.Equal(t, expectedDocID, uint64(obj.Properties().(map[string]any)["i"].(float64)))
 				expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd168%03d", expectedDocID))
 				assert.Equal(t, expectedUUID, obj.ID())
+			}
+		})
+	}
+}
+
+func BenchmarkObjectsByDocID(b *testing.B) {
+	bucket := genFakeBucket(b, 10000)
+	logger, _ := test.NewNullLogger()
+	ids := pickRandomIDsBetween(0, 10000, 100)
+
+	tests := []struct {
+		concurrent bool
+		amount     int
+	}{
+		{concurrent: true, amount: 1},
+		{concurrent: false, amount: 1},
+		{concurrent: true, amount: 2},
+		{concurrent: false, amount: 2},
+		{concurrent: true, amount: 10},
+		{concurrent: false, amount: 10},
+		{concurrent: true, amount: 100},
+		{concurrent: false, amount: 100},
+	}
+	b.ResetTimer()
+
+	for _, tt := range tests {
+		b.Run(fmt.Sprintf("Concurrent: %v with amount: %v", tt.concurrent, tt.amount), func(t *testing.B) {
+			for i := 0; i < b.N; i++ {
+				if tt.concurrent {
+					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, logger)
+					require.Nil(t, err)
+
+				} else {
+					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{})
+					require.Nil(t, err)
+				}
 			}
 		})
 	}
@@ -837,13 +875,13 @@ func (f *fakeBucket) GetBySecondaryWithBuffer(indexID int, docIDBytes []byte, ls
 	return lsmBuf[:len(objBytes)], lsmBuf, nil
 }
 
-func genFakeBucket(t *testing.T) *fakeBucket {
+func genFakeBucket(t testing.TB, maxSize uint64) *fakeBucket {
 	bucket := &fakeBucket{objects: map[uint64][]byte{}}
-	for i := uint64(0); i < 1000; i++ {
+	for i := uint64(0); i < maxSize; i++ {
 		obj := New(i)
-		obj.SetProperties(map[string]any{"i": i})
+		obj.SetProperties(map[string]any{"i": i, "foo": strings.Repeat("bar", int(i))})
 		obj.SetClass("MyClass")
-		obj.SetID(strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd168%03d", i)))
+		obj.SetID(strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd16%04d", i)))
 		objBytes, err := obj.MarshalBinary()
 		require.Nil(t, err)
 		bucket.objects[i] = objBytes
