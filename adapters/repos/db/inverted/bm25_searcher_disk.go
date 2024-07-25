@@ -157,6 +157,7 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 			segment := segmentAndTokenization.Segment
 			tokenization := segmentAndTokenization.Tokenization
 			propName := propName
+			segmentIndex := segmentIndex
 			// myCurrentBucket := currentBucket
 			currentBucket++
 			eg.Go(func() (err error) {
@@ -198,15 +199,19 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 					}
 				}
 
-				flatTerms := allTerms
+				resultsOriginalOrder := terms.Terms{}
+				resultsTerms := terms.Terms{}
+				resultsTerms.T = allTerms
+				resultsTerms.Count = len(queryTermsByTokenization[tokenization])
+
+				resultsOriginalOrder.T = make([]terms.Term, len(allTerms))
+
+				copy(resultsOriginalOrder.T, resultsTerms.T)
+
 				// wandDiskStats[0] += float64(len(queryTermsByTokenization[tokenization]))
 
-				resultsOriginalOrder := make([]terms.Term, len(flatTerms))
-				copy(resultsOriginalOrder, flatTerms)
-
-				topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength, params.AdditionalExplanations)
-				objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, params.AdditionalExplanations)
-
+				topKHeap := b.getTopKHeap(limit, resultsTerms, averagePropLength, params.AdditionalExplanations)
+				objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, params.AdditionalExplanations, queryTermsByTokenization[tokenization])
 				allObjects[propName][segmentIndex] = objects
 				allScores[propName][segmentIndex] = scores
 
@@ -220,14 +225,13 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 
 	for propName, memTables := range memTables {
 		for memTableIndex, memtableAndTokenization := range memTables {
-			propName := propName
 			memTable := memtableAndTokenization.Memtable
 			tokenization := memtableAndTokenization.Tokenization
-			memTableIndex += len(segments[propName])
 			// myCurrentBucket := currentBucket
 			currentBucket++
 			eg.Go(func() (err error) {
 				propName := propName
+				memTableIndex := memTableIndex + len(segments[propName])
 				allTerms := make([]terms.Term, 0, len(queryTermsByTokenization[tokenization]))
 				for i, term := range queryTermsByTokenization[tokenization] {
 					// pass i to the closure
@@ -248,15 +252,19 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 					}
 				}
 
-				flatTerms := allTerms
+				resultsOriginalOrder := terms.Terms{}
+				resultsTerms := terms.Terms{}
+				resultsTerms.T = allTerms
+				resultsTerms.Count = len(queryTermsByTokenization[tokenization])
+
+				resultsOriginalOrder.T = make([]terms.Term, len(allTerms))
+
+				copy(resultsOriginalOrder.T, resultsTerms.T)
+
 				// wandDiskStats[0] += float64(len(queryTermsByTokenization[tokenization]))
 
-				resultsOriginalOrder := make([]terms.Term, len(flatTerms))
-				copy(resultsOriginalOrder, flatTerms)
-
-				topKHeap := b.getTopKHeap(limit, flatTerms, averagePropLength, params.AdditionalExplanations)
-				objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, params.AdditionalExplanations)
-
+				topKHeap := b.getTopKHeap(limit, resultsTerms, averagePropLength, params.AdditionalExplanations)
+				objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, params.AdditionalExplanations, queryTermsByTokenization[tokenization])
 				allObjects[propName][memTableIndex] = objects
 				allScores[propName][memTableIndex] = scores
 
@@ -275,6 +283,10 @@ func (b *BM25Searcher) wandDiskScoring(queryTermsByTokenization map[string][]str
 
 	// merge the results from the different buckets
 	objects, scores := b.rankMultiBucket(allObjects, allScores, limit)
+
+	//for i, obj := range objects {
+	//	fmt.Printf("%v: %v %v\n", obj.DocID, scores[i], obj.AdditionalProperties())
+	//}
 
 	return objects, scores, nil
 }

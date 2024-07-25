@@ -313,10 +313,12 @@ func (b *BM25Searcher) wandMemScoring(ctx context.Context, queryTermsByTokenizat
 	eg.SetLimit(_NUMCPU)
 
 	tokenIndex := 0
+	queryTerms := make([]string, 0)
 	for tokenization, propNames := range propNamesByTokenization {
 		propNames := propNames
 		if len(propNames) > 0 {
 			for queryTermId, queryTerm := range queryTermsByTokenization[tokenization] {
+				queryTerms = append(queryTerms, queryTerm)
 				tokenization := tokenization
 				queryTerm := queryTerm
 				queryTermId := queryTermId
@@ -353,10 +355,14 @@ func (b *BM25Searcher) wandMemScoring(ctx context.Context, queryTermsByTokenizat
 	// startTime = float64(time.Now().UnixNano()) / 1e6
 
 	// the results are needed in the original order to be able to locate frequency/property length for the top-results
-	resultsOriginalOrder := make([]terms.Term, len(results))
-	copy(resultsOriginalOrder, results)
+	resultsOriginalOrder := terms.Terms{}
+	resultsTerms := terms.Terms{}
+	resultsTerms.T = results
+	resultsTerms.Count = len(queryTerms)
 
-	resultsTerms := results
+	resultsOriginalOrder.T = make([]terms.Term, len(results))
+
+	copy(resultsOriginalOrder.T, resultsTerms.T)
 
 	topKHeap := b.getTopKHeap(limit, resultsTerms, averagePropLength, params.AdditionalExplanations)
 
@@ -364,10 +370,14 @@ func (b *BM25Searcher) wandMemScoring(ctx context.Context, queryTermsByTokenizat
 	// wandTimesId++
 	// startTime = float64(time.Now().UnixNano()) / 1e6
 
-	objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, params.AdditionalExplanations)
+	objects, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, params.AdditionalExplanations, queryTerms)
 
 	// wandMemTimes[wandTimesId] += float64(time.Now().UnixNano())/1e6 - startTime
 	// wandTimesId++
+
+	//for i, obj := range objects {
+	//	fmt.Printf("%v: %v %v\n", obj.DocID, scores[i], obj.AdditionalProperties())
+	//}
 
 	return objects, scores, err
 }
@@ -399,8 +409,74 @@ WordLoop:
 	}
 }
 
+func (b *BM25Searcher) getTopKHeapExaustive(limit int, results terms.Terms, averagePropLength float64, additionalExplanations bool,
+) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
+	eg.SetLimit(len(results.T))
+
+	scores := make([]map[uint64]float64, len(results.T))
+	docInfos := make([]map[uint64]*terms.DocPointerWithScore, len(results.T))
+
+	for i, term := range results.T {
+		term := term
+		i := i
+
+		scores[i] = make(map[uint64]float64)
+		docInfos[i] = make(map[uint64]*terms.DocPointerWithScore)
+		eg.Go(func() error {
+			analysed := 0
+			for {
+				if term.IsExhausted() {
+
+					fmt.Printf("analysed: %v\n", analysed)
+					return nil
+				}
+
+				id, score, docInfo := term.ScoreAndAdvance(averagePropLength, b.config)
+
+				docInfos[i][id] = &docInfo
+				scores[i][id] = score
+				analysed++
+			}
+		}, "term", term.QueryTerm())
+
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil
+	}
+
+	finalScores := make(map[uint64]float64, len(scores))
+
+	for score := range scores {
+		for id, s := range scores[score] {
+			finalScores[id] += s
+		}
+	}
+
+	topKHeap := priorityqueue.NewMinScoreAndId[[]*terms.DocPointerWithScore](limit)
+
+	for id, score := range finalScores {
+		if topKHeap.Len() > 0 {
+			fmt.Printf("%v: %v %v\n", id, score, topKHeap.Top().Dist)
+		}
+		if topKHeap.Len() < limit || topKHeap.Top().Dist < float32(score) {
+			docInfosLocal := make([]*terms.DocPointerWithScore, len(results.T))
+			for i, docInfo := range docInfos {
+				docInfosLocal[i] = docInfo[id]
+			}
+
+			topKHeap.InsertWithValue(id, float32(score), docInfosLocal)
+			for topKHeap.Len() > limit {
+				topKHeap.Pop()
+			}
+		}
+	}
+	return topKHeap
+}
+
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore],
-	results terms.Terms, additionalExplanations bool,
+	results terms.Terms, additionalExplanations bool, allTerms []string,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
@@ -442,7 +518,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 				if res.Value[j] == nil {
 					continue
 				}
-				queryTerm := results[j].QueryTerm()
+				queryTerm := allTerms[j]
 				obj.Object.Additional["BM25F_"+queryTerm+"_frequency"] = res.Value[j].Frequency
 				obj.Object.Additional["BM25F_"+queryTerm+"_propLength"] = res.Value[j].PropLength
 			}
@@ -459,8 +535,8 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms.Terms, averagePropLe
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	topKHeap := priorityqueue.NewMinScoreAndId[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
-	sort.Sort(results)
 	for {
+		results.FullSort()
 		if results.CompletelyExhausted() || results.Pivot(worstDist) {
 			return topKHeap
 		}
