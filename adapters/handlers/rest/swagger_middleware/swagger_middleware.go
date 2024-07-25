@@ -66,6 +66,7 @@ func renderSwagger(w http.ResponseWriter, r *http.Request) {
 	err = t.ExecuteTemplate(w, "index", d)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 }
 
