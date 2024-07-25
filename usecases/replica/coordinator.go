@@ -204,8 +204,9 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 				resp, err := backoff.RetryWithData(
 					func() (T, error) {
+						fmt.Println("NATEE op starting", idx)
 						resp, err := op(ctx, candidates[idx], idx == 0)
-						fmt.Println("NATEE op", idx, resp, err)
+						fmt.Println("NATEE op done", idx, resp, err)
 						if err == nil {
 							fmt.Println("NATEE reply", idx, resp, err)
 							replyCh <- _Result[T]{resp, err}

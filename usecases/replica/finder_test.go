@@ -195,6 +195,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 		nilObject      *storobj.Object
 		emptyItem      = objects.Replica{}
 		shortBackoff   = backoff.WithMaxRetries(&backoff.ConstantBackOff{Interval: 1 * time.Millisecond}, 2)
+		longBackoff    = backoff.WithMaxRetries(&backoff.ConstantBackOff{Interval: 60 * time.Millisecond}, 2)
 		neverReceiveCh = make(chan time.Time)
 	)
 
@@ -250,7 +251,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 		assert.Equal(t, nilObject, got)
 	})
 
-	t.Run("OneSlowDigestN1", func(t *testing.T) {
+	t.Run("OneSlowDigestN1ShortBackOff", func(t *testing.T) {
 		var (
 			f         = newFakeFactory("C1", shard, nodes)
 			finder    = f.newFinder("A")
@@ -267,7 +268,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 		assert.Equal(t, item.Object, got)
 	})
 
-	t.Run("OneSlowDigestN2", func(t *testing.T) {
+	t.Run("OneSlowDigestN2ShortBackOff", func(t *testing.T) {
 		var (
 			f         = newFakeFactory("C1", shard, nodes)
 			finder    = f.newFinder("A")
@@ -284,7 +285,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 		assert.Equal(t, item.Object, got)
 	})
 
-	t.Run("OneErroringDigestN1", func(t *testing.T) {
+	t.Run("OneErroringDigestN1ShortBackOff", func(t *testing.T) {
 		var (
 			f         = newFakeFactory("C1", shard, nodes)
 			finder    = f.newFinder("A")
@@ -301,7 +302,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 		assert.Equal(t, item.Object, got)
 	})
 
-	t.Run("OneErroringDigestN2", func(t *testing.T) {
+	t.Run("OneErroringDigestN2ShortBackOff", func(t *testing.T) {
 		var (
 			f         = newFakeFactory("C1", shard, nodes)
 			finder    = f.newFinder("A")
@@ -314,6 +315,108 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, errAny)
 
 		got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds, shortBackoff)
+		assert.Nil(t, err)
+		assert.Equal(t, item.Object, got)
+	})
+
+	// t.Run("SlowFetch", func(t *testing.T) {
+	// 	var (
+	// 		f         = newFakeFactory("C1", shard, nodes)
+	// 		finder    = f.newFinder("A")
+	// 		digestIDs = []strfmt.UUID{id}
+	// 		item      = objects.Replica{ID: id, Object: object(id, 3)}
+	// 		digestR   = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+	// 	)
+	// 	f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).WaitUntil(neverReceiveCh).Return(item, nil)
+	// 	f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR, nil)
+	// 	f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, nil)
+
+	// 	got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds, shortBackoff)
+	// 	assert.Nil(t, err)
+	// 	assert.Equal(t, item.Object, got)
+	// })
+
+	// t.Run("ErroringFetch", func(t *testing.T) {
+	// 	var (
+	// 		f         = newFakeFactory("C1", shard, nodes)
+	// 		finder    = f.newFinder("A")
+	// 		digestIDs = []strfmt.UUID{id}
+	// 		item      = objects.Replica{ID: id, Object: object(id, 3)}
+	// 		digestR   = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+	// 	)
+	// 	f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, errAny)
+	// 	f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR, nil)
+	// 	f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, nil)
+
+	// 	got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds, shortBackoff)
+	// 	assert.Nil(t, err)
+	// 	assert.Equal(t, item.Object, got)
+	// })
+
+	t.Run("OneSlowDigestN1LongBackOff", func(t *testing.T) {
+		var (
+			f         = newFakeFactory("C1", shard, nodes)
+			finder    = f.newFinder("A")
+			digestIDs = []strfmt.UUID{id}
+			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			digestR   = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+		)
+		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
+		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).WaitUntil(neverReceiveCh).Return(digestR, nil)
+		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, nil)
+
+		got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds, longBackoff)
+		assert.Nil(t, err)
+		assert.Equal(t, item.Object, got)
+	})
+
+	t.Run("OneSlowDigestN2LongBackOff", func(t *testing.T) {
+		var (
+			f         = newFakeFactory("C1", shard, nodes)
+			finder    = f.newFinder("A")
+			digestIDs = []strfmt.UUID{id}
+			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			digestR   = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+		)
+		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
+		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR, nil)
+		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).WaitUntil(neverReceiveCh).Return(digestR, nil)
+
+		got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds, longBackoff)
+		assert.Nil(t, err)
+		assert.Equal(t, item.Object, got)
+	})
+
+	t.Run("OneErroringDigestN1LongBackOff", func(t *testing.T) {
+		var (
+			f         = newFakeFactory("C1", shard, nodes)
+			finder    = f.newFinder("A")
+			digestIDs = []strfmt.UUID{id}
+			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			digestR   = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+		)
+		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
+		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR, errAny)
+		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, nil)
+
+		got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds, longBackoff)
+		assert.Nil(t, err)
+		assert.Equal(t, item.Object, got)
+	})
+
+	t.Run("OneErroringDigestN2LongBackOff", func(t *testing.T) {
+		var (
+			f         = newFakeFactory("C1", shard, nodes)
+			finder    = f.newFinder("A")
+			digestIDs = []strfmt.UUID{id}
+			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			digestR   = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+		)
+		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
+		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR, nil)
+		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR, errAny)
+
+		got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds, longBackoff)
 		assert.Nil(t, err)
 		assert.Equal(t, item.Object, got)
 	})
