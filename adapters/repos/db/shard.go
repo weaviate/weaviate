@@ -257,6 +257,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			// up the partial init
 			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 			defer cancel()
+			s.index.logger.WithFields(logrus.Fields{
+				"action":   "new_shard",
+				"duration": 120 * time.Second,
+			}).Debug("context.WithTimeout")
 
 			s.cleanupPartialInit(ctx)
 		}
@@ -619,6 +623,10 @@ func (s *Shard) drop() error {
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 5*time.Second)
 	defer cancel()
+	s.index.logger.WithFields(logrus.Fields{
+		"action":   "drop_shard",
+		"duration": 5 * time.Second,
+	}).Debug("context.WithTimeout")
 
 	// unregister all callbacks at once, in parallel
 	if err := cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
