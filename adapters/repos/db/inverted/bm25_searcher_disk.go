@@ -577,15 +577,11 @@ func (b byFirstArray) GetSorted(limit int) ([]*storobj.Object, []float32) {
 	for i, index := range b.indices {
 		sortedFirst[i] = b.firstArray[index]
 		sortedSecond[i] = b.secondArray[index]
-
-		if i == limit-1 {
-			break
-		}
 	}
 	if len(sortedFirst) < limit {
 		limit = len(sortedFirst)
 	}
-	return sortedSecond[:limit], sortedFirst[:limit]
+	return sortedSecond[len(sortedSecond)-limit:], sortedFirst[len(sortedFirst)-limit:]
 }
 
 func (b *BM25Searcher) sortByScore(scoredObjects map[string]float32, mappedObjects map[string]*storobj.Object, limit int) ([]*storobj.Object, []float32) {
