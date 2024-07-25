@@ -49,14 +49,9 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 			continue
 		}
 		h.RUnlock()
-		dist, ok, err := h.distBetweenNodeAndVec(candidate, queryVector)
+		dist, err := h.distBetweenNodeAndVec(candidate, queryVector)
 		if err != nil {
 			return nil, nil, err
-		}
-
-		if !ok {
-			// deleted node, ignore
-			continue
 		}
 
 		if results.Len() < limit {

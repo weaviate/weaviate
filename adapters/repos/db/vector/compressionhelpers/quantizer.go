@@ -14,8 +14,8 @@ package compressionhelpers
 import "encoding/binary"
 
 type quantizerDistancer[T byte | uint64] interface {
-	Distance(x []T) (float32, bool, error)
-	DistanceToFloat(x []float32) (float32, bool, error)
+	Distance(x []T) (float32, error)
+	DistanceToFloat(x []float32) (float32, error)
 }
 
 type quantizer[T byte | uint64] interface {
@@ -102,18 +102,17 @@ func (bq *BinaryQuantizer) NewCompressedQuantizerDistancer(a []uint64) quantizer
 	}
 }
 
-func (d *BQDistancer) Distance(x []uint64) (float32, bool, error) {
-	dist, err := d.bq.DistanceBetweenCompressedVectors(d.compressed, x)
-	return dist, err == nil, err
+func (d *BQDistancer) Distance(x []uint64) (float32, error) {
+	return d.bq.DistanceBetweenCompressedVectors(d.compressed, x)
 }
 
-func (d *BQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
+func (d *BQDistancer) DistanceToFloat(x []float32) (float32, error) {
 	if len(d.x) > 0 {
 		return d.bq.distancer.SingleDist(d.x, x)
 	}
 	xComp := d.bq.Encode(x)
 	dist, err := d.bq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err == nil, err
+	return dist, err
 }
 
 func (bq *BinaryQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[uint64] {

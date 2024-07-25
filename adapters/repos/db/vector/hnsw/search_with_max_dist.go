@@ -12,8 +12,6 @@
 package hnsw
 
 import (
-	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -23,14 +21,9 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 	ef int, allowList helpers.AllowList,
 ) ([]uint64, error) {
 	entryPointID := h.entryPointID
-	entryPointDistance, ok, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
+	entryPointDistance, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
 	if err != nil {
 		return nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
-	}
-
-	if !ok {
-		return nil, fmt.Errorf("entrypoint was deleted in the object store, " +
-			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
 
 	// stop at layer 1, not 0!

@@ -92,20 +92,16 @@ func (n *neighborFinderConnector) Do() error {
 
 func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	var dist float32
-	var ok bool
 	var err error
 
 	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
+		dist, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
 	} else {
-		dist, ok, err = n.distancer.DistanceToNode(id)
+		dist, err = n.distancer.DistanceToNode(id)
 	}
 	if err != nil {
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
-	}
-	if !ok {
-		return math.MaxFloat32, nil
 	}
 	return dist, nil
 }
@@ -325,29 +321,18 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	} else {
 		// we need to run the heuristic
 
-		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
 		if err != nil {
 			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
-		}
-
-		if !ok {
-			// it seems either the node or the neighbor were deleted in the meantime,
-			// there is nothing we can do now
-			return nil
 		}
 
 		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
 		candidates.Insert(n.node.id, dist)
 
 		for _, existingConnection := range currentConnections {
-			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
 			if err != nil {
 				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
-			}
-
-			if !ok {
-				// was deleted in the meantime
-				continue
 			}
 
 			candidates.Insert(existingConnection, dist)
@@ -494,18 +479,14 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	}
 
 	var dist float32
-	var ok bool
 	var err error
 	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+		dist, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
 	} else {
-		dist, ok, err = n.distancer.DistanceToNode(candidate)
+		dist, err = n.distancer.DistanceToNode(candidate)
 	}
 	if err != nil {
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
-	}
-	if !ok {
-		return false, nil
 	}
 
 	// we were able to calculate a distance, we're good
