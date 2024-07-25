@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
@@ -182,7 +183,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 // TODO try worker pool package (or learn/read/understand and steal relevant parts) https://github.com/alitto/pond
 func (c *coordinator[T]) Pull(ctx context.Context,
 	cl ConsistencyLevel,
-	op readOp[T], directCandidate string, backoffConfig backoff.BackOff,
+	op readOp[T], directCandidate string, backoffConfig backoff.ExponentialBackOff,
 ) (<-chan _Result[T], rState, error) {
 	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
 	if err != nil {
@@ -205,11 +206,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 				resp, err := backoff.RetryWithData(
 					func() (T, error) {
-						fmt.Println("NATEE op starting", idx)
+						// fmt.Println("NATEE op starting", idx)
 						resp, err := op(ctx, candidates[idx], idx == 0)
-						fmt.Println("NATEE op done", idx, resp, err)
+						// fmt.Println("NATEE op done", idx, resp, err)
 						if err == nil {
-							fmt.Println("NATEE reply", idx, resp, err)
+							// fmt.Println("NATEE reply", idx, resp, err)
 							replyCh <- _Result[T]{resp, err}
 							successfulReplies.Add(1)
 							if idx == 0 {
@@ -222,54 +223,54 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						}
 						return resp, err
 					},
-					backoffConfig,
+					utils.CloneExponentialBackoff(backoffConfig),
 				)
-				fmt.Println("NATEE backoff done", idx, resp, err)
+				// fmt.Println("NATEE backoff done", idx, resp, err)
 				if err != nil {
-					fmt.Println("NATEE backoff err", idx, resp, err)
+					// fmt.Println("NATEE backoff err", idx, resp, err)
 					errors <- _Result[T]{resp, err}
 				}
 			}
 			enterrors.GoWrapper(f, c.log)
 		}
-		fmt.Println("NATEE waiting started")
+		// fmt.Println("NATEE waiting started")
 		wg.Wait()
-		fmt.Println("NATEE waiting done")
+		// fmt.Println("NATEE waiting done")
 		if !fullReadWasSuccessful.Load() {
-			fmt.Println("NATEE fullread failed")
+			// fmt.Println("NATEE fullread failed")
 			for j := 1; j < len(candidates); j++ {
-				fmt.Println("NATEE fullread idx", j)
+				// fmt.Println("NATEE fullread idx", j)
 				err = backoff.Retry(
 					func() error {
-						fmt.Println("NATEE fullread op starting", j)
+						// fmt.Println("NATEE fullread op starting", j)
 						resp, err := op(ctx, candidates[j], true)
-						fmt.Println("NATEE fullread op done", j, resp, err)
+						// fmt.Println("NATEE fullread op done", j, resp, err)
 						if err == nil {
-							fmt.Println("NATEE fullread reply", j, resp, err)
+							// fmt.Println("NATEE fullread reply", j, resp, err)
 							replyCh <- _Result[T]{resp, err}
 							successfulReplies.Add(1)
 							// fullReadWasSuccessful.Store(true) // unneeded?
 						}
 						return err
 					},
-					backoffConfig,
+					utils.CloneExponentialBackoff(backoffConfig),
 				)
-				fmt.Println("NATEE fullread backoff done", j, err)
+				// fmt.Println("NATEE fullread backoff done", j, err)
 				if err == nil {
 					break
 				}
 			}
 		}
-		fmt.Println("NATEE errors closing")
+		// fmt.Println("NATEE errors closing")
 		close(errors)
-		fmt.Println("NATEE errors closed")
+		// fmt.Println("NATEE errors closed")
 		if successfulReplies.Load() < int32(level) {
-			fmt.Println("NATEE lt level")
+			// fmt.Println("NATEE lt level")
 			replyCh <- (<-errors)
 		}
-		fmt.Println("NATEE starting closing replych")
+		// fmt.Println("NATEE starting closing replych")
 		close(replyCh)
-		fmt.Println("NATEE done closing replych")
+		// fmt.Println("NATEE done closing replych")
 	}
 	enterrors.GoWrapper(f, c.log)
 

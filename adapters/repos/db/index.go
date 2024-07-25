@@ -1037,7 +1037,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
 		} else {
 			obj, err = i.replicator.GetOne(ctx,
-				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl, utils.DefaultExponentialBackOff())
+				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl, *utils.DefaultExponentialBackOff())
 		}
 		return obj, err
 	}
@@ -1193,7 +1193,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 			replProps = defaultConsistency()
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		return i.replicator.Exists(ctx, cl, shardName, id, utils.DefaultExponentialBackOff())
+		return i.replicator.Exists(ctx, cl, shardName, id, *utils.DefaultExponentialBackOff())
 	}
 
 	shard, release, err := i.getLocalShardNoShutdown(shardName)
@@ -1347,7 +1347,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 			replProps = defaultConsistency(replica.One)
 		}
 		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, outObjects)
+		err = i.replicator.CheckConsistency(ctx, l, outObjects, *utils.DefaultExponentialBackOff())
 		if err != nil {
 			i.logger.WithField("action", "object_search").
 				Errorf("failed to check consistency of search results: %v", err)
@@ -1672,7 +1672,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 			replProps = defaultConsistency(replica.One)
 		}
 		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, out)
+		err = i.replicator.CheckConsistency(ctx, l, out, *utils.DefaultExponentialBackOff())
 		if err != nil {
 			i.logger.WithField("action", "object_vector_search").
 				Errorf("failed to check consistency of search results: %v", err)
