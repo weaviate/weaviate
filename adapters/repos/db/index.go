@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
@@ -1036,7 +1037,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
 		} else {
 			obj, err = i.replicator.GetOne(ctx,
-				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl)
+				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl, utils.DefaultExponentialBackOff())
 		}
 		return obj, err
 	}

@@ -200,7 +200,7 @@ type rClient interface {
 	// FetchObject fetches one object
 	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (objects.Replica, error)
+		additional additional.Properties, numRetries int) (objects.Replica, error)
 
 	// FetchObjects fetches objects specified in ids list.
 	FetchObjects(_ context.Context, host, index, shard string,
@@ -215,7 +215,7 @@ type rClient interface {
 	// number of bytes transferred over the network when fetching a replicated
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
-		ids []strfmt.UUID) ([]RepairResponse, error)
+		ids []strfmt.UUID, numRetries int) ([]RepairResponse, error)
 
 	FindUUIDs(ctx context.Context, host, index, shard string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
@@ -238,8 +238,9 @@ func (fc finderClient) FullRead(ctx context.Context,
 	id strfmt.UUID,
 	props search.SelectProperties,
 	additional additional.Properties,
+	numRetries int,
 ) (objects.Replica, error) {
-	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional)
+	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
 }
 
 func (fc finderClient) HashTreeLevel(ctx context.Context,
@@ -251,10 +252,10 @@ func (fc finderClient) HashTreeLevel(ctx context.Context,
 // DigestReads reads digests of all specified objects
 func (fc finderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
-	ids []strfmt.UUID,
+	ids []strfmt.UUID, numRetries int,
 ) ([]RepairResponse, error) {
 	n := len(ids)
-	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids)
+	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids, numRetries)
 	if err == nil && len(rs) != n {
 		err = fmt.Errorf("malformed digest read response: length expected %d got %d", n, len(rs))
 	}

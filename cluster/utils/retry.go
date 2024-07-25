@@ -28,3 +28,18 @@ func NewBackoff() backoff.BackOff {
 func ConstantBackoff(maxrtry int, interval time.Duration) backoff.BackOff {
 	return backoff.WithMaxRetries(backoff.NewConstantBackOff(interval), uint64(maxrtry))
 }
+
+func DefaultExponentialBackOff() backoff.BackOff {
+	return NewExponentialBackOff(time.Millisecond*250, time.Second*5, time.Second*10, 2.0, 1.0)
+}
+
+func NewExponentialBackOff(initialInterval time.Duration, maxInterval time.Duration,
+	maxElapsedTime time.Duration, multiplier float64, randomizationFactor float64) backoff.BackOff {
+	expBackoff := backoff.NewExponentialBackOff()
+	expBackoff.InitialInterval = initialInterval
+	expBackoff.MaxInterval = maxInterval
+	expBackoff.MaxElapsedTime = maxElapsedTime
+	expBackoff.Multiplier = multiplier
+	expBackoff.RandomizationFactor = randomizationFactor
+	return expBackoff
+}

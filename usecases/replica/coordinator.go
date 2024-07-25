@@ -15,8 +15,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
@@ -175,9 +177,12 @@ func (c *coordinator[T]) Push(ctx context.Context,
 // Pull involves just as many replicas to satisfy the consistency level.
 //
 // directCandidate when specified a direct request is set to this node (default to this node)
+
+// TODO backoffConfig into coordinator?
+// TODO try worker pool package (or learn/read/understand and steal relevant parts) https://github.com/alitto/pond
 func (c *coordinator[T]) Pull(ctx context.Context,
 	cl ConsistencyLevel,
-	op readOp[T], directCandidate string,
+	op readOp[T], directCandidate string, backoffConfig backoff.BackOff,
 ) (<-chan _Result[T], rState, error) {
 	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
 	if err != nil {
@@ -186,12 +191,9 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	level := state.Level
 	replyCh := make(chan _Result[T], level)
 
-	candidates := state.Hosts[:level]                          // direct ones
-	candidatePool := make(chan string, len(state.Hosts)-level) // remaining ones
-	for _, replica := range state.Hosts[level:] {
-		candidatePool <- replica
-	}
-	close(candidatePool) // pool is ready
+	candidates := state.Hosts
+	successfulReplies := atomic.Int32{} // TODO have backoff end once success we reaach level successful replies?
+	errors := make(chan _Result[T], len(candidates))
 	f := func() {
 		wg := sync.WaitGroup{}
 		wg.Add(len(candidates))
@@ -199,24 +201,152 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			idx := i
 			f := func() {
 				defer wg.Done()
-				resp, err := op(ctx, candidates[idx], idx == 0)
 
-				// If node is not responding delegate request to another node
-				for err != nil {
-					if delegate, ok := <-candidatePool; ok {
-						resp, err = op(ctx, delegate, idx == 0)
-					} else {
-						break
-					}
+				resp, err := backoff.RetryWithData(
+					func() (T, error) {
+						resp, err := op(ctx, candidates[idx], idx == 0)
+						fmt.Println("NATEE op", idx, resp, err)
+						if err == nil {
+							fmt.Println("NATEE reply", idx, resp, err)
+							replyCh <- _Result[T]{resp, err}
+							successfulReplies.Add(1)
+						}
+						return resp, err
+					},
+					backoffConfig,
+				)
+				fmt.Println("NATEE backoff done", idx, resp, err)
+				if err != nil {
+					fmt.Println("NATEE backoff err", idx, resp, err)
+					errors <- _Result[T]{resp, err}
 				}
-				replyCh <- _Result[T]{resp, err}
 			}
 			enterrors.GoWrapper(f, c.log)
 		}
+		fmt.Println("NATEE waiting started")
 		wg.Wait()
+		fmt.Println("NATEE waiting done")
+		close(errors)
+		fmt.Println("NATEE errors closed")
+		if successfulReplies.Load() < int32(level) {
+			fmt.Println("NATEE lt level")
+			replyCh <- (<-errors)
+		}
+		fmt.Println("NATEE starting closing replych")
 		close(replyCh)
+		fmt.Println("NATEE done closing replych")
 	}
 	enterrors.GoWrapper(f, c.log)
 
 	return replyCh, state, nil
 }
+
+// TODO doc
+// type pullOpArgs struct {
+// 	hostIndex   int
+// 	retryNumber int // starts at 0, first retry is 1
+// }
+
+// // TODO doc
+// type pullOpArgs struct {
+// 	hostIndex   int
+// 	retryNumber int // starts at 0, first retry is 1
+// }
+
+// // Pull data from replica depending on consistency level
+// // Pull involves just as many replicas to satisfy the consistency level.
+// //
+// // directCandidate when specified a direct request is set to this node (default to this node)
+// func (c *coordinator[T]) Pull(ctx context.Context,
+// 	cl ConsistencyLevel,
+// 	op readOp[T], directCandidate string,
+// ) (<-chan _Result[T], rState, error) {
+// 	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
+// 	if err != nil {
+// 		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+// 	}
+
+// 	hosts := state.Hosts
+// 	numHosts := len(hosts)
+// 	level := state.Level
+// 	numWorkers := level // TODO configurable?
+// 	maxRetries := 0
+// 	tempReplyCh := make(chan _Result[T], level)
+// 	replyCh := make(chan _Result[T], level)
+// 	errCh := make(chan error, numHosts)
+
+// 	if numWorkers > numHosts {
+// 		// TODO explain and error strs
+// 		c.log.Errorf("")
+// 		return nil, state, fmt.Errorf("")
+// 	}
+
+// 	opJobQueue := make(chan pullOpArgs, numHosts)
+// 	done := make(chan bool)
+// 	for i := range hosts {
+// 		// Put direct candidate onto job queue first
+// 		opJobQueue <- pullOpArgs{
+// 			hostIndex:   i,
+// 			retryNumber: 0,
+// 		}
+// 	}
+
+// 	f := func() {
+// 		wg := sync.WaitGroup{}
+// 		wg.Add(numWorkers)
+// 		go func() {
+// 			for i := 0; i < level; i++ {
+// 				replyCh <- <-tempReplyCh
+// 			}
+// 			done <- true
+// 			close(done)
+// 		}()
+// 		for i := 0; i < numWorkers; i++ {
+// 			workerFunc := func() {
+// 				defer wg.Done()
+// 			workerLoop:
+// 				for {
+// 					select {
+// 					case <-ctx.Done():
+// 						break workerLoop
+// 					case <-done:
+// 						break workerLoop
+// 					case opJob := <-opJobQueue:
+// 						hostIndex := opJob.hostIndex
+// 						retryNum := opJob.retryNumber
+// 						resp, err := op(ctx, state.Hosts[hostIndex], hostIndex == 0)
+// 						if err == nil {
+// 							tempReplyCh <- _Result[T]{resp, err}
+// 						}
+// 						if retryNum < maxRetries {
+// 							// try again
+// 							nextAvgBackoff := math.Pow(2, float64(retryNum))
+// 							jitterFactor := 0.5 + rand.Float64()
+// 							nextJitteredBackoff := time.Duration(nextAvgBackoff * jitterFactor)
+// 							go func() { // TODO replace with gowrapper?
+// 								// Wait for nextJitteredBackoff, then put this host back in the job queue
+// 								<-time.After(nextJitteredBackoff)
+// 								opJobQueue <- pullOpArgs{
+// 									hostIndex:   i,
+// 									retryNumber: retryNum + 1,
+// 								}
+// 							}()
+// 						} else {
+// 							// give up
+// 							errCh <- err
+// 						}
+// 					}
+// 				}
+// 			}
+// 			enterrors.GoWrapper(workerFunc, c.log)
+// 		}
+// 		fmt.Println("NATEE waiting")
+// 		wg.Wait()
+// 		fmt.Println("NATEE closing replyCh")
+// 		close(replyCh)
+// 		fmt.Println("NATEE closed replyCh")
+// 	}
+// 	enterrors.GoWrapper(f, c.log)
+
+// 	return replyCh, state, nil
+// }

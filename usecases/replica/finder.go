@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/cenkalti/backoff/v4"
+	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 
@@ -85,14 +87,16 @@ func (f *Finder) GetOne(ctx context.Context,
 	id strfmt.UUID,
 	props search.SelectProperties,
 	adds additional.Properties,
+	backoffConfig backoff.BackOff,
 ) (*storobj.Object, error) {
 	c := newReadCoordinator[findOneReply](f, shard)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
-			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
+			// retry/backoff config into one of the clients...
+			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 			var x RepairResponse
 			if len(xs) == 1 {
 				x = xs[0]
@@ -101,7 +105,7 @@ func (f *Finder) GetOne(ctx context.Context,
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, state, err := c.Pull(ctx, l, op, "")
+	replyCh, state, err := c.Pull(ctx, l, op, "", backoffConfig)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -122,7 +126,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
 	}
 
-	replyCh, _, err := c.Pull(ctx, l, op, "")
+	replyCh, _, err := c.Pull(ctx, l, op, "", utils.DefaultExponentialBackOff())
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -202,14 +206,14 @@ func (f *Finder) Exists(ctx context.Context,
 ) (bool, error) {
 	c := newReadCoordinator[existReply](f, shard)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
-		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 9)
 		var x RepairResponse
 		if len(xs) == 1 {
 			x = xs[0]
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Pull(ctx, l, op, "")
+	replyCh, state, err := c.Pull(ctx, l, op, "", utils.DefaultExponentialBackOff())
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
 		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -233,7 +237,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
+	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 9)
 	return r.Object, err
 }
 
@@ -252,12 +256,12 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		if fullRead { // we already have the content
 			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids)
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 9)
 			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 
-	replyCh, state, err := c.Pull(ctx, l, op, batch.Node)
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, utils.DefaultExponentialBackOff())
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", errReplicas)
 	}
@@ -325,7 +329,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, state, err := coord.Pull(ctx, One, op, "")
+	replyCh, state, err := coord.Pull(ctx, One, op, "", utils.DefaultExponentialBackOff())
 	if err != nil {
 		return nil, nil, fmt.Errorf("pull shard: %w", err)
 	}

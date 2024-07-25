@@ -15,6 +15,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
@@ -59,7 +60,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, &backoff.StopBackOff{})
 		assert.Nil(t, err)
 		assert.Equal(t, item.Object, got)
 	})
@@ -87,7 +88,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR4, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, &backoff.StopBackOff{})
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Nil(t, got)
 		assert.ErrorIs(t, err, errRepair)
@@ -119,7 +120,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			assert.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, &backoff.StopBackOff{})
 		assert.Nil(t, err)
 		assert.Equal(t, item3.Object, got)
 	})
@@ -144,7 +145,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, &backoff.StopBackOff{})
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.ErrorIs(t, err, errRepair)
 		assert.Nil(t, got)
@@ -166,7 +167,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, &backoff.StopBackOff{})
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Nil(t, got)
@@ -188,7 +189,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).
 			Return(item1, nil).Once()
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, &backoff.StopBackOff{})
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.ErrorIs(t, err, errRepair)
 		assert.Nil(t, got)
@@ -216,7 +217,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, &backoff.StopBackOff{})
 		assert.Nil(t, err)
 		assert.Equal(t, item.Object, got)
 	})
@@ -233,7 +234,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, &backoff.StopBackOff{})
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, nilObject, got)
 		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
