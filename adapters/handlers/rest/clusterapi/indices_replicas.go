@@ -672,6 +672,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 
 		b, err := objects.Replicas(resp).MarshalBinary()
