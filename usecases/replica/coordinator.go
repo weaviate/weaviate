@@ -211,6 +211,10 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 							replyCh <- _Result[T]{resp, err}
 							successfulReplies.Add(1)
 						}
+						// TODO is idx check needed for finder's GetOne, checkShardConsistency, CollectShardDifferences, FindUUIDs, Exists? In the current implementation does Pull always fail if the direct candidate (self node) errors/times out?
+						if idx != 0 && successfulReplies.Load() >= int32(level) {
+							return resp, backoff.Permanent(err)
+						}
 						return resp, err
 					},
 					backoffConfig,

@@ -61,7 +61,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			contentIdx = -1
 		)
 
-		for r := range ch { // len(ch) == st.Level
+		for r := range ch { // len(ch) == st.Level TODO not true anymore, len(st.Hosts)? but should still be closed once st.Level <= numResponses <= len(st.Hosts)
 			resp := r.Value
 			if r.Err != nil { // a least one node is not responding
 				f.log.WithField("op", "get").WithField("replica", resp.sender).
@@ -73,6 +73,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			if !resp.DigestRead {
 				contentIdx = len(votes)
 			}
+			// the resp has the sender...this could be a map that only stores the latest? or most recent non-err or split out errors vs non etc
 			votes = append(votes, objTuple{resp.sender, resp.UpdateTime, resp.Data, 0, nil})
 			for i := range votes { // count number of votes
 				if votes[i].UTime == resp.UpdateTime {
