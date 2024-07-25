@@ -165,6 +165,9 @@ func (t *TermInverted) AdvanceAtLeast(minID uint64) {
 	if t.Exhausted {
 		return
 	}
+
+	advanced := false
+
 	binary.BigEndian.PutUint64(t.minIDBytes, minID)
 	for bytes.Compare(t.IdBytes, t.minIDBytes) < 0 {
 		diffVal := minID - t.idPointer
@@ -181,9 +184,12 @@ func (t *TermInverted) AdvanceAtLeast(minID uint64) {
 		if t.Exhausted {
 			return
 		}
+		advanced = true
 	}
 
-	t.decode()
+	if advanced {
+		t.decode()
+	}
 }
 
 func (t *TermInverted) IsExhausted() bool {
