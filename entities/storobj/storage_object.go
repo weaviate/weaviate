@@ -18,13 +18,12 @@ import (
 	"fmt"
 	"math"
 	"runtime"
-	"time"
 
 	"github.com/buger/jsonparser"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/entities/additional"
 	errwrap "github.com/weaviate/weaviate/entities/errors"
@@ -243,50 +242,42 @@ type bucket interface {
 	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
 }
 
-const ObjectsRetrievalChunkSize = 25
-
 func ObjectsByDocID(bucket bucket, ids []uint64,
-	additional additional.Properties,
+	additional additional.Properties, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	if len(ids) <= ObjectsRetrievalChunkSize {
+	if len(ids) == 1 {
 		// fairly small result set, not worth parallelizing
 		return objectsByDocIDSequential(bucket, ids, additional)
 	}
 
 	// larger results set, may benefit from parallelization
-	return objectsByDocIDParallel(bucket, ids, additional)
+	return objectsByDocIDParallel(bucket, ids, additional, logger)
 }
 
 func objectsByDocIDParallel(bucket bucket, ids []uint64,
-	addProp additional.Properties,
+	addProp additional.Properties, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	// TODO: Remove debug logs
-	before := time.Now()
-	defer func() {
-		fmt.Printf("objectsByDocIDParallel took %s\n", time.Since(before))
-	}()
-
-	parallel := int(math.Ceil(float64(len(ids)) / float64(ObjectsRetrievalChunkSize)))
+	parallel := 2 * runtime.GOMAXPROCS(0)
 
 	out := make([]*Object, len(ids))
 
-	// recalculate the chunk size for edge cases such as 26 object, when the
-	// cutoff is 25. It wouldn't make sense to split this into 2 chunks of 25 and
-	// 1, but rather into two chunks of 13.
-	chunkSize := len(ids) / parallel
+	chunkSize := max(len(ids)/parallel, 1)
 
-	// TODO logger
-	eg := errwrap.NewErrorGroupWrapper(nil)
+	eg := errwrap.NewErrorGroupWrapper(logger)
 
 	// prevent unbounded concurrency on massive chunks
 	// it's fine to use a multiple of GOMAXPROCS here, as the goroutines are
 	// mostly IO-bound
-	eg.SetLimit(2 * runtime.GOMAXPROCS(0))
+	eg.SetLimit(parallel)
 	for chunk := 0; chunk < parallel; chunk++ {
 		start := chunk * chunkSize
 		end := start + chunkSize
-		if chunk == parallel-1 {
+		if end > len(ids) {
 			end = len(ids)
+		}
+
+		if start >= len(ids) {
+			break
 		}
 
 		eg.Go(func() error {
