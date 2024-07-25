@@ -881,3 +881,9 @@ type docPointerWithScore struct {
 	frequency  float32
 	propLength float32
 }
+
+type ById []docPointerWithScore
+
+func (a ById) Len() int           { return len(a) }
+func (a ById) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ById) Less(i, j int) bool { return a[i].id < a[j].id }
