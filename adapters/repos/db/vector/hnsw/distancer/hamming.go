@@ -31,13 +31,13 @@ type Hamming struct {
 	a []float32
 }
 
-func (l Hamming) Distance(b []float32) (float32, bool, error) {
+func (l Hamming) Distance(b []float32) (float32, error) {
 	if len(l.a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
+		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
 			len(l.a), len(b))
 	}
 
-	return hammingImpl(l.a, b), true, nil
+	return hammingImpl(l.a, b), nil
 }
 
 type HammingProvider struct{}
@@ -46,13 +46,13 @@ func NewHammingProvider() HammingProvider {
 	return HammingProvider{}
 }
 
-func (l HammingProvider) SingleDist(a, b []float32) (float32, bool, error) {
+func (l HammingProvider) SingleDist(a, b []float32) (float32, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
+		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
 			len(a), len(b))
 	}
 
-	return hammingImpl(a, b), true, nil
+	return hammingImpl(a, b), nil
 }
 
 func (l HammingProvider) Type() string {
