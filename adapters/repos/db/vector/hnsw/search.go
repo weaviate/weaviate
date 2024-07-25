@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -596,17 +597,21 @@ func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer
 	res.Reset()
 	for _, id := range ids {
 		dist, found, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
-		if found && err == nil {
-			res.Insert(id, dist)
-			if res.Len() > k {
-				res.Pop()
-			}
-		} else {
-			h.logger.
-				WithField("action", "rescore").
-				WithError(err).
-				Warnf("could not rescore node %d", id)
+		if err != nil {
+			h.logger.WithFields(logrus.Fields{"action": "rescore", "error": err.Error()}).Warnf("could not rescore node %d", id)
+			continue
 		}
+
+		if !found {
+			continue
+		}
+
+		res.Insert(id, dist)
+		if res.Len() > k {
+			res.Pop()
+		}
+
+		h.logger.WithField("action", "rescore").Debugf("could not rescore node %d", id)
 	}
 }
 
