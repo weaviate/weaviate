@@ -2,7 +2,6 @@ package lsmkv
 
 import (
 	"bytes"
-	"fmt"
 	"sort"
 )
 
@@ -10,9 +9,7 @@ func (b *Bucket) QuantileKeys(q int) [][]byte {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	fmt.Printf("before disk.quantileKeys\n")
 	keys := b.disk.quantileKeys(q)
-	fmt.Printf("after disk.quantileKeys\n")
 	return keys
 }
 
@@ -31,9 +28,12 @@ func (sg *SegmentGroup) quantileKeys(q int) [][]byte {
 		return bytes.Compare(keys[i], keys[j]) < 0
 	})
 
-	// TODO: re-pick keys to make sure they are evenly distributed
+	finalKeys := make([][]byte, q)
+	for i := range finalKeys {
+		finalKeys[i] = keys[len(keys)/q*i]
+	}
 
-	return keys
+	return finalKeys
 }
 
 func (s *segment) quantileKeys(q int) [][]byte {
