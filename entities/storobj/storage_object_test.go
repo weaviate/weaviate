@@ -774,26 +774,34 @@ func TestObjectsByDocID(t *testing.T) {
 		// exactly to the doc ID.
 	}{
 		{
+			name:     "1 object - sequential code path",
+			inputIDs: []uint64{0},
+		},
+		{
+			name:     "2 objects - concurrent code path",
+			inputIDs: []uint64{0, 1},
+		},
+		{
 			name:     "10 objects - consecutive from beginning",
 			inputIDs: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
 		},
 		{
-			name: "30 objects - consecutive from beginning, should be enough to force parallelization",
+			name: "30 objects - consecutive from beginning",
 			inputIDs: []uint64{
 				0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16,
 				17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29,
 			},
 		},
 		{
-			name:     "100 objects - random - should perfectly match the chunk size",
+			name:     "100 objects - random - should perfectly match to divide into groups",
 			inputIDs: pickRandomIDsBetween(0, 1000, 100),
 		},
 		{
-			name:     "99 objects - random - slightly below ideal chunk size",
+			name:     "99 objects - random - uneven groups slightly below perfect chunk size",
 			inputIDs: pickRandomIDsBetween(0, 1000, 99),
 		},
 		{
-			name:     "101 objects - random - slightly above ideal chunk size",
+			name:     "101 objects - random - uneven groups slightly above perfect chunk size",
 			inputIDs: pickRandomIDsBetween(0, 1000, 101),
 		},
 		{
