@@ -20,6 +20,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -404,13 +405,13 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	ch := make(chan uint64)
-	cancelled := false
+	var cancelled atomic.Bool
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
 		g.Go(func() error {
 			for {
 				if breakCleanUpTombstonedNodes() {
-					cancelled = true
+					cancelled.Store(true)
 					cancel()
 				}
 				select {
@@ -440,7 +441,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 LOOP:
 	for i := 0; i < size; i++ {
 		if breakCleanUpTombstonedNodes() {
-			cancelled = true
+			cancelled.Store(true)
 			cancel()
 		}
 		select {
@@ -473,7 +474,7 @@ LOOP:
 		h.logger.Errorf("class %s: tombstone cleanup canceled", h.className)
 		return false, nil
 	}
-	return !cancelled, err
+	return !cancelled.Load(), err
 }
 
 func (h *hnsw) reassignNeighbor(
