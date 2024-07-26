@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/byteops"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -813,7 +815,7 @@ func TestObjectsByDocID(t *testing.T) {
 			for i, obj := range res {
 				expectedDocID := test.inputIDs[i]
 				assert.Equal(t, expectedDocID, uint64(obj.Properties().(map[string]any)["i"].(float64)))
-				expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd16%04d", expectedDocID))
+				expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd1%05d", expectedDocID))
 				assert.Equal(t, expectedUUID, obj.ID())
 			}
 		})
@@ -856,6 +858,53 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 	}
 }
 
+func intsToBytes(ints ...uint64) []byte {
+	byteOps := byteops.NewReadWriter(make([]byte, len(ints)*8))
+	for _, i := range ints {
+		byteOps.WriteUint64(i)
+	}
+	return byteOps.Buffer
+}
+
+func FuzzObjectGet(f *testing.F) {
+	maxSize := uint64(9999)
+	logger, _ := test.NewNullLogger()
+	bucket := genFakeBucket(f, maxSize)
+
+	readTests := []struct {
+		ids []uint64
+	}{
+		{ids: []uint64{0}},
+		{ids: []uint64{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
+		{ids: pickRandomIDsBetween(0, 1000, 100)},
+	}
+	for _, tc := range readTests {
+		f.Add(intsToBytes(tc.ids...)) // Use f.Add to provide a seed corpus
+	}
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) == 0 || len(data)%8 != 0 {
+			return
+		}
+		ids := make([]uint64, len(data)/8)
+		for i := 0; i < len(ids); i++ {
+			ids[i] = binary.LittleEndian.Uint64(data[i*8 : (i+1)*8])
+			if ids[i] >= maxSize {
+				return
+			}
+		}
+
+		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, logger)
+		require.Nil(t, err)
+		require.Len(t, res, len(ids))
+		for i, obj := range res {
+			expectedDocID := ids[i]
+			assert.Equal(t, expectedDocID, uint64(obj.Properties().(map[string]any)["i"].(float64)))
+			expectedUUID := strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd1%05d", expectedDocID))
+			assert.Equal(t, expectedUUID, obj.ID())
+		}
+	})
+}
+
 type fakeBucket struct {
 	objects map[uint64][]byte
 }
@@ -881,7 +930,7 @@ func genFakeBucket(t testing.TB, maxSize uint64) *fakeBucket {
 		obj := New(i)
 		obj.SetProperties(map[string]any{"i": i, "foo": strings.Repeat("bar", int(i))})
 		obj.SetClass("MyClass")
-		obj.SetID(strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd16%04d", i)))
+		obj.SetID(strfmt.UUID(fmt.Sprintf("73f2eb5f-5abf-447a-81ca-74b1dd1%05d", i)))
 		objBytes, err := obj.MarshalBinary()
 		require.Nil(t, err)
 		bucket.objects[i] = objBytes
