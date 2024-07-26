@@ -402,6 +402,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
 	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	ch := make(chan uint64)
 	cancelled := false
 
@@ -470,10 +471,8 @@ LOOP:
 	err = g.Wait()
 	if errors.Is(err, context.Canceled) {
 		h.logger.Errorf("class %s: tombstone cleanup canceled", h.className)
-		cancel()
 		return false, nil
 	}
-	cancel()
 	return !cancelled, err
 }
 

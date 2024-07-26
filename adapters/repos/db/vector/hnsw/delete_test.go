@@ -644,8 +644,9 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 		countingStopFunc := func() bool {
 			mutex.Lock()
 			counter++
+			counterCpy := counter
 			mutex.Unlock()
-			return counter > 30 && counter < 40
+			return counterCpy > 30 && counterCpy < 40
 		}
 
 		err := index.CleanUpTombstonedNodes(countingStopFunc)
