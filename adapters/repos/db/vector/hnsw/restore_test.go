@@ -27,6 +27,8 @@ import (
 )
 
 func Test_RestartFromZeroSegments(t *testing.T) {
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Unsetenv("ASYNC_INDEXING")
 	testPath := t.TempDir()
 	src := path.Join(".", "compression_tests", "fixtures", "restart-from-zero-segments", "1234567")
 	source, err := os.Open(src)

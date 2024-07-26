@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -542,6 +543,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 	})
 
 	t.Run("set schema type=PQ", func(t *testing.T) {
+		os.Setenv("ASYNC_INDEXING", "true")
 		vectorIndexConfig := enthnsw.NewDefaultUserConfig()
 		vectorIndexConfig.PQ.Enabled = true
 		vectorIndexConfig.PQ.Segments = 10
@@ -603,5 +605,6 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 		require.Nil(t, err)
 		metricValue = testutil.ToFloat64(metric)
 		require.Equal(t, 0.0, metricValue, "metrics should be reset")
+		os.Unsetenv("ASYNC_INDEXING")
 	})
 }

@@ -652,6 +652,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 	)
 	store := testinghelpers.NewDummyStore(t)
 	defer store.Shutdown(context.Background())
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Unsetenv("ASYNC_INDEXING")
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
@@ -793,6 +795,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 
 	store := testinghelpers.NewDummyStore(t)
 	defer store.Shutdown(context.Background())
+	os.Setenv("ASYNC_INDEXING", "true")
+	defer os.Unsetenv("ASYNC_INDEXING")
 
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
