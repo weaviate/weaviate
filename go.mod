@@ -55,6 +55,8 @@ require (
 	github.com/getsentry/sentry-go v0.28.1
 	github.com/go-ego/gse v0.80.2
 	github.com/googleapis/gax-go/v2 v2.12.4
+	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
+	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/pkoukk/tiktoken-go v0.1.6
 	github.com/tailor-inc/graphql v0.2.1
@@ -79,7 +81,7 @@ require (
 	github.com/Microsoft/hcsshim v0.11.4 // indirect
 	github.com/PuerkitoBio/purell v1.1.1 // indirect
 	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
-	github.com/armon/go-metrics v0.0.0-20180917152333-f0300d1749da // indirect
+	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.2 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.1 // indirect
@@ -125,7 +127,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
-	github.com/hashicorp/go-msgpack v0.5.3 // indirect
+	github.com/hashicorp/go-msgpack v0.5.5 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
