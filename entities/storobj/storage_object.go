@@ -17,14 +17,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"runtime"
 
 	"github.com/buger/jsonparser"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/entities/additional"
+	errwrap "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -241,6 +243,59 @@ type bucket interface {
 }
 
 func ObjectsByDocID(bucket bucket, ids []uint64,
+	additional additional.Properties, logger logrus.FieldLogger,
+) ([]*Object, error) {
+	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
+		return objectsByDocIDSequential(bucket, ids, additional)
+	}
+
+	return objectsByDocIDParallel(bucket, ids, additional, logger)
+}
+
+func objectsByDocIDParallel(bucket bucket, ids []uint64,
+	addProp additional.Properties, logger logrus.FieldLogger,
+) ([]*Object, error) {
+	parallel := 2 * runtime.GOMAXPROCS(0)
+
+	out := make([]*Object, len(ids))
+
+	chunkSize := max(int(math.Ceil(float64(len(ids))/float64(parallel))), 1)
+
+	eg := errwrap.NewErrorGroupWrapper(logger)
+
+	// prevent unbounded concurrency on massive chunks
+	// it's fine to use a multiple of GOMAXPROCS here, as the goroutines are
+	// mostly IO-bound
+	eg.SetLimit(parallel)
+	for chunk := 0; chunk < parallel; chunk++ {
+		start := chunk * chunkSize
+		end := start + chunkSize
+		if end > len(ids) {
+			end = len(ids)
+		}
+
+		if start >= len(ids) {
+			break
+		}
+
+		eg.Go(func() error {
+			objs, err := objectsByDocIDSequential(bucket, ids[start:end], addProp)
+			if err != nil {
+				return err
+			}
+			copy(out[start:end], objs)
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+func objectsByDocIDSequential(bucket bucket, ids []uint64,
 	additional additional.Properties,
 ) ([]*Object, error) {
 	if bucket == nil {
