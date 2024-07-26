@@ -229,6 +229,11 @@ func (h *hnsw) prefillCache() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
+		h.logger.WithFields(logrus.Fields{
+			"action":   "prefill_cache",
+			"duration": 60 * time.Minute,
+		}).Debug("context.WithTimeout")
+
 		var err error
 		if h.compressed.Load() {
 			h.compressor.PrefillCache()
