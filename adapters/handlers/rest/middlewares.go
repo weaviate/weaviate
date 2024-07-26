@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	sentryhttp "github.com/getsentry/sentry-go/http"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
@@ -129,9 +130,16 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
 		// Must be the last middleware as it might skip the next handler
 		handler = addClusterHandlerMiddleware(handler, appState)
+		if appState.ServerConfig.Config.Sentry.Enabled {
+			handler = addSentryHandler(handler)
+		}
 
 		return handler
 	}
+}
+
+func addSentryHandler(next http.Handler) http.Handler {
+	return sentryhttp.New(sentryhttp.Options{}).Handle(next)
 }
 
 func makeAddLogging(logger logrus.FieldLogger) func(http.Handler) http.Handler {

@@ -158,17 +158,35 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		err := sentry.Init(sentry.ClientOptions{
-			Dsn:              appState.ServerConfig.Config.Sentry.DSN,
-			Debug:            appState.ServerConfig.Config.Sentry.Debug,
-			Release:          "weaviate@" + config.DockerImageTag,
-			Environment:      appState.ServerConfig.Config.Sentry.Environment,
-			EnableTracing:    appState.ServerConfig.Config.Sentry.TracingEnabled,
-			SampleRate:       appState.ServerConfig.Config.Sentry.SampleRate,
-			AttachStacktrace: true,
+			Dsn:                appState.ServerConfig.Config.Sentry.DSN,
+			Debug:              appState.ServerConfig.Config.Sentry.Debug,
+			Release:            "weaviate-core@" + config.DockerImageTag,
+			Environment:        appState.ServerConfig.Config.Sentry.Environment,
+			EnableTracing:      appState.ServerConfig.Config.Sentry.TracingEnabled,
+			SampleRate:         appState.ServerConfig.Config.Sentry.ErrorSampleRate,
+			ProfilesSampleRate: appState.ServerConfig.Config.Sentry.ProfileSampleRate,
+			AttachStacktrace:   true,
+			// TracesSampler
+			TracesSampler: sentry.TracesSampler(func(ctx sentry.SamplingContext) float64 {
+				// Inherit decision from parent transaction (if any) if it is sampled or not
+				if ctx.Parent != nil && ctx.Parent.Sampled != sentry.SampledUndefined {
+					return 1.0
+				}
+
+				// Filter out graphql queries, currently we have no context intrumentation around it and it's therefore
+				// just a blank line with 0 info except graphql resolve -> do -> return.
+				if ctx.Span.Name == "POST /v1/graphql" {
+					return 0.0
+				}
+
+				// Return the configured sample rate otherwise
+				return appState.ServerConfig.Config.Sentry.TracesSampleRate
+			}),
 		})
 		if err != nil {
-			appState.Logger.WithError(err).Error("sentry initialization failed")
-			os.Exit(1)
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("sentry initialization failed")
 		}
 
 		sentry.ConfigureScope(func(scope *sentry.Scope) {
@@ -322,6 +340,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
+		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
