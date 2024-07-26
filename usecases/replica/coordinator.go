@@ -208,10 +208,24 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					func() (T, error) {
 						resp, err := op(ctx, candidates[idx], idx == 0)
 						if err == nil {
-							replyCh <- _Result[T]{resp, err}
-							successfulReplies.Add(1)
+							// TODO https://stackoverflow.com/questions/54488284/attempting-to-acquire-a-lock-with-a-deadline-in-golang or similar to avoid race condition sending more than level
+							sr := successfulReplies.Load()
 							if idx == 0 {
+								replyCh <- _Result[T]{resp, err}
 								fullReadWasSuccessful.Store(true)
+								successfulReplies.Add(1)
+							} else {
+								if fullReadWasSuccessful.Load() {
+									if sr < int32(level) {
+										replyCh <- _Result[T]{resp, err}
+										successfulReplies.Add(1)
+									}
+								} else {
+									if sr < int32(level-1) {
+										replyCh <- _Result[T]{resp, err}
+										successfulReplies.Add(1)
+									}
+								}
 							}
 						}
 						// TODO is idx check needed for finder's GetOne, checkShardConsistency, CollectShardDifferences, FindUUIDs, Exists? In the current implementation does Pull always fail if the direct candidate (self node) errors/times out?
