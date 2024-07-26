@@ -245,12 +245,10 @@ type bucket interface {
 func ObjectsByDocID(bucket bucket, ids []uint64,
 	additional additional.Properties, logger logrus.FieldLogger,
 ) ([]*Object, error) {
-	if len(ids) == 1 {
-		// fairly small result set, not worth parallelizing
+	if len(ids) == 1 { // no need to try to run concurrently if there is just one result anyway
 		return objectsByDocIDSequential(bucket, ids, additional)
 	}
 
-	// larger results set, may benefit from parallelization
 	return objectsByDocIDParallel(bucket, ids, additional, logger)
 }
 
