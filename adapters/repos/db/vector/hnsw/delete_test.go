@@ -19,6 +19,7 @@ import (
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -625,6 +626,45 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 			require.Nil(t, index.Drop(context.Background()))
 		})
 	}
+}
+
+func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *testing.T) {
+	vectors := vectorsForDeleteTest()
+	var index *hnsw
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("create control index", func(t *testing.T) {
+		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
+	})
+
+	t.Run("count all cleanup tombstones stops", func(t *testing.T) {
+		counter := 0
+		mutex := &sync.Mutex{}
+		countingStopFunc := func() bool {
+			mutex.Lock()
+			counter++
+			mutex.Unlock()
+			return counter > 30 && counter < 40
+		}
+
+		err := index.CleanUpTombstonedNodes(countingStopFunc)
+		require.Nil(t, err)
+	})
+
+	time.Sleep(1000 * time.Millisecond)
+
+	t.Run("even ids are not coming back and tombstones are not removed completely", func(t *testing.T) {
+		ids, _, _ := index.SearchByVector(vectors[0], len(vectors), nil)
+		for _, id := range ids {
+			assert.Equal(t, 1, id%2)
+		}
+		assert.True(t, len(index.tombstones) > 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, index.Drop(context.Background()))
+	})
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
