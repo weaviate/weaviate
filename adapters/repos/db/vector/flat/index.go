@@ -12,15 +12,18 @@
 package flat
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -190,6 +193,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		lsmkv.WithForceCompation(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
+
+		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+		// was simply missing. Now we want to explicitly set it to false for
+		// performance reasons. There are pread performance improvements in the
+		// pipeline, but as of now, mmap is much more performant – especially for
+		// parallel cache prefilling.
+		//
+		// In the future when the pure pread performance is on par with mmap, we
+		// should update this to pass the global setting.
+		lsmkv.WithPread(false),
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
@@ -198,6 +211,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 			lsmkv.WithForceCompation(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
+
+			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+			// was simply missing. Now we want to explicitly set it to false for
+			// performance reasons. There are pread performance improvements in the
+			// pipeline, but as of now, mmap is much more performant – especially for
+			// parallel cache prefilling.
+			//
+			// In the future when the pure pread performance is on par with mmap, we
+			// should update this to pass the global setting.
+			lsmkv.WithPread(false),
 		); err != nil {
 			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
 		}
@@ -665,26 +688,22 @@ func (index *flat) PostStartup() {
 	// up 75% of the CPU time needed. This new implementation with two loops is
 	// much more efficient and only ever-so-slightly more memory-consuming (about
 	// one additional struct per vector while loading. Should be negligible)
-	type vec struct {
-		id  uint64
-		vec []uint64
-	}
 
 	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
 	// this slice dynamically should be quite cheap compared to other operations
 	// involved here, e.g. disk reads.
-	vecs := make([]vec, 0, 10_000)
+	vecs := make([]BQVecAndID, 0, 10_000)
 	maxID := uint64(0)
 
-	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
-		id := binary.BigEndian.Uint64(key)
-		vecs = append(vecs, vec{
-			id:  id,
-			vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
-		})
-		if id > maxID {
-			maxID = id
+	before := time.Now()
+	count := 0
+	for v := range index.iterateCompressedBucketInParallel() {
+		vecs = append(vecs, v)
+		fmt.Printf("vec: %v\n", v.id)
+		if v.id > maxID {
+			maxID = v.id
 		}
+		count++
 	}
 
 	// Grow cache just once
@@ -693,6 +712,80 @@ func (index *flat) PostStartup() {
 	for _, vec := range vecs {
 		index.bqCache.Preload(vec.id, vec.vec)
 	}
+	fmt.Printf("pre-loaded %d vectors in %s\n", count, time.Since(before))
+}
+
+type BQVecAndID struct {
+	id  uint64
+	vec []uint64
+}
+
+func (index *flat) iterateCompressedBucketInParallel() chan BQVecAndID {
+	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
+	// however want some kind of relationship to the machine size, so
+	// 2*GOMAXPROCS seems like a good default.
+	parallel := 2 * runtime.GOMAXPROCS(0)
+	bucket := index.store.Bucket(index.getCompressedBucketName())
+	// subtract one because the first routine is going to use cursor.First()
+	seeds := bucket.QuantileKeys(parallel - 1)
+	wg := sync.WaitGroup{}
+	out := make(chan BQVecAndID)
+
+	// There are three scenarios:
+	// 1. Read from beginning to first checkpoint
+	// 2. Read from checkpoint n to checkpoint n+1
+	// 3. Read from last checkpoint to end
+
+	extract := func(k, v []byte) {
+		id := binary.BigEndian.Uint64(k)
+		vec := uint64SliceFromByteSlice(v, make([]uint64, len(v)/8))
+		out <- BQVecAndID{id: id, vec: vec}
+	}
+
+	// S1: Read from beginning to first checkpoint:
+	wg.Add(1)
+	go func() {
+		c := bucket.Cursor()
+		defer c.Close()
+		defer wg.Done()
+
+		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) <= 0; k, v = c.Next() {
+			extract(k, v)
+		}
+	}()
+
+	// S2: Read from checkpoint n to checkpoint n+1, stop at last checkpoint:
+	for i := 0; i < len(seeds)-1; i++ {
+		wg.Add(1)
+		go func(start, end []byte) {
+			defer wg.Done()
+			c := bucket.Cursor()
+			defer c.Close()
+
+			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) <= 0; k, v = c.Next() {
+				extract(k, v)
+			}
+		}(seeds[i], seeds[i+1])
+	}
+
+	// S3: Read from last checkpoint to end:
+	wg.Add(1)
+	go func() {
+		c := bucket.Cursor()
+		defer c.Close()
+		defer wg.Done()
+
+		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
+			extract(k, v)
+		}
+	}()
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out
 }
 
 func (index *flat) Dump(labels ...string) {
