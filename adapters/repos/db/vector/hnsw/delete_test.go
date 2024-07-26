@@ -657,7 +657,7 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 	t.Run("even ids are not coming back and tombstones are not removed completely", func(t *testing.T) {
 		ids, _, _ := index.SearchByVector(vectors[0], len(vectors), nil)
 		for _, id := range ids {
-			assert.Equal(t, 1, id%2)
+			assert.Equal(t, 1, int(id%2))
 		}
 		assert.True(t, len(index.tombstones) > 0)
 	})
