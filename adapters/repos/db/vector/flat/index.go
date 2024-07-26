@@ -696,14 +696,16 @@ func (index *flat) PostStartup() {
 	maxID := uint64(0)
 
 	before := time.Now()
-	count := 0
 	for v := range index.iterateCompressedBucketInParallel() {
-		vecs = append(vecs, v)
-		fmt.Printf("vec: %v\n", v.id)
-		if v.id > maxID {
-			maxID = v.id
-		}
+		vecs = append(vecs, v...)
+	}
+
+	count := 0
+	for i := range vecs {
 		count++
+		if vecs[i].id > maxID {
+			maxID = vecs[i].id
+		}
 	}
 
 	// Grow cache just once
@@ -720,7 +722,7 @@ type BQVecAndID struct {
 	vec []uint64
 }
 
-func (index *flat) iterateCompressedBucketInParallel() chan BQVecAndID {
+func (index *flat) iterateCompressedBucketInParallel() chan []BQVecAndID {
 	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
 	// however want some kind of relationship to the machine size, so
 	// 2*GOMAXPROCS seems like a good default.
@@ -729,29 +731,32 @@ func (index *flat) iterateCompressedBucketInParallel() chan BQVecAndID {
 	// subtract one because the first routine is going to use cursor.First()
 	seeds := bucket.QuantileKeys(parallel - 1)
 	wg := sync.WaitGroup{}
-	out := make(chan BQVecAndID)
+	out := make(chan []BQVecAndID)
 
 	// There are three scenarios:
 	// 1. Read from beginning to first checkpoint
 	// 2. Read from checkpoint n to checkpoint n+1
 	// 3. Read from last checkpoint to end
 
-	extract := func(k, v []byte) {
+	extract := func(k, v []byte) BQVecAndID {
 		id := binary.BigEndian.Uint64(k)
 		vec := uint64SliceFromByteSlice(v, make([]uint64, len(v)/8))
-		out <- BQVecAndID{id: id, vec: vec}
+		return BQVecAndID{id: id, vec: vec}
 	}
 
 	// S1: Read from beginning to first checkpoint:
 	wg.Add(1)
 	go func() {
 		c := bucket.Cursor()
+		localResults := make([]BQVecAndID, 0, 10_000)
 		defer c.Close()
 		defer wg.Done()
 
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) <= 0; k, v = c.Next() {
-			extract(k, v)
+			localResults = append(localResults, extract(k, v))
 		}
+
+		out <- localResults
 	}()
 
 	// S2: Read from checkpoint n to checkpoint n+1, stop at last checkpoint:
@@ -759,12 +764,14 @@ func (index *flat) iterateCompressedBucketInParallel() chan BQVecAndID {
 		wg.Add(1)
 		go func(start, end []byte) {
 			defer wg.Done()
+			localResults := make([]BQVecAndID, 0, 10_000)
 			c := bucket.Cursor()
 			defer c.Close()
 
 			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) <= 0; k, v = c.Next() {
-				extract(k, v)
+				localResults = append(localResults, extract(k, v))
 			}
+			out <- localResults
 		}(seeds[i], seeds[i+1])
 	}
 
@@ -774,10 +781,12 @@ func (index *flat) iterateCompressedBucketInParallel() chan BQVecAndID {
 		c := bucket.Cursor()
 		defer c.Close()
 		defer wg.Done()
+		localResults := make([]BQVecAndID, 0, 10_000)
 
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			extract(k, v)
+			localResults = append(localResults, extract(k, v))
 		}
+		out <- localResults
 	}()
 
 	go func() {
