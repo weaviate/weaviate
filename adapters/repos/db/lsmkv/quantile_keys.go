@@ -19,6 +19,10 @@ func (sg *SegmentGroup) quantileKeys(q int) [][]byte {
 
 	var keys [][]byte
 
+	if len(sg.segments) == 0 {
+		return keys
+	}
+
 	for _, s := range sg.segments {
 		keys = append(keys, s.quantileKeys(q)...)
 	}

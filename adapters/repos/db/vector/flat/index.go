@@ -696,7 +696,11 @@ func (index *flat) PostStartup() {
 	maxID := uint64(0)
 
 	before := time.Now()
-	for v := range index.iterateCompressedBucketInParallel() {
+	channel := index.iterateCompressedBucketInParallel()
+	if channel == nil {
+		return // nothing to do
+	}
+	for v := range channel {
 		vecs = append(vecs, v...)
 	}
 
@@ -730,6 +734,10 @@ func (index *flat) iterateCompressedBucketInParallel() chan []BQVecAndID {
 	bucket := index.store.Bucket(index.getCompressedBucketName())
 	// subtract one because the first routine is going to use cursor.First()
 	seeds := bucket.QuantileKeys(parallel - 1)
+	if len(seeds) == 0 {
+		return nil
+	}
+
 	wg := sync.WaitGroup{}
 	out := make(chan []BQVecAndID)
 
