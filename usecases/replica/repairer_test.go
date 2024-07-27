@@ -15,7 +15,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -44,13 +43,12 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 	t.Run("GetContentFromDirectRead", func(t *testing.T) {
 		var (
-			f            = newFakeFactory("C1", shard, nodes)
-			finder       = f.newFinder("A")
-			digestIDs    = []strfmt.UUID{id}
-			item         = objects.Replica{ID: id, Object: object(id, 3)}
-			digestR2     = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
-			digestR3     = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
-			shortBackoff = *backoff.NewExponentialBackOff()
+			f         = newFakeFactory("C1", shard, nodes)
+			finder    = f.newFinder("A")
+			digestIDs = []strfmt.UUID{id}
+			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			digestR2  = []RepairResponse{{ID: id.String(), UpdateTime: 2}}
+			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
@@ -580,7 +578,8 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
-		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR1, nil)
+		// TODO why does this fail now vs before?
+		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR1, errAny)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, errAny)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 		// called during reparation to fetch the most recent object

@@ -105,7 +105,7 @@ func (f *Finder) GetOne(ctx context.Context,
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, state, err := c.PullAdapted(ctx, l, op, "", backoffConfig)
+	replyCh, state, err := c.Pullv2(ctx, l, op, "", backoffConfig)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -126,7 +126,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
 	}
 
-	replyCh, _, err := c.PullMinimal(ctx, l, op, "", *utils.DefaultExponentialBackOff())
+	replyCh, _, err := c.Pullv2(ctx, l, op, "", *utils.DefaultExponentialBackOff())
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -214,14 +214,14 @@ func (f *Finder) Exists(ctx context.Context,
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.PullMinimal(ctx, l, op, "", backoffConfig)
+	replyCh, state, err := c.Pullv2(ctx, l, op, "", backoffConfig)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
-		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return false, fmt.Errorf("%s %q: %w from pull", msgCLevel, l, errReplicas)
 	}
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		err = fmt.Errorf("%s %q: %w from readExistence", msgCLevel, l, err)
 	}
 	return result.Value, err
 }
@@ -263,7 +263,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		}
 	}
 
-	replyCh, state, err := c.PullMinimal(ctx, l, op, batch.Node, backoffConfig)
+	replyCh, state, err := c.Pullv2(ctx, l, op, batch.Node, backoffConfig)
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", errReplicas)
 	}
@@ -331,7 +331,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, state, err := coord.PullMinimal(ctx, One, op, "", *utils.DefaultExponentialBackOff())
+	replyCh, state, err := coord.Pullv2(ctx, One, op, "", *utils.DefaultExponentialBackOff())
 	if err != nil {
 		return nil, nil, fmt.Errorf("pull shard: %w", err)
 	}

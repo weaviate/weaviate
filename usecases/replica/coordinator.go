@@ -739,7 +739,7 @@ func (c *coordinator[T]) PullLoic(ctx context.Context,
 					candidatePool <- d
 					var newDelay time.Duration
 					if d, ok := retryCounter[d]; ok {
-						newDelay = backOff(d)
+						newDelay = backOffFunc(d)
 					} else {
 						newDelay = initialBackOff
 					}
@@ -765,10 +765,10 @@ func (c *coordinator[T]) PullLoic(ctx context.Context,
 	return replyCh, state, nil
 }
 
-// TODO dry
-// backOff return a new random duration in the interval [d, 3d].
+// TODO dry and rename
+// backOffFunc return a new random duration in the interval [d, 3d].
 // It implements truncated exponential back-off with introduced jitter.
-func backOff(d time.Duration) time.Duration {
+func backOffFunc(d time.Duration) time.Duration {
 	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }
 
@@ -861,7 +861,13 @@ type opT[T any] struct {
 // 	return replyCh, state, nil
 // }
 
-func (c *coordinator[T]) PullMinimal(ctx context.Context,
+// TODO comment
+type hostRetry struct {
+	host           string
+	currentBackoff time.Duration
+}
+
+func (c *coordinator[T]) Pullv2(ctx context.Context,
 	cl ConsistencyLevel,
 	op readOp[T], directCandidate string, backoffConfig backoff.ExponentialBackOff,
 ) (<-chan _Result[T], rState, error) {
@@ -871,70 +877,55 @@ func (c *coordinator[T]) PullMinimal(ctx context.Context,
 	}
 	level := state.Level
 	replyCh := make(chan _Result[T], level)
+	hosts := state.Hosts
 
-	failBackOff := backoffConfig.MaxInterval
-	initialBackOff := backoffConfig.InitialInterval
+	hostRetryQueue := make(chan hostRetry, len(hosts))
 
-	candidates := state.Hosts[:level]                    // direct ones
-	candidatePool := make(chan string, len(state.Hosts)) //-level) // remaining ones
-	for _, replica := range state.Hosts[level:] {
-		candidatePool <- replica
+	// Put the "backups/fallbacks" on the retry queue
+	for i := level; i < len(hosts); i++ {
+		hostRetryQueue <- hostRetry{hosts[i], backoffConfig.InitialInterval}
 	}
-	// close(candidatePool) // pool is ready
+
 	f := func() {
 		wg := sync.WaitGroup{}
-		wg.Add(len(candidates))
-		for i := range candidates { // Ask direct candidate first
-			idx := i
-			f := func() {
+		wg.Add(level)
+		for i := 0; i < level; i++ {
+			hostIndex := i
+			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
+			workerFunc := func() {
 				defer wg.Done()
-				resp, err := op(ctx, candidates[idx], idx == 0)
+				// each worker will first try its corresponding host (eg worker0 tries host[0], worker1 tries host[1], etc) we want the fullRead to be tried on host[0] because that will be the direct candidate (if a direct candidate was provided), if we only used the retry queue then we would not have the guarantee that the fullRead will be tried on hosts[0] first.
+				resp, err := op(ctx, hosts[hostIndex], isFullReadWorker)
 				if err == nil {
 					replyCh <- _Result[T]{resp, err}
 					return
-				} else {
-					candidatePool <- candidates[idx]
 				}
+				// this host failed op on the first try, put it on the retry queue
+				hostRetryQueue <- hostRetry{hosts[hostIndex], backoffConfig.InitialInterval}
 
-				retryCounter := make(map[string]time.Duration)
-				failedNodes := make(map[string]_Result[T])
-				// TODO can goroutines get stuck on this range?
-				for delegate := range candidatePool {
-					if f, ok := failedNodes[delegate]; ok {
-						replyCh <- f
-						break
-					}
-					if r, ok := retryCounter[delegate]; ok {
-						timer := time.NewTimer(r)
-						select {
-						case <-ctx.Done():
-							timer.Stop()
-							break
-						case <-timer.C:
-						}
-						timer.Stop()
-					}
-
-					resp, err := op(ctx, delegate, idx == 0)
+				// let's fallback to the backups in the retry queue
+				for hr := range hostRetryQueue {
+					resp, err := op(ctx, hr.host, isFullReadWorker)
 					if err == nil {
 						replyCh <- _Result[T]{resp, err}
-						break
 					}
-
-					candidatePool <- delegate
-					var newDelay time.Duration
-					if d, ok := retryCounter[delegate]; ok {
-						newDelay = backOff(d)
-					} else {
-						newDelay = initialBackOff
+					nextBackoff := backOffFunc(hr.currentBackoff)
+					if nextBackoff > backoffConfig.MaxInterval {
+						// this host has run out of retries, if its an error then so be it
+						replyCh <- _Result[T]{resp, err}
+						return
 					}
-					if newDelay > failBackOff {
-						failedNodes[delegate] = _Result[T]{resp, err}
+					select {
+					case <-ctx.Done():
+						// TODO anything else to do to clean up, eg err onto replyCh?
+						return
+					case <-time.After(nextBackoff):
+						// we paused this worker for nextBackoff, put this host back onto the retry queue (with the updated current backoff) and pick up the next job
+						hostRetryQueue <- hostRetry{hr.host, nextBackoff}
 					}
-					retryCounter[delegate] = newDelay
 				}
 			}
-			enterrors.GoWrapper(f, c.log)
+			enterrors.GoWrapper(workerFunc, c.log)
 		}
 		wg.Wait()
 		close(replyCh)
@@ -943,3 +934,34 @@ func (c *coordinator[T]) PullMinimal(ctx context.Context,
 
 	return replyCh, state, nil
 }
+
+// candidates := state.Hosts[:level]                          // direct ones
+// candidatePool := make(chan string, len(state.Hosts)-level) // remaining ones
+// for _, replica := range state.Hosts[level:] {
+// 	candidatePool <- replica
+// }
+// close(candidatePool) // pool is ready
+// f := func() {
+// 	wg := sync.WaitGroup{}
+// 	wg.Add(len(candidates))
+// 	for i := range candidates { // Ask direct candidate first
+// 		idx := i
+// 		f := func() {
+// 			defer wg.Done()
+// 			resp, err := op(ctx, candidates[idx], idx == 0)
+
+// 			// If node is not responding delegate request to another node
+// 			for err != nil {
+// 				if delegate, ok := <-candidatePool; ok {
+// 					resp, err = op(ctx, delegate, idx == 0)
+// 				} else {
+// 					break
+// 				}
+// 			}
+// 			replyCh <- _Result[T]{resp, err}
+// 		}
+// 		enterrors.GoWrapper(f, c.log)
+// 	}
+// 	wg.Wait()
+// 	close(replyCh)
+// }
