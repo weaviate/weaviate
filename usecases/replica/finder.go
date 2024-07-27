@@ -126,7 +126,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
 	}
 
-	replyCh, _, err := c.Pull(ctx, l, op, "", *utils.DefaultExponentialBackOff())
+	replyCh, _, err := c.PullMinimal(ctx, l, op, "", *utils.DefaultExponentialBackOff())
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -214,7 +214,7 @@ func (f *Finder) Exists(ctx context.Context,
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Pull(ctx, l, op, "", backoffConfig)
+	replyCh, state, err := c.PullMinimal(ctx, l, op, "", backoffConfig)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
 		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -257,12 +257,13 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		if fullRead { // we already have the content
 			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 9)
+			// TODO is this ok?
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
 			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 
-	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, backoffConfig)
+	replyCh, state, err := c.PullMinimal(ctx, l, op, batch.Node, backoffConfig)
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", errReplicas)
 	}
@@ -330,7 +331,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, state, err := coord.Pull(ctx, One, op, "", *utils.DefaultExponentialBackOff())
+	replyCh, state, err := coord.PullMinimal(ctx, One, op, "", *utils.DefaultExponentialBackOff())
 	if err != nil {
 		return nil, nil, fmt.Errorf("pull shard: %w", err)
 	}

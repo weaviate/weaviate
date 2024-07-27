@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -253,7 +254,7 @@ func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level 
 					default:
 						<-fullReadJobs
 						resp, err := op(ctx, hosts[currentFullReadHostIdx], true)
-						hostDone := err == nil || currentFullReadBackoff > fullReadBackoffConfig.MaxElapsedTime
+						hostDone := err == nil || currentFullReadBackoff > fullReadBackoffConfig.MaxInterval || currentFullReadBackoff == backoff.Stop
 						if hostDone {
 							fullReadHostsDone.Store(currentFullReadHostIdx, true)
 						}
@@ -311,7 +312,7 @@ func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level 
 							close(workerJobs)
 							return
 						default:
-							workerJobs <- struct{}{}
+							workerJobs <- struct{}{} //94
 						}
 					}
 				}()
@@ -335,7 +336,7 @@ func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level 
 						case <-workerJobs:
 							resp, err := op(ctx, hosts[currentWorkerHostIdx], false)
 							// TODO check currentWorkerBackoff == backoff.Stop?
-							hostDone := err == nil || currentWorkerBackoff == backoff.Stop
+							hostDone := err == nil || currentWorkerBackoff > workerBackoffConfig.MaxInterval || currentWorkerBackoff == backoff.Stop
 							if hostDone {
 								workerHostsDone.Store(currentWorkerHostIdx, true)
 							}
@@ -354,7 +355,7 @@ func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level 
 						// default:
 						// }
 					}
-					select {
+					select { //118
 					case <-workersDone:
 						return
 					case <-time.After(currentWorkerBackoff):
@@ -368,19 +369,19 @@ func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level 
 			fullReadLatestRepliesByHostIdx := make(map[int]adapterReply[T])
 			workerLatestRepliesByHostIdx := make(map[int]adapterReply[T])
 			for {
-				tempReply := (<-tempReplyCh)
+				tempReply := (<-tempReplyCh) //119
 				if tempReply.fullRead {
 					fullReadLatestRepliesByHostIdx[tempReply.hostIdx] = tempReply
 					if tempReply.result.Err == nil {
 						fullReadDone <- true
 						fullReadDone <- true
-						close(fullReadDone)
+						// close(fullReadDone)
 					}
 				} else {
 					workerLatestRepliesByHostIdx[tempReply.hostIdx] = tempReply
 				}
-				fmt.Printf("NATEE done checker fullread: %v\n", fullReadLatestRepliesByHostIdx)
-				fmt.Printf("NATEE done checker workers: %v\n\n", workerLatestRepliesByHostIdx)
+				// fmt.Printf("NATEE done checker fullread: %v\n", fullReadLatestRepliesByHostIdx)
+				// fmt.Printf("NATEE done checker workers: %v\n\n", workerLatestRepliesByHostIdx)
 
 				// do we have a fullRead reply + (>=level-1) worker replies
 				fullReadSucceeded := false
@@ -399,9 +400,9 @@ func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level 
 					if reply.result.Err == nil && reply.hostIdx != fullReadSuccessfulHostIdx {
 						numWorkerSuccesses++
 					}
-					if numWorkerSuccesses >= (level - 1) {
-						enoughWorkerSuccesses = true
-					}
+				}
+				if numWorkerSuccesses >= (level - 1) {
+					enoughWorkerSuccesses = true
 				}
 				if fullReadSucceeded && enoughWorkerSuccesses {
 					replyCh <- fullReadLatestRepliesByHostIdx[fullReadSuccessfulHostIdx].result
@@ -432,7 +433,7 @@ func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level 
 					replyCh <- fullReadLatestRepliesByHostIdx[0].result
 					fullReadDone <- true
 					fullReadDone <- true
-					close(fullReadDone)
+					// close(fullReadDone)
 					break
 				}
 
@@ -448,16 +449,21 @@ func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level 
 					}
 				}
 				// TODO fail early if too many workers fail
-				if numWorkersFailed >= numHosts {
-					replyCh <- fullReadLatestRepliesByHostIdx[workerFailedHostIdx].result
+				allowedFailures := numHosts - level
+				if numWorkersFailed > allowedFailures {
+					replyCh <- workerLatestRepliesByHostIdx[workerFailedHostIdx].result
 					break
 				}
+
+				// TODO count numbers of hosts done vs how many successes we still need
+				// fmt.Println("a")
 			}
 			close(replyCh)
 			workersDone <- true
 			workersDone <- true
-			close(workersDone)
 			wg.Wait()
+			close(fullReadDone)
+			close(workersDone)
 		}()
 	}
 }
@@ -671,3 +677,269 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 // 	return replyCh, state, nil
 // }
+
+// Pull data from replica depending on consistency level
+// Pull involves just as many replicas to satisfy the consistency level.
+//
+// directCandidate when specified a direct request is set to this node (default to this node)
+func (c *coordinator[T]) PullLoic(ctx context.Context,
+	cl ConsistencyLevel,
+	op readOp[T], directCandidate string,
+	backoffConfig backoff.ExponentialBackOff,
+) (<-chan _Result[T], rState, error) {
+	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
+	if err != nil {
+		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+	}
+	level := state.Level
+	replyCh := make(chan _Result[T], level)
+
+	candidatePool := make(chan int, len(state.Hosts)) // remaining ones
+	for i := range state.Hosts {
+		candidatePool <- i
+	}
+
+	// TODO can i ensure fullRead tries the direct candidate node first? this seems important for perf reasons
+	// failBackOff := time.Second * 20
+	// initialBackOff := time.Millisecond * 250
+	failBackOff := backoffConfig.MaxInterval
+	initialBackOff := backoffConfig.InitialInterval
+	f := func() {
+		wg := sync.WaitGroup{}
+		wg.Add(level)
+		for i := 0; i < level; i++ { // Ask direct candidate first
+			doFullRead := i == 0
+			f := func() {
+				retryCounter := make(map[int]time.Duration)
+				failedNodes := make(map[int]_Result[T])
+				defer wg.Done()
+				tryDelegate := func(d int) bool {
+					if f, ok := failedNodes[d]; ok {
+						replyCh <- f
+						return false
+					}
+					if r, ok := retryCounter[d]; ok {
+						timer := time.NewTimer(r)
+						select {
+						case <-ctx.Done():
+							timer.Stop()
+							break
+						case <-timer.C:
+						}
+						timer.Stop()
+					}
+					// fmt.Println("NATEE plop before", i, delegate, doFullRead)
+					resp, err := op(ctx, state.Hosts[d], doFullRead)
+					// fmt.Println("NATEE plop after", i, delegate, doFullRead, err)
+					if err == nil {
+						replyCh <- _Result[T]{resp, err}
+						return false
+					}
+
+					candidatePool <- d
+					var newDelay time.Duration
+					if d, ok := retryCounter[d]; ok {
+						newDelay = backOff(d)
+					} else {
+						newDelay = initialBackOff
+					}
+					if newDelay > failBackOff {
+						failedNodes[d] = _Result[T]{resp, err}
+					}
+					retryCounter[d] = newDelay
+					return true
+
+				}
+				for delegate := range candidatePool {
+					tryDelegate(delegate)
+				}
+			}
+			enterrors.GoWrapper(f, c.log)
+		}
+
+		wg.Wait()
+		close(replyCh)
+	}
+	enterrors.GoWrapper(f, c.log)
+
+	return replyCh, state, nil
+}
+
+// TODO dry
+// backOff return a new random duration in the interval [d, 3d].
+// It implements truncated exponential back-off with introduced jitter.
+func backOff(d time.Duration) time.Duration {
+	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
+}
+
+type opT[T any] struct {
+	fullRead        bool
+	backoffDuration time.Duration
+	result          _Result[T]
+}
+
+// Pull data from replica depending on consistency level
+// Pull involves just as many replicas to satisfy the consistency level.
+//
+// directCandidate when specified a direct request is set to this node (default to this node)
+// func (c *coordinator[T]) PullPool(ctx context.Context,
+// 	cl ConsistencyLevel,
+// 	op readOp[T], directCandidate string,
+// 	backoffConfig backoff.ExponentialBackOff,
+// ) (<-chan _Result[T], rState, error) {
+// 	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
+// 	if err != nil {
+// 		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+// 	}
+// 	level := state.Level
+// 	replyCh := make(chan _Result[T], level)
+
+// 	candidatePool := make(chan string, len(state.Hosts)) // remaining ones
+// 	for _, replica := range state.Hosts {
+// 		candidatePool <- replica
+// 	}
+
+// 	// TODO can i ensure fullRead tries the direct candidate node first? this seems important for perf reasons
+// 	// failBackOff := time.Second * 20
+// 	// initialBackOff := time.Millisecond * 250
+// 	failBackOff := backoffConfig.MaxInterval
+// 	initialBackOff := backoffConfig.InitialInterval
+// 	f := func() {
+// 		wg := sync.WaitGroup{}
+// 		wg.Add(level)
+// 		for i := 0; i < level; i++ { // Ask direct candidate first
+// 			doFullRead := i == 0
+// 			f := func() {
+// 				retryCounter := make(map[string]time.Duration)
+// 				failedNodes := make(map[string]_Result[T])
+// 				defer wg.Done()
+// 				for delegate := range candidatePool {
+// 					if f, ok := failedNodes[delegate]; ok {
+// 						replyCh <- f
+// 						break
+// 					}
+// 					if r, ok := retryCounter[delegate]; ok {
+// 						timer := time.NewTimer(r)
+// 						select {
+// 						case <-ctx.Done():
+// 							timer.Stop()
+// 							break
+// 						case <-timer.C:
+// 						}
+// 						timer.Stop()
+// 					}
+// 					// fmt.Println("NATEE plop before", i, delegate, doFullRead)
+// 					resp, err := op(ctx, delegate, doFullRead)
+// 					// fmt.Println("NATEE plop after", i, delegate, doFullRead, err)
+// 					if err == nil {
+// 						replyCh <- _Result[T]{resp, err}
+// 						break
+// 					}
+
+// 					candidatePool <- delegate
+// 					var newDelay time.Duration
+// 					if d, ok := retryCounter[delegate]; ok {
+// 						newDelay = backOff(d)
+// 					} else {
+// 						newDelay = initialBackOff
+// 					}
+// 					if newDelay > failBackOff {
+// 						failedNodes[delegate] = _Result[T]{resp, err}
+// 					}
+// 					retryCounter[delegate] = newDelay
+// 					continue
+// 				}
+// 			}
+// 			enterrors.GoWrapper(f, c.log)
+// 		}
+
+// 		wg.Wait()
+// 		close(replyCh)
+// 	}
+// 	enterrors.GoWrapper(f, c.log)
+
+// 	return replyCh, state, nil
+// }
+
+func (c *coordinator[T]) PullMinimal(ctx context.Context,
+	cl ConsistencyLevel,
+	op readOp[T], directCandidate string, backoffConfig backoff.ExponentialBackOff,
+) (<-chan _Result[T], rState, error) {
+	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
+	if err != nil {
+		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+	}
+	level := state.Level
+	replyCh := make(chan _Result[T], level)
+
+	failBackOff := backoffConfig.MaxInterval
+	initialBackOff := backoffConfig.InitialInterval
+
+	candidates := state.Hosts[:level]                    // direct ones
+	candidatePool := make(chan string, len(state.Hosts)) //-level) // remaining ones
+	for _, replica := range state.Hosts[level:] {
+		candidatePool <- replica
+	}
+	// close(candidatePool) // pool is ready
+	f := func() {
+		wg := sync.WaitGroup{}
+		wg.Add(len(candidates))
+		for i := range candidates { // Ask direct candidate first
+			idx := i
+			f := func() {
+				defer wg.Done()
+				resp, err := op(ctx, candidates[idx], idx == 0)
+				if err == nil {
+					replyCh <- _Result[T]{resp, err}
+					return
+				} else {
+					candidatePool <- candidates[idx]
+				}
+
+				retryCounter := make(map[string]time.Duration)
+				failedNodes := make(map[string]_Result[T])
+				// TODO can goroutines get stuck on this range?
+				for delegate := range candidatePool {
+					if f, ok := failedNodes[delegate]; ok {
+						replyCh <- f
+						break
+					}
+					if r, ok := retryCounter[delegate]; ok {
+						timer := time.NewTimer(r)
+						select {
+						case <-ctx.Done():
+							timer.Stop()
+							break
+						case <-timer.C:
+						}
+						timer.Stop()
+					}
+
+					resp, err := op(ctx, delegate, idx == 0)
+					if err == nil {
+						replyCh <- _Result[T]{resp, err}
+						break
+					}
+
+					candidatePool <- delegate
+					var newDelay time.Duration
+					if d, ok := retryCounter[delegate]; ok {
+						newDelay = backOff(d)
+					} else {
+						newDelay = initialBackOff
+					}
+					if newDelay > failBackOff {
+						failedNodes[delegate] = _Result[T]{resp, err}
+					}
+					retryCounter[delegate] = newDelay
+				}
+			}
+			enterrors.GoWrapper(f, c.log)
+		}
+		wg.Wait()
+		close(replyCh)
+	}
+	enterrors.GoWrapper(f, c.log)
+
+	return replyCh, state, nil
+}
