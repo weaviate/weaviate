@@ -12,7 +12,6 @@
 package flat
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -696,7 +695,12 @@ func (index *flat) PostStartup() {
 	maxID := uint64(0)
 
 	before := time.Now()
-	channel := index.iterateCompressedBucketInParallel()
+	bucket := index.store.Bucket(index.getCompressedBucketName())
+	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
+	// however want some kind of relationship to the machine size, so
+	// 2*GOMAXPROCS seems like a good default.
+	it := NewCompressedParallelIterator(bucket, 2*runtime.GOMAXPROCS(0))
+	channel := it.IterateAll()
 	if channel == nil {
 		return // nothing to do
 	}
@@ -719,90 +723,6 @@ func (index *flat) PostStartup() {
 		index.bqCache.Preload(vec.id, vec.vec)
 	}
 	fmt.Printf("pre-loaded %d vectors in %s\n", count, time.Since(before))
-}
-
-type BQVecAndID struct {
-	id  uint64
-	vec []uint64
-}
-
-func (index *flat) iterateCompressedBucketInParallel() chan []BQVecAndID {
-	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
-	// however want some kind of relationship to the machine size, so
-	// 2*GOMAXPROCS seems like a good default.
-	parallel := 2 * runtime.GOMAXPROCS(0)
-	bucket := index.store.Bucket(index.getCompressedBucketName())
-	// subtract one because the first routine is going to use cursor.First()
-	seeds := bucket.QuantileKeys(parallel - 1)
-	if len(seeds) == 0 {
-		return nil
-	}
-
-	wg := sync.WaitGroup{}
-	out := make(chan []BQVecAndID)
-
-	// There are three scenarios:
-	// 1. Read from beginning to first checkpoint
-	// 2. Read from checkpoint n to checkpoint n+1
-	// 3. Read from last checkpoint to end
-
-	extract := func(k, v []byte) BQVecAndID {
-		id := binary.BigEndian.Uint64(k)
-		vec := uint64SliceFromByteSlice(v, make([]uint64, len(v)/8))
-		return BQVecAndID{id: id, vec: vec}
-	}
-
-	// S1: Read from beginning to first checkpoint:
-	wg.Add(1)
-	go func() {
-		c := bucket.Cursor()
-		localResults := make([]BQVecAndID, 0, 10_000)
-		defer c.Close()
-		defer wg.Done()
-
-		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) <= 0; k, v = c.Next() {
-			localResults = append(localResults, extract(k, v))
-		}
-
-		out <- localResults
-	}()
-
-	// S2: Read from checkpoint n to checkpoint n+1, stop at last checkpoint:
-	for i := 0; i < len(seeds)-1; i++ {
-		wg.Add(1)
-		go func(start, end []byte) {
-			defer wg.Done()
-			localResults := make([]BQVecAndID, 0, 10_000)
-			c := bucket.Cursor()
-			defer c.Close()
-
-			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) <= 0; k, v = c.Next() {
-				localResults = append(localResults, extract(k, v))
-			}
-			out <- localResults
-		}(seeds[i], seeds[i+1])
-	}
-
-	// S3: Read from last checkpoint to end:
-	wg.Add(1)
-	go func() {
-		c := bucket.Cursor()
-		defer c.Close()
-		defer wg.Done()
-		localResults := make([]BQVecAndID, 0, 10_000)
-
-		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			localResults = append(localResults, extract(k, v))
-		}
-		out <- localResults
-	}()
-
-	go func() {
-		wg.Wait()
-		close(out)
-	}()
-
-	return out
 }
 
 func (index *flat) Dump(labels ...string) {

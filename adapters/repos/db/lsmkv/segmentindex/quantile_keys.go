@@ -28,6 +28,10 @@ import (
 //     most likely more
 //  2. If there are less than q keys in the tree, you will get all keys.
 func (t *DiskTree) QuantileKeys(q int) [][]byte {
+	if q <= 0 {
+		return nil
+	}
+
 	// we will overfetch a bit because we will have q keys at level n, but in
 	// addition we can use all keys discovered on the way to get to level n. This
 	// will help us to get a more even distribution of keys – especially when
