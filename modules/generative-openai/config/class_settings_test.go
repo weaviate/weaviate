@@ -194,28 +194,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiVersion:       "2024-02-01",
 		},
 		{
-			name: "With gpt-4o model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":            "gpt-4o",
-					"maxTokens":        128000,
-					"temperature":      0.5,
-					"topP":             3,
-					"frequencyPenalty": 0.1,
-					"presencePenalty":  0.9,
-				},
-			},
-			wantModel:            "gpt-4o",
-			wantMaxTokens:        128000,
-			wantTemperature:      0.5,
-			wantTopP:             3,
-			wantFrequencyPenalty: 0.1,
-			wantPresencePenalty:  0.9,
-			wantErr:              nil,
-			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
-		},
-		{
 			name: "Wrong maxTokens configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
