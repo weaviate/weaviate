@@ -699,7 +699,7 @@ func (index *flat) PostStartup() {
 	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
 	// however want some kind of relationship to the machine size, so
 	// 2*GOMAXPROCS seems like a good default.
-	it := NewCompressedParallelIterator(bucket, 2*runtime.GOMAXPROCS(0))
+	it := NewCompressedParallelIterator(bucket, 2*runtime.GOMAXPROCS(0), index.logger)
 	channel := it.IterateAll()
 	if channel == nil {
 		return // nothing to do

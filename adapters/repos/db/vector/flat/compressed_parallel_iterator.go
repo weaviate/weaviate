@@ -5,18 +5,24 @@ import (
 	"encoding/binary"
 	"sync"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 type compressedParallelIterator struct {
 	bucket   *lsmkv.Bucket
 	parallel int
+	logger   logrus.FieldLogger
 }
 
-func NewCompressedParallelIterator(bucket *lsmkv.Bucket, parallel int) *compressedParallelIterator {
+func NewCompressedParallelIterator(bucket *lsmkv.Bucket, parallel int,
+	logger logrus.FieldLogger,
+) *compressedParallelIterator {
 	return &compressedParallelIterator{
 		bucket:   bucket,
 		parallel: parallel,
+		logger:   logger,
 	}
 }
 
@@ -52,7 +58,7 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 
 	// S1: Read from beginning to first checkpoint:
 	wg.Add(1)
-	go func() {
+	enterrors.GoWrapper(func() {
 		c := cpi.bucket.Cursor()
 		localResults := make([]BQVecAndID, 0, 10_000)
 		defer c.Close()
@@ -63,12 +69,15 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		}
 
 		out <- localResults
-	}()
+	}, cpi.logger)
 
 	// S2: Read from checkpoint n to checkpoint n+1, stop at last checkpoint:
 	for i := 0; i < len(seeds)-1; i++ {
 		wg.Add(1)
-		go func(start, end []byte) {
+		start := seeds[i]
+		end := seeds[i+1]
+
+		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			localResults := make([]BQVecAndID, 0, 10_000)
 			c := cpi.bucket.Cursor()
@@ -79,12 +88,12 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 			}
 
 			out <- localResults
-		}(seeds[i], seeds[i+1])
+		}, cpi.logger)
 	}
 
 	// S3: Read from last checkpoint to end:
 	wg.Add(1)
-	go func() {
+	enterrors.GoWrapper(func() {
 		c := cpi.bucket.Cursor()
 		defer c.Close()
 		defer wg.Done()
@@ -95,7 +104,7 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		}
 
 		out <- localResults
-	}()
+	}, cpi.logger)
 
 	go func() {
 		wg.Wait()
