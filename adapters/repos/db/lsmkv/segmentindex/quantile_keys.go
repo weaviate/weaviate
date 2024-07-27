@@ -7,6 +7,26 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
+// QuantileKeys returns a list of keys that roughly represent the quantiles of
+// the tree. This can be very useful to bootstrap parallel cursors over the
+// segment that are more or less evenly distributed.
+//
+// This method uses the natural shape of the tree to determine the
+// distribution of the keys. This is a performance-accuracy trade-off. It does
+// not guarantee perfect distribution, but it is fairly cheap to obtain as most
+// runs will only need to go a few levels deep – even on massive trees.
+//
+// The number of keys returned is not guaranteed to be exactly q, in most cases
+// returns more keys. This is because in a real-life application you would
+// likely aggregate across multiple segments. Similarly keys are not returned
+// in any specific order, as the assumption is that post-processing will be
+// done when keys are aggregated accross multiple segments.
+//
+// The two guarantees you get are:
+//
+//  1. If there are at least q keys in the tree, you will get at least q keys,
+//     most likely more
+//  2. If there are less than q keys in the tree, you will get all keys.
 func (t *DiskTree) QuantileKeys(q int) [][]byte {
 	// we will overfetch a bit because we will have q keys at level n, but in
 	// addition we can use all keys discovered on the way to get to level n. This
