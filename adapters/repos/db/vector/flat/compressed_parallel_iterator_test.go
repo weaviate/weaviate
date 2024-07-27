@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -65,7 +66,8 @@ func TestCompressedParallelIterator(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			bucket := buildCompressedBucketForTest(t, test.totalVecs)
 			defer bucket.Shutdown(context.Background())
-			cpi := NewCompressedParallelIterator(bucket, test.paralell)
+			logger, _ := logrustest.NewNullLogger()
+			cpi := NewCompressedParallelIterator(bucket, test.paralell, logger)
 			require.NotNil(t, cpi)
 
 			ch := cpi.IterateAll()
