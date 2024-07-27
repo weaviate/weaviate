@@ -117,17 +117,17 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		out <- localResults
 	}, cpi.logger)
 
-	go func() {
+	enterrors.GoWrapper(func() {
 		wg.Wait()
 		close(out)
-	}()
+	}, cpi.logger)
 
 	return out
 }
 
 func (cpi *compressedParallelIterator) iterateAllNoConcurrency() chan []BQVecAndID {
 	out := make(chan []BQVecAndID)
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer close(out)
 		c := cpi.bucket.Cursor()
 		defer c.Close()
@@ -140,7 +140,7 @@ func (cpi *compressedParallelIterator) iterateAllNoConcurrency() chan []BQVecAnd
 		}
 
 		out <- localResults
-	}()
+	}, cpi.logger)
 
 	return out
 }
