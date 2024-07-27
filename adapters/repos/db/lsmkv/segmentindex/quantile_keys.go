@@ -12,7 +12,6 @@
 package segmentindex
 
 import (
-	"fmt"
 	"math"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -81,9 +80,15 @@ func (bfs *parallelBFS) parse(offset uint64, level int) {
 	nodeKeyBuffer := make([]byte, int(keyLen))
 	_, err := rw.CopyBytesFromBuffer(uint64(keyLen), nodeKeyBuffer)
 	if err != nil {
-		// TODO: handle error
-		panic(fmt.Errorf("copy node key: %w", err).Error())
+		// no special handling other than skipping this node. If the key could not
+		// be read correctly, we have much bigger problems worrying about quantile
+		// keys for cursor efficiency. This error is handled during normal .Get()
+		// operations. It is not worth changing the signature of quantile keys just
+		// to return this one error. We could also consider explicitly panic'ing
+		// here, so this error does not get lost.
+		return
 	}
+
 	bfs.keysDiscovered = append(bfs.keysDiscovered, nodeKeyBuffer)
 
 	if level+1 > bfs.maxDepth {
