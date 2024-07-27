@@ -66,6 +66,7 @@ var defaultMaxTokens = map[string]float64{
 	"gpt-4":              8192,
 	"gpt-4-32k":          32768,
 	"gpt-4-1106-preview": 128000,
+	"gpt-4o":             128000,
 }
 
 var availableApiVersions = []string{
@@ -80,6 +81,7 @@ var availableApiVersions = []string{
 	"2024-02-15-preview",
 	"2024-03-01-preview",
 	"2024-02-01",
+	"2024-06-01",
 }
 
 type ClassSettings interface {
