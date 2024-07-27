@@ -194,6 +194,28 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiVersion:       "2024-02-01",
 		},
 		{
+			name: "With gpt-4o model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":            "gpt-4o",
+					"maxTokens":        128000,
+					"temperature":      0.5,
+					"topP":             3,
+					"frequencyPenalty": 0.1,
+					"presencePenalty":  0.9,
+				},
+			},
+			wantModel:            "gpt-4o",
+			wantMaxTokens:        128000,
+			wantTemperature:      0.5,
+			wantTopP:             3,
+			wantFrequencyPenalty: 0.1,
+			wantPresencePenalty:  0.9,
+			wantErr:              nil,
+			wantBaseURL:          "https://api.openai.com",
+			wantApiVersion:       "2024-02-01",
+		},
+		{
 			name: "Wrong maxTokens configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -266,7 +288,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: " +
 				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview " +
 				"2023-08-01-preview 2023-09-01-preview 2023-12-01-preview 2024-02-15-preview " +
-				"2024-03-01-preview 2024-02-01]"),
+				"2024-03-01-preview 2024-02-01 2024-06-01]"),
 		},
 	}
 	for _, tt := range tests {
