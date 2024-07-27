@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -409,16 +410,40 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	for i := range idsSlice.slice {
 		idsSlice.slice[i] = heap.Pop().ID
 	}
-	for _, id := range idsSlice.slice {
-		candidateAsBytes, err := index.vectorById(id)
-		if err != nil {
-			return nil, nil, err
-		}
-		distance, err := distanceCalc(candidateAsBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		index.insertToHeap(heap, k, id, distance)
+
+	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
+	parallel := runtime.GOMAXPROCS(0) * 2
+	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
+
+	eg := enterrors.NewErrorGroupWrapper(index.logger)
+	for workerID := 0; workerID < parallel; workerID++ {
+		offset := parallel % workerID
+
+		eg.Go(func() error {
+			for idPos := offset; idPos < len(idsSlice.slice); idPos += parallel {
+				id := idsSlice.slice[idPos]
+				candidateAsBytes, err := index.vectorById(id)
+				if err != nil {
+					return err
+				}
+				distance, err := distanceCalc(candidateAsBytes)
+				if err != nil {
+					return err
+				}
+
+				distancesUncompressedVectors[idPos] = distance
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	for i, id := range idsSlice.slice {
+		index.insertToHeap(heap, k, id, distancesUncompressedVectors[i])
 	}
 
 	ids, dists := index.extractHeap(heap)
