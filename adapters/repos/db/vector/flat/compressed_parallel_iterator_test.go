@@ -27,49 +27,49 @@ func TestCompressedParallelIterator(t *testing.T) {
 	type test struct {
 		name      string
 		totalVecs int
-		paralell  int
+		parallel  int
 	}
 
 	tests := []test{
 		{
 			name:      "single vector, many parallel routines",
 			totalVecs: 1,
-			paralell:  16,
+			parallel:  16,
 		},
 		{
 			name:      "two vectors, many parallel routines",
 			totalVecs: 2,
-			paralell:  16,
+			parallel:  16,
 		},
 		{
 			name:      "three vectors, many parallel routines",
 			totalVecs: 3,
-			paralell:  16,
+			parallel:  16,
 		},
 		{
 			name:      "many vectors, many parallel routines",
 			totalVecs: 1000,
-			paralell:  16,
+			parallel:  16,
 		},
 		{
 			name:      "many vectors, single routine",
 			totalVecs: 1000,
-			paralell:  1,
+			parallel:  1,
 		},
 		{
 			name:      "one fewer vectors than routines",
 			totalVecs: 5,
-			paralell:  6,
+			parallel:  6,
 		},
 		{
 			name:      "matching vectors and routines",
 			totalVecs: 6,
-			paralell:  6,
+			parallel:  6,
 		},
 		{
 			name:      "one more vector than routines",
 			totalVecs: 7,
-			paralell:  6,
+			parallel:  6,
 		},
 	}
 
@@ -78,7 +78,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 			bucket := buildCompressedBucketForTest(t, test.totalVecs)
 			defer bucket.Shutdown(context.Background())
 			logger, _ := logrustest.NewNullLogger()
-			cpi := NewCompressedParallelIterator(bucket, test.paralell, logger)
+			cpi := NewCompressedParallelIterator(bucket, test.parallel, logger)
 			require.NotNil(t, cpi)
 
 			ch := cpi.IterateAll()

@@ -31,7 +31,7 @@ import (
 // returns more keys. This is because in a real-life application you would
 // likely aggregate across multiple segments. Similarly keys are not returned
 // in any specific order, as the assumption is that post-processing will be
-// done when keys are aggregated accross multiple segments.
+// done when keys are aggregated across multiple segments.
 //
 // The two guarantees you get are:
 //
