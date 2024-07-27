@@ -26,6 +26,18 @@ func TestQuantileKeys(t *testing.T) {
 			expectedMinimumOutput: 10,
 		},
 		{
+			name:                  "single entry, no quantiles",
+			objects:               1,
+			inputQuantiles:        0,
+			expectedMinimumOutput: 0,
+		},
+		{
+			name:                  "negative quanitles",
+			objects:               50,
+			inputQuantiles:        -100,
+			expectedMinimumOutput: 0,
+		},
+		{
 			name:                  "single entry, single quantile",
 			objects:               1,
 			inputQuantiles:        1,

@@ -23,6 +23,10 @@ import (
 //  3. It will never return duplicates, to make sure all parallel cursors
 //     return unique values.
 func (b *Bucket) QuantileKeys(q int) [][]byte {
+	if q <= 0 {
+		return nil
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
