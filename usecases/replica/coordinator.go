@@ -182,291 +182,291 @@ func (c *coordinator[T]) Push(ctx context.Context,
 
 // TODO backoffConfig into coordinator?
 // TODO try worker pool package (or learn/read/understand and steal relevant parts) https://github.com/alitto/pond
-func (c *coordinator[T]) PullAdapted(ctx context.Context,
-	cl ConsistencyLevel,
-	op readOp[T], directCandidate string, backoffConfig backoff.ExponentialBackOff,
-) (<-chan _Result[T], rState, error) {
-	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
-	if err != nil {
-		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
-	}
-	level := state.Level
-	hosts := state.Hosts
-	replyCh := make(chan _Result[T], level)
+// func (c *coordinator[T]) PullAdapted(ctx context.Context,
+// 	cl ConsistencyLevel,
+// 	op readOp[T], directCandidate string, backoffConfig backoff.ExponentialBackOff,
+// ) (<-chan _Result[T], rState, error) {
+// 	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
+// 	if err != nil {
+// 		return nil, state, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+// 	}
+// 	level := state.Level
+// 	hosts := state.Hosts
+// 	replyCh := make(chan _Result[T], level)
 
-	enterrors.GoWrapper(c.pullAdapter(ctx, hosts, level, op, replyCh, backoffConfig), c.log)
+// 	enterrors.GoWrapper(c.pullAdapter(ctx, hosts, level, op, replyCh, backoffConfig), c.log)
 
-	return replyCh, state, nil
-}
+// 	return replyCh, state, nil
+// }
 
-type adapterReply[T any] struct {
-	result   _Result[T]
-	hostIdx  int
-	fullRead bool
-	hostDone bool
-}
+// type adapterReply[T any] struct {
+// 	result   _Result[T]
+// 	hostIdx  int
+// 	fullRead bool
+// 	hostDone bool
+// }
 
-func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level int, op readOp[T], replyCh chan<- _Result[T], backoffConfig backoff.ExponentialBackOff) func() {
-	// TODO ctx.Done throughout?
-	return func() {
-		numHosts := len(hosts)
-		tempReplyCh := make(chan adapterReply[T])
-		fullReadDone := make(chan bool, 2)
-		workersDone := make(chan bool, 2)
-		wg := sync.WaitGroup{}
+// func (c *coordinator[T]) pullAdapter(ctx context.Context, hosts []string, level int, op readOp[T], replyCh chan<- _Result[T], backoffConfig backoff.ExponentialBackOff) func() {
+// 	// TODO ctx.Done throughout?
+// 	return func() {
+// 		numHosts := len(hosts)
+// 		tempReplyCh := make(chan adapterReply[T])
+// 		fullReadDone := make(chan bool, 2)
+// 		workersDone := make(chan bool, 2)
+// 		wg := sync.WaitGroup{}
 
-		if level < 1 {
-			panic("TODO")
-		}
+// 		if level < 1 {
+// 			panic("TODO")
+// 		}
 
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			// TODO run fullRead/worker in goroutines and funcify
-			// fullReadPool := pond.New(1, 0, pond.MinWorkers(1))
-			// defer fullReadPool.StopAndWait()
-			// currentFullReadHostIdx := 0
-			fullReadJobs := make(chan interface{}, 1)
-			go func() {
-				for {
-					select {
-					case <-fullReadDone:
-						close(fullReadJobs)
-						return
-					default:
-						fullReadJobs <- struct{}{}
-					}
-				}
-			}()
-			fullReadHostsDone := sync.Map{} // replace with mutex to avoid race?
-			fullReadBackoffConfig := utils.CloneExponentialBackoff(backoffConfig)
-			currentFullReadBackoff := fullReadBackoffConfig.NextBackOff()
-			for {
-				// TODO we fire off 2 full reads before the done signal arrives? not good
-				for currentFullReadHostIdx := 0; currentFullReadHostIdx < numHosts; currentFullReadHostIdx++ {
-					if v, ok := fullReadHostsDone.Load(currentFullReadHostIdx); ok && v.(bool) {
-						continue
-					}
-					// wait until we can either submit or are done...
-					select {
-					case <-fullReadDone:
-						return
-					default:
-						<-fullReadJobs
-						resp, err := op(ctx, hosts[currentFullReadHostIdx], true)
-						hostDone := err == nil || currentFullReadBackoff > fullReadBackoffConfig.MaxInterval || currentFullReadBackoff == backoff.Stop
-						if hostDone {
-							fullReadHostsDone.Store(currentFullReadHostIdx, true)
-						}
-						tempReplyCh <- adapterReply[T]{
-							result:   _Result[T]{resp, err},
-							hostIdx:  currentFullReadHostIdx,
-							fullRead: true,
-							hostDone: hostDone,
-						}
+// 		wg.Add(1)
+// 		go func() {
+// 			defer wg.Done()
+// 			// TODO run fullRead/worker in goroutines and funcify
+// 			// fullReadPool := pond.New(1, 0, pond.MinWorkers(1))
+// 			// defer fullReadPool.StopAndWait()
+// 			// currentFullReadHostIdx := 0
+// 			fullReadJobs := make(chan interface{}, 1)
+// 			go func() {
+// 				for {
+// 					select {
+// 					case <-fullReadDone:
+// 						close(fullReadJobs)
+// 						return
+// 					default:
+// 						fullReadJobs <- struct{}{}
+// 					}
+// 				}
+// 			}()
+// 			fullReadHostsDone := sync.Map{} // replace with mutex to avoid race?
+// 			fullReadBackoffConfig := utils.CloneExponentialBackoff(backoffConfig)
+// 			currentFullReadBackoff := fullReadBackoffConfig.NextBackOff()
+// 			for {
+// 				// TODO we fire off 2 full reads before the done signal arrives? not good
+// 				for currentFullReadHostIdx := 0; currentFullReadHostIdx < numHosts; currentFullReadHostIdx++ {
+// 					if v, ok := fullReadHostsDone.Load(currentFullReadHostIdx); ok && v.(bool) {
+// 						continue
+// 					}
+// 					// wait until we can either submit or are done...
+// 					select {
+// 					case <-fullReadDone:
+// 						return
+// 					default:
+// 						<-fullReadJobs
+// 						resp, err := op(ctx, hosts[currentFullReadHostIdx], true)
+// 						hostDone := err == nil || currentFullReadBackoff > fullReadBackoffConfig.MaxInterval || currentFullReadBackoff == backoff.Stop
+// 						if hostDone {
+// 							fullReadHostsDone.Store(currentFullReadHostIdx, true)
+// 						}
+// 						tempReplyCh <- adapterReply[T]{
+// 							result:   _Result[T]{resp, err},
+// 							hostIdx:  currentFullReadHostIdx,
+// 							fullRead: true,
+// 							hostDone: hostDone,
+// 						}
 
-					}
-					// fullReadPool.Submit(func() {
-					// 	resp, err := op(ctx, hosts[currentFullReadHostIdx], true)
-					// 	hostDone := err == nil || currentFullReadBackoff > fullReadBackoffConfig.MaxElapsedTime
-					// 	if hostDone {
-					// 		fullReadHostsDone.Store(currentFullReadHostIdx, true)
-					// 	}
-					// 	tempReplyCh <- adapterReply[T]{
-					// 		result:   _Result[T]{resp, err},
-					// 		hostIdx:  currentFullReadHostIdx,
-					// 		fullRead: true,
-					// 		hostDone: hostDone,
-					// 	}
-					// })
-					// TODO timeout/context?
-					// select {
-					// case <-fullReadDone:
-					// 	// fullReadPool.StopAndWait() // defer this and replace break with return?
-					// 	return
-					// default:
-					// }
-				}
-				select {
-				case <-fullReadDone:
-					// fullReadPool.StopAndWait()
-					return
-				case <-time.After(currentFullReadBackoff):
-					currentFullReadBackoff = fullReadBackoffConfig.NextBackOff()
-				}
-			}
-		}()
+// 					}
+// 					// fullReadPool.Submit(func() {
+// 					// 	resp, err := op(ctx, hosts[currentFullReadHostIdx], true)
+// 					// 	hostDone := err == nil || currentFullReadBackoff > fullReadBackoffConfig.MaxElapsedTime
+// 					// 	if hostDone {
+// 					// 		fullReadHostsDone.Store(currentFullReadHostIdx, true)
+// 					// 	}
+// 					// 	tempReplyCh <- adapterReply[T]{
+// 					// 		result:   _Result[T]{resp, err},
+// 					// 		hostIdx:  currentFullReadHostIdx,
+// 					// 		fullRead: true,
+// 					// 		hostDone: hostDone,
+// 					// 	}
+// 					// })
+// 					// TODO timeout/context?
+// 					// select {
+// 					// case <-fullReadDone:
+// 					// 	// fullReadPool.StopAndWait() // defer this and replace break with return?
+// 					// 	return
+// 					// default:
+// 					// }
+// 				}
+// 				select {
+// 				case <-fullReadDone:
+// 					// fullReadPool.StopAndWait()
+// 					return
+// 				case <-time.After(currentFullReadBackoff):
+// 					currentFullReadBackoff = fullReadBackoffConfig.NextBackOff()
+// 				}
+// 			}
+// 		}()
 
-		if level > 1 {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				// workerPool := pond.New(level-1, 0, pond.MinWorkers(level-1))
-				// defer workerPool.StopAndWait()
-				// currentWorkerHostIdx := 1
-				workerJobs := make(chan interface{}, level-1)
-				go func() {
-					for {
-						select {
-						case <-workersDone:
-							close(workerJobs)
-							return
-						default:
-							workerJobs <- struct{}{} //94
-						}
-					}
-				}()
-				workerHostsDone := sync.Map{}
-				workerBackoffConfig := utils.CloneExponentialBackoff(backoffConfig)
-				currentWorkerBackoff := workerBackoffConfig.NextBackOff()
-				for {
-					// TODO doing workers in reverse could make sense as well, though its nice to query hosts in order
-					for currentWorkerHostIdxPre := 0; currentWorkerHostIdxPre < numHosts; currentWorkerHostIdxPre++ {
-						currentWorkerHostIdx := currentWorkerHostIdxPre + 1
-						// TODO or mod numHosts
-						if currentWorkerHostIdx >= numHosts {
-							currentWorkerHostIdx = 0
-						}
-						if v, ok := workerHostsDone.Load(currentWorkerHostIdx); ok && v.(bool) {
-							continue
-						}
-						select {
-						case <-workersDone:
-							return
-						case <-workerJobs:
-							resp, err := op(ctx, hosts[currentWorkerHostIdx], false)
-							// TODO check currentWorkerBackoff == backoff.Stop?
-							hostDone := err == nil || currentWorkerBackoff > workerBackoffConfig.MaxInterval || currentWorkerBackoff == backoff.Stop
-							if hostDone {
-								workerHostsDone.Store(currentWorkerHostIdx, true)
-							}
-							tempReplyCh <- adapterReply[T]{
-								result:   _Result[T]{resp, err},
-								hostIdx:  currentWorkerHostIdx,
-								fullRead: false,
-								hostDone: hostDone,
-							}
-						}
-						// workerPool.Submit(func() {
-						// })
-						// select {
-						// case <-workersDone:
-						// 	return
-						// default:
-						// }
-					}
-					select { //118
-					case <-workersDone:
-						return
-					case <-time.After(currentWorkerBackoff):
-						currentWorkerBackoff = workerBackoffConfig.NextBackOff()
-					}
-				}
-			}()
-		}
+// 		if level > 1 {
+// 			wg.Add(1)
+// 			go func() {
+// 				defer wg.Done()
+// 				// workerPool := pond.New(level-1, 0, pond.MinWorkers(level-1))
+// 				// defer workerPool.StopAndWait()
+// 				// currentWorkerHostIdx := 1
+// 				workerJobs := make(chan interface{}, level-1)
+// 				go func() {
+// 					for {
+// 						select {
+// 						case <-workersDone:
+// 							close(workerJobs)
+// 							return
+// 						default:
+// 							workerJobs <- struct{}{} //94
+// 						}
+// 					}
+// 				}()
+// 				workerHostsDone := sync.Map{}
+// 				workerBackoffConfig := utils.CloneExponentialBackoff(backoffConfig)
+// 				currentWorkerBackoff := workerBackoffConfig.NextBackOff()
+// 				for {
+// 					// TODO doing workers in reverse could make sense as well, though its nice to query hosts in order
+// 					for currentWorkerHostIdxPre := 0; currentWorkerHostIdxPre < numHosts; currentWorkerHostIdxPre++ {
+// 						currentWorkerHostIdx := currentWorkerHostIdxPre + 1
+// 						// TODO or mod numHosts
+// 						if currentWorkerHostIdx >= numHosts {
+// 							currentWorkerHostIdx = 0
+// 						}
+// 						if v, ok := workerHostsDone.Load(currentWorkerHostIdx); ok && v.(bool) {
+// 							continue
+// 						}
+// 						select {
+// 						case <-workersDone:
+// 							return
+// 						case <-workerJobs:
+// 							resp, err := op(ctx, hosts[currentWorkerHostIdx], false)
+// 							// TODO check currentWorkerBackoff == backoff.Stop?
+// 							hostDone := err == nil || currentWorkerBackoff > workerBackoffConfig.MaxInterval || currentWorkerBackoff == backoff.Stop
+// 							if hostDone {
+// 								workerHostsDone.Store(currentWorkerHostIdx, true)
+// 							}
+// 							tempReplyCh <- adapterReply[T]{
+// 								result:   _Result[T]{resp, err},
+// 								hostIdx:  currentWorkerHostIdx,
+// 								fullRead: false,
+// 								hostDone: hostDone,
+// 							}
+// 						}
+// 						// workerPool.Submit(func() {
+// 						// })
+// 						// select {
+// 						// case <-workersDone:
+// 						// 	return
+// 						// default:
+// 						// }
+// 					}
+// 					select { //118
+// 					case <-workersDone:
+// 						return
+// 					case <-time.After(currentWorkerBackoff):
+// 						currentWorkerBackoff = workerBackoffConfig.NextBackOff()
+// 					}
+// 				}
+// 			}()
+// 		}
 
-		go func() {
-			fullReadLatestRepliesByHostIdx := make(map[int]adapterReply[T])
-			workerLatestRepliesByHostIdx := make(map[int]adapterReply[T])
-			for {
-				tempReply := (<-tempReplyCh) //119
-				if tempReply.fullRead {
-					fullReadLatestRepliesByHostIdx[tempReply.hostIdx] = tempReply
-					if tempReply.result.Err == nil {
-						fullReadDone <- true
-						fullReadDone <- true
-						// close(fullReadDone)
-					}
-				} else {
-					workerLatestRepliesByHostIdx[tempReply.hostIdx] = tempReply
-				}
-				// fmt.Printf("NATEE done checker fullread: %v\n", fullReadLatestRepliesByHostIdx)
-				// fmt.Printf("NATEE done checker workers: %v\n\n", workerLatestRepliesByHostIdx)
+// 		go func() {
+// 			fullReadLatestRepliesByHostIdx := make(map[int]adapterReply[T])
+// 			workerLatestRepliesByHostIdx := make(map[int]adapterReply[T])
+// 			for {
+// 				tempReply := (<-tempReplyCh) //119
+// 				if tempReply.fullRead {
+// 					fullReadLatestRepliesByHostIdx[tempReply.hostIdx] = tempReply
+// 					if tempReply.result.Err == nil {
+// 						fullReadDone <- true
+// 						fullReadDone <- true
+// 						// close(fullReadDone)
+// 					}
+// 				} else {
+// 					workerLatestRepliesByHostIdx[tempReply.hostIdx] = tempReply
+// 				}
+// 				// fmt.Printf("NATEE done checker fullread: %v\n", fullReadLatestRepliesByHostIdx)
+// 				// fmt.Printf("NATEE done checker workers: %v\n\n", workerLatestRepliesByHostIdx)
 
-				// do we have a fullRead reply + (>=level-1) worker replies
-				fullReadSucceeded := false
-				fullReadSuccessfulHostIdx := -1
-				for _, reply := range fullReadLatestRepliesByHostIdx {
-					if reply.result.Err == nil {
-						fullReadSucceeded = true
-						fullReadSuccessfulHostIdx = reply.hostIdx
-						break
-					}
-				}
-				enoughWorkerSuccesses := false
-				numWorkerSuccesses := 0
-				for _, reply := range workerLatestRepliesByHostIdx {
-					// TODO checking hostIdx vs fullReadHostIdx can make us get extra responses?
-					if reply.result.Err == nil && reply.hostIdx != fullReadSuccessfulHostIdx {
-						numWorkerSuccesses++
-					}
-				}
-				if numWorkerSuccesses >= (level - 1) {
-					enoughWorkerSuccesses = true
-				}
-				if fullReadSucceeded && enoughWorkerSuccesses {
-					replyCh <- fullReadLatestRepliesByHostIdx[fullReadSuccessfulHostIdx].result
-					workerSuccessesSent := 0
-					for workerSuccessesSent < (level - 1) {
-						for _, reply := range workerLatestRepliesByHostIdx {
-							if reply.result.Err == nil && reply.hostIdx != fullReadSuccessfulHostIdx {
-								replyCh <- reply.result
-								workerSuccessesSent++
-							}
-						}
-					}
-					break
-				}
+// 				// do we have a fullRead reply + (>=level-1) worker replies
+// 				fullReadSucceeded := false
+// 				fullReadSuccessfulHostIdx := -1
+// 				for _, reply := range fullReadLatestRepliesByHostIdx {
+// 					if reply.result.Err == nil {
+// 						fullReadSucceeded = true
+// 						fullReadSuccessfulHostIdx = reply.hostIdx
+// 						break
+// 					}
+// 				}
+// 				enoughWorkerSuccesses := false
+// 				numWorkerSuccesses := 0
+// 				for _, reply := range workerLatestRepliesByHostIdx {
+// 					// TODO checking hostIdx vs fullReadHostIdx can make us get extra responses?
+// 					if reply.result.Err == nil && reply.hostIdx != fullReadSuccessfulHostIdx {
+// 						numWorkerSuccesses++
+// 					}
+// 				}
+// 				if numWorkerSuccesses >= (level - 1) {
+// 					enoughWorkerSuccesses = true
+// 				}
+// 				if fullReadSucceeded && enoughWorkerSuccesses {
+// 					replyCh <- fullReadLatestRepliesByHostIdx[fullReadSuccessfulHostIdx].result
+// 					workerSuccessesSent := 0
+// 					for workerSuccessesSent < (level - 1) {
+// 						for _, reply := range workerLatestRepliesByHostIdx {
+// 							if reply.result.Err == nil && reply.hostIdx != fullReadSuccessfulHostIdx {
+// 								replyCh <- reply.result
+// 								workerSuccessesSent++
+// 							}
+// 						}
+// 					}
+// 					break
+// 				}
 
-				// should we give up and return an error?
+// 				// should we give up and return an error?
 
-				// did full reads for every host fail?
-				numFullReadsFailed := 0
-				for i := 0; i < numHosts; i++ {
-					if reply, ok := fullReadLatestRepliesByHostIdx[i]; ok {
-						if reply.hostDone && reply.result.Err != nil {
-							numFullReadsFailed++
-						}
-					}
-				}
-				if numFullReadsFailed >= numHosts {
-					replyCh <- fullReadLatestRepliesByHostIdx[0].result
-					fullReadDone <- true
-					fullReadDone <- true
-					// close(fullReadDone)
-					break
-				}
+// 				// did full reads for every host fail?
+// 				numFullReadsFailed := 0
+// 				for i := 0; i < numHosts; i++ {
+// 					if reply, ok := fullReadLatestRepliesByHostIdx[i]; ok {
+// 						if reply.hostDone && reply.result.Err != nil {
+// 							numFullReadsFailed++
+// 						}
+// 					}
+// 				}
+// 				if numFullReadsFailed >= numHosts {
+// 					replyCh <- fullReadLatestRepliesByHostIdx[0].result
+// 					fullReadDone <- true
+// 					fullReadDone <- true
+// 					// close(fullReadDone)
+// 					break
+// 				}
 
-				// have too many worker hosts failed?
-				numWorkersFailed := 0
-				workerFailedHostIdx := -1
-				for i := 0; i < numHosts; i++ {
-					if reply, ok := workerLatestRepliesByHostIdx[i]; ok {
-						if reply.hostDone && reply.result.Err != nil {
-							numWorkersFailed++
-							workerFailedHostIdx = i
-						}
-					}
-				}
-				// TODO fail early if too many workers fail
-				allowedFailures := numHosts - level
-				if numWorkersFailed > allowedFailures {
-					replyCh <- workerLatestRepliesByHostIdx[workerFailedHostIdx].result
-					break
-				}
+// 				// have too many worker hosts failed?
+// 				numWorkersFailed := 0
+// 				workerFailedHostIdx := -1
+// 				for i := 0; i < numHosts; i++ {
+// 					if reply, ok := workerLatestRepliesByHostIdx[i]; ok {
+// 						if reply.hostDone && reply.result.Err != nil {
+// 							numWorkersFailed++
+// 							workerFailedHostIdx = i
+// 						}
+// 					}
+// 				}
+// 				// TODO fail early if too many workers fail
+// 				allowedFailures := numHosts - level
+// 				if numWorkersFailed > allowedFailures {
+// 					replyCh <- workerLatestRepliesByHostIdx[workerFailedHostIdx].result
+// 					break
+// 				}
 
-				// TODO count numbers of hosts done vs how many successes we still need
-				// fmt.Println("a")
-			}
-			close(replyCh)
-			workersDone <- true
-			workersDone <- true
-			wg.Wait()
-			close(fullReadDone)
-			close(workersDone)
-		}()
-	}
-}
+// 				// TODO count numbers of hosts done vs how many successes we still need
+// 				// fmt.Println("a")
+// 			}
+// 			close(replyCh)
+// 			workersDone <- true
+// 			workersDone <- true
+// 			wg.Wait()
+// 			close(fullReadDone)
+// 			close(workersDone)
+// 		}()
+// 	}
+// }
 
 // Pull data from replica depending on consistency level
 // Pull involves just as many replicas to satisfy the consistency level.
