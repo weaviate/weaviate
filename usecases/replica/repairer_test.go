@@ -578,8 +578,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			digestR3  = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
 		)
 
-		// TODO why does this fail now vs before?
-		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR1, errAny)
+		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR1, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, errAny)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 		// called during reparation to fetch the most recent object

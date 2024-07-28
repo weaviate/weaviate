@@ -886,6 +886,7 @@ func (c *coordinator[T]) Pullv2(ctx context.Context,
 		hostRetryQueue <- hostRetry{hosts[i], backoffConfig.InitialInterval}
 	}
 
+	errorResults := make(chan _Result[T], level)
 	f := func() {
 		wg := sync.WaitGroup{}
 		wg.Add(level)
@@ -908,16 +909,17 @@ func (c *coordinator[T]) Pullv2(ctx context.Context,
 					resp, err := op(ctx, hr.host, isFullReadWorker)
 					if err == nil {
 						replyCh <- _Result[T]{resp, err}
+						return
 					}
 					nextBackoff := backOffFunc(hr.currentBackoff)
 					if nextBackoff > backoffConfig.MaxInterval {
-						// this host has run out of retries, if its an error then so be it
-						replyCh <- _Result[T]{resp, err}
+						// this host has run out of retries, save the result to be returned later
+						errorResults <- _Result[T]{resp, err}
 						return
 					}
 					select {
 					case <-ctx.Done():
-						// TODO anything else to do to clean up, eg err onto replyCh?
+						errorResults <- _Result[T]{resp, fmt.Errorf("%v: %w", err, ctx.Err())}
 						return
 					case <-time.After(nextBackoff):
 						// we paused this worker for nextBackoff, put this host back onto the retry queue (with the updated current backoff) and pick up the next job
@@ -928,40 +930,21 @@ func (c *coordinator[T]) Pullv2(ctx context.Context,
 			enterrors.GoWrapper(workerFunc, c.log)
 		}
 		wg.Wait()
+
+		// once all workers are done, no more messages should be published to errorResults, so drain any errors and put them onto replyCh
+	drainErrorResults:
+		for {
+			select {
+			case reply := <-errorResults:
+				replyCh <- reply
+			default:
+				break drainErrorResults
+			}
+		}
+		// callers of this function rely on replyCh being closed
 		close(replyCh)
 	}
 	enterrors.GoWrapper(f, c.log)
 
 	return replyCh, state, nil
 }
-
-// candidates := state.Hosts[:level]                          // direct ones
-// candidatePool := make(chan string, len(state.Hosts)-level) // remaining ones
-// for _, replica := range state.Hosts[level:] {
-// 	candidatePool <- replica
-// }
-// close(candidatePool) // pool is ready
-// f := func() {
-// 	wg := sync.WaitGroup{}
-// 	wg.Add(len(candidates))
-// 	for i := range candidates { // Ask direct candidate first
-// 		idx := i
-// 		f := func() {
-// 			defer wg.Done()
-// 			resp, err := op(ctx, candidates[idx], idx == 0)
-
-// 			// If node is not responding delegate request to another node
-// 			for err != nil {
-// 				if delegate, ok := <-candidatePool; ok {
-// 					resp, err = op(ctx, delegate, idx == 0)
-// 				} else {
-// 					break
-// 				}
-// 			}
-// 			replyCh <- _Result[T]{resp, err}
-// 		}
-// 		enterrors.GoWrapper(f, c.log)
-// 	}
-// 	wg.Wait()
-// 	close(replyCh)
-// }
