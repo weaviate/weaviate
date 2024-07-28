@@ -82,7 +82,8 @@ func NewReplicator(className string,
 		client:      client,
 		resolver:    resolver,
 		log:         l,
-		Finder:      NewFinder(className, resolver, client, l),
+		Finder: NewFinder(className, resolver, client, l,
+			pullBackOffConfig{defaultCoordinatorPullInitialBackoff, defaultCoordinatorPullMaxBackoff}),
 	}
 }
 

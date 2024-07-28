@@ -14,12 +14,18 @@ package replica
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	defaultCoordinatorPullInitialBackoff = time.Millisecond * 250
+	defaultCoordinatorPullMaxBackoff     = time.Second * 32
 )
 
 type (
@@ -35,11 +41,17 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
 		Client
-		Resolver *resolver // node_name -> host_address
-		log      logrus.FieldLogger
-		Class    string
-		Shard    string
-		TxID     string // transaction ID
+		Resolver    *resolver // node_name -> host_address
+		log         logrus.FieldLogger
+		Class       string
+		Shard       string
+		TxID        string // transaction ID
+		pullBackOff pullBackOffConfig
+	}
+
+	pullBackOffConfig struct {
+		initial time.Duration
+		max     time.Duration
 	}
 )
 
@@ -47,21 +59,25 @@ type (
 func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.FieldLogger,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Client:   r.client,
-		Resolver: r.resolver,
-		log:      l,
-		Class:    r.class,
-		Shard:    shard,
-		TxID:     requestID,
+		Client:      r.client,
+		Resolver:    r.resolver,
+		log:         l,
+		Class:       r.class,
+		Shard:       shard,
+		TxID:        requestID,
+		pullBackOff: pullBackOffConfig{defaultCoordinatorPullInitialBackoff, defaultCoordinatorPullMaxBackoff},
 	}
 }
 
 // newCoordinator used by the Finder to read objects from replicas
-func newReadCoordinator[T any](f *Finder, shard string) *coordinator[T] {
+func newReadCoordinator[T any](f *Finder, shard string,
+	pullBackOff pullBackOffConfig,
+) *coordinator[T] {
 	return &coordinator[T]{
-		Resolver: f.resolver,
-		Class:    f.class,
-		Shard:    shard,
+		Resolver:    f.resolver,
+		Class:       f.class,
+		Shard:       shard,
+		pullBackOff: pullBackOff,
 	}
 }
 
@@ -190,38 +206,84 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	}
 	level := state.Level
 	replyCh := make(chan _Result[T], level)
-
-	candidates := state.Hosts[:level]                          // direct ones
-	candidatePool := make(chan string, len(state.Hosts)-level) // remaining ones
-	for _, replica := range state.Hosts[level:] {
-		candidatePool <- replica
-	}
-	close(candidatePool) // pool is ready
+	hosts := state.Hosts
 	f := func() {
-		wg := sync.WaitGroup{}
-		wg.Add(len(candidates))
-		for i := range candidates { // Ask direct candidate first
-			idx := i
-			f := func() {
-				defer wg.Done()
-				resp, err := op(ctx, candidates[idx], idx == 0)
+		hostRetryQueue := make(chan hostRetry, len(hosts))
+		errorResults := make(chan _Result[T], level)
 
-				// If node is not responding delegate request to another node
-				for err != nil {
-					if delegate, ok := <-candidatePool; ok {
-						resp, err = op(ctx, delegate, idx == 0)
-					} else {
-						break
+		// Put the "backups/fallbacks" on the retry queue
+		for i := level; i < len(hosts); i++ {
+			hostRetryQueue <- hostRetry{hosts[i], c.pullBackOff.initial}
+		}
+		wg := sync.WaitGroup{}
+		wg.Add(level)
+		for i := 0; i < level; i++ {
+			hostIndex := i
+			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
+			workerFunc := func() {
+				defer wg.Done()
+				// each worker will first try its corresponding host (eg worker0 tries host[0], worker1 tries host[1], etc) we want the fullRead to be tried on host[0] because that will be the direct candidate (if a direct candidate was provided), if we only used the retry queue then we would not have the guarantee that the fullRead will be tried on hosts[0] first.
+				resp, err := op(ctx, hosts[hostIndex], isFullReadWorker)
+				if err == nil {
+					replyCh <- _Result[T]{resp, err}
+					return
+				}
+				// this host failed op on the first try, put it on the retry queue
+				hostRetryQueue <- hostRetry{hosts[hostIndex], c.pullBackOff.max}
+
+				// let's fallback to the backups in the retry queue
+				for hr := range hostRetryQueue {
+					resp, err := op(ctx, hr.host, isFullReadWorker)
+					if err == nil {
+						replyCh <- _Result[T]{resp, err}
+						return
+					}
+					nextBackoff := nextBackOff(hr.currentBackoff)
+					if nextBackoff > c.pullBackOff.max {
+						// this host has run out of retries, save the result to be returned later
+						errorResults <- _Result[T]{resp, err}
+						return
+					}
+					select {
+					case <-ctx.Done():
+						errorResults <- _Result[T]{resp, fmt.Errorf("%v: %w", err, ctx.Err())}
+						return
+					case <-time.After(hr.currentBackoff):
+						// we paused this worker for currentBackoff, put this host back onto the retry queue (with the updated next backoff) and have this worker pick up the next job
+						hostRetryQueue <- hostRetry{hr.host, nextBackoff}
 					}
 				}
-				replyCh <- _Result[T]{resp, err}
 			}
-			enterrors.GoWrapper(f, c.log)
+			enterrors.GoWrapper(workerFunc, c.log)
 		}
 		wg.Wait()
+
+		// once all workers are done, no more messages should be published to errorResults, so drain any errors and put them onto replyCh
+	drainErrorResults:
+		for {
+			select {
+			case reply := <-errorResults:
+				replyCh <- reply
+			default:
+				break drainErrorResults
+			}
+		}
+		// callers of this function rely on replyCh being closed
 		close(replyCh)
 	}
 	enterrors.GoWrapper(f, c.log)
 
 	return replyCh, state, nil
+}
+
+// hostRetry tracks how long we should wait to retry this host
+type hostRetry struct {
+	host           string
+	currentBackoff time.Duration
+}
+
+// nextBackOff returns a new random duration in the interval [d, 3d].
+// It implements truncated exponential back-off with introduced jitter.
+func nextBackOff(d time.Duration) time.Duration {
+	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }
