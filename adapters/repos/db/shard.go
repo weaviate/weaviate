@@ -565,23 +565,25 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		}).Debugf("loaded non-vector (lsm, object, inverted) in %s for shard %q", took, s.ID())
 	}()
 
-	// init the store itself synchronously, then anything else can happen in parallel
+	// init the store itself synchronously
 	err := s.initLSMStore()
 	if err != nil {
 		return fmt.Errorf("init shard %q: lsm store: %w", s.ID(), err)
 	}
 
-	// use a single error group to wait for all init tasks, the wait statement is
-	// at the end of this method. No other methods should attempt to wait on this
-	// error group.
+	// the shard versioner is also dependency of some of the bucket
+	// initializations, so it also needs to happen synchronously
+	if err := s.initIndexCounterVersionerAndBitmapFactory(); err != nil {
+		return fmt.Errorf("init shard %q: %w", s.ID(), err)
+	}
+
+	// Run all other inits in parallel and use a single error group to wait for
+	// all init tasks, the wait statement is at the end of this method. No other
+	// methods should attempt to wait on this error group.
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
 
 	eg.Go(func() error {
 		return s.initObjectBucket(ctx)
-	})
-
-	eg.Go(func() error {
-		return s.initIndexCounterVersionerAndBitmapFactory()
 	})
 
 	eg.Go(func() error {
