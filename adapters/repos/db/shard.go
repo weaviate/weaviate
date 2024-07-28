@@ -98,7 +98,7 @@ type ShardLike interface {
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
 	ID() string // Get the shard id
 	drop() error
-	createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error
+	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
 	BeginBackup(ctx context.Context) error
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
@@ -556,14 +556,67 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 }
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
-	err := s.initLSMStore(ctx)
+	before := time.Now()
+	defer func() {
+		took := time.Since(before)
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "init_shard_non_vector",
+			"duration": took,
+		}).Debugf("loaded non-vector (lsm, object, inverted) in %s for shard %q", took, s.ID())
+	}()
+
+	// init the store itself synchronously, then anything else can happen in parallel
+	err := s.initLSMStore()
 	if err != nil {
-		return errors.Wrapf(err, "init shard %q: shard db", s.ID())
+		return fmt.Errorf("init shard %q: lsm store: %w", s.ID(), err)
 	}
 
+	// use a single error group to wait for all init tasks, the wait statement is
+	// at the end of this method. No other methods should attempt to wait on this
+	// error group.
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
+
+	eg.Go(func() error {
+		return s.initObjectBucket(ctx)
+	})
+
+	eg.Go(func() error {
+		return s.initIndexCounterVersionerAndBitmapFactory()
+	})
+
+	eg.Go(func() error {
+		return s.initProplenTracker()
+	})
+
+	// error group is passed, so properties can be initialized in parallel with
+	// the other initializations going on here.
+	s.initProperties(eg, class)
+
+	err = eg.Wait()
+	if err != nil {
+		// annotate error with shard id only once, all inner functions should only
+		// annotate what they do, but not repeat the shard id.
+		return fmt.Errorf("init shard %q: %w", s.ID(), err)
+	}
+
+	return nil
+}
+
+func (s *Shard) initProplenTracker() error {
+	plPath := path.Join(s.path(), "proplengths")
+	tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
+	if err != nil {
+		return fmt.Errorf("init prop length tracker: %w", err)
+	}
+
+	s.propLenTracker = tracker
+	return nil
+}
+
+func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 	counter, err := indexcounter.New(s.path())
 	if err != nil {
-		return errors.Wrapf(err, "init shard %q: index counter", s.ID())
+		return fmt.Errorf("init index counter: %w", err)
 	}
 	s.counter = counter
 	s.bitmapFactory = roaringset.NewBitmapFactory(s.counter.Get, s.index.logger)
@@ -572,21 +625,9 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	versionPath := path.Join(s.path(), "version")
 	versioner, err := newShardVersioner(versionPath, dataPresent)
 	if err != nil {
-		return errors.Wrapf(err, "init shard %q: check versions", s.ID())
+		return fmt.Errorf("init shard versioner: %w", err)
 	}
 	s.versioner = versioner
-
-	plPath := path.Join(s.path(), "proplengths")
-	tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
-	if err != nil {
-		return errors.Wrapf(err, "init shard %q: prop length tracker", s.ID())
-	}
-
-	s.propLenTracker = tracker
-
-	if err := s.initProperties(class); err != nil {
-		return errors.Wrapf(err, "init shard %q: init per property indices", s.ID())
-	}
 
 	return nil
 }
@@ -616,7 +657,7 @@ func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
 	return idBytes[15] % IdLockPoolSize
 }
 
-func (s *Shard) initLSMStore(ctx context.Context) error {
+func (s *Shard) initLSMStore() error {
 	annotatedLogger := s.index.logger.WithFields(logrus.Fields{
 		"shard": s.name,
 		"index": s.index.ID(),
@@ -630,9 +671,15 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks)
 	if err != nil {
-		return errors.Wrapf(err, "init lsmkv store at %s", s.pathLSM())
+		return fmt.Errorf("init lsmkv store at %s: %w", s.pathLSM(), err)
 	}
 
+	s.store = store
+
+	return nil
+}
+
+func (s *Shard) initObjectBucket(ctx context.Context) error {
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(1),
@@ -651,12 +698,10 @@ func (s *Shard) initLSMStore(ctx context.Context) error {
 		// details.
 		opts = append(opts, lsmkv.WithMonitorCount())
 	}
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...)
+	err := s.store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...)
 	if err != nil {
-		return errors.Wrap(err, "create objects bucket")
+		return fmt.Errorf("create objects bucket: %w", err)
 	}
-
-	s.store = store
 
 	return nil
 }
@@ -766,7 +811,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		return storagestate.ErrStatusReadOnly
 	}
 
-	return s.store.CreateOrLoadBucket(ctx,
+	err := s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropID),
 		s.memtableDirtyConfig(),
 		lsmkv.WithStrategy(lsmkv.StrategySetCollection),
@@ -774,6 +819,10 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
+	if err != nil {
+		return fmt.Errorf("create id property: %w", err)
+	}
+	return nil
 }
 
 func (s *Shard) addDimensionsProperty(ctx context.Context) error {
@@ -791,7 +840,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("create dimensions tracking property: %w", err)
 	}
 
 	return nil
@@ -803,10 +852,11 @@ func (s *Shard) addTimestampProperties(ctx context.Context) error {
 	}
 
 	if err := s.addCreationTimeUnixProperty(ctx); err != nil {
-		return err
+		return fmt.Errorf("create creation time property: %w", err)
 	}
+
 	if err := s.addLastUpdateTimeUnixProperty(ctx); err != nil {
-		return err
+		return fmt.Errorf("create last update time property: %w", err)
 	}
 
 	return nil
@@ -848,42 +898,40 @@ func (s *Shard) dynamicMemtableSizing() lsmkv.BucketOption {
 	)
 }
 
-func (s *Shard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
 	for _, prop := range props {
 		if !inverted.HasInvertedIndex(prop) {
 			continue
 		}
 
+		propCopy := *prop // prevent loop variable capture
+
 		eg.Go(func() error {
-			if err := s.createPropertyValueIndex(ctx, prop); err != nil {
-				return errors.Wrapf(err, "create property '%s' value index on shard '%s'", prop.Name, s.ID())
-			}
-
-			if s.index.invertedIndexConfig.IndexNullState {
-				eg.Go(func() error {
-					if err := s.createPropertyNullIndex(ctx, prop); err != nil {
-						return errors.Wrapf(err, "create property '%s' null index on shard '%s'", prop.Name, s.ID())
-					}
-					return nil
-				})
-			}
-
-			if s.index.invertedIndexConfig.IndexPropertyLength {
-				eg.Go(func() error {
-					if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
-						return errors.Wrapf(err, "create property '%s' length index on shard '%s'", prop.Name, s.ID())
-					}
-					return nil
-				})
+			if err := s.createPropertyValueIndex(ctx, &propCopy); err != nil {
+				return fmt.Errorf("init prop %q: value index: %w", propCopy.Name, err)
 			}
 			return nil
 		})
 
-		if err := eg.Wait(); err != nil {
-			return err
+		if s.index.invertedIndexConfig.IndexNullState {
+			eg.Go(func() error {
+				if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+					return fmt.Errorf("init prop %q: null index: %w", prop.Name, err)
+				}
+				return nil
+			})
 		}
+
+		if s.index.invertedIndexConfig.IndexPropertyLength {
+			eg.Go(func() error {
+				if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+					return fmt.Errorf("init prop %q: length index: %w", prop.Name, err)
+				}
+				return nil
+			})
+		}
+
 	}
-	return nil
 }
 
 func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
