@@ -917,7 +917,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 
 		if s.index.invertedIndexConfig.IndexNullState {
 			eg.Go(func() error {
-				if err := s.createPropertyNullIndex(ctx, prop); err != nil {
+				if err := s.createPropertyNullIndex(ctx, &propCopy); err != nil {
 					return fmt.Errorf("init prop %q: null index: %w", prop.Name, err)
 				}
 				return nil
@@ -926,7 +926,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 
 		if s.index.invertedIndexConfig.IndexPropertyLength {
 			eg.Go(func() error {
-				if err := s.createPropertyLengthIndex(ctx, prop); err != nil {
+				if err := s.createPropertyLengthIndex(ctx, &propCopy); err != nil {
 					return fmt.Errorf("init prop %q: length index: %w", prop.Name, err)
 				}
 				return nil
