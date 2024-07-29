@@ -212,11 +212,11 @@ func (f *Finder) Exists(ctx context.Context,
 	replyCh, state, err := c.Pull(ctx, l, op, "")
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
-		return false, fmt.Errorf("%s %q: %w from pull", msgCLevel, l, errReplicas)
+		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w from readExistence", msgCLevel, l, err)
+		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
 	}
 	return result.Value, err
 }
@@ -252,7 +252,6 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		if fullRead { // we already have the content
 			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			// TODO is this ok?
 			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
 			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
