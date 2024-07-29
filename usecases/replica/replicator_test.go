@@ -721,7 +721,7 @@ func (f fakeFactory) newFinder(thisNode string) *Finder {
 		NodeName:     thisNode,
 	}
 	return NewFinder(f.CLS, resolver, f.RClient, f.log,
-		pullBackOffConfig{time.Microsecond * 1, time.Microsecond * 2})
+		pullBackOffConfig{time.Microsecond * 1, time.Microsecond * 16})
 }
 
 func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {
