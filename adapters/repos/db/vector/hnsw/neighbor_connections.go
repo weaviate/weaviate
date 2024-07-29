@@ -328,7 +328,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
 		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
+		if err != nil && errors.As(err, &e) {
 			// it seems either the node or the neighbor were deleted in the meantime,
 			// there is nothing we can do now
 			return nil
