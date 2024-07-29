@@ -18,14 +18,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
 )
 
 const (
-	defaultPullInitialBackOff = time.Millisecond * 250
-	defaultPullMaxBackOff     = time.Second * 32
+	defaultPullBackOffInitialInterval = time.Millisecond * 250
+	defaultPullBackOffMaxElapsedTime  = time.Second * 128
 )
 
 type (
@@ -41,17 +43,14 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
 		Client
-		Resolver    *resolver // node_name -> host_address
-		log         logrus.FieldLogger
-		Class       string
-		Shard       string
-		TxID        string // transaction ID
-		pullBackOff pullBackOffConfig
-	}
-	// pullBackOffConfig controls the op/worker backoffs in coordinator.Pull
-	pullBackOffConfig struct {
-		initial time.Duration
-		max     time.Duration
+		Resolver *resolver // node_name -> host_address
+		log      logrus.FieldLogger
+		Class    string
+		Shard    string
+		TxID     string // transaction ID
+		// wait twice this duration for the first Pull backoff for each host
+		pullBackOffPreInitialInterval time.Duration
+		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 	}
 )
 
@@ -59,25 +58,27 @@ type (
 func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.FieldLogger,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Client:      r.client,
-		Resolver:    r.resolver,
-		log:         l,
-		Class:       r.class,
-		Shard:       shard,
-		TxID:        requestID,
-		pullBackOff: pullBackOffConfig{defaultPullInitialBackOff, defaultPullMaxBackOff},
+		Client:                        r.client,
+		Resolver:                      r.resolver,
+		log:                           l,
+		Class:                         r.class,
+		Shard:                         shard,
+		TxID:                          requestID,
+		pullBackOffPreInitialInterval: defaultPullBackOffInitialInterval / 2,
+		pullBackOffMaxElapsedTime:     defaultPullBackOffMaxElapsedTime,
 	}
 }
 
 // newCoordinator used by the Finder to read objects from replicas
 func newReadCoordinator[T any](f *Finder, shard string,
-	pullBackOff pullBackOffConfig,
+	pullBackOffInitivalInterval time.Duration, pullBackOffMaxElapsedTime time.Duration,
 ) *coordinator[T] {
 	return &coordinator[T]{
-		Resolver:    f.resolver,
-		Class:       f.class,
-		Shard:       shard,
-		pullBackOff: pullBackOff,
+		Resolver:                      f.resolver,
+		Class:                         f.class,
+		Shard:                         shard,
+		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
+		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
 	}
 }
 
@@ -219,7 +220,10 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 		// put the "backups/fallbacks" on the retry queue
 		for i := level; i < len(hosts); i++ {
-			hostRetryQueue <- hostRetry{hosts[i], c.pullBackOff.initial}
+			hostRetryQueue <- hostRetry{
+				hosts[i],
+				backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+			}
 		}
 
 		// kick off only level workers so that we avoid querying nodes unnecessarily
@@ -244,7 +248,10 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					return
 				}
 				// this host failed op on the first try, put it on the retry queue
-				hostRetryQueue <- hostRetry{hosts[hostIndex], c.pullBackOff.max}
+				hostRetryQueue <- hostRetry{
+					hosts[hostIndex],
+					backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
+				}
 
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
@@ -253,8 +260,8 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
-					nextBackOff := nextBackOff(hr.currentBackOff)
-					if nextBackOff > c.pullBackOff.max {
+					nextBackOff := hr.currentBackOff.NextBackOff()
+					if nextBackOff == backoff.Stop {
 						// this host has run out of retries, send the result and note that
 						// we have the worker exit here with the assumption that once we've reached
 						// this many failures for this host, we've tried all other hosts enough
@@ -262,16 +269,17 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
+
+					timer := time.NewTimer(nextBackOff)
 					select {
 					case <-ctx.Done():
+						timer.Stop()
 						replyCh <- _Result[T]{resp, err}
 						return
-					case <-time.After(hr.currentBackOff):
-						// pause this worker for currentBackOff, then put this host back onto the
-						// retry queue (with the updated next backoff) and have this worker pick up
-						// the next job
-						hostRetryQueue <- hostRetry{hr.host, nextBackOff}
+					case <-timer.C:
+						hostRetryQueue <- hostRetry{hr.host, hr.currentBackOff}
 					}
+					timer.Stop()
 				}
 			}
 			enterrors.GoWrapper(workerFunc, c.log)
@@ -288,7 +296,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 // hostRetry tracks how long we should wait to retry this host again
 type hostRetry struct {
 	host           string
-	currentBackOff time.Duration
+	currentBackOff backoff.BackOff
 }
 
 // nextBackOff returns a new random duration in the interval [d, 3d].

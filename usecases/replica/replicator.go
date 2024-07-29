@@ -83,7 +83,7 @@ func NewReplicator(className string,
 		resolver:    resolver,
 		log:         l,
 		Finder: NewFinder(className, resolver, client, l,
-			pullBackOffConfig{defaultPullInitialBackOff, defaultPullMaxBackOff}),
+			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime),
 	}
 }
 
