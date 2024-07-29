@@ -360,8 +360,7 @@ func (d *PQDistancer) DistanceToFloat(x []float32) (float32, error) {
 		return d.pq.distance.SingleDist(x, d.lut.flatCenter)
 	}
 	xComp := d.pq.Encode(x)
-	dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err
+	return d.pq.DistanceBetweenCompressedVectors(d.compressed, xComp)
 }
 
 func (pq *ProductQuantizer) Fit(data [][]float32) error {

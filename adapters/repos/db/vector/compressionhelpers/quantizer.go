@@ -111,8 +111,7 @@ func (d *BQDistancer) DistanceToFloat(x []float32) (float32, error) {
 		return d.bq.distancer.SingleDist(d.x, x)
 	}
 	xComp := d.bq.Encode(x)
-	dist, err := d.bq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err
+	return d.bq.DistanceBetweenCompressedVectors(d.compressed, xComp)
 }
 
 func (bq *BinaryQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[uint64] {
