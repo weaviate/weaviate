@@ -748,6 +748,10 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
+	if h.tombstones == nil {
+		h.tombstones = map[uint64]struct{}{}
+	}
+
 	for _, id := range ids {
 		h.metrics.AddTombstone()
 		h.tombstones[id] = struct{}{}
