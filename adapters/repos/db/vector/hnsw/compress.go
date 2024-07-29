@@ -101,7 +101,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				return
 			}
 			h.compressor.Preload(index, data[index])
-		})
+		}, 0)
 
 	h.compressed.Store(true)
 	h.cache.Drop()

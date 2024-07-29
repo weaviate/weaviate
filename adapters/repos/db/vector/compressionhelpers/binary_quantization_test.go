@@ -34,23 +34,23 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	vectors, queryVecs := testinghelpers.RandomVecs(10_000, 100, 1536)
 	compressionhelpers.Concurrently(logger, uint64(len(vectors)), func(i uint64) {
 		vectors[i] = distancer.Normalize(vectors[i])
-	})
+	}, 0)
 	compressionhelpers.Concurrently(logger, uint64(len(queryVecs)), func(i uint64) {
 		queryVecs[i] = distancer.Normalize(queryVecs[i])
-	})
+	}, 0)
 	bq := compressionhelpers.NewBinaryQuantizer(nil)
 
 	codes := make([][]uint64, len(vectors))
 	compressionhelpers.Concurrently(logger, uint64(len(vectors)), func(i uint64) {
 		codes[i] = bq.Encode(vectors[i])
-	})
+	}, 0)
 	neighbors := make([][]uint64, len(queryVecs))
 	compressionhelpers.Concurrently(logger, uint64(len(queryVecs)), func(i uint64) {
 		neighbors[i], _ = testinghelpers.BruteForce(logger, vectors, queryVecs[i], k, func(f1, f2 []float32) float32 {
 			d, _, _ := distanceProvider.SingleDist(f1, f2)
 			return d
 		})
-	})
+	}, 0)
 	correctedK := 200
 	hits := uint64(0)
 	mutex := sync.Mutex{}
@@ -76,7 +76,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 		duration += time.Since(before)
 		hits += testinghelpers.MatchesInLists(neighbors[i][:k], ids)
 		mutex.Unlock()
-	})
+	}, 0)
 	recall := float32(hits) / float32(k*len(queryVecs))
 	latency := float32(duration.Microseconds()) / float32(len(queryVecs))
 	fmt.Println(recall, latency)

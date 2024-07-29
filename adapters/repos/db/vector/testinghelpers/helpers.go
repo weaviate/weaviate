@@ -172,7 +172,7 @@ func BruteForce(logger logrus.FieldLogger, vectors [][]float32, query []float32,
 			index:    uint64(i),
 			distance: dist,
 		}
-	})
+	}, 0)
 
 	sort.Slice(distances, func(a, b int) bool {
 		return distances[a].distance < distances[b].distance
@@ -206,7 +206,7 @@ func BuildTruths(logger logrus.FieldLogger, queriesSize int, vectorsSize int, qu
 
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		truths[i], _ = BruteForce(logger, vectors, queries[i], k, distance)
-	})
+	}, 0)
 
 	f, err := os.Create(fileName)
 	if err != nil {

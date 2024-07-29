@@ -108,12 +108,12 @@ Ex: go test -v -benchmem -bench ^BenchmarkHnswNeurips23$ -download`, step.Datase
 								compressionhelpers.Concurrently(logger, uint64(op.End-op.Start), func(i uint64) {
 									err := index.Add(uint64(op.Start+int(i)), vectors[op.Start+int(i)])
 									require.NoError(b, err)
-								})
+								}, 0)
 							case "delete":
 								compressionhelpers.Concurrently(logger, uint64(op.End-op.Start), func(i uint64) {
 									err := index.Delete(uint64(op.Start + int(i)))
 									require.NoError(b, err)
-								})
+								}, 0)
 							case "search":
 								if len(queryVectors) == 0 {
 									file, ok := queries[step.Dataset]
@@ -127,7 +127,7 @@ Ex: go test -v -benchmem -bench ^BenchmarkHnswNeurips23$ -download`, step.Datase
 								compressionhelpers.Concurrently(logger, uint64(len(queryVectors)), func(i uint64) {
 									_, _, err := index.SearchByVector(queryVectors[i], 0, nil)
 									require.NoError(b, err)
-								})
+								}, 0)
 							default:
 								b.Errorf("Unknown operation %s", op.Operation)
 							}

@@ -22,9 +22,11 @@ import (
 
 type Action func(taskIndex uint64)
 
-func Concurrently(log logrus.FieldLogger, n uint64, action Action) {
+func Concurrently(log logrus.FieldLogger, n uint64, action Action, workerCount int) {
 	n64 := float64(n)
-	workerCount := runtime.GOMAXPROCS(0)
+	if workerCount == 0 {
+		workerCount = runtime.GOMAXPROCS(0)
+	}
 	wg := &sync.WaitGroup{}
 	split := uint64(math.Ceil(n64 / float64(workerCount)))
 	for worker := uint64(0); worker < uint64(workerCount); worker++ {

@@ -51,7 +51,7 @@ func TestDynamic(t *testing.T) {
 	truths := make([][]uint64, queries_size)
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
-	})
+	}, 0)
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
 	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
@@ -87,7 +87,7 @@ func TestDynamic(t *testing.T) {
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		dynamic.Add(i, vectors[i])
-	})
+	}, 0)
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
 	assert.True(t, shouldUpgrade)
 	assert.Equal(t, vectors_size, at)
@@ -155,7 +155,7 @@ func recallAndLatency(queries [][]float32, k int, index dynamic.VectorIndex, tru
 		querying += ellapsed
 		relevant += hits
 		mutex.Unlock()
-	})
+	}, 0)
 
 	recall := float32(relevant) / float32(retrieved)
 	latency := float32(querying.Microseconds()) / float32(len(queries))

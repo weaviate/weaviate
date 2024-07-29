@@ -408,7 +408,7 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 				errorResult = err
 			}
 			mutex.Unlock()
-		})
+		}, 0)
 		if errorResult != nil {
 			return errorResult
 		}

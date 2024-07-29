@@ -154,7 +154,7 @@ func TestHnswPqNilVectors(t *testing.T) {
 
 		err := index.Add(uint64(id), vectors[id])
 		require.Nil(t, err)
-	})
+	}, 0)
 
 	userConfig.PQ = ent.PQConfig{
 		Enabled: true,
@@ -182,5 +182,5 @@ func TestHnswPqNilVectors(t *testing.T) {
 
 		err = index.Add(uint64(id)+start, vectors[id+start])
 		require.Nil(t, err)
-	})
+	}, 0)
 }

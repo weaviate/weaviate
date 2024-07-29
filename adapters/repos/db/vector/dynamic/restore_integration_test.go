@@ -47,7 +47,7 @@ func TestBackup_Integration(t *testing.T) {
 	distancer := distancer.NewL2SquaredProvider()
 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
 		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
-	})
+	}, 0)
 	logger, _ := test.NewNullLogger()
 
 	dirName := t.TempDir()
@@ -98,7 +98,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
 		idx.Add(i, vectors[i])
-	})
+	}, 0)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
