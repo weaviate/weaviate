@@ -24,8 +24,8 @@ import (
 )
 
 const (
-	defaultCoordinatorPullInitialBackoff = time.Millisecond * 250
-	defaultCoordinatorPullMaxBackoff     = time.Second * 32
+	defaultPullInitialBackOff = time.Millisecond * 250
+	defaultPullMaxBackOff     = time.Second * 32
 )
 
 type (
@@ -48,7 +48,7 @@ type (
 		TxID        string // transaction ID
 		pullBackOff pullBackOffConfig
 	}
-
+	// pullBackOffConfig controls the op/worker backoffs in coordinator.Pull
 	pullBackOffConfig struct {
 		initial time.Duration
 		max     time.Duration
@@ -65,7 +65,7 @@ func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.Fiel
 		Class:       r.class,
 		Shard:       shard,
 		TxID:        requestID,
-		pullBackOff: pullBackOffConfig{defaultCoordinatorPullInitialBackoff, defaultCoordinatorPullMaxBackoff},
+		pullBackOff: pullBackOffConfig{defaultPullInitialBackOff, defaultPullMaxBackOff},
 	}
 }
 
@@ -192,10 +192,17 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	return c.commitAll(context.Background(), nodeCh, com), level, nil
 }
 
-// Pull data from replica depending on consistency level
-// Pull involves just as many replicas to satisfy the consistency level.
+// Pull data from replica depending on consistency level, trying to reach level successful calls
+// to op, while cycling through replicas for the coordinator's shard.
 //
-// directCandidate when specified a direct request is set to this node (default to this node)
+// Some invariants of this method (some callers depend on these):
+// - Try the first fullread op on the directCandidate (if directCandidate is non-empty)
+// - Only one successful fullread op will be performed
+// - Query level replicas concurrently, and avoid querying more than level unless there are failures
+// - Only send up to level messages onto replyCh
+// - Only send error messages on replyCh once all successes have been sent
+//
+// Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
 func (c *coordinator[T]) Pull(ctx context.Context,
 	cl ConsistencyLevel,
 	op readOp[T], directCandidate string,
@@ -211,10 +218,12 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		hostRetryQueue := make(chan hostRetry, len(hosts))
 		errorResults := make(chan _Result[T], level)
 
-		// Put the "backups/fallbacks" on the retry queue
+		// put the "backups/fallbacks" on the retry queue
 		for i := level; i < len(hosts); i++ {
 			hostRetryQueue <- hostRetry{hosts[i], c.pullBackOff.initial}
 		}
+
+		// kick off only level workers so that we avoid querying nodes unnecessarily
 		wg := sync.WaitGroup{}
 		wg.Add(level)
 		for i := 0; i < level; i++ {
@@ -222,7 +231,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
-				// each worker will first try its corresponding host (eg worker0 tries host[0], worker1 tries host[1], etc) we want the fullRead to be tried on host[0] because that will be the direct candidate (if a direct candidate was provided), if we only used the retry queue then we would not have the guarantee that the fullRead will be tried on hosts[0] first.
+				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
+				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
+				// because that will be the direct candidate (if a direct candidate was provided),
+				// if we only used the retry queue then we would not have the guarantee that the
+				// fullRead will be tried on hosts[0] first.
 				resp, err := op(ctx, hosts[hostIndex], isFullReadWorker)
 				if err == nil {
 					replyCh <- _Result[T]{resp, err}
@@ -238,19 +251,22 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
-					nextBackoff := nextBackOff(hr.currentBackoff)
-					if nextBackoff > c.pullBackOff.max {
+					nextBackOff := nextBackOff(hr.currentBackOff)
+					if nextBackOff > c.pullBackOff.max {
 						// this host has run out of retries, save the result to be returned later
 						errorResults <- _Result[T]{resp, err}
 						return
 					}
 					select {
 					case <-ctx.Done():
+						// forward the error on if context expires
 						errorResults <- _Result[T]{resp, fmt.Errorf("%v: %w", err, ctx.Err())}
 						return
-					case <-time.After(hr.currentBackoff):
-						// we paused this worker for currentBackoff, put this host back onto the retry queue (with the updated next backoff) and have this worker pick up the next job
-						hostRetryQueue <- hostRetry{hr.host, nextBackoff}
+					case <-time.After(hr.currentBackOff):
+						// pause this worker for currentBackOff, then put this host back onto the
+						// retry queue (with the updated next backoff) and have this worker pick up
+						// the next job
+						hostRetryQueue <- hostRetry{hr.host, nextBackOff}
 					}
 				}
 			}
@@ -258,7 +274,8 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 		}
 		wg.Wait()
 
-		// once all workers are done, no more messages should be published to errorResults, so drain any errors and put them onto replyCh
+		// once all workers are done, no more messages should be published to errorResults, so
+		// drain any errors and put them onto replyCh
 	drainErrorResults:
 		for {
 			select {
@@ -276,10 +293,10 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	return replyCh, state, nil
 }
 
-// hostRetry tracks how long we should wait to retry this host
+// hostRetry tracks how long we should wait to retry this host again
 type hostRetry struct {
 	host           string
-	currentBackoff time.Duration
+	currentBackOff time.Duration
 }
 
 // nextBackOff returns a new random duration in the interval [d, 3d].

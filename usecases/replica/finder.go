@@ -54,9 +54,9 @@ type (
 
 // Finder finds replicated objects
 type Finder struct {
-	resolver               *resolver // host names of replicas
-	finderStream                     // stream of objects
-	coordinatorPullBackoff pullBackOffConfig
+	resolver               *resolver         // host names of replicas
+	finderStream                             // stream of objects
+	coordinatorPullBackoff pullBackOffConfig // control the op backoffs in the coordinator's Pull
 }
 
 // NewFinder constructs a new finder instance
