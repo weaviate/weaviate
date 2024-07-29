@@ -90,16 +90,13 @@ func pickEvenlyDistributedKeys(uniqueKeys [][]byte, q int) [][]byte {
 		return uniqueKeys
 	}
 
-	// we know have the guarantee that q > len(uniqueKeys), which means it is
+	// we now have the guarantee that q > len(uniqueKeys), which means it is
 	// possible to pick q keys without overlap while keeping the distribution as
 	// even as possible
 	finalKeys := make([][]byte, q)
 	stepSize := float64(len(uniqueKeys)) / float64(q)
 	for i := range finalKeys {
 		pos := int(math.Round(float64(i)*stepSize + 0.5*stepSize))
-		if pos >= len(uniqueKeys) {
-			pos = len(uniqueKeys) - 1
-		}
 
 		finalKeys[i] = uniqueKeys[pos]
 	}
