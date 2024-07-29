@@ -162,6 +162,25 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 					return 1.0
 				}
 
+				// Filter out uneeded traces
+				switch ctx.Span.Name {
+				// We are not interested in traces related to metrics endpoint
+				case "GET /metrics":
+				// These are some usual internet bot that will spam the server. Won't catch them all but we can reduce
+				// the number a bit
+				case "GET /favicon.ico":
+				case "GET /t4":
+				case "GET /ab2g":
+				case "PRI *":
+				case "GET /api/sonicos/tfa":
+				case "GET /RDWeb/Pages/en-US/login.aspx":
+				case "GET /_profiler/phpinfo":
+				case "POST /wsman":
+				case "POST /dns-query":
+				case "GET /dns-query":
+					return 0.0
+				}
+
 				// Filter out graphql queries, currently we have no context intrumentation around it and it's therefore
 				// just a blank line with 0 info except graphql resolve -> do -> return.
 				if ctx.Span.Name == "POST /v1/graphql" {
