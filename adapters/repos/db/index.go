@@ -24,7 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
@@ -1037,7 +1036,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
 		} else {
 			obj, err = i.replicator.GetOne(ctx,
-				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl, *utils.DefaultExponentialBackOff())
+				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl)
 		}
 		return obj, err
 	}
@@ -1193,7 +1192,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 			replProps = defaultConsistency()
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		return i.replicator.Exists(ctx, cl, shardName, id, *utils.DefaultExponentialBackOff())
+		return i.replicator.Exists(ctx, cl, shardName, id)
 	}
 
 	shard, release, err := i.getLocalShardNoShutdown(shardName)
@@ -1347,7 +1346,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 			replProps = defaultConsistency(replica.One)
 		}
 		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, outObjects, *utils.DefaultExponentialBackOff())
+		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
 			i.logger.WithField("action", "object_search").
 				Errorf("failed to check consistency of search results: %v", err)
@@ -1672,7 +1671,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 			replProps = defaultConsistency(replica.One)
 		}
 		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		err = i.replicator.CheckConsistency(ctx, l, out, *utils.DefaultExponentialBackOff())
+		err = i.replicator.CheckConsistency(ctx, l, out)
 		if err != nil {
 			i.logger.WithField("action", "object_vector_search").
 				Errorf("failed to check consistency of search results: %v", err)

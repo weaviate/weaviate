@@ -15,7 +15,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
@@ -29,16 +28,15 @@ import (
 
 func TestRepairerOneWithALL(t *testing.T) {
 	var (
-		id           = strfmt.UUID("123")
-		cls          = "C1"
-		shard        = "SH1"
-		nodes        = []string{"A", "B", "C"}
-		ctx          = context.Background()
-		adds         = additional.Properties{}
-		proj         = search.SelectProperties{}
-		nilObject    *storobj.Object
-		emptyItem    = objects.Replica{}
-		shortBackoff = *utils.ShortExponentialBackOff()
+		id        = strfmt.UUID("123")
+		cls       = "C1"
+		shard     = "SH1"
+		nodes     = []string{"A", "B", "C"}
+		ctx       = context.Background()
+		adds      = additional.Properties{}
+		proj      = search.SelectProperties{}
+		nilObject *storobj.Object
+		emptyItem = objects.Replica{}
 	)
 
 	t.Run("GetContentFromDirectRead", func(t *testing.T) {
@@ -61,7 +59,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, shortBackoff)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.Nil(t, err)
 		assert.Equal(t, item.Object, got)
 	})
@@ -89,7 +87,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR4, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, shortBackoff)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Nil(t, got)
 		assert.ErrorIs(t, err, errRepair)
@@ -121,7 +119,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			assert.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, shortBackoff)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.Nil(t, err)
 		assert.Equal(t, item3.Object, got)
 	})
@@ -146,7 +144,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, shortBackoff)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.ErrorIs(t, err, errRepair)
 		assert.Nil(t, got)
@@ -168,7 +166,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, shortBackoff)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Nil(t, got)
@@ -190,7 +188,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).
 			Return(item1, nil).Once()
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, shortBackoff)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.ErrorIs(t, err, errRepair)
 		assert.Nil(t, got)
@@ -218,7 +216,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, shortBackoff)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.Nil(t, err)
 		assert.Equal(t, item.Object, got)
 	})
@@ -235,7 +233,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
-		got, err := finder.GetOne(ctx, All, shard, id, proj, adds, shortBackoff)
+		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, nilObject, got)
 		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
@@ -244,15 +242,14 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 func TestRepairerExistsWithALL(t *testing.T) {
 	var (
-		id           = strfmt.UUID("123")
-		cls          = "C1"
-		shard        = "SH1"
-		nodes        = []string{"A", "B", "C"}
-		ctx          = context.Background()
-		adds         = additional.Properties{}
-		proj         = search.SelectProperties{}
-		emptyItem    = objects.Replica{}
-		shortBackoff = *utils.ShortExponentialBackOff()
+		id        = strfmt.UUID("123")
+		cls       = "C1"
+		shard     = "SH1"
+		nodes     = []string{"A", "B", "C"}
+		ctx       = context.Background()
+		adds      = additional.Properties{}
+		proj      = search.SelectProperties{}
+		emptyItem = objects.Replica{}
 	)
 
 	t.Run("ChangedObject", func(t *testing.T) {
@@ -284,7 +281,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, All, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -318,7 +315,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			assert.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, All, shard, id)
 		assert.Nil(t, err)
 		assert.Equal(t, true, got)
 	})
@@ -348,7 +345,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, All, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -373,7 +370,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, All, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -398,7 +395,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(item1, nil)
 
-		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, All, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -430,7 +427,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, All, shard, id)
 		assert.Nil(t, err)
 		assert.Equal(t, true, got)
 	})
@@ -449,7 +446,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
-		got, err := finder.Exists(ctx, All, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, All, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -459,15 +456,14 @@ func TestRepairerExistsWithALL(t *testing.T) {
 
 func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 	var (
-		id           = strfmt.UUID("123")
-		cls          = "C1"
-		shard        = "SH1"
-		nodes        = []string{"A", "B", "C"}
-		ctx          = context.Background()
-		adds         = additional.Properties{}
-		proj         = search.SelectProperties{}
-		emptyItem    = objects.Replica{}
-		shortBackoff = *utils.ShortExponentialBackOff()
+		id        = strfmt.UUID("123")
+		cls       = "C1"
+		shard     = "SH1"
+		nodes     = []string{"A", "B", "C"}
+		ctx       = context.Background()
+		adds      = additional.Properties{}
+		proj      = search.SelectProperties{}
+		emptyItem = objects.Replica{}
 	)
 
 	t.Run("ChangedObject", func(t *testing.T) {
@@ -500,7 +496,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:3", "B:2")
@@ -531,7 +527,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			assert.Equal(t, &item3.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.Nil(t, err)
 		assert.Equal(t, true, got)
 	})
@@ -560,7 +556,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		}}
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -584,7 +580,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -607,7 +603,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		// called during reparation to fetch the most recent object
 		f.RClient.On("FetchObject", anyVal, nodes[1], cls, shard, id, proj, adds).Return(item1, nil)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
@@ -638,7 +634,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 			assert.Equal(t, &item.Object.Object, updates.LatestObject)
 		}
 
-		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.Nil(t, err)
 		assert.Equal(t, true, got)
 	})
@@ -655,7 +651,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[0], cls, shard, digestIDs).Return(digestR0, nil)
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 
-		got, err := finder.Exists(ctx, Quorum, shard, id, shortBackoff)
+		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
@@ -665,12 +661,11 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 
 func TestRepairerCheckConsistencyAll(t *testing.T) {
 	var (
-		ids          = []strfmt.UUID{"01", "02", "03"}
-		cls          = "C1"
-		shard        = "S1"
-		nodes        = []string{"A", "B", "C"}
-		ctx          = context.Background()
-		shortBackoff = *utils.ShortExponentialBackOff()
+		ids   = []strfmt.UUID{"01", "02", "03"}
+		cls   = "C1"
+		shard = "S1"
+		nodes = []string{"A", "B", "C"}
+		ctx   = context.Background()
 	)
 	t.Run("GetMostRecentContent1", func(t *testing.T) {
 		var (
@@ -746,7 +741,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, All, directR, shortBackoff)
+		err := finder.CheckConsistency(ctx, All, directR)
 		assert.Nil(t, err)
 		assert.Equal(t, want, directR)
 	})
@@ -914,7 +909,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, All, xs, shortBackoff)
+		err := finder.CheckConsistency(ctx, All, xs)
 		assert.Nil(t, err)
 		assert.Equal(t, want, xs)
 	})
@@ -999,7 +994,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			assert.ElementsMatch(t, want, got)
 		}
 
-		err := finder.CheckConsistency(ctx, All, xs, shortBackoff)
+		err := finder.CheckConsistency(ctx, All, xs)
 		assert.Nil(t, err)
 		assert.Equal(t, want, xs)
 	})
@@ -1092,7 +1087,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR3, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, All, xs, shortBackoff)
+		err := finder.CheckConsistency(ctx, All, xs)
 		assert.Nil(t, err)
 		assert.Equal(t, want, xs)
 	})
@@ -1172,7 +1167,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR2, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, All, xs, shortBackoff)
+		err := finder.CheckConsistency(ctx, All, xs)
 		assert.Nil(t, err)
 		assert.Equal(t, want, xs)
 	})
@@ -1253,7 +1248,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR2, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, All, xs, shortBackoff)
+		err := finder.CheckConsistency(ctx, All, xs)
 		assert.Nil(t, err)
 		assert.Equal(t, want, xs)
 	})
@@ -1330,7 +1325,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			Return(repairR3, nil).
 			Once()
 
-		err := finder.CheckConsistency(ctx, All, xs, shortBackoff)
+		err := finder.CheckConsistency(ctx, All, xs)
 		assert.Nil(t, err)
 		assert.Equal(t, want, xs)
 	})
@@ -1395,7 +1390,7 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 		assert.ElementsMatch(t, want, got)
 	}
 
-	err := finder.CheckConsistency(ctx, Quorum, xs, *utils.ShortExponentialBackOff())
+	err := finder.CheckConsistency(ctx, Quorum, xs)
 	assert.Nil(t, err)
 	assert.Equal(t, want, xs)
 }

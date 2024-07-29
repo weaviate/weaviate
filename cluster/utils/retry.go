@@ -28,37 +28,3 @@ func NewBackoff() backoff.BackOff {
 func ConstantBackoff(maxrtry int, interval time.Duration) backoff.BackOff {
 	return backoff.WithMaxRetries(backoff.NewConstantBackOff(interval), uint64(maxrtry))
 }
-
-func DefaultExponentialBackOff() *backoff.ExponentialBackOff {
-	return NewExponentialBackOff(time.Millisecond*250, time.Second*5, time.Second*10, 2.0, 1.0)
-}
-
-func NewExponentialBackOff(initialInterval time.Duration, maxInterval time.Duration,
-	maxElapsedTime time.Duration, multiplier float64, randomizationFactor float64,
-) *backoff.ExponentialBackOff {
-	expBackoff := backoff.NewExponentialBackOff()
-	expBackoff.InitialInterval = initialInterval
-	expBackoff.MaxInterval = maxInterval
-	expBackoff.MaxElapsedTime = maxElapsedTime
-	expBackoff.Multiplier = multiplier
-	expBackoff.RandomizationFactor = randomizationFactor
-	return expBackoff
-}
-
-func CloneExponentialBackoff(oldExpBackoff backoff.ExponentialBackOff) *backoff.ExponentialBackOff {
-	newExpBackoff := backoff.NewExponentialBackOff()
-	newExpBackoff.InitialInterval = oldExpBackoff.InitialInterval
-	newExpBackoff.MaxInterval = oldExpBackoff.MaxInterval
-	newExpBackoff.MaxElapsedTime = oldExpBackoff.MaxElapsedTime
-	newExpBackoff.Multiplier = oldExpBackoff.Multiplier
-	newExpBackoff.RandomizationFactor = oldExpBackoff.RandomizationFactor
-	return newExpBackoff
-}
-
-func ShortExponentialBackOff() *backoff.ExponentialBackOff {
-	return NewExponentialBackOff(time.Millisecond*1, time.Millisecond*2, time.Millisecond*3, 2.0, 1.0)
-}
-
-func LongExponentialBackOff() *backoff.ExponentialBackOff {
-	return NewExponentialBackOff(time.Second*1, time.Second*30, time.Second*30, 2.0, 1.0)
-}

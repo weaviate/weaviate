@@ -16,8 +16,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/cenkalti/backoff/v4"
-	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 
@@ -87,12 +85,10 @@ func (f *Finder) GetOne(ctx context.Context,
 	id strfmt.UUID,
 	props search.SelectProperties,
 	adds additional.Properties,
-	backoffConfig backoff.ExponentialBackOff,
 ) (*storobj.Object, error) {
 	c := newReadCoordinator[findOneReply](f, shard)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
-			// retry/backoff config into one of the clients...
 			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
@@ -105,7 +101,7 @@ func (f *Finder) GetOne(ctx context.Context,
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}
-	replyCh, state, err := c.Pullv2(ctx, l, op, "", backoffConfig)
+	replyCh, state, err := c.Pull(ctx, l, op, "")
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -126,7 +122,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 		return f.client.FindUUIDs(ctx, host, f.class, shard, filters)
 	}
 
-	replyCh, _, err := c.Pullv2(ctx, l, op, "", *utils.DefaultExponentialBackOff())
+	replyCh, _, err := c.Pull(ctx, l, op, "")
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
 		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
@@ -162,7 +158,7 @@ type ShardDesc struct {
 //
 // For each x in xs the fields BelongsToNode and BelongsToShard must be set non empty
 func (f *Finder) CheckConsistency(ctx context.Context,
-	l ConsistencyLevel, xs []*storobj.Object, backoffConfig backoff.ExponentialBackOff,
+	l ConsistencyLevel, xs []*storobj.Object,
 ) (retErr error) {
 	if len(xs) == 0 {
 		return nil
@@ -187,7 +183,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	for _, part := range cluster(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
-			_, err := f.checkShardConsistency(ctx, l, part, backoffConfig)
+			_, err := f.checkShardConsistency(ctx, l, part)
 			if err != nil {
 				f.log.WithField("op", "check_shard_consistency").
 					WithField("shard", part.Shard).Error(err)
@@ -203,7 +199,6 @@ func (f *Finder) Exists(ctx context.Context,
 	l ConsistencyLevel,
 	shard string,
 	id strfmt.UUID,
-	backoffConfig backoff.ExponentialBackOff,
 ) (bool, error) {
 	c := newReadCoordinator[existReply](f, shard)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
@@ -214,7 +209,7 @@ func (f *Finder) Exists(ctx context.Context,
 		}
 		return existReply{host, x}, err
 	}
-	replyCh, state, err := c.Pullv2(ctx, l, op, "", backoffConfig)
+	replyCh, state, err := c.Pull(ctx, l, op, "")
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
 		return false, fmt.Errorf("%s %q: %w from pull", msgCLevel, l, errReplicas)
@@ -246,7 +241,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 // It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l ConsistencyLevel,
-	batch shardPart, backoffConfig backoff.ExponentialBackOff,
+	batch shardPart,
 ) ([]*storobj.Object, error) {
 	var (
 		c         = newReadCoordinator[batchReply](f, batch.Shard)
@@ -263,7 +258,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		}
 	}
 
-	replyCh, state, err := c.Pullv2(ctx, l, op, batch.Node, backoffConfig)
+	replyCh, state, err := c.Pull(ctx, l, op, batch.Node)
 	if err != nil {
 		return nil, fmt.Errorf("pull shard: %w", errReplicas)
 	}
@@ -331,7 +326,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, state, err := coord.Pullv2(ctx, One, op, "", *utils.DefaultExponentialBackOff())
+	replyCh, state, err := coord.Pull(ctx, One, op, "")
 	if err != nil {
 		return nil, nil, fmt.Errorf("pull shard: %w", err)
 	}
