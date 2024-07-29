@@ -99,6 +99,11 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	} else {
 		dist, err = n.distancer.DistanceToNode(id)
 	}
+
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		return math.MaxFloat32, nil
+	}
 	if err != nil {
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
@@ -322,6 +327,12 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		// we need to run the heuristic
 
 		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			// it seems either the node or the neighbor were deleted in the meantime,
+			// there is nothing we can do now
+			return nil
+		}
 		if err != nil {
 			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
 		}
@@ -331,6 +342,11 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 		for _, existingConnection := range currentConnections {
 			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				// was deleted in the meantime
+				continue
+			}
 			if err != nil {
 				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 			}
@@ -484,6 +500,10 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 		dist, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
 	} else {
 		dist, err = n.distancer.DistanceToNode(candidate)
+	}
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
