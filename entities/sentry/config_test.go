@@ -66,10 +66,12 @@ func TestSentryConfig(t *testing.T) {
 		{
 			name: "enabled, everything set",
 			vars: map[string]string{
-				"SENTRY_ENABLED":   "true",
-				"SENTRY_DSN":       "http://dsn",
-				"SENTRY_DEBUG":     "true",
-				"SENTRY_TAG_hello": "world",
+				"SENTRY_ENABLED":       "true",
+				"SENTRY_DSN":           "http://dsn",
+				"SENTRY_DEBUG":         "true",
+				"SENTRY_TAG_hello":     "world",
+				"SENTRY_CLUSTER_OWNER": "im_the_owner",
+				"SENTRY_CLUSTER_ID":    "id123",
 			},
 			expectErr: false,
 			expectedConfig: ConfigOpts{
@@ -81,6 +83,8 @@ func TestSentryConfig(t *testing.T) {
 				ErrorSampleRate:   1.0,
 				TracesSampleRate:  0.1,
 				ProfileSampleRate: 1.0,
+				ClusterId:         "id123",
+				ClusterOwner:      "im_the_owner",
 				Tags: map[string]string{
 					"hello": "world",
 				},

@@ -36,6 +36,8 @@ type ConfigOpts struct {
 	ErrorSampleRate   float64           `json:"error_sample_rate" yaml:"error_sample_rate"`
 	TracesSampleRate  float64           `json:"traces_sample_rate" yaml:"traces_sample_rate"`
 	ProfileSampleRate float64           `json:"profile_sample_rate" yaml:"profile_sample_rate"`
+	ClusterId         string            `json:"cluster_id" yaml:"cluster_id"`
+	ClusterOwner      string            `json:"cluster_owner" yaml:"cluster_owner"`
 }
 
 // Config Global Singleton that can be accessed from anywhere in the app. This
@@ -64,6 +66,9 @@ func InitSentryConfig() (*ConfigOpts, error) {
 	if Config.Environment == "" {
 		Config.Environment = "unknown"
 	}
+
+	Config.ClusterOwner = os.Getenv("SENTRY_CLUSTER_OWNER")
+	Config.ClusterId = os.Getenv("SENTRY_CLUSTER_ID")
 
 	// Configure error sampling
 	if errorSampleRate, err := strconv.ParseFloat(os.Getenv("SENTRY_ERROR_SAMPLE_RATE"), 64); err == nil && errorSampleRate <= 1.0 && errorSampleRate >= 0.0 {

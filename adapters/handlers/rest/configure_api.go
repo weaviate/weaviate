@@ -179,6 +179,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 
 		sentry.ConfigureScope(func(scope *sentry.Scope) {
+			// Set cluster ID and cluster owner using sentry user feature to distinguish multiple clusters in the UI
+			scope.SetUser(sentry.User{
+				ID:       appState.ServerConfig.Config.Sentry.ClusterId,
+				Username: appState.ServerConfig.Config.Sentry.ClusterOwner,
+			})
+			// Set any tags defined
 			for key, value := range appState.ServerConfig.Config.Sentry.Tags {
 				scope.SetTag(key, value)
 			}
