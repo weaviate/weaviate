@@ -722,7 +722,14 @@ func (index *flat) PostStartup() {
 	for _, vec := range vecs {
 		index.bqCache.Preload(vec.id, vec.vec)
 	}
-	fmt.Printf("pre-loaded %d vectors in %s\n", count, time.Since(before))
+
+	took := time.Since(before)
+	index.logger.WithFields(logrus.Fields{
+		"action":   "preload_bq_cache",
+		"count":    count,
+		"took":     took,
+		"index_id": index.id,
+	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
 func (index *flat) Dump(labels ...string) {
