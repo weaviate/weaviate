@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestQuantileKeys(t *testing.T) {
+func FuzzQuantileKeys(f *testing.F) {
 	type test struct {
 		name                  string
 		objects               int
@@ -81,13 +81,28 @@ func TestQuantileKeys(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			dt := buildSampleDiskTree(t, test.objects)
-			keys := dt.QuantileKeys(test.inputQuantiles)
-
-			require.GreaterOrEqual(t, len(keys), test.expectedMinimumOutput)
-		})
+		f.Add(test.objects, test.inputQuantiles)
 	}
+
+	f.Fuzz(func(t *testing.T, objects int, inputQuantiles int) {
+		if objects < 0 || objects > 1000 {
+			return
+		}
+
+		if inputQuantiles < 0 || inputQuantiles > 1000 {
+			return
+		}
+
+		minimumOutput := inputQuantiles
+		if objects < inputQuantiles {
+			minimumOutput = objects
+		}
+
+		dt := buildSampleDiskTree(t, objects)
+		keys := dt.QuantileKeys(inputQuantiles)
+
+		require.GreaterOrEqual(t, len(keys), minimumOutput)
+	})
 }
 
 func TestQuantileKeysDistribution(t *testing.T) {
