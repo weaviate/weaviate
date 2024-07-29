@@ -200,7 +200,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 // - Only one successful fullread op will be performed
 // - Query level replicas concurrently, and avoid querying more than level unless there are failures
 // - Only send up to level messages onto replyCh
-// - Only send error messages on replyCh once all successes have been sent
+// - Only send error messages on replyCh once it's unlikely we'll ever reach level successes
 //
 // Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
 func (c *coordinator[T]) Pull(ctx context.Context,
@@ -216,7 +216,6 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	hosts := state.Hosts
 	f := func() {
 		hostRetryQueue := make(chan hostRetry, len(hosts))
-		errorResults := make(chan _Result[T], level)
 
 		// put the "backups/fallbacks" on the retry queue
 		for i := level; i < len(hosts); i++ {
@@ -237,6 +236,9 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// if we only used the retry queue then we would not have the guarantee that the
 				// fullRead will be tried on hosts[0] first.
 				resp, err := op(ctx, hosts[hostIndex], isFullReadWorker)
+				// TODO how to know if/handle op erroring retryable vs not
+				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR?
+				// TODO add tests for ctx.Done below
 				if err == nil {
 					replyCh <- _Result[T]{resp, err}
 					return
@@ -253,14 +255,16 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 					}
 					nextBackOff := nextBackOff(hr.currentBackOff)
 					if nextBackOff > c.pullBackOff.max {
-						// this host has run out of retries, save the result to be returned later
-						errorResults <- _Result[T]{resp, err}
+						// this host has run out of retries, send the result and note that
+						// we have the worker exit here with the assumption that once we've reached
+						// this many failures for this host, we've tried all other hosts enough
+						// that we're not going to reach level successes
+						replyCh <- _Result[T]{resp, err}
 						return
 					}
 					select {
 					case <-ctx.Done():
-						// forward the error on if context expires
-						errorResults <- _Result[T]{resp, fmt.Errorf("%v: %w", err, ctx.Err())}
+						replyCh <- _Result[T]{resp, err}
 						return
 					case <-time.After(hr.currentBackOff):
 						// pause this worker for currentBackOff, then put this host back onto the
@@ -273,18 +277,6 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			enterrors.GoWrapper(workerFunc, c.log)
 		}
 		wg.Wait()
-
-		// once all workers are done, no more messages should be published to errorResults, so
-		// drain any errors and put them onto replyCh
-	drainErrorResults:
-		for {
-			select {
-			case reply := <-errorResults:
-				replyCh <- reply
-			default:
-				break drainErrorResults
-			}
-		}
 		// callers of this function rely on replyCh being closed
 		close(replyCh)
 	}
