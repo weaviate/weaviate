@@ -368,9 +368,9 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[an
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
 				h.handleDeletedNode(e.DocID)
-			} else {
-				return 0, errors.Wrap(err, "calculated distance between worst result and query")
+				return math.MaxFloat32, nil
 			}
+			return 0, errors.Wrap(err, "calculated distance between worst result and query")
 		}
 
 		return d, nil
@@ -394,6 +394,11 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 		id := item.ID
 		d, err := distancer.DistanceToNode(id)
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				return math.MaxFloat32, nil
+			}
 			return 0, errors.Wrap(err,
 				"calculated distance between worst result and query")
 		}
@@ -416,11 +421,10 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID)
-			return 0, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
+			return 0, err
 		}
+		// not a typed error, we can recover from, return with err
+		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
 	vec = h.normalizeVec(vec)
 	return concreteDistancer.DistanceToFloat(vec)
@@ -474,6 +478,13 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	h.RUnlock()
 
 	entryPointDistance, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
+
+	var e storobj.ErrNotFound
+	if err != nil && errors.As(err, &e) {
+		h.handleDeletedNode(e.DocID)
+		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
+			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+	}
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
