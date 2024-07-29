@@ -115,6 +115,24 @@ func importConsecutiveKeys(t *testing.T, b *Bucket, start, end uint64) {
 	}
 }
 
+func TestKeyDistributionExample(t *testing.T) {
+	inputKeyStrings := []string{"A", "B", "C", "D", "E", "F", "G", "H", "I", "J"}
+	inputKeys := make([][]byte, len(inputKeyStrings))
+	for i, s := range inputKeyStrings {
+		inputKeys[i] = []byte(s)
+	}
+	q := 3
+
+	picked := pickEvenlyDistributedKeys(inputKeys, q)
+	expectKeyStrings := []string{"C", "F", "I"}
+	expectKeys := make([][]byte, len(expectKeyStrings))
+	for i, s := range expectKeyStrings {
+		expectKeys[i] = []byte(s)
+	}
+
+	assert.Equal(t, expectKeys, picked)
+}
+
 func TestPickEvenlyDistributedKeys(t *testing.T) {
 	for input := 0; input < 100; input++ {
 		for q := 1; q < 100; q++ {
