@@ -147,15 +147,17 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		err := sentry.Init(sentry.ClientOptions{
-			Dsn:                appState.ServerConfig.Config.Sentry.DSN,
-			Debug:              appState.ServerConfig.Config.Sentry.Debug,
-			Release:            "weaviate-core@" + config.DockerImageTag,
-			Environment:        appState.ServerConfig.Config.Sentry.Environment,
-			EnableTracing:      appState.ServerConfig.Config.Sentry.TracingEnabled,
+			// Setup related config
+			Dsn:         appState.ServerConfig.Config.Sentry.DSN,
+			Debug:       appState.ServerConfig.Config.Sentry.Debug,
+			Release:     "weaviate-core@" + config.DockerImageTag,
+			Environment: appState.ServerConfig.Config.Sentry.Environment,
+			// Enable tracing if requested
+			EnableTracing:    !appState.ServerConfig.Config.Sentry.TracingDisabled,
+			AttachStacktrace: true,
+			// Sample rates based on the config
 			SampleRate:         appState.ServerConfig.Config.Sentry.ErrorSampleRate,
 			ProfilesSampleRate: appState.ServerConfig.Config.Sentry.ProfileSampleRate,
-			AttachStacktrace:   true,
-			// TracesSampler
 			TracesSampler: sentry.TracesSampler(func(ctx sentry.SamplingContext) float64 {
 				// Inherit decision from parent transaction (if any) if it is sampled or not
 				if ctx.Parent != nil && ctx.Parent.Sampled != sentry.SampledUndefined {
