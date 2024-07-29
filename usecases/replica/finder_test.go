@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -186,6 +187,33 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 	// 	assert.Nil(t, err)
 	// 	assert.Equal(t, item.Object, got)
 	// })
+
+	t.Run("ContextCancelledFastEnough", func(t *testing.T) {
+		var (
+			f         = newFakeFactory("C1", shard, nodes)
+			finder    = f.newFinder("A")
+			digestIDs = []strfmt.UUID{id}
+			item      = objects.Replica{ID: id, Object: object(id, 3)}
+			digestR   = []RepairResponse{{ID: id.String(), UpdateTime: 3}}
+			ticker    = time.NewTicker(time.Millisecond * 100)
+		)
+		finder.coordinatorPullBackoffInitialInterval = time.Millisecond * 128
+		finder.coordinatorPullBackoffMaxElapsedTime = time.Second * 10
+
+		f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).WaitUntil(ticker.C).Return(item, errAny)
+		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).WaitUntil(ticker.C).Return(digestR, errAny)
+		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).WaitUntil(ticker.C).Return(digestR, errAny)
+
+		ctxTimeout, _ := context.WithTimeout(ctx, time.Millisecond*500)
+		before := time.Now()
+		got, err := finder.GetOne(ctxTimeout, All, shard, id, proj, adds)
+		if s := time.Since(before); s > time.Second {
+			assert.Failf(t, "GetOne took too long to return after context was cancelled", "took: %v", s)
+		}
+		assert.ErrorIs(t, err, errRead)
+		assert.Equal(t, nilObject, got)
+		f.assertLogErrorContains(t, errAny.Error())
+	})
 }
 
 func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
