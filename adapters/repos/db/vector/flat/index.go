@@ -62,9 +62,10 @@ type flat struct {
 	pqResults *common.PqMaxPool
 	pool      *pools
 
-	compression string
-	bqCache     cache.Cache[uint64]
-	count       uint64
+	compression          string
+	bqCache              cache.Cache[uint64]
+	count                uint64
+	concurrentCacheReads int
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -82,15 +83,16 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	index := &flat{
-		id:                cfg.ID,
-		targetVector:      cfg.TargetVector,
-		logger:            logger,
-		distancerProvider: cfg.DistanceProvider,
-		rescore:           extractCompressionRescore(uc),
-		pqResults:         common.NewPqMaxPool(100),
-		compression:       extractCompression(uc),
-		pool:              newPools(),
-		store:             store,
+		id:                   cfg.ID,
+		targetVector:         cfg.TargetVector,
+		logger:               logger,
+		distancerProvider:    cfg.DistanceProvider,
+		rescore:              extractCompressionRescore(uc),
+		pqResults:            common.NewPqMaxPool(100),
+		compression:          extractCompression(uc),
+		pool:                 newPools(),
+		store:                store,
+		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
@@ -412,15 +414,13 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	}
 
 	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
-	parallel := runtime.GOMAXPROCS(0) * 2
 	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
 
 	eg := enterrors.NewErrorGroupWrapper(index.logger)
-	for workerID := 0; workerID < parallel; workerID++ {
-		offset := parallel % workerID
-
+	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
+		workerID := workerID
 		eg.Go(func() error {
-			for idPos := offset; idPos < len(idsSlice.slice); idPos += parallel {
+			for idPos := workerID; idPos < len(idsSlice.slice); idPos += index.concurrentCacheReads {
 				id := idsSlice.slice[idPos]
 				candidateAsBytes, err := index.vectorById(id)
 				if err != nil {
