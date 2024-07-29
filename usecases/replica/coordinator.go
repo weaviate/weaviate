@@ -237,7 +237,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// fullRead will be tried on hosts[0] first.
 				resp, err := op(ctx, hosts[hostIndex], isFullReadWorker)
 				// TODO how to know if/handle op erroring retryable vs not
-				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR?
+				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				// TODO add tests for ctx.Done below
 				if err == nil {
 					replyCh <- _Result[T]{resp, err}
