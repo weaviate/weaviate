@@ -14,7 +14,6 @@ package replica
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
@@ -296,10 +295,4 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 type hostRetry struct {
 	host           string
 	currentBackOff backoff.BackOff
-}
-
-// nextBackOff returns a new random duration in the interval [d, 3d].
-// It implements truncated exponential back-off with introduced jitter.
-func nextBackOff(d time.Duration) time.Duration {
-	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }
