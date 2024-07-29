@@ -413,6 +413,7 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 				if breakCleanUpTombstonedNodes() {
 					cancelled.Store(true)
 					cancel()
+					return nil
 				}
 				select {
 				case <-ctx.Done():
