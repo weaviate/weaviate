@@ -742,9 +742,10 @@ func (index *flat) PostStartup() {
 
 	// Grow cache just once
 	index.bqCache.Grow(maxID)
+	index.bqCache.SetSizeNoLock(maxID)
 
 	for _, vec := range vecs {
-		index.bqCache.Preload(vec.id, vec.vec)
+		index.bqCache.PreloadNoLock(vec.id, vec.vec)
 	}
 
 	took := time.Since(before)
