@@ -73,7 +73,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 }
 
 func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList,
-	className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking,
+	className schema.ClassName, limit int, keywordRanking searchparams.KeywordRanking, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	// WEAVIATE-471 - If a property is not searchable, return an error
 	for _, property := range keywordRanking.Properties {
@@ -87,7 +87,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
 	}
 
-	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit)
+	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
@@ -101,6 +101,7 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
+	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
@@ -230,7 +231,7 @@ func (b *BM25Searcher) wand(
 	copy(resultsOriginalOrder, results)
 
 	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
-	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations)
+	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations, additional)
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
@@ -261,7 +262,7 @@ WordLoop:
 }
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
-	results terms, indices []map[uint64]int, additionalExplanations bool,
+	results terms, indices []map[uint64]int, additionalExplanations bool, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	if objectsBucket == nil {
@@ -276,7 +277,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 		scores = append(scores, res.Dist)
 	}
 
-	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional.Properties{}, b.logger, true)
+	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional, b.logger, true)
 	if err != nil {
 		return objs, nil, errors.Errorf("objects loading")
 	}
