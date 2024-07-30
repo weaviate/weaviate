@@ -816,7 +816,7 @@ func TestObjectsByDocID(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, logger)
+			res, err := ObjectsByDocID(bucket, test.inputIDs, additional.Properties{}, logger, false)
 			require.Nil(t, err)
 			require.Len(t, res, len(test.inputIDs))
 
@@ -854,11 +854,11 @@ func BenchmarkObjectsByDocID(b *testing.B) {
 		b.Run(fmt.Sprintf("Concurrent: %v with amount: %v", tt.concurrent, tt.amount), func(t *testing.B) {
 			for i := 0; i < b.N; i++ {
 				if tt.concurrent {
-					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, logger)
+					_, err := objectsByDocIDParallel(bucket, ids[:tt.amount], additional.Properties{}, logger, false)
 					require.Nil(t, err)
 
 				} else {
-					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{})
+					_, err := objectsByDocIDSequential(bucket, ids[:tt.amount], additional.Properties{}, false)
 					require.Nil(t, err)
 				}
 			}
@@ -901,7 +901,7 @@ func FuzzObjectGet(f *testing.F) {
 			}
 		}
 
-		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, logger)
+		res, err := ObjectsByDocID(bucket, ids, additional.Properties{}, logger, false)
 		require.Nil(t, err)
 		require.Len(t, res, len(ids))
 		for i, obj := range res {
