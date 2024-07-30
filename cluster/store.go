@@ -155,6 +155,9 @@ type Store struct {
 	// raft log store
 	logStore *raftbolt.BoltStore
 
+	// raft log cache
+	logCache *raft.LogCache
+
 	// cluster bootstrap related attributes
 	bootstrapMutex sync.Mutex
 	candidates     map[string]string
@@ -198,8 +201,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 	defer func() { st.open.Store(err == nil) }()
 
-	// log cache
-	logCache, err := st.init()
+	st.logCache, err = st.init()
 	if err != nil {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
@@ -217,10 +219,18 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.log.WithFields(logrus.Fields{
 		"name":                 st.cfg.NodeID,
 		"metadata_only_voters": st.cfg.MetadataOnlyVoters,
+		"bootstrap_expect":     st.cfg.BootstrapExpect,
 	}).Info("construct a new raft node")
-	st.raft, err = raft.NewRaft(st.raftConfig(), st, logCache, st.logStore, st.snapshotStore, st.raftTransport)
+
+	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
+	}
+
+	if st.cfg.BootstrapExpect == 1 {
+		if err := st.recoverSingleNode(); err != nil {
+			return err
+		}
 	}
 
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
@@ -645,4 +655,56 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 		return 0
 	}
 	return ls[0].Index
+}
+
+// recoverSingleNode is used to manually force a new configuration in order to
+// recover from a loss of quorum where the current configuration cannot be
+// WARNING! This operation implicilty commits all entries in the Raft log, so
+// in general this is an extremely unsafe operation and that's why it's made to be
+// used in a single cluster node.
+// for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
+func (st *Store) recoverSingleNode() error {
+	if st.cfg.BootstrapExpect > 1 {
+		return fmt.Errorf("bootstrap expect is more than 1, can't perform auto recovery in multi node cluster")
+	}
+	exNode := st.raft.GetConfiguration().Configuration().Servers[0]
+	newNode := raft.Server{
+		ID:       raft.ServerID(st.cfg.NodeID),
+		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
+		Suffrage: raft.Voter,
+	}
+
+	if exNode.ID == newNode.ID && exNode.Address == newNode.Address {
+		return nil
+	}
+
+	if err := st.raft.Shutdown().Error(); err != nil {
+		return err
+	}
+
+	st.log.WithFields(logrus.Fields{
+		"action":                      "raft_cluster_recovery",
+		"existed_single_cluster_node": exNode,
+		"new_single_cluster_node":     newNode,
+	}).Info("perform cluster recovery")
+
+	if err := raft.RecoverCluster(st.raftConfig(), &Store{
+		cfg:           st.cfg,
+		log:           st.log,
+		raftResolver:  st.raftResolver,
+		raftTransport: st.raftTransport,
+		applyTimeout:  st.applyTimeout,
+		snapshotStore: st.snapshotStore,
+		schemaManager: st.schemaManager,
+	}, st.logCache, st.logStore, st.snapshotStore, st.raftTransport, raft.Configuration{Servers: []raft.Server{newNode}}); err != nil {
+		return err
+	}
+
+	var err error
+	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	if err != nil {
+		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
+	}
+
+	return nil
 }
