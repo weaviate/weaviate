@@ -1023,7 +1023,7 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 			v = distancer.Normalize(v)
 		}
 
-		dist, _, err := m.DistanceBetweenVectors(vector, v)
+		dist, err := m.DistanceBetweenVectors(vector, v)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1070,7 +1070,7 @@ func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance 
 			v = distancer.Normalize(v)
 		}
 
-		dist, _, err := m.DistanceBetweenVectors(vector, v)
+		dist, err := m.DistanceBetweenVectors(vector, v)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1101,13 +1101,13 @@ func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance 
 	return ids, distances, nil
 }
 
-func (m *mockBatchIndexer) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (m *mockBatchIndexer) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	res := float32(0)
 	for i := range x {
 		diff := x[i] - y[i]
 		res += diff * diff
 	}
-	return res, true, nil
+	return res, nil
 }
 
 func (m *mockBatchIndexer) ContainsNode(id uint64) bool {
