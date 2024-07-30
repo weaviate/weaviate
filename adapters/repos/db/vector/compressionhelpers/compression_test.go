@@ -69,19 +69,19 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 		distancer, returnFn := compressor.NewDistancer([]float32{0.1, -0.2})
 		defer returnFn()
 
-		d, _, err := distancer.DistanceToNode(1)
+		d, err := distancer.DistanceToNode(1)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(2), d)
 
-		d, _, err = distancer.DistanceToNode(2)
+		d, err = distancer.DistanceToNode(2)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(1), d)
 
-		d, _, err = distancer.DistanceToNode(3)
+		d, err = distancer.DistanceToNode(3)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(1), d)
 
-		d, _, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
+		d, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
 		assert.Nil(t, err)
 		assert.Equal(t, float32(0.88), d)
 	})
@@ -96,19 +96,19 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 
 		assert.Nil(t, err)
 
-		d, _, err := distancer.DistanceToNode(1)
+		d, err := distancer.DistanceToNode(1)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(0), d)
 
-		d, _, err = distancer.DistanceToNode(2)
+		d, err = distancer.DistanceToNode(2)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(1), d)
 
-		d, _, err = distancer.DistanceToNode(3)
+		d, err = distancer.DistanceToNode(3)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(1), d)
 
-		d, _, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
+		d, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
 		assert.Nil(t, err)
 		assert.Equal(t, float32(2), d)
 	})

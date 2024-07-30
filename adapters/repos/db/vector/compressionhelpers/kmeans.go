@@ -117,7 +117,7 @@ func (m *KMeans) nNearest(point []float32, n int) ([]uint64, []float32) {
 	}
 	filteredPoint := point[m.segment*m.dimensions : (m.segment+1)*m.dimensions]
 	for i, c := range m.centers {
-		distance, _, _ := m.Distance.SingleDist(filteredPoint, c)
+		distance, _ := m.Distance.SingleDist(filteredPoint, c)
 		j := 0
 		for (j < n) && minD[j] < distance {
 			j++
