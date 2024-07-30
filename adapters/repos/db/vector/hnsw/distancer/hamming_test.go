@@ -168,7 +168,6 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 				if resControl != res {
 					countFailed++
 					t.Fatalf("run %d: match: %f != %f, %d\n", i, resControl, res, (unsafe.Pointer(&vec1s[i][0])))
-					t.Fail()
 				}
 
 			}
