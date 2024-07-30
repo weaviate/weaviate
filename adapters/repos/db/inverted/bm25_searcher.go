@@ -292,6 +292,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 			scores[j] = scores[i]
 			j++
 		}
+		scores = scores[:j]
 	}
 
 	if additionalExplanations {
