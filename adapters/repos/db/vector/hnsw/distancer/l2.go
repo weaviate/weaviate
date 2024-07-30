@@ -28,13 +28,13 @@ type L2Squared struct {
 	a []float32
 }
 
-func (l L2Squared) Distance(b []float32) (float32, bool, error) {
+func (l L2Squared) Distance(b []float32) (float32, error) {
 	if len(l.a) != len(b) {
-		return 0, false, errors.Wrapf(ErrVectorLength, "%d vs %d",
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(l.a), len(b))
 	}
 
-	return l2SquaredImpl(l.a, b), true, nil
+	return l2SquaredImpl(l.a, b), nil
 }
 
 type L2SquaredProvider struct{}
@@ -43,13 +43,13 @@ func NewL2SquaredProvider() L2SquaredProvider {
 	return L2SquaredProvider{}
 }
 
-func (l L2SquaredProvider) SingleDist(a, b []float32) (float32, bool, error) {
+func (l L2SquaredProvider) SingleDist(a, b []float32) (float32, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Wrapf(ErrVectorLength, "%d vs %d",
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(a), len(b))
 	}
 
-	return l2SquaredImpl(a, b), true, nil
+	return l2SquaredImpl(a, b), nil
 }
 
 func (l L2SquaredProvider) Type() string {

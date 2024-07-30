@@ -53,7 +53,7 @@ func Test_NoRaceSQDistance(t *testing.T) {
 		vec2 := []float32{0.241, 0.202, 0.257, 0.300}
 
 		dist, err := sq.DistanceBetweenCompressedVectors(sq.Encode(vec1), sq.Encode(vec2))
-		expectedDist, _, _ := distancer.SingleDist(vec1, vec2)
+		expectedDist, _ := distancer.SingleDist(vec1, vec2)
 		assert.Nil(t, err)
 		if err == nil {
 			assert.True(t, math.Abs(float64(expectedDist-dist)) < 0.01)
@@ -64,7 +64,7 @@ func Test_NoRaceSQDistance(t *testing.T) {
 
 func distancerWrapper(dp distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
-		dist, _, _ := dp.SingleDist(x, y)
+		dist, _ := dp.SingleDist(x, y)
 		return dist
 	}
 }
@@ -96,7 +96,7 @@ func Test_NoRaceRandomSQDistanceFloatToByte(t *testing.T) {
 			cd := sq.NewDistancer(queries[i])
 			for j := range xCompressed {
 				before := time.Now()
-				d, _, _ := cd.Distance(xCompressed[j])
+				d, _ := cd.Distance(xCompressed[j])
 				ell := time.Since(before)
 				mutex.Lock()
 				ellapsed += ell
@@ -152,7 +152,7 @@ func Test_NoRaceRandomSQDistanceByteToByte(t *testing.T) {
 			cd := sq.NewCompressedQuantizerDistancer(sq.Encode(queries[i]))
 			for j := range xCompressed {
 				before := time.Now()
-				d, _, _ := cd.Distance(xCompressed[j])
+				d, _ := cd.Distance(xCompressed[j])
 				ell := time.Since(before)
 				mutex.Lock()
 				ellapsed += ell

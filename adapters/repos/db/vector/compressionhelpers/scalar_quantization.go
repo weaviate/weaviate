@@ -144,21 +144,19 @@ func (sq *ScalarQuantizer) NewDistancer(a []float32) *SQDistancer {
 	}
 }
 
-func (d *SQDistancer) Distance(x []byte) (float32, bool, error) {
+func (d *SQDistancer) Distance(x []byte) (float32, error) {
 	if len(d.x) > 0 {
-		dist, err := d.sq.DistanceBetweenCompressedVectors(d.compressed, x)
-		return dist, err == nil, err
+		return d.sq.DistanceBetweenCompressedVectors(d.compressed, x)
 	}
-	return d.sq.a2 * float32(l2SquaredByteImpl(d.compressed, x)), true, nil
+	return d.sq.a2 * float32(l2SquaredByteImpl(d.compressed, x)), nil
 }
 
-func (d *SQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
+func (d *SQDistancer) DistanceToFloat(x []float32) (float32, error) {
 	if len(d.x) > 0 {
 		return d.sq.distancer.SingleDist(d.x, x)
 	}
 	xComp := d.sq.Encode(x)
-	dist, err := d.sq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err == nil, err
+	return d.sq.DistanceBetweenCompressedVectors(d.compressed, xComp)
 }
 
 func (sq *ScalarQuantizer) NewQuantizerDistancer(a []float32) quantizerDistancer[byte] {
