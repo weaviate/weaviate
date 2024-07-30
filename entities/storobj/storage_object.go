@@ -283,7 +283,7 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 			if err != nil {
 				return err
 			}
-			copy(out[start:end], objs)
+			copy(out[start:start+len(objs)], objs)
 			return nil
 		})
 	}
@@ -292,7 +292,16 @@ func objectsByDocIDParallel(bucket bucket, ids []uint64,
 		return nil, err
 	}
 
-	return out, nil
+	// fix gaps in the output array
+	j := 0
+	for i := range out {
+		if out[i] != nil {
+			out[j] = out[i]
+			j++
+		}
+	}
+
+	return out[:j], nil
 }
 
 func objectsByDocIDSequential(bucket bucket, ids []uint64,
