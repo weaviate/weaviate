@@ -659,7 +659,7 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 
 // recoverSingleNode is used to manually force a new configuration in order to
 // recover from a loss of quorum where the current configuration cannot be
-// WARNING! This operation implicilty commits all entries in the Raft log, so
+// WARNING! This operation impliciimplicitlylty commits all entries in the Raft log, so
 // in general this is an extremely unsafe operation and that's why it's made to be
 // used in a single cluster node.
 // for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
