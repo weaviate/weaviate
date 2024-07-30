@@ -23,9 +23,8 @@ func TestGeoSpatialDistance(t *testing.T) {
 		munich := []float32{48.137154, 11.576124}
 		stuttgart := []float32{48.783333, 9.183333}
 
-		dist, ok, err := NewGeoProvider().New(munich).Distance(stuttgart)
+		dist, err := NewGeoProvider().New(munich).Distance(stuttgart)
 		require.Nil(t, err)
-		require.True(t, ok)
 		assert.InDelta(t, 190000, dist, 1000)
 	})
 }
