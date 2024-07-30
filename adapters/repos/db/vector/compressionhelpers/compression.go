@@ -84,7 +84,13 @@ func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id 
 	compressor.cache.Delete(ctx, id)
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes)
+	if err := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes); err != nil {
+		compressor.logger.WithFields(logrus.Fields{
+			"action": "compressor_delete",
+			"id":     id,
+		}).WithError(err).
+			Warnf("cannot delete vector from compressed cache")
+	}
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []float32) {
