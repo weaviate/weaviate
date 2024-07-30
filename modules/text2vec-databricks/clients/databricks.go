@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -83,43 +82,19 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 	return nil
 }
 
-func buildUrl(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
-	if isAzure {
-		host := baseURL
-		if host == "" || host == "https://api.openai.com" {
-			// Fall back to old assumption
-			host = "https://" + resourceName + ".openai.azure.com"
-		}
-
-		path := "openai/deployments/" + deploymentID + "/embeddings"
-		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
-		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
-	}
-
-	host := baseURL
-	path := "/v1/embeddings"
-	return url.JoinPath(host, path)
-}
-
 type client struct {
-	openAIApiKey       string
-	openAIOrganization string
-	azureApiKey        string
-	httpClient         *http.Client
-	buildUrlFn         func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error)
-	logger             logrus.FieldLogger
+	databricksToken string
+	httpClient      *http.Client
+	logger          logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *client {
+func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *client {
 	return &client{
-		openAIApiKey:       openAIApiKey,
-		openAIOrganization: openAIOrganization,
-		azureApiKey:        azureApiKey,
+		databricksToken: databricksToken,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		buildUrlFn: buildUrl,
-		logger:     logger,
+		logger: logger,
 	}
 }
 
@@ -144,10 +119,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		return nil, nil, errors.Wrap(err, "marshal body")
 	}
 
-	endpoint, err := v.buildURL(ctx, config)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "join OpenAI API host and path")
-	}
+	endpoint, _ := v.buildURL(ctx, config)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint,
 		bytes.NewReader(body))
@@ -205,15 +177,15 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 }
 
 func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
-	baseURL, resourceName, deploymentID, apiVersion, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
-		baseURL = headerBaseURL
+	servingUrl := config.ServingURL
+	if headerServingUrl := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Servingurl"); headerServingUrl != "" {
+		servingUrl = headerServingUrl
 	}
-	return v.buildUrlFn(baseURL, resourceName, deploymentID, apiVersion, isAzure)
+	return servingUrl, nil
 }
 
 func (v *client) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
-	endpoint := "OpenAI API"
+	endpoint := "Databricks Foundation Model API"
 	if isAzure {
 		endpoint = "Azure OpenAI API"
 	}
@@ -241,7 +213,7 @@ func (v *client) getOpenAIOrganization(ctx context.Context) string {
 	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
 		return value
 	}
-	return v.openAIOrganization
+	return ""
 }
 
 func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
@@ -274,15 +246,9 @@ func (v *client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.Cla
 func (v *client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 	var apiKey, envVarValue, envVar string
 
-	if isAzure {
-		apiKey = "X-Azure-Api-Key"
-		envVar = "AZURE_APIKEY"
-		envVarValue = v.azureApiKey
-	} else {
-		apiKey = "X-Openai-Api-Key"
-		envVar = "OPENAI_APIKEY"
-		envVarValue = v.openAIApiKey
-	}
+	apiKey = "X-Databricks-Token"
+	envVar = "DATABRICKS_TOKEN"
+	envVarValue = v.databricksToken
 
 	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
 }
@@ -294,7 +260,7 @@ func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 	if envVarValue != "" {
 		return envVarValue, nil
 	}
-	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+	return "", fmt.Errorf("no Databricks token found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
 func (v *client) getModelString(config ent.VectorizationConfig, action string) string {
@@ -342,5 +308,6 @@ func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vectori
 		IsThirdPartyProvider: settings.IsThirdPartyProvider(),
 		ApiVersion:           settings.ApiVersion(),
 		Dimensions:           settings.Dimensions(),
+		ServingURL:           settings.ServingURL(),
 	}
 }
