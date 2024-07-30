@@ -19,6 +19,8 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -45,6 +47,7 @@ type Server struct {
 	listenAddress      string
 	grpcMessageMaxSize int
 	log                *logrus.Logger
+	sentryEnabled      bool
 
 	grpcServer *grpc.Server
 }
@@ -52,13 +55,14 @@ type Server struct {
 // NewServer returns the Server implementing the RPC interface for RAFT peers management and execute/query commands.
 // The server must subsequently be started with Open().
 // The server will be configure the gRPC service with grpcMessageMaxSize.
-func NewServer(raftPeers raftPeers, raftFSM raftFSM, listenAddress string, log *logrus.Logger, grpcMessageMaxSize int) *Server {
+func NewServer(raftPeers raftPeers, raftFSM raftFSM, listenAddress string, log *logrus.Logger, grpcMessageMaxSize int, sentryEnabled bool) *Server {
 	return &Server{
 		raftPeers:          raftPeers,
 		raftFSM:            raftFSM,
 		listenAddress:      listenAddress,
 		log:                log,
 		grpcMessageMaxSize: grpcMessageMaxSize,
+		sentryEnabled:      sentryEnabled,
 	}
 }
 
@@ -132,9 +136,15 @@ func (s *Server) Open() error {
 		return fmt.Errorf("server tcp net.listen: %w", err)
 	}
 
-	s.grpcServer = grpc.NewServer(
-		grpc.MaxRecvMsgSize(s.grpcMessageMaxSize),
-	)
+	var options []grpc.ServerOption
+	options = append(options, grpc.MaxRecvMsgSize(s.grpcMessageMaxSize))
+	if s.sentryEnabled {
+		options = append(options,
+			grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
+				grpc_sentry.UnaryServerInterceptor(),
+			)))
+	}
+	s.grpcServer = grpc.NewServer(options...)
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
 	enterrors.GoWrapper(func() {
 		if err := s.grpcServer.Serve(listener); err != nil {
