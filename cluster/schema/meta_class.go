@@ -29,10 +29,11 @@ type (
 	NodeShardProcess map[string]*api.TenantsProcess
 	metaClass        struct {
 		sync.RWMutex
-		Class          models.Class
-		ClassVersion   uint64
-		Sharding       sharding.State
-		ShardVersion   uint64
+		Class        models.Class
+		ClassVersion uint64
+		Sharding     sharding.State
+		ShardVersion uint64
+		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
 	}
 )
@@ -302,10 +303,6 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			missingShards = append(missingShards, requestTenant.Name)
 			continue
 		}
-		// If the status is currently the same as the one requested just ignore
-		if schemaTenant.ActivityStatus() == requestTenant.Status {
-			continue
-		}
 
 		// validate status
 		switch schemaTenant.ActivityStatus() {
@@ -331,11 +328,11 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			}
 		}
 
-		frozenShard := schemaTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || schemaTenant.ActivityStatus() == models.TenantActivityStatusFREEZING
-		toFrozen := requestTenant.Status == models.TenantActivityStatusFROZEN
+		existedSharedFrozen := schemaTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || schemaTenant.ActivityStatus() == models.TenantActivityStatusFREEZING
+		requestedToFrozen := requestTenant.Status == models.TenantActivityStatusFROZEN
 
 		switch {
-		case !toFrozen && frozenShard:
+		case existedSharedFrozen && !requestedToFrozen:
 			if err = m.unfreeze(nodeID, i, req, &schemaTenant); err != nil {
 				return n, err
 			}
@@ -343,7 +340,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 				requestTenant.Status = req.Tenants[i].Status
 			}
 
-		case toFrozen && !frozenShard:
+		case requestedToFrozen && !existedSharedFrozen:
 			m.freeze(i, req, schemaTenant)
 		default:
 			// do nothing
