@@ -1335,7 +1335,7 @@ func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
 
 	d := distancer.NewCosineDistanceProvider().New(distancer.Normalize(query))
 	for i, vec := range vectors {
-		dist, _, _ := d.Distance(distancer.Normalize(vec))
+		dist, _ := d.Distance(distancer.Normalize(vec))
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
