@@ -14,6 +14,7 @@
 package flat
 
 import (
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -244,4 +245,40 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 	if err != nil {
 		fmt.Println(err)
 	}
+}
+
+func Test_RestoreDimensionsFlatIndex(t *testing.T) {
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+	indexID := "restore-dimensions"
+	distancer := distancer.NewCosineDistanceProvider()
+
+	config := flatent.UserConfig{}
+	config.SetDefaults()
+
+	index, err := New(Config{
+		ID:               indexID,
+		DistanceProvider: distancer,
+	}, config, store)
+
+	require.Nil(t, err)
+
+	index.Add(1, []float32{1, 2, 3})
+
+	require.Equal(t, index.dims, int32(3))
+
+	index.Shutdown(context.Background())
+	index = nil
+
+	index, err = New(Config{
+		ID:               indexID,
+		DistanceProvider: distancer,
+	}, config, store)
+
+	require.Nil(t, err)
+	require.Equal(t, index.dims, int32(3))
+
+	err = index.Add(2, []float32{1, 2, 3, 4})
+	require.NotNil(t, err)
+	require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 }

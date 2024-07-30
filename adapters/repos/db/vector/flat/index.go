@@ -91,6 +91,12 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
 	}
+	dims := index.calculateDimensions()
+	if dims > 0 {
+		index.trackDimensionsOnce.Do(func() {
+			atomic.StoreInt32(&index.dims, dims)
+		})
+	}
 
 	return index, nil
 }
@@ -400,6 +406,30 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
 	return index.store.Bucket(index.getBucketName()).Get(idSlice.slice)
+}
+
+func (index *flat) calculateDimensions() int32 {
+	bucket := index.store.Bucket(index.getBucketName())
+	if bucket == nil {
+		return 0
+	}
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	var key []byte
+	var v []byte
+	const maxCursorSize = 100000
+	i := 0
+	for key, v = cursor.First(); key != nil; key, v = cursor.Next() {
+		if len(v) > 0 {
+			return int32(len(v) / 4)
+		}
+		if i > maxCursorSize {
+			break
+		}
+		i++
+	}
+	return 0
 }
 
 // populates given heap with smallest distances and corresponding ids calculated by
