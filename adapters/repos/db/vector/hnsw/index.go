@@ -467,11 +467,6 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if h.compressed.Load() {
 		dist, err := h.compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), a, b)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				return 0, nil
-			}
 			return 0, err
 		}
 
@@ -519,11 +514,6 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, erro
 	if h.compressed.Load() {
 		dist, err := h.compressor.DistanceBetweenCompressedAndUncompressedVectorsFromID(context.Background(), node, vecB)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				return 0, nil
-			}
 			return 0, err
 		}
 
