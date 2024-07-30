@@ -127,6 +127,10 @@ func (cs *classSettings) Dimensions() *int64 {
 	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", defaultValue)
 }
 
+func (cs *classSettings) ServingURL() string {
+	return cs.BaseClassSettings.GetPropertyAsString("servingUrl", "")
+}
+
 func (cs *classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
@@ -167,6 +171,19 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
+	servingUrl := cs.ServingURL()
+	if err := cs.ValidateServingURL(servingUrl); err != nil {
+		return err
+	}
+
+	return nil
+
+}
+
+func (cs *classSettings) ValidateServingURL(servingUrl string) error {
+	if servingUrl == "" {
+		return errors.New("servingUrl cannot be empty")
+	}
 	return nil
 }
 

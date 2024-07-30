@@ -39,128 +39,19 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name: "text-embedding-3-small",
+			name: "user supplied serving url",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model": "text-embedding-3-small",
+					"servingUrl": "https://foo.databricks.com/serving-endpoints/databricks-gte-large-en/invocations",
 				},
 			},
 		},
 		{
-			name: "text-embedding-3-small, 512 dimensions",
+			name: "user did not supply serving url",
 			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":      "text-embedding-3-small",
-					"dimensions": 512,
-				},
+				classConfig: map[string]interface{}{},
 			},
-		},
-		{
-			name: "text-embedding-3-small, wrong dimensions",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":      "text-embedding-3-small",
-					"dimensions": 1,
-				},
-			},
-			wantErr: errors.New("wrong dimensions setting for text-embedding-3-small model, available dimensions are: [512 1536]"),
-		},
-		{
-			name: "text-embedding-3-large",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "text-embedding-3-large",
-				},
-			},
-		},
-		{
-			name: "text-embedding-3-large, 512 dimensions",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":      "text-embedding-3-large",
-					"dimensions": 1024,
-				},
-			},
-		},
-		{
-			name: "text-embedding-3-large, wrong dimensions",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":      "text-embedding-3-large",
-					"dimensions": 512,
-				},
-			},
-			wantErr: errors.New("wrong dimensions setting for text-embedding-3-large model, available dimensions are: [256 1024 3072]"),
-		},
-		{
-			name: "text-embedding-ada-002",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":        "ada",
-					"modelVersion": "002",
-				},
-			},
-		},
-		{
-			name: "text-embedding-ada-002 - dimensions error",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":      "ada",
-					"dimensions": 512,
-				},
-			},
-			wantErr: errors.New("dimensions setting can only be used with V3 embedding models: [text-embedding-3-small text-embedding-3-large]"),
-		},
-		{
-			name: "text-embedding-ada-002 - wrong model version",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":        "ada",
-					"modelVersion": "003",
-				},
-			},
-			wantErr: errors.New("unsupported version 003"),
-		},
-		{
-			name: "wrong model name",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model": "unknown-model",
-				},
-			},
-			wantErr: errors.New("wrong OpenAI model name, available model names are: [ada babbage curie davinci text-embedding-3-small text-embedding-3-large]"),
-		},
-		{
-			name: "third party provider",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":   "model-that-openai-does-not-have",
-					"baseURL": "https://something-else.com",
-				},
-			},
-		},
-		{
-			name: "wrong properties",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"model":      "text-embedding-3-large",
-					"properties": "wrong-properties",
-				},
-			},
-			wantErr: errors.New("properties field needs to be of array type, got: string"),
-		},
-		{
-			name: "wrong apiVersion",
-			cfg: &fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"resourceName": "resource",
-					"deploymentId": "deploymentId",
-					"apiVersion":   "wrong-api-version",
-				},
-			},
-			wantErr: errors.New("wrong Azure OpenAI apiVersion setting, available api versions are: " +
-				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview 2023-08-01-preview " +
-				"2023-09-01-preview 2023-12-01-preview 2024-02-15-preview 2024-03-01-preview 2024-02-01]"),
+			wantErr: errors.New("servingUrl cannot be empty"),
 		},
 	}
 	for _, tt := range tests {
