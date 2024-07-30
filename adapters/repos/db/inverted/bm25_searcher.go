@@ -284,6 +284,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 
 	// handle case that an object was removed
 	if len(objs) != len(scores) {
+		idsTmp := make([]uint64, len(objs))
 		j := 0
 		for i := range scores {
 			if j >= len(objs) {
@@ -293,9 +294,11 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 				continue
 			}
 			scores[j] = scores[i]
+			idsTmp[j] = ids[i]
 			j++
 		}
 		scores = scores[:j]
+		ids = idsTmp
 	}
 
 	if additionalExplanations {
