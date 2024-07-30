@@ -346,7 +346,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
-				n.graph.handleDeletedNode(neighborID)
+				n.graph.handleDeletedNode(e.DocID)
 				// was deleted in the meantime
 				continue
 			}
@@ -506,6 +506,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	}
 	var e storobj.ErrNotFound
 	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID)
 		return false, nil
 	}
 	if err != nil {
