@@ -49,14 +49,14 @@ type DotProduct struct {
 	a []float32
 }
 
-func (d *DotProduct) Distance(b []float32) (float32, bool, error) {
+func (d *DotProduct) Distance(b []float32) (float32, error) {
 	if len(d.a) != len(b) {
-		return 0, false, errors.Wrapf(ErrVectorLength, "%d vs %d",
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(d.a), len(b))
 	}
 
 	dist := -dotProductImplementation(d.a, b)
-	return dist, true, nil
+	return dist, nil
 }
 
 type DotProductProvider struct{}
@@ -65,15 +65,15 @@ func NewDotProductProvider() DotProductProvider {
 	return DotProductProvider{}
 }
 
-func (d DotProductProvider) SingleDist(a, b []float32) (float32, bool, error) {
+func (d DotProductProvider) SingleDist(a, b []float32) (float32, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Wrapf(ErrVectorLength, "%d vs %d",
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(a), len(b))
 	}
 
 	prod := -dotProductImplementation(a, b)
 
-	return prod, true, nil
+	return prod, nil
 }
 
 func (d DotProductProvider) Type() string {

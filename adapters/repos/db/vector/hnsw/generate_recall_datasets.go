@@ -94,7 +94,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 	distances := make([]distanceAndIndex, len(vectors))
 
 	for i, vec := range vectors {
-		dist, _, _ := distancer.NewCosineDistanceProvider().SingleDist(query, vec)
+		dist, _ := distancer.NewCosineDistanceProvider().SingleDist(query, vec)
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
