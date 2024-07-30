@@ -19,4 +19,5 @@ type VectorizationConfig struct {
 	IsAzure                                 bool
 	IsThirdPartyProvider                    bool
 	Dimensions                              *int64
+	ServingURL                              string
 }

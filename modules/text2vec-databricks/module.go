@@ -94,11 +94,10 @@ func (m *DatabricksModule) InitExtension(modules []modulecapabilities.Module) er
 func (m *DatabricksModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	openAIApiKey := os.Getenv("OPENAI_APIKEY")
-	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
-	azureApiKey := os.Getenv("AZURE_APIKEY")
 
-	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
+	databricksToken := os.Getenv("DATABRICKS_TOKEN")
+
+	client := clients.New(databricksToken, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client, m.logger)
 	m.metaProvider = client
