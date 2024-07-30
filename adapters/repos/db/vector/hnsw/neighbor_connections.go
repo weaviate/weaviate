@@ -102,6 +102,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 
 	var e storobj.ErrNotFound
 	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID)
 		return math.MaxFloat32, nil
 	}
 	if err != nil {
@@ -329,6 +330,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
 		var e storobj.ErrNotFound
 		if err != nil && errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID)
 			// it seems either the node or the neighbor were deleted in the meantime,
 			// there is nothing we can do now
 			return nil
@@ -344,6 +346,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
+				n.graph.handleDeletedNode(e.DocID)
 				// was deleted in the meantime
 				continue
 			}
@@ -503,6 +506,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	}
 	var e storobj.ErrNotFound
 	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID)
 		return false, nil
 	}
 	if err != nil {
