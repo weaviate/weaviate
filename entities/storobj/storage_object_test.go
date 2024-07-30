@@ -934,6 +934,7 @@ func benchmarkExtraction(b *testing.B, propStrings []string) {
 		require.NotNil(b, after)
 	}
 }
+
 func TestObjectsByDocID(t *testing.T) {
 	// the main variable is the input length here which has an effect on chunking
 	// and parallelization
