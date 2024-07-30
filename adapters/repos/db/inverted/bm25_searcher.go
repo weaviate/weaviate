@@ -286,6 +286,9 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any],
 	if len(objs) != len(scores) {
 		j := 0
 		for i := range scores {
+			if j >= len(objs) {
+				break
+			}
 			if objs[j].DocID != ids[i] {
 				continue
 			}
