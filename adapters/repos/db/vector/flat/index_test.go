@@ -112,6 +112,11 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 		}
 	}
 
+	buckets := store.GetBucketsByName()
+	for _, bucket := range buckets {
+		bucket.FlushMemtable()
+	}
+
 	var relevant uint64
 	var retrieved int
 	var querying time.Duration = 0
