@@ -12,8 +12,10 @@
 package hnsw
 
 import (
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
@@ -47,14 +49,14 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 			continue
 		}
 
-		dist, ok, err := h.distBetweenNodeAndVec(candidate, queryVector)
+		dist, err := h.distBetweenNodeAndVec(candidate, queryVector)
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			continue
+		}
 		if err != nil {
 			return nil, nil, err
-		}
-
-		if !ok {
-			// deleted node, ignore
-			continue
 		}
 
 		if results.Len() < limit {
