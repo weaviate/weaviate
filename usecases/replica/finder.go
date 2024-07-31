@@ -97,10 +97,10 @@ func (f *Finder) GetOne(ctx context.Context,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime)
 	op := func(ctx context.Context, host string, fullRead bool) (findOneReply, error) {
 		if fullRead {
-			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
+			r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 0)
 			return findOneReply{host, 0, r, r.UpdateTime(), false}, err
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 			var x RepairResponse
 			if len(xs) == 1 {
 				x = xs[0]
@@ -212,7 +212,7 @@ func (f *Finder) Exists(ctx context.Context,
 	c := newReadCoordinator[existReply](f, shard,
 		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime)
 	op := func(ctx context.Context, host string, _ bool) (existReply, error) {
-		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id})
+		xs, err := f.client.DigestReads(ctx, host, f.class, shard, []strfmt.UUID{id}, 0)
 		var x RepairResponse
 		if len(xs) == 1 {
 			x = xs[0]
@@ -243,7 +243,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 	if !ok || host == "" {
 		return nil, fmt.Errorf("cannot resolve node name: %s", nodeName)
 	}
-	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds)
+	r, err := f.client.FullRead(ctx, host, f.class, shard, id, props, adds, 9)
 	return r.Object, err
 }
 
@@ -263,7 +263,7 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 		if fullRead { // we already have the content
 			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
-			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids)
+			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
 			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
