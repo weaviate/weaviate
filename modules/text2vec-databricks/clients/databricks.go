@@ -229,7 +229,7 @@ func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	settings := ent.NewClassSettings(cfg)
 	return ent.VectorizationConfig{
-		// TODO: Checkk if how Databricks embeddings model tokenize the text
+		// TODO: Check how Databricks embeddings model tokenize the text
 		Model:       settings.Model(),
 		ServingURL:  settings.ServingURL(),
 		Instruction: settings.Instruction(),

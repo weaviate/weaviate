@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	// TODO: Checkk if how Databricks embeddings model tokenize the text
+	// TODO: Check how Databricks embeddings model tokenize the text
 	DefaultOpenAIModel           = "ada"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
