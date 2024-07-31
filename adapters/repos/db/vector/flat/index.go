@@ -18,9 +18,11 @@ import (
 	"io"
 	"math"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -190,6 +192,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		lsmkv.WithForceCompation(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
+
+		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+		// was simply missing. Now we want to explicitly set it to false for
+		// performance reasons. There are pread performance improvements in the
+		// pipeline, but as of now, mmap is much more performant – especially for
+		// parallel cache prefilling.
+		//
+		// In the future when the pure pread performance is on par with mmap, we
+		// should update this to pass the global setting.
+		lsmkv.WithPread(false),
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
@@ -198,6 +210,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 			lsmkv.WithForceCompation(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
+
+			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+			// was simply missing. Now we want to explicitly set it to false for
+			// performance reasons. There are pread performance improvements in the
+			// pipeline, but as of now, mmap is much more performant – especially for
+			// parallel cache prefilling.
+			//
+			// In the future when the pure pread performance is on par with mmap, we
+			// should update this to pass the global setting.
+			lsmkv.WithPread(false),
 		); err != nil {
 			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
 		}
@@ -664,25 +686,32 @@ func (index *flat) PostStartup() {
 	// up 75% of the CPU time needed. This new implementation with two loops is
 	// much more efficient and only ever-so-slightly more memory-consuming (about
 	// one additional struct per vector while loading. Should be negligible)
-	type vec struct {
-		id  uint64
-		vec []uint64
-	}
 
 	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
 	// this slice dynamically should be quite cheap compared to other operations
 	// involved here, e.g. disk reads.
-	vecs := make([]vec, 0, 10_000)
+	vecs := make([]BQVecAndID, 0, 10_000)
 	maxID := uint64(0)
 
-	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
-		id := binary.BigEndian.Uint64(key)
-		vecs = append(vecs, vec{
-			id:  id,
-			vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
-		})
-		if id > maxID {
-			maxID = id
+	before := time.Now()
+	bucket := index.store.Bucket(index.getCompressedBucketName())
+	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
+	// however want some kind of relationship to the machine size, so
+	// 2*GOMAXPROCS seems like a good default.
+	it := NewCompressedParallelIterator(bucket, 2*runtime.GOMAXPROCS(0), index.logger)
+	channel := it.IterateAll()
+	if channel == nil {
+		return // nothing to do
+	}
+	for v := range channel {
+		vecs = append(vecs, v...)
+	}
+
+	count := 0
+	for i := range vecs {
+		count++
+		if vecs[i].id > maxID {
+			maxID = vecs[i].id
 		}
 	}
 
@@ -692,6 +721,14 @@ func (index *flat) PostStartup() {
 	for _, vec := range vecs {
 		index.bqCache.Preload(vec.id, vec.vec)
 	}
+
+	took := time.Since(before)
+	index.logger.WithFields(logrus.Fields{
+		"action":   "preload_bq_cache",
+		"count":    count,
+		"took":     took,
+		"index_id": index.id,
+	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
 func (index *flat) Dump(labels ...string) {

@@ -69,6 +69,8 @@ type diskIndex interface {
 
 	// Size of the index in bytes
 	Size() int
+
+	QuantileKeys(q int) [][]byte
 }
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
