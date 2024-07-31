@@ -20,4 +20,5 @@ type VectorizationConfig struct {
 	IsThirdPartyProvider                    bool
 	Dimensions                              *int64
 	ServingURL                              string
+	Instruction                             string
 }
