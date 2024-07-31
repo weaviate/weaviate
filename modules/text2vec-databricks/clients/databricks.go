@@ -33,9 +33,8 @@ import (
 )
 
 type embeddingsRequest struct {
-	Input      []string `json:"input"`
-	Model      string   `json:"model,omitempty"`
-	Dimensions *int64   `json:"dimensions,omitempty"`
+	Input       []string `json:"input"`
+	Instruction string   `json:"instruction,omitempty"`
 }
 
 type embedding struct {
@@ -102,19 +101,19 @@ func (v *client) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, v.getModelString(config, "document"), config)
+	return v.vectorize(ctx, input, config)
 }
 
 func (v *client) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
-	res, _, err := v.vectorize(ctx, input, v.getModelString(config, "query"), config)
+	res, _, err := v.vectorize(ctx, input, config)
 	return res, err
 }
 
-func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
-	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, config.IsAzure, config.Dimensions))
+func (v *client) vectorize(ctx context.Context, input []string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
+	body, err := json.Marshal(v.getEmbeddingsRequest(input, config.Instruction))
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "marshal body")
 	}
@@ -131,9 +130,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		return nil, nil, errors.Wrap(err, "API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, config.IsAzure))
-	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
-		req.Header.Add("OpenAI-Organization", openAIOrganization)
-	}
+
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -195,11 +192,9 @@ func (v *client) getError(statusCode int, resBodyError *openAIApiError, isAzure 
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *client) getEmbeddingsRequest(input []string, model string, isAzure bool, dimensions *int64) embeddingsRequest {
-	if isAzure {
-		return embeddingsRequest{Input: input}
-	}
-	return embeddingsRequest{Input: input, Model: model, Dimensions: dimensions}
+func (v *client) getEmbeddingsRequest(input []string, instruction string) embeddingsRequest {
+
+	return embeddingsRequest{Input: input, Instruction: instruction}
 }
 
 func (v *client) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
@@ -309,5 +304,6 @@ func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vectori
 		ApiVersion:           settings.ApiVersion(),
 		Dimensions:           settings.Dimensions(),
 		ServingURL:           settings.ServingURL(),
+		Instruction:          settings.Instruction(),
 	}
 }

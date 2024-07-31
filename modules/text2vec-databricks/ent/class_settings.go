@@ -131,6 +131,10 @@ func (cs *classSettings) ServingURL() string {
 	return cs.BaseClassSettings.GetPropertyAsString("servingUrl", "")
 }
 
+func (cs *classSettings) Instruction() string {
+	return cs.BaseClassSettings.GetPropertyAsString("instruction", "")
+}
+
 func (cs *classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
