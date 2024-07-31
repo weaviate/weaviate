@@ -784,9 +784,11 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	h.logger.WithField("action", "cleanuptombstones").Debug("removeTombstonesAndNodes")
 	it := deleteList.Iterator()
+	i := 0
+	total := deleteList.Len()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if breakCleanUpTombstonedNodes() {
-			h.logger.WithField("action", "cleanuptombstones").Debug("removeTombstonesAndNodes: ok : false")
+			h.logger.WithField("action", "cleanuptombstones").Debugf("removeTombstonesAndNodes: ok : false, total: %d, current: %d", total, i)
 			return false, nil
 		}
 		h.metrics.RemoveTombstone()
@@ -812,6 +814,7 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 		if err := h.commitLog.RemoveTombstone(id); err != nil {
 			return false, err
 		}
+		i++
 	}
 	h.logger.WithField("action", "cleanuptombstones").Debug("removeTombstonesAndNodes: ok : true")
 
