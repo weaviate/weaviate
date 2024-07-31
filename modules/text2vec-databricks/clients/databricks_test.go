@@ -31,7 +31,6 @@ import (
 )
 
 func TestBuildUrlFn(t *testing.T) {
-
 }
 
 func TestClient(t *testing.T) {

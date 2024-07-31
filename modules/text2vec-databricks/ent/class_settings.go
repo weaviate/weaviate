@@ -59,7 +59,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	return nil
-
 }
 
 func (cs *classSettings) ValidateServingURL(servingUrl string) error {
