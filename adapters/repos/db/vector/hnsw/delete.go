@@ -424,16 +424,20 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
 		g.Go(func() error {
 			for {
+				h.logger.WithField("action", "cleanuptombstones").Debug("starting worker")
 				if breakCleanUpTombstonedNodes() {
 					cancelled.Store(true)
 					cancel()
+					h.logger.WithField("action", "cleanuptombstones").Debug("breaking worker")
 					return nil
 				}
 				select {
 				case <-ctx.Done():
+					h.logger.WithField("action", "cleanuptombstones").Debug("breaking worker")
 					return nil
 				case deletedID, ok := <-ch:
 					if !ok {
+						h.logger.WithField("action", "cleanuptombstones").Debug("finishing worker")
 						return nil
 					}
 					h.shardedNodeLocks.RLock(deletedID)
