@@ -302,7 +302,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 				return nil, fmt.Errorf("%q: %w", host, err)
 			}
 
-			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff)
+			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff, 0)
 			if err != nil {
 				return nil, fmt.Errorf("%q: %w", host, err)
 			}

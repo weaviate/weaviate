@@ -103,7 +103,7 @@ func (c *replicationClient) DigestObjectsInTokenRange(ctx context.Context,
 }
 
 func (c *replicationClient) HashTreeLevel(ctx context.Context,
-	host, index, shard string, level int, discriminant *hashtree.Bitset,
+	host, index, shard string, level int, discriminant *hashtree.Bitset, numRetries int,
 ) (digests []hashtree.Digest, err error) {
 	var resp []hashtree.Digest
 	body, err := discriminant.Marshal()
@@ -116,7 +116,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*20, req, body, &resp, numRetries)
 	return resp, err
 }
 

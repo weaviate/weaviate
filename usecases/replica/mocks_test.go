@@ -73,9 +73,9 @@ func (f *fakeRClient) DigestObjectsInTokenRange(ctx context.Context, host, index
 }
 
 func (f *fakeRClient) HashTreeLevel(ctx context.Context,
-	host, index, shard string, level int, discriminant *hashtree.Bitset,
+	host, index, shard string, level int, discriminant *hashtree.Bitset, numRetries int,
 ) (digests []hashtree.Digest, err error) {
-	args := f.Called(ctx, host, index, shard, level, discriminant)
+	args := f.Called(ctx, host, index, shard, level, discriminant, numRetries) // TODO add numRetries to all these fakes?
 	return args.Get(0).([]hashtree.Digest), args.Error(1)
 }
 

@@ -224,7 +224,7 @@ type rClient interface {
 		initialToken, finalToken uint64, limit int) ([]RepairResponse, uint64, error)
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
-		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
+		discriminant *hashtree.Bitset, numRetries int) (digests []hashtree.Digest, err error)
 }
 
 // finderClient extends RClient with consistency checks
@@ -244,9 +244,9 @@ func (fc finderClient) FullRead(ctx context.Context,
 }
 
 func (fc finderClient) HashTreeLevel(ctx context.Context,
-	host, index, shard string, level int, discriminant *hashtree.Bitset,
+	host, index, shard string, level int, discriminant *hashtree.Bitset, numRetries int,
 ) (digests []hashtree.Digest, err error) {
-	return fc.cl.HashTreeLevel(ctx, host, index, shard, level, discriminant)
+	return fc.cl.HashTreeLevel(ctx, host, index, shard, level, discriminant, numRetries)
 }
 
 // DigestReads reads digests of all specified objects
