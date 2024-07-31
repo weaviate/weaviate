@@ -18,9 +18,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
-	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -41,9 +39,9 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		colName, shardName := parts[0], parts[2]
-		vecIdxID := "main"
+		targetVector := ""
 		if len(parts) == 4 {
-			vecIdxID = parts[3]
+			targetVector = parts[3]
 		}
 
 		idx := appState.DB.GetIndex(schema.ClassName(colName))
@@ -53,56 +51,15 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		shard := idx.GetShard(shardName)
-		if shard == nil {
-			logger.WithField("shard", shardName).Error("shard not found")
-			http.Error(w, "shard not found", http.StatusNotFound)
-			return
-		}
-
-		// Get the vector index
-		var vidx db.VectorIndex
-		if vecIdxID == "main" {
-			vidx = shard.VectorIndex()
-		} else {
-			vidx = shard.VectorIndexes()[vecIdxID]
-		}
-
-		if vidx == nil {
-			logger.WithField("shard", shardName).Error("vector index not found")
-			http.Error(w, "vector index not found", http.StatusNotFound)
-			return
-		}
-
-		// Reset the queue
-		var q *db.IndexQueue
-		if vecIdxID == "main" {
-			q = shard.Queue()
-		} else {
-			q = shard.Queues()[vecIdxID]
-		}
-		if q == nil {
-			logger.WithField("shard", shardName).Error("index queue not found")
-			http.Error(w, "index queue not found", http.StatusNotFound)
-			return
-		}
-
-		// Reset the vector index
-		err := shard.DebugResetVectorIndex(context.Background(), vecIdxID)
+		err := idx.DebugResetVectorIndex(context.Background(), shardName, targetVector)
 		if err != nil {
-			logger.WithField("shard", shardName).WithError(err).Error("failed to reset vector index")
-			http.Error(w, "failed to reset vector index", http.StatusInternalServerError)
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to reset vector index")
 			return
 		}
-
-		// Reindex in the background
-		errors.GoWrapper(func() {
-			err = q.PreloadShard(shard)
-			if err != nil {
-				logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
-				return
-			}
-		}, logger)
 
 		logger.WithField("shard", shardName).Info("reindexing started")
 

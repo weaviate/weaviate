@@ -714,6 +714,14 @@ func (q *IndexQueue) PauseIndexing() {
 	q.metrics.Paused()
 }
 
+// Waits for the workers to finish their current indexing tasks.
+// It does not pause the queue.
+// This method can potentially block for a long time
+// if the queue is receiving vectors.
+func (q *IndexQueue) Wait() {
+	q.jobWg.Wait()
+}
+
 // resume indexing
 func (q *IndexQueue) ResumeIndexing() {
 	if !q.paused.CompareAndSwap(true, false) {

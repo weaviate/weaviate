@@ -2245,3 +2245,55 @@ func convertToVectorIndexConfigs(configs map[string]models.VectorConfig) map[str
 	}
 	return nil
 }
+
+// IMPORTANT:
+// DebugResetVectorIndex is intended to be used for debugging purposes only.
+// It drops the selected vector index, creates a new one, then reindexes it in the background.
+// This function assumes the node is not receiving any traffic besides the
+// debug endpoints and that async indexing is enabled.
+func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVector string) error {
+	shard := i.GetShard(shardName)
+	if shard == nil {
+		return errors.New("shard not found")
+	}
+
+	// Get the vector index
+	var vidx VectorIndex
+	if targetVector == "" {
+		vidx = shard.VectorIndex()
+	} else {
+		vidx = shard.VectorIndexes()[targetVector]
+	}
+
+	if vidx == nil {
+		return errors.New("vector index not found")
+	}
+
+	// Reset the queue
+	var q *IndexQueue
+	if targetVector == "" {
+		q = shard.Queue()
+	} else {
+		q = shard.Queues()[targetVector]
+	}
+	if q == nil {
+		return errors.New("index queue not found")
+	}
+
+	// Reset the vector index
+	err := shard.DebugResetVectorIndex(ctx, targetVector)
+	if err != nil {
+		return errors.Wrap(err, "failed to reset vector index")
+	}
+
+	// Reindex in the background
+	enterrors.GoWrapper(func() {
+		err = q.PreloadShard(shard)
+		if err != nil {
+			i.logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
+			return
+		}
+	}, i.logger)
+
+	return nil
+}
