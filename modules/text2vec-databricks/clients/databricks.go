@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -97,7 +96,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "create POST request")
 	}
-	apiKey, err := v.getApiKey(ctx, config.IsAzure)
+	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "API Key")
 	}
@@ -181,17 +180,9 @@ func (v *client) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, s
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
-func (v *client) getOpenAIOrganization(ctx context.Context) string {
-	if value := modulecomponents.GetValueFromContext(ctx, "X-Openai-Organization"); value != "" {
-		return value
-	}
-	return ""
-}
-
 func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-	config := v.getVectorizationConfig(cfg)
 
-	key, err := v.getApiKey(ctx, config.IsAzure)
+	key, err := v.getApiKey(ctx)
 	if err != nil {
 		return [32]byte{}
 	}
@@ -215,7 +206,7 @@ func (v *client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.Cla
 	}
 }
 
-func (v *client) getApiKey(ctx context.Context, isAzure bool) (string, error) {
+func (v *client) getApiKey(ctx context.Context) (string, error) {
 	var apiKey, envVarValue, envVar string
 
 	apiKey = "X-Databricks-Token"
@@ -235,52 +226,12 @@ func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 	return "", fmt.Errorf("no Databricks token found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *client) getModelString(config ent.VectorizationConfig, action string) string {
-	if strings.HasPrefix(config.Model, "text-embedding-3") || config.IsThirdPartyProvider {
-		// indicates that we handle v3 models
-		return config.Model
-	}
-	if config.ModelVersion == "002" {
-		return v.getModel002String(config.Model)
-	}
-	return v.getModel001String(config.Type, config.Model, action)
-}
-
-func (v *client) getModel001String(docType, model, action string) string {
-	modelBaseString := "%s-search-%s-%s-001"
-	if action == "document" {
-		if docType == "code" {
-			return fmt.Sprintf(modelBaseString, docType, model, "code")
-		}
-		return fmt.Sprintf(modelBaseString, docType, model, "doc")
-
-	} else {
-		if docType == "code" {
-			return fmt.Sprintf(modelBaseString, docType, model, "text")
-		}
-		return fmt.Sprintf(modelBaseString, docType, model, "query")
-	}
-}
-
-func (v *client) getModel002String(model string) string {
-	modelBaseString := "text-embedding-%s-002"
-	return fmt.Sprintf(modelBaseString, model)
-}
-
 func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	settings := ent.NewClassSettings(cfg)
 	return ent.VectorizationConfig{
-		Type:                 settings.Type(),
-		Model:                settings.Model(),
-		ModelVersion:         settings.ModelVersion(),
-		ResourceName:         settings.ResourceName(),
-		DeploymentID:         settings.DeploymentID(),
-		BaseURL:              settings.BaseURL(),
-		IsAzure:              settings.IsAzure(),
-		IsThirdPartyProvider: settings.IsThirdPartyProvider(),
-		ApiVersion:           settings.ApiVersion(),
-		Dimensions:           settings.Dimensions(),
-		ServingURL:           settings.ServingURL(),
-		Instruction:          settings.Instruction(),
+		// TODO: Checkk if how Databricks embeddings model tokenize the text
+		Model:       settings.Model(),
+		ServingURL:  settings.ServingURL(),
+		Instruction: settings.Instruction(),
 	}
 }
