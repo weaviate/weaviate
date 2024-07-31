@@ -41,6 +41,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 		tokenCounts := make([]int, len(objects))
 		icheck := ent.NewClassSettings(cfg)
 
+		// TODO: Check how Databricks embeddings model tokenize the text
 		tke, err := tiktoken.EncodingForModel(icheck.Model())
 		if err != nil { // fail all objects as they all have the same model
 			tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
