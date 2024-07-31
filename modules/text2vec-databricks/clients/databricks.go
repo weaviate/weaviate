@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -38,47 +37,20 @@ type embeddingsRequest struct {
 }
 
 type embedding struct {
-	Object string          `json:"object"`
-	Data   []embeddingData `json:"data,omitempty"`
-	Error  *openAIApiError `json:"error,omitempty"`
+	Object    string          `json:"object"`
+	Data      []embeddingData `json:"data,omitempty"`
+	ErrorCode string          `json:"error_code,omitempty"`
+	Message   string          `json:"message,omitempty"`
+	Error     struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error,omitempty"`
 }
 
 type embeddingData struct {
-	Object    string          `json:"object"`
-	Index     int             `json:"index"`
-	Embedding []float32       `json:"embedding"`
-	Error     *openAIApiError `json:"error,omitempty"`
-}
-
-type openAIApiError struct {
-	Message string     `json:"message"`
-	Type    string     `json:"type"`
-	Param   string     `json:"param"`
-	Code    openAICode `json:"code"`
-}
-
-type openAICode string
-
-func (c *openAICode) String() string {
-	if c == nil {
-		return ""
-	}
-	return string(*c)
-}
-
-func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
-	if number, err := strconv.Atoi(string(data)); err == nil {
-		str := strconv.Itoa(number)
-		*c = openAICode(str)
-		return nil
-	}
-	var str string
-	err = json.Unmarshal(data, &str)
-	if err != nil {
-		return err
-	}
-	*c = openAICode(str)
-	return nil
+	Object    string    `json:"object"`
+	Index     int       `json:"index"`
+	Embedding []float32 `json:"embedding"`
 }
 
 type client struct {
@@ -149,8 +121,8 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 		return nil, nil, errors.Wrap(err, "unmarshal response body")
 	}
 
-	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, nil, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
+	if res.StatusCode != 200 || resBody.ErrorCode != "" {
+		return nil, nil, v.getError(res.StatusCode, resBody)
 	}
 	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
 
@@ -160,9 +132,10 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 	for i := range resBody.Data {
 		texts[i] = resBody.Data[i].Object
 		embeddings[i] = resBody.Data[i].Embedding
-		if resBody.Data[i].Error != nil {
-			openAIerror[i] = v.getError(res.StatusCode, resBody.Data[i].Error, config.IsAzure)
-		}
+		// TODO: Check how Databricks Api reports errors in individual embeddings are reported in the response
+		// if resBody.Data[i].Error != nil {
+		// 	openAIerror[i] = v.getError(res.StatusCode, resBody.Data[i].Error, config.IsAzure)
+		// }
 	}
 
 	return &modulecomponents.VectorizationResult{
@@ -181,13 +154,17 @@ func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (
 	return servingUrl, nil
 }
 
-func (v *client) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
+func (v *client) getError(statusCode int, resBody embedding) error {
 	endpoint := "Databricks Foundation Model API"
-	if isAzure {
-		endpoint = "Azure OpenAI API"
+
+	if resBody.ErrorCode != "" {
+		return fmt.Errorf("connection to: %s failed with error code: %s message: %v", endpoint, resBody.ErrorCode, resBody.Message)
+
 	}
-	if resBodyError != nil {
-		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
+
+	if resBody.Error.Message != "" {
+		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBody.Error.Message)
+
 	}
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
