@@ -15,8 +15,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/weaviate/weaviate/modules/text2vec-databricks/ent"
-
 	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
@@ -26,115 +24,39 @@ import (
 // as used in the nearText searcher
 func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
-		name                 string
-		input                []string
-		expectedOpenAIType   string
-		openAIType           string
-		expectedOpenAIModel  string
-		openAIModel          string
-		modelVersion         string
-		expectedModelVersion string
+		name  string
+		input []string
 	}
 	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
-			name:                "single word",
-			input:               []string{"hello"},
-			openAIType:          "text",
-			expectedOpenAIType:  "text",
-			openAIModel:         "ada",
-			expectedOpenAIModel: "ada",
-
-			// use something that doesn't exist on purpose to rule out that this was
-			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/weaviate/weaviate/issues/2458
-			modelVersion:         "003",
-			expectedModelVersion: "003",
+			name:  "single word",
+			input: []string{"hello"},
 		},
 		{
-			name:                "multiple words",
-			input:               []string{"hello world, this is me!"},
-			openAIType:          "text",
-			expectedOpenAIType:  "text",
-			openAIModel:         "ada",
-			expectedOpenAIModel: "ada",
-
-			// use something that doesn't exist on purpose to rule out that this was
-			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/weaviate/weaviate/issues/2458
-			modelVersion:         "003",
-			expectedModelVersion: "003",
+			name:  "multiple words",
+			input: []string{"hello world, this is me!"},
 		},
 		{
-			name:                "multiple sentences (joined with a dot)",
-			input:               []string{"this is sentence 1", "and here's number 2"},
-			openAIType:          "text",
-			expectedOpenAIType:  "text",
-			openAIModel:         "ada",
-			expectedOpenAIModel: "ada",
-
-			// use something that doesn't exist on purpose to rule out that this was
-			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/weaviate/weaviate/issues/2458
-			modelVersion:         "003",
-			expectedModelVersion: "003",
+			name:  "multiple sentences (joined with a dot)",
+			input: []string{"this is sentence 1", "and here's number 2"},
 		},
 		{
-			name:                "multiple sentences already containing a dot",
-			input:               []string{"this is sentence 1.", "and here's number 2"},
-			openAIType:          "text",
-			expectedOpenAIType:  "text",
-			openAIModel:         "ada",
-			expectedOpenAIModel: "ada",
-
-			// use something that doesn't exist on purpose to rule out that this was
-			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/weaviate/weaviate/issues/2458
-			modelVersion:         "003",
-			expectedModelVersion: "003",
+			name:  "multiple sentences already containing a dot",
+			input: []string{"this is sentence 1.", "and here's number 2"},
 		},
 		{
-			name:                "multiple sentences already containing a question mark",
-			input:               []string{"this is sentence 1?", "and here's number 2"},
-			openAIType:          "text",
-			expectedOpenAIType:  "text",
-			openAIModel:         "ada",
-			expectedOpenAIModel: "ada",
-
-			// use something that doesn't exist on purpose to rule out that this was
-			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/weaviate/weaviate/issues/2458
-			modelVersion:         "003",
-			expectedModelVersion: "003",
+			name:  "multiple sentences already containing a question mark",
+			input: []string{"this is sentence 1?", "and here's number 2"},
 		},
 		{
-			name:                "multiple sentences already containing an exclamation mark",
-			input:               []string{"this is sentence 1!", "and here's number 2"},
-			openAIType:          "text",
-			expectedOpenAIType:  "text",
-			openAIModel:         "ada",
-			expectedOpenAIModel: "ada",
-
-			// use something that doesn't exist on purpose to rule out that this was
-			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/weaviate/weaviate/issues/2458
-			modelVersion:         "003",
-			expectedModelVersion: "003",
+			name:  "multiple sentences already containing an exclamation mark",
+			input: []string{"this is sentence 1!", "and here's number 2"},
 		},
 		{
-			name:                "multiple sentences already containing comma",
-			input:               []string{"this is sentence 1,", "and here's number 2"},
-			openAIType:          "text",
-			expectedOpenAIType:  "text",
-			openAIModel:         "ada",
-			expectedOpenAIModel: "ada",
-
-			// use something that doesn't exist on purpose to rule out that this was
-			// set by a default, but validate that the version was set explicitly
-			// due to https://github.com/weaviate/weaviate/issues/2458
-			modelVersion:         "003",
-			expectedModelVersion: "003",
+			name:  "multiple sentences already containing comma",
+			input: []string{"this is sentence 1,", "and here's number 2"},
 		},
 	}
 
@@ -145,21 +67,14 @@ func TestVectorizingTexts(t *testing.T) {
 			v := New(client, logger)
 
 			cfg := &FakeClassConfig{
-				classConfig: map[string]interface{}{
-					"type":         test.openAIType,
-					"model":        test.openAIModel,
-					"modelVersion": test.modelVersion,
-				},
+				classConfig: map[string]interface{}{},
 			}
 			vec, err := v.Texts(context.Background(), test.input, cfg)
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
-			conf := ent.NewClassSettings(client.lastConfig)
-			assert.Equal(t, conf.Type(), test.expectedOpenAIType)
-			assert.Equal(t, conf.Model(), test.expectedOpenAIModel)
-			assert.Equal(t, conf.ModelVersion(), test.expectedModelVersion)
+
 		})
 	}
 }

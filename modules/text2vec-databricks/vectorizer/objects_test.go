@@ -22,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 // These are mostly copy/pasted (with minimal additions) from the
@@ -204,53 +203,7 @@ func TestVectorizingObjects(t *testing.T) {
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
 			conf := ent.NewClassSettings(client.lastConfig)
-			assert.Equal(t, test.expectedOpenAIType, conf.Type())
 			assert.Equal(t, test.expectedOpenAIModel, conf.Model())
 		})
 	}
-}
-
-func TestClassSettings(t *testing.T) {
-	type testCase struct {
-		expectedBaseURL string
-		cfg             moduletools.ClassConfig
-	}
-	tests := []testCase{
-		{
-			cfg: FakeClassConfig{
-				classConfig: make(map[string]interface{}),
-			},
-			expectedBaseURL: ent.DefaultBaseURL,
-		},
-		{
-			cfg: FakeClassConfig{
-				classConfig: map[string]interface{}{
-					"baseURL": "https://proxy.weaviate.dev",
-				},
-			},
-			expectedBaseURL: "https://proxy.weaviate.dev",
-		},
-	}
-
-	for _, tt := range tests {
-		ic := ent.NewClassSettings(tt.cfg)
-		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
-	}
-}
-
-func TestPickDefaultModelVersion(t *testing.T) {
-	t.Run("ada with text", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("ada", "text")
-		assert.Equal(t, "002", version)
-	})
-
-	t.Run("ada with code", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("ada", "code")
-		assert.Equal(t, "001", version)
-	})
-
-	t.Run("with curie", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("curie", "text")
-		assert.Equal(t, "001", version)
-	})
 }
