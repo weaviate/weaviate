@@ -297,9 +297,9 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	}
 }
 
-func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) (n int, err error) {
+func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) error {
 	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
-		return 0, err
+		return err
 	} else {
 		return meta.UpdateTenants(s.nodeID, req, v)
 	}
