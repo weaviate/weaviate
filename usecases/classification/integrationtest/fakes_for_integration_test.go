@@ -618,7 +618,7 @@ func (c *fakeReplicationClient) DigestObjectsInTokenRange(ctx context.Context, h
 }
 
 func (c *fakeReplicationClient) HashTreeLevel(ctx context.Context, host, index, shard string, level int,
-	discriminant *hashtree.Bitset,
+	discriminant *hashtree.Bitset, numRetries int,
 ) (digests []hashtree.Digest, err error) {
 	return nil, nil
 }
