@@ -256,31 +256,22 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			// make sure we never visit this neighbor again
 			visited.Visit(neighborID)
 			var distance float32
-			var ok bool
 			var err error
 			if h.compressed.Load() {
-				distance, ok, err = compressorDistancer.DistanceToNode(neighborID)
+				distance, err = compressorDistancer.DistanceToNode(neighborID)
 			} else {
-				distance, ok, err = h.distanceToFloatNode(floatDistancer, neighborID)
+				distance, err = h.distanceToFloatNode(floatDistancer, neighborID)
 			}
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
 					h.handleDeletedNode(e.DocID)
 					continue
-				} else {
-					if err != nil {
-						h.pools.visitedListsLock.RLock()
-						h.pools.visitedLists.Return(visited)
-						h.pools.visitedListsLock.RUnlock()
-						return nil, errors.Wrap(err, "calculate distance between candidate and query")
-					}
 				}
-			}
-
-			if !ok {
-				// node was deleted in the underlying object store
-				continue
+				h.pools.visitedListsLock.RLock()
+				h.pools.visitedLists.Return(visited)
+				h.pools.visitedListsLock.RUnlock()
+				return nil, errors.Wrap(err, "calculate distance between candidate and query")
 			}
 
 			if distance < worstResultDistance || results.Len() < ef {
@@ -360,21 +351,16 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[an
 	if results.Len() > 0 {
 		id := results.Top().ID
 
-		d, ok, err := h.distanceToFloatNode(distancer, id)
+		d, err := h.distanceToFloatNode(distancer, id)
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
 				h.handleDeletedNode(e.DocID)
-			} else {
-				if err != nil {
-					return 0, errors.Wrap(err, "calculated distance between worst result and query")
-				}
+				return math.MaxFloat32, nil
 			}
+			return 0, errors.Wrap(err, "calculated distance between worst result and query")
 		}
 
-		if !ok {
-			return math.MaxFloat32, nil
-		}
 		return d, nil
 	} else {
 		// if the entrypoint (which we received from a higher layer doesn't match
@@ -394,15 +380,17 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 			return item.Dist, nil
 		}
 		id := item.ID
-		d, ok, err := distancer.DistanceToNode(id)
+		d, err := distancer.DistanceToNode(id)
 		if err != nil {
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				h.handleDeletedNode(e.DocID)
+				return math.MaxFloat32, nil
+			}
 			return 0, errors.Wrap(err,
 				"calculated distance between worst result and query")
 		}
 
-		if !ok {
-			return math.MaxFloat32, nil
-		}
 		return d, nil
 	} else {
 		// if the entrypoint (which we received from a higher layer doesn't match
@@ -413,7 +401,7 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 	}
 }
 
-func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, bool, error) {
+func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers.CompressorDistancer, nodeID uint64) (float32, error) {
 	slice := h.pools.tempVectors.Get(int(h.dims))
 	defer h.pools.tempVectors.Put(slice)
 	vec, err := h.TempVectorForIDThunk(context.Background(), nodeID, slice)
@@ -421,30 +409,27 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err, "get vector of docID %d", nodeID)
+			return 0, err
 		}
+		// not a typed error, we can recover from, return with err
+		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
 	vec = h.normalizeVec(vec)
 	return concreteDistancer.DistanceToFloat(vec)
 }
 
-func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer,
-	nodeID uint64,
-) (float32, bool, error) {
+func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64) (float32, error) {
 	candidateVec, err := h.vectorForID(context.Background(), nodeID)
 	if err != nil {
-		return 0, false, err
+		return 0, err
 	}
 
-	dist, _, err := distancer.Distance(candidateVec)
+	dist, err := distancer.Distance(candidateVec)
 	if err != nil {
-		return 0, false, errors.Wrap(err, "calculate distance between candidate and query")
+		return 0, errors.Wrap(err, "calculate distance between candidate and query")
 	}
 
-	return dist, true, nil
+	return dist, nil
 }
 
 // the underlying object seems to have been deleted, to recover from
@@ -486,14 +471,15 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
-	entryPointDistance, ok, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
-	}
-
-	if !ok {
+	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+	var e storobj.ErrNotFound
+	if err != nil && errors.As(err, &e) {
+		h.handleDeletedNode(e.DocID)
 		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+	}
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
 	// stop at layer 1, not 0!
@@ -578,16 +564,14 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 	if h.compressed.Load() {
 		dist, returnFn := h.compressor.NewDistancer(queryVector)
 		f := func(nodeID uint64) (float32, error) {
-			dist, _, err := dist.DistanceToNode(nodeID)
-			return dist, err
+			return dist.DistanceToNode(nodeID)
 		}
 		return common.QueryVectorDistancer{DistanceFunc: f, CloseFunc: returnFn}
 
 	} else {
 		distancer := h.distancerProvider.New(queryVector)
 		f := func(nodeID uint64) (float32, error) {
-			dist, _, err := h.distanceToFloatNode(distancer, nodeID)
-			return dist, err
+			return h.distanceToFloatNode(distancer, nodeID)
 		}
 		return common.QueryVectorDistancer{DistanceFunc: f}
 	}
@@ -608,8 +592,8 @@ func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer
 	}
 	res.Reset()
 	for _, id := range ids {
-		dist, found, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
-		if found && err == nil {
+		dist, err := h.distanceFromBytesToFloatNode(compressorDistancer, id)
+		if err == nil {
 			res.Insert(id, dist)
 			if res.Len() > k {
 				res.Pop()

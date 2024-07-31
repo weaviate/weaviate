@@ -2062,6 +2062,10 @@ func (i *Index) drop() error {
 	// need to stop the cycle managers that those shards used to register with.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	i.logger.WithFields(logrus.Fields{
+		"action":   "drop_index",
+		"duration": 60 * time.Second,
+	}).Debug("context.WithTimeout")
 
 	if err := i.stopCycleManagers(ctx, "drop"); err != nil {
 		return err
