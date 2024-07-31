@@ -49,6 +49,7 @@ type BM25Searcher struct {
 	propLenTracker propLengthRetriever
 	logger         logrus.FieldLogger
 	shardVersion   uint16
+	mapPool        *sync.Pool
 }
 
 type propLengthRetriever interface {
@@ -60,6 +61,11 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
 	logger logrus.FieldLogger, shardVersion uint16,
 ) *BM25Searcher {
+	pool := &sync.Pool{
+		New: func() interface{} {
+			return &[]docPointerWithScore{}
+		},
+	}
 	return &BM25Searcher{
 		config:         config,
 		store:          store,
@@ -69,6 +75,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker: propLenTracker,
 		logger:         logger.WithField("action", "bm25_search"),
 		shardVersion:   shardVersion,
+		mapPool:        pool,
 	}
 }
 
@@ -231,6 +238,11 @@ func (b *BM25Searcher) wand(
 	copy(resultsOriginalOrder, results)
 
 	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
+	for i := range results {
+		tmp := results[i].data
+		tmp = tmp[:0]
+		b.mapPool.Put(&tmp)
+	}
 	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations, additional)
 }
 
@@ -422,7 +434,10 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
-			docMapPairs = make([]docPointerWithScore, 0, len(m))
+			docMapPairs = b.mapPool.Get().([]docPointerWithScore)
+			if cap(docMapPairs) < len(m) {
+				docMapPairs = make([]docPointerWithScore, 0, len(m))
+			}
 			docMapPairsIndices = make(map[uint64]int, len(m))
 			for k, val := range m {
 				if len(val.Value) < 8 {
