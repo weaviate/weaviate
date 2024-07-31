@@ -1206,7 +1206,7 @@ func bruteForceMaxDist(inputs []*models.Object, query []float32, maxDist float32
 		coord := elem.Properties.(map[string]interface{})["location"].(*models.GeoCoordinates)
 		vec := []float32{*coord.Latitude, *coord.Longitude}
 
-		dist, _, _ := distancer.Distance(vec)
+		dist, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
 			index:    i,
 			distance: dist,

@@ -824,7 +824,7 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 	distances := make([]distanceAndObj, len(objs))
 
 	for i := range objs {
-		dist, _, _ := distProv.SingleDist(normalize(query), normalize(objs[i].Vector))
+		dist, _ := distProv.SingleDist(normalize(query), normalize(objs[i].Vector))
 		distances[i] = distanceAndObj{
 			distance: dist,
 			obj:      objs[i],

@@ -136,7 +136,7 @@ func Test_NoRaceCompressionRecall(t *testing.T) {
 
 func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
-		dist, _, _ := provider.SingleDist(x, y)
+		dist, _ := provider.SingleDist(x, y)
 		return dist
 	}
 }
