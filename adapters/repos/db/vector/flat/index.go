@@ -379,8 +379,7 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 		defer index.pool.float32SlicePool.Put(vecSlice)
 
 		candidate := float32SliceFromByteSlice(vecAsBytes, vecSlice.slice)
-		distance, _, err := index.distancerProvider.SingleDist(vector, candidate)
-		return distance, err
+		return index.distancerProvider.SingleDist(vector, candidate)
 	}
 }
 
@@ -747,7 +746,14 @@ func (index *flat) PostStartup() {
 	for _, vec := range vecs {
 		index.bqCache.Preload(vec.id, vec.vec)
 	}
-	fmt.Printf("pre-loaded %d vectors in %s\n", count, time.Since(before))
+
+	took := time.Since(before)
+	index.logger.WithFields(logrus.Fields{
+		"action":   "preload_bq_cache",
+		"count":    count,
+		"took":     took,
+		"index_id": index.id,
+	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
 func (index *flat) Dump(labels ...string) {
@@ -760,7 +766,7 @@ func (index *flat) Dump(labels ...string) {
 	fmt.Printf("--------------------------------------------------\n")
 }
 
-func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return index.distancerProvider.SingleDist(x, y)
 }
 

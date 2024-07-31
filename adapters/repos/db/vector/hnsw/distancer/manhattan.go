@@ -33,13 +33,12 @@ type Manhattan struct {
 	a []float32
 }
 
-func (l Manhattan) Distance(b []float32) (float32, bool, error) {
+func (l Manhattan) Distance(b []float32) (float32, error) {
 	if len(l.a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
-			len(l.a), len(b))
+		return 0, errors.Errorf("vector lengths don't match: %d vs %d", len(l.a), len(b))
 	}
 
-	return manhattanImpl(l.a, b), true, nil
+	return manhattanImpl(l.a, b), nil
 }
 
 type ManhattanProvider struct{}
@@ -48,13 +47,13 @@ func NewManhattanProvider() ManhattanProvider {
 	return ManhattanProvider{}
 }
 
-func (l ManhattanProvider) SingleDist(a, b []float32) (float32, bool, error) {
+func (l ManhattanProvider) SingleDist(a, b []float32) (float32, error) {
 	if len(a) != len(b) {
-		return 0, false, errors.Errorf("vector lengths don't match: %d vs %d",
+		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
 			len(a), len(b))
 	}
 
-	return manhattanImpl(a, b), true, nil
+	return manhattanImpl(a, b), nil
 }
 
 func (l ManhattanProvider) Type() string {

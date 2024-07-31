@@ -416,24 +416,21 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 	for level := currentMaxLevel; level > targetLevel; level-- {
 		eps := priorityqueue.NewMin[any](1)
 		var dist float32
-		var ok bool
 		var err error
 		if h.compressed.Load() {
-			dist, ok, err = distancer.DistanceToNode(entryPointID)
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				continue
-			}
+			dist, err = distancer.DistanceToNode(entryPointID)
 		} else {
-			dist, ok, err = h.distBetweenNodeAndVec(entryPointID, nodeVec)
+			dist, err = h.distBetweenNodeAndVec(entryPointID, nodeVec)
+		}
+
+		var e storobj.ErrNotFound
+		if errors.As(err, &e) {
+			h.handleDeletedNode(e.DocID)
+			continue
 		}
 		if err != nil {
 			return 0, errors.Wrapf(err,
 				"calculate distance between insert node and entry point at level %d", level)
-		}
-		if !ok {
-			continue
 		}
 
 		eps.Insert(entryPointID, dist)
@@ -466,20 +463,14 @@ func min(a, b int) int {
 	return b
 }
 
-func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
+func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if h.compressed.Load() {
 		dist, err := h.compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), a, b)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				return 0, false, nil
-			} else {
-				return 0, false, err
-			}
+			return 0, err
 		}
 
-		return dist, true, nil
+		return dist, nil
 	}
 
 	// TODO: introduce single search/transaction context instead of spawning new
@@ -489,16 +480,15 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", a)
+			return 0, nil
 		}
+		// not a typed error, we can recover from, return with err
+		return 0, errors.Wrapf(err,
+			"could not get vector of object at docID %d", a)
 	}
 
 	if len(vecA) == 0 {
-		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
+		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", a)
 	}
 
 	vecB, err := h.vectorForID(context.Background(), b)
@@ -506,35 +496,28 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, bool, error) {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", b)
+			return 0, nil
 		}
+		// not a typed error, we can recover from, return with err
+		return 0, errors.Wrapf(err,
+			"could not get vector of object at docID %d", b)
 	}
 
 	if len(vecB) == 0 {
-		return 0, false, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
+		return 0, fmt.Errorf("got a nil or zero-length vector at docID %d", b)
 	}
 
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
-func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool, error) {
+func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, error) {
 	if h.compressed.Load() {
 		dist, err := h.compressor.DistanceBetweenCompressedAndUncompressedVectorsFromID(context.Background(), node, vecB)
 		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
-				return 0, false, nil
-			} else {
-				return 0, false, err
-			}
+			return 0, err
 		}
 
-		return dist, true, nil
+		return dist, nil
 	}
 
 	// TODO: introduce single search/transaction context instead of spawning new
@@ -544,21 +527,20 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, bool
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
 			h.handleDeletedNode(e.DocID)
-			return 0, false, nil
-		} else {
-			// not a typed error, we can recover from, return with err
-			return 0, false, errors.Wrapf(err,
-				"could not get vector of object at docID %d", node)
+			return 0, nil
 		}
+		// not a typed error, we can recover from, return with err
+		return 0, errors.Wrapf(err,
+			"could not get vector of object at docID %d", node)
 	}
 
 	if len(vecA) == 0 {
-		return 0, false, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"got a nil or zero-length vector at docID %d", node)
 	}
 
 	if len(vecB) == 0 {
-		return 0, false, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"got a nil or zero-length vector as search vector")
 	}
 
@@ -682,7 +664,7 @@ func (h *hnsw) Entrypoint() uint64 {
 	return h.entryPointID
 }
 
-func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return h.distancerProvider.SingleDist(x, y)
 }
 

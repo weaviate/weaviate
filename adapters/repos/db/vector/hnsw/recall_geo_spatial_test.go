@@ -207,7 +207,7 @@ func bruteForce(vectors [][]float32, query []float32, k int) []uint64 {
 
 	distancer := distancer.NewGeoProvider().New(query)
 	for i, vec := range vectors {
-		dist, _, _ := distancer.Distance(vec)
+		dist, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
@@ -240,7 +240,7 @@ func bruteForceMaxDist(vectors [][]float32, query []float32, maxDist float32) []
 
 	distancer := distancer.NewGeoProvider().New(query)
 	for i, vec := range vectors {
-		dist, _, _ := distancer.Distance(vec)
+		dist, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,
