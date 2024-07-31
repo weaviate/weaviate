@@ -51,7 +51,7 @@ func Test_BackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
 			WithWeaviate().
 			Start(ctx)
@@ -63,7 +63,6 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
@@ -83,9 +82,9 @@ func Test_BackupJourney(t *testing.T) {
 		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
 
 		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName).
+			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
 			WithText2VecContextionary().
-			WithWeaviateCluster().
+			WithWeaviateCluster(2).
 			Start(ctx)
 		require.Nil(t, err)
 		defer func() {
@@ -95,14 +94,13 @@ func Test_BackupJourney(t *testing.T) {
 		}()
 
 		t.Run("post-instance env setup", func(t *testing.T) {
-			createBucket(ctx, t, compose.GetMinIO().URI(), s3BackupJourneyRegion, s3BackupJourneyBucketName)
 			helper.SetupClient(compose.GetWeaviate().URI())
 		})
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
 				s3BackupJourneyBackupIDCluster, nil,
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI())
+				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
 }

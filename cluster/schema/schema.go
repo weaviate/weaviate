@@ -228,10 +228,10 @@ func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo,
 	s.RLock()
 	defer s.RUnlock()
 	meta := s.Classes[class]
-	info := s.Classes[class].ClassInfo()
 	if meta == nil {
 		return false, nil, ClassInfo{}, ErrClassNotFound
 	}
+	info := s.Classes[class].ClassInfo()
 	if !info.MultiTenancy.Enabled {
 		return false, nil, ClassInfo{}, fmt.Errorf("multi-tenancy is not enabled for class %q", class)
 	}
@@ -302,6 +302,14 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 		return 0, err
 	} else {
 		return meta.UpdateTenants(s.nodeID, req, v)
+	}
+}
+
+func (s *schema) updateTenantsProcess(class string, v uint64, req *command.TenantProcessRequest) error {
+	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
+		return err
+	} else {
+		return meta.UpdateTenantsProcess(s.nodeID, req, v)
 	}
 }
 

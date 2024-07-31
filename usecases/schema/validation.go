@@ -28,6 +28,7 @@ var validatorsNestedProperty = []validatorNestedProperty{
 	validateNestedPropertyTokenization,
 	validateNestedPropertyIndexFilterable,
 	validateNestedPropertyIndexSearchable,
+	validateNestedPropertyIndexRangeFilters,
 }
 
 func validateNestedProperties(properties []*models.NestedProperty, propNamePrefix string) error {
@@ -163,6 +164,34 @@ func validateNestedPropertyIndexSearchable(property *models.NestedProperty,
 	}
 	if *property.IndexSearchable {
 		return fmt.Errorf("Property '%s': `indexSearchable` is not allowed for other than text/text[] data types",
+			propName)
+	}
+
+	return nil
+}
+
+// indexRangeFilters allowed for number/int/date data types
+func validateNestedPropertyIndexRangeFilters(property *models.NestedProperty,
+	primitiveDataType, _ schema.DataType,
+	isPrimitive, _ bool, propNamePrefix string,
+) error {
+	propName := propNamePrefix + "." + property.Name
+
+	// at this point indexRangeFilters should be set (either by user or by defaults)
+	if property.IndexRangeFilters == nil {
+		return fmt.Errorf("Property '%s': `indexRangeFilters` not set", propName)
+	}
+
+	if isPrimitive {
+		switch primitiveDataType {
+		case schema.DataTypeNumber, schema.DataTypeInt, schema.DataTypeDate:
+			return nil
+		default:
+			// do nothing
+		}
+	}
+	if *property.IndexRangeFilters {
+		return fmt.Errorf("Property '%s': `indexRangeFilters` is not allowed for other than number/int/date data types",
 			propName)
 	}
 

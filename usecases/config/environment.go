@@ -97,10 +97,10 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Port = asInt
 	}
 
-	if v := os.Getenv("PROFILING_PORT"); v != "" {
+	if v := os.Getenv("GO_PROFILING_PORT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
-			return fmt.Errorf("parse PROFILING_PORT as int: %w", err)
+			return fmt.Errorf("parse GO_PROFILING_PORT as int: %w", err)
 		}
 
 		config.Profiling.Port = asInt
@@ -175,6 +175,8 @@ func FromEnv(config *Config) error {
 			config.Authorization.AdminList.ReadOnlyGroups = strings.Split(roGroupsString, ",")
 		}
 	}
+
+	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))
 
 	if !config.Authentication.AnyAuthMethodSelected() {
 		config.Authentication = DefaultAuthentication
@@ -311,6 +313,10 @@ func FromEnv(config *Config) error {
 
 	if v := os.Getenv("ENABLE_MODULES"); v != "" {
 		config.EnableModules = v
+	}
+
+	if entcfg.Enabled(os.Getenv("ENABLE_API_BASED_MODULES")) {
+		config.EnableApiBasedModules = true
 	}
 
 	config.AutoSchema.Enabled = true

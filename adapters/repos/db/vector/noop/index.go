@@ -15,11 +15,13 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type Index struct{}
@@ -54,7 +56,7 @@ func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit 
 func (i *Index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
 	callback()
 	switch t := updated.(type) {
-	case hnsw.UserConfig:
+	case hnswconf.UserConfig:
 		// the fact that we are in the noop index means that 'skip' must have been
 		// set to true before, so changing it now is not possible. But if it
 		// stays, we don't mind.
@@ -100,8 +102,8 @@ func (i *Index) PostStartup() {
 func (i *Index) Dump(labels ...string) {
 }
 
-func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
-	return 0, true, nil
+func (i *Index) DistanceBetweenVectors(x, y []float32) (float32, error) {
+	return 0, nil
 }
 
 func (i *Index) ContainsNode(id uint64) bool {
@@ -130,4 +132,8 @@ func (i *Index) AlreadyIndexed() uint64 {
 
 func (i *Index) TurnOnCompression(callback func()) error {
 	return nil
+}
+
+func (i *Index) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	return common.QueryVectorDistancer{}
 }

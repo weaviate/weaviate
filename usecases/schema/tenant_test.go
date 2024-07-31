@@ -111,25 +111,12 @@ func TestAddTenants(t *testing.T) {
 			tenants: []*models.Tenant{
 				{Name: "Aaaa", ActivityStatus: "DOES_NOT_EXIST_1"},
 				{Name: "Bbbb", ActivityStatus: "DOES_NOT_EXIST_2"},
+				{Name: "Bbbb2", ActivityStatus: "WARM"},
 			},
 			errMsgs: []string{
 				"invalid activity status",
 				"DOES_NOT_EXIST_1",
 				"DOES_NOT_EXIST_2",
-			},
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {},
-		},
-		{
-			name:  "UnsupportedActivityStatus",
-			class: mtEnabledClass.Class,
-			tenants: []*models.Tenant{
-				{Name: "Aaaa", ActivityStatus: models.TenantActivityStatusWARM},
-				{Name: "Bbbb", ActivityStatus: models.TenantActivityStatusFROZEN},
-			},
-			errMsgs: []string{
-				"not yet supported activity status",
-				models.TenantActivityStatusWARM,
-				models.TenantActivityStatusFROZEN,
 			},
 			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {},
 		},
@@ -177,7 +164,7 @@ func TestUpdateTenants(t *testing.T) {
 		ctx     = context.Background()
 		tenants = []*models.Tenant{
 			{Name: "USER1", ActivityStatus: models.TenantActivityStatusHOT},
-			{Name: "USER2", ActivityStatus: models.TenantActivityStatusHOT},
+			{Name: "USER2", ActivityStatus: models.TenantActivityStatusACTIVE},
 		}
 		properties = []*models.Property{
 			{
@@ -226,8 +213,12 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
-				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -236,8 +227,12 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
-				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -246,8 +241,12 @@ func TestUpdateTenants(t *testing.T) {
 			updateTenants:   tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
-				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 		{
@@ -265,27 +264,12 @@ func TestUpdateTenants(t *testing.T) {
 			class: mtEnabledClass.Class,
 			updateTenants: []*models.Tenant{
 				{Name: tenants[0].Name, ActivityStatus: "DOES_NOT_EXIST_1"},
-				{Name: tenants[1].Name, ActivityStatus: "DOES_NOT_EXIST_2"},
+				{Name: tenants[1].Name, ActivityStatus: "WARM"},
 			},
 			errMsgs: []string{
 				"invalid activity status",
 				"DOES_NOT_EXIST_1",
-				"DOES_NOT_EXIST_2",
-			},
-			expectedTenants: tenants,
-			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
-		},
-		{
-			name:  "UnsupportedActivityStatus",
-			class: mtEnabledClass.Class,
-			updateTenants: []*models.Tenant{
-				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusWARM},
-				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusFROZEN},
-			},
-			errMsgs: []string{
-				"not yet supported activity status",
-				models.TenantActivityStatusWARM,
-				models.TenantActivityStatusFROZEN,
+				"WARM",
 			},
 			expectedTenants: tenants,
 			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
@@ -306,15 +290,19 @@ func TestUpdateTenants(t *testing.T) {
 			class: mtEnabledClass.Class,
 			updateTenants: []*models.Tenant{
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
-				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 			},
 			errMsgs: []string{},
 			expectedTenants: []*models.Tenant{
 				{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
-				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+				{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
 			},
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
-				fakeSchemaManager.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
+				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				fakeMetaHandler.On("QueryTenants", mock.Anything, mock.Anything).Return([]*models.Tenant{
+					{Name: tenants[0].Name, ActivityStatus: models.TenantActivityStatusCOLD},
+					{Name: tenants[1].Name, ActivityStatus: models.TenantActivityStatusHOT},
+				}, 0, nil)
 			},
 		},
 	}
@@ -325,7 +313,7 @@ func TestUpdateTenants(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			test.mockCalls(fakeSchemaManager)
 
-			err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
+			_, err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
 			if len(test.errMsgs) == 0 {
 				require.NoError(t, err)
 			} else {

@@ -44,6 +44,7 @@ func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(palmApiKey).
 		WithWeaviate().
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }

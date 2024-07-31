@@ -63,10 +63,11 @@ type VectorIndex interface {
 	PostStartup()
 	Compressed() bool
 	ValidateBeforeInsert(vector []float32) error
-	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
+	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
+	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 }
 
 type upgradableIndexer interface {
@@ -321,7 +322,7 @@ func (dynamic *dynamic) Dump(labels ...string) {
 	fmt.Printf("--------------------------------------------------\n")
 }
 
-func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.DistanceBetweenVectors(x, y)
@@ -343,6 +344,12 @@ func (dynamic *dynamic) DistancerProvider() distancer.Provider {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.DistancerProvider()
+}
+
+func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.QueryVectorDistancer(queryVector)
 }
 
 func (dynamic *dynamic) ShouldUpgrade() (bool, int) {

@@ -138,8 +138,8 @@ func (f *fakeSchemaManager) QueryReadOnlyClasses(classes ...string) (map[string]
 }
 
 func (f *fakeSchemaManager) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
-	args := f.Called(class)
-	return nil, 0, args.Error(0)
+	args := f.Called(class, tenants)
+	return args.Get(0).([]*models.Tenant), 0, args.Error(2)
 }
 
 func (f *fakeSchemaManager) QueryShardOwner(class, shard string) (string, uint64, error) {

@@ -116,6 +116,16 @@ func newFakeNodeResolver(localNode string, nodeHostMap map[string]string) *fakeN
 	return &fakeNodeResolver{NodeName: localNode, M: nodeHostMap}
 }
 
+func (r *fakeNodeResolver) AllHostnames() []string {
+	hosts := make([]string, 0, len(r.M))
+
+	for _, h := range r.M {
+		hosts = append(hosts, h)
+	}
+
+	return hosts
+}
+
 func (r *fakeNodeResolver) NodeHostname(nodeName string) (string, bool) {
 	host, ok := r.M[nodeName]
 	return host, ok

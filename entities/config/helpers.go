@@ -11,17 +11,13 @@
 
 package config
 
+import "strings"
+
 func Enabled(value string) bool {
-	if value == "" {
+	switch strings.ToLower(value) {
+	case "on", "enabled", "1", "true":
+		return true
+	default:
 		return false
 	}
-
-	if value == "on" ||
-		value == "enabled" ||
-		value == "1" ||
-		value == "true" {
-		return true
-	}
-
-	return false
 }

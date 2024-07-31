@@ -50,8 +50,8 @@ func newMockResolver(t *testing.T, params mockParams) *mockResolver {
 					},
 				),
 			},
-			"nearVector": NearVectorArgument("Get", "SomeAction"),
-			"nearObject": NearObjectArgument("Get", "SomeAction"),
+			"nearVector": NearVectorArgument("Get", "SomeAction", false),
+			"nearObject": NearObjectArgument("Get", "SomeAction", false),
 		},
 		Type: graphql.Int,
 		Resolve: func(p graphql.ResolveParams) (interface{}, error) {
@@ -82,7 +82,7 @@ func (m *mockResolver) ReportArgs(params mockParams, args map[string]interface{}
 	}
 
 	if params.reportNearVector {
-		nearVec, err := ExtractNearVector(args["nearVector"].(map[string]interface{}))
+		nearVec, _, err := ExtractNearVector(args["nearVector"].(map[string]interface{}), nil)
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +93,7 @@ func (m *mockResolver) ReportArgs(params mockParams, args map[string]interface{}
 	}
 
 	if params.reportNearObject {
-		nearObj, err := ExtractNearObject(args["nearObject"].(map[string]interface{}))
+		nearObj, _, err := ExtractNearObject(args["nearObject"].(map[string]interface{}))
 		if err != nil {
 			return nil, err
 		}

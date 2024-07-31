@@ -19,7 +19,9 @@ function main() {
   run_integration_tests=false
   run_benchmark=false
   run_module_only_backup_tests=false
+  run_module_only_offload_tests=false
   run_module_except_backup_tests=false
+  run_module_except_offload_tests=false
   run_cleanup=false
   run_acceptance_go_client_only_fast=false
   run_acceptance_go_client_named_vectors=false
@@ -38,9 +40,11 @@ function main() {
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
-          --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
+          --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;run_module_only_offload_tests=true;run_module_except_offload_tests=true;;
           --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
+          --acceptance-module-tests-only-offload|--modules-offload-only|-moo) run_all_tests=false; run_module_tests=true; run_module_only_offload_tests=true;;
           --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
+          --acceptance-module-tests-except-offload|--modules-except-offload|-meo) run_all_tests=false; run_module_tests=true; run_module_except_offload_tests=true; echo $run_module_except_offload_tests ;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -278,8 +282,26 @@ function run_module_only_backup_tests() {
   done
 }
 
+function run_module_only_offload_tests() {
+  for pkg in $(go list ./... |grep 'test/modules/offload'); do
+    if ! go test -count 1 -race -v "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
 function run_module_except_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/backup'); do
+    if ! go test -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_module_except_offload_tests() {
+  for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/offload'); do
     if ! go test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
@@ -291,8 +313,14 @@ function run_module_tests() {
   if $run_module_only_backup_tests; then
     run_module_only_backup_tests "$@"
   fi
+  if $run_module_only_offload_tests; then
+    run_module_only_offload_tests "$@"
+  fi
   if $run_module_except_backup_tests; then
     run_module_except_backup_tests "$@"
+  fi
+  if $run_module_except_offload_tests; then
+    run_module_except_offload_tests "$@"
   fi
 }
 

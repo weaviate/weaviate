@@ -466,7 +466,7 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 			Encoders:            kms,
 		}
 
-		commitLogger.AddPQ(pqData)
+		commitLogger.AddPQCompression(pqData)
 		require.Nil(t, commitLogger.Flush())
 		require.Nil(t, commitLogger.Shutdown(ctx))
 	})

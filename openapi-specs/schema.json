@@ -382,6 +382,11 @@
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        },
+        "asyncEnabled": {
+          "description": "Enable asynchronous replication",
+          "type": "boolean",
+          "x-omitempty": false
         }
       },
       "type": "object"
@@ -733,6 +738,11 @@
           "type": "boolean",
           "x-nullable": true
         },
+        "indexRangeFilters": {
+          "description": "Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.",
+          "type": "boolean",
+          "x-nullable": true
+        },
         "tokenization": {
           "description": "Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types",
           "type": "string",
@@ -793,6 +803,10 @@
           "x-nullable": true
         },
         "indexSearchable": {
+          "type": "boolean",
+          "x-nullable": true
+        },
+        "indexRangeFilters": {
           "type": "boolean",
           "x-nullable": true
         },
@@ -2095,13 +2109,19 @@
           "type": "string"
         },
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit `HOT`) and required for updating tenant. Allowed values are `HOT` - tenant is fully active, `WARM` - tenant is active, some restrictions are imposed (TBD; not supported yet), `COLD` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally, `FROZEN` - as COLD, but files are stored on cloud storage (not supported yet)",
+          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit `ACTIVE`) and required for updating tenant. For creation, allowed values are `ACTIVE` - tenant is fully active and `INACTIVE` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `ACTIVE`, `INACTIVE` and also `OFFLOADED` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `OFFLOADING` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, `ONLOADING` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names `HOT` (now `ACTIVE`), `COLD` (now `INACTIVE`), `FROZEN` (now `OFFLOADED`), `FREEZING` (now `OFFLOADING`), `UNFREEZING` (now `ONLOADING`).",
           "type": "string",
           "enum": [
+            "ACTIVE",
+            "INACTIVE",
+            "OFFLOADED",
+            "OFFLOADING",
+            "ONLOADING",
             "HOT",
-            "WARM",
             "COLD",
-            "FROZEN"
+            "FROZEN",
+            "FREEZING",
+            "UNFREEZING"
           ]
         }
       }
@@ -2118,7 +2138,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.25.9"
+    "version": "1.26.1"
   },
   "parameters": {
     "CommonAfterParameterQuery": {

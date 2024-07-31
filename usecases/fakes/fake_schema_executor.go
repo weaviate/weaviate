@@ -52,7 +52,7 @@ func (m *MockSchemaExecutor) ReloadLocalDB(ctx context.Context, all []api.Update
 	return nil
 }
 
-func (m *MockSchemaExecutor) DeleteClass(name string) error {
+func (m *MockSchemaExecutor) DeleteClass(name string, hasFrozen bool) error {
 	args := m.Called(name)
 	return args.Error(0)
 }
@@ -68,6 +68,11 @@ func (m *MockSchemaExecutor) AddTenants(class string, req *cmd.AddTenantsRequest
 }
 
 func (m *MockSchemaExecutor) UpdateTenants(class string, req *cmd.UpdateTenantsRequest) error {
+	args := m.Called(class, req)
+	return args.Error(0)
+}
+
+func (m *MockSchemaExecutor) UpdateTenantsProcess(class string, req *cmd.TenantProcessRequest) error {
 	args := m.Called(class, req)
 	return args.Error(0)
 }

@@ -14,29 +14,22 @@ package compressionhelpers
 import "encoding/binary"
 
 type quantizerDistancer[T byte | uint64] interface {
-	Distance(x []T) (float32, bool, error)
-	DistanceToFloat(x []float32) (float32, bool, error)
+	Distance(x []T) (float32, error)
+	DistanceToFloat(x []float32) (float32, error)
 }
 
 type quantizer[T byte | uint64] interface {
 	DistanceBetweenCompressedVectors(x, y []T) (float32, error)
-	DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []T) (float32, error)
 	Encode(vec []float32) []T
 	NewQuantizerDistancer(a []float32) quantizerDistancer[T]
 	NewCompressedQuantizerDistancer(a []T) quantizerDistancer[T]
 	ReturnQuantizerDistancer(distancer quantizerDistancer[T])
 	CompressedBytes(compressed []T) []byte
 	FromCompressedBytes(compressed []byte) []T
-	ExposeFields() PQData
+	PersistCompression(logger CommitLogger)
 }
 
-func (bq *BinaryQuantizer) ExposeFields() PQData {
-	return PQData{}
-}
-
-func (bq *BinaryQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, y []uint64) (float32, error) {
-	encoded := bq.Encode(x)
-	return bq.DistanceBetweenCompressedVectors(encoded, y)
+func (bq *BinaryQuantizer) PersistCompression(logger CommitLogger) {
 }
 
 func (pq *ProductQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[byte] {
@@ -102,18 +95,16 @@ func (bq *BinaryQuantizer) NewCompressedQuantizerDistancer(a []uint64) quantizer
 	}
 }
 
-func (d *BQDistancer) Distance(x []uint64) (float32, bool, error) {
-	dist, err := d.bq.DistanceBetweenCompressedVectors(d.compressed, x)
-	return dist, err == nil, err
+func (d *BQDistancer) Distance(x []uint64) (float32, error) {
+	return d.bq.DistanceBetweenCompressedVectors(d.compressed, x)
 }
 
-func (d *BQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
+func (d *BQDistancer) DistanceToFloat(x []float32) (float32, error) {
 	if len(d.x) > 0 {
 		return d.bq.distancer.SingleDist(d.x, x)
 	}
 	xComp := d.bq.Encode(x)
-	dist, err := d.bq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err == nil, err
+	return d.bq.DistanceBetweenCompressedVectors(d.compressed, xComp)
 }
 
 func (bq *BinaryQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[uint64] {

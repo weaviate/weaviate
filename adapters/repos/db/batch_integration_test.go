@@ -661,8 +661,7 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 							Offset: 0,
 							Limit:  10,
 						},
-						SearchVector: []float32{1, 2, 3},
-					})
+					}, []string{""}, [][]float32{{1, 2, 3}})
 					require.Nil(t, err)
 					assert.Len(t, res, 2)
 				})
@@ -1206,7 +1205,7 @@ func bruteForceMaxDist(inputs []*models.Object, query []float32, maxDist float32
 		coord := elem.Properties.(map[string]interface{})["location"].(*models.GeoCoordinates)
 		vec := []float32{*coord.Latitude, *coord.Longitude}
 
-		dist, _, _ := distancer.Distance(vec)
+		dist, _ := distancer.Distance(vec)
 		distances[i] = distanceAndIndex{
 			index:    i,
 			distance: dist,

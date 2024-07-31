@@ -69,7 +69,6 @@ func TestNamedVectors_Cluster_AsyncIndexing(t *testing.T) {
 
 func allTests(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
-		t.Run("hybrid", testHybrid(endpoint))
 		t.Run("schema", testCreateSchema(endpoint))
 		t.Run("schema with none vectorizer", testCreateSchemaWithNoneVectorizer(endpoint))
 		t.Run("object", testCreateObject(endpoint))
@@ -83,6 +82,7 @@ func allTests(endpoint string) func(t *testing.T) {
 		t.Run("hybrid", testHybrid(endpoint))
 		t.Run("generative modules", testNamedVectorsWithGenerativeModules(endpoint))
 		t.Run("aggregate", testAggregate(endpoint))
+		t.Run("vector index types", testVectorIndexTypesConfigurations(endpoint))
 	}
 }
 
@@ -113,7 +113,7 @@ func createSingleNodeEnvironmentAsyncIndexing(ctx context.Context) (compose *doc
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		Start(ctx)
 	return
 }
@@ -121,7 +121,7 @@ func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompos
 func createClusterEnvironmentAsyncIndexing(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		WithWeaviateCluster().
+		WithWeaviateCluster(2).
 		Start(ctx)
 	return
 }
@@ -130,9 +130,9 @@ func composeModules() (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecContextionary().
 		WithText2VecTransformers().
-		WithText2VecOpenAI().
-		WithText2VecCohere().
-		WithGenerativeOpenAI().
-		WithGenerativeCohere()
+		WithText2VecOpenAI("", "", "").
+		WithText2VecCohere("").
+		WithGenerativeOpenAI("", "", "").
+		WithGenerativeCohere("")
 	return
 }

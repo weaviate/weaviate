@@ -24,7 +24,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		name            string
 		cfg             moduletools.ClassConfig
 		wantModel       string
-		wantTemperature int
+		wantTemperature float64
 		wantBaseURL     string
 		wantErr         error
 	}{

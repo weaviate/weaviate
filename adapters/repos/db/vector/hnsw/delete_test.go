@@ -628,6 +628,7 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -648,6 +649,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 					Distribution: ent.PQEncoderDistributionNormal,
 				},
 			},
+			BQ: defaultUC.BQ,
+			SQ: defaultUC.SQ,
 		}
 	)
 	store := testinghelpers.NewDummyStore(t)
@@ -684,6 +687,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			BitCompression: false,
 			Segments:       3,
 			Centroids:      256,
+			TrainingLimit:  100000,
 		}
 		userConfig.PQ = cfg
 		index.compress(userConfig)
@@ -774,6 +778,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *testing.T) {
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -787,7 +792,15 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-			PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
+			PQ: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeTile,
+					Distribution: ent.PQEncoderDistributionNormal,
+				},
+			},
+			BQ: defaultUC.BQ,
+			SQ: defaultUC.SQ,
 		}
 	)
 
@@ -1335,7 +1348,7 @@ func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
 
 	d := distancer.NewCosineDistanceProvider().New(distancer.Normalize(query))
 	for i, vec := range vectors {
-		dist, _, _ := d.Distance(distancer.Normalize(vec))
+		dist, _ := d.Distance(distancer.Normalize(vec))
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,

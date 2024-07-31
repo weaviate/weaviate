@@ -27,7 +27,7 @@ import (
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	st.log.WithFields(logrus.Fields{
-		"type":  req.Type,
+		"type":  api.ApplyRequest_Type_name[int32(req.Type)],
 		"class": req.Class,
 	}).Debug("server.execute")
 
@@ -131,7 +131,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		"cmd_schema_only": schemaOnly,
 	}).Debug("server.apply")
 
-	var f func()
+	f := func() {}
 
 	switch cmd.Type {
 
@@ -178,6 +178,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
 		f = func() {
 			ret.Error = st.schemaManager.DeleteTenants(&cmd, schemaOnly)
+		}
+
+	case api.ApplyRequest_TYPE_TENANT_PROCESS:
+		f = func() {
+			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:

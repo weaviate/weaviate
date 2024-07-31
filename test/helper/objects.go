@@ -12,6 +12,7 @@
 package helper
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -23,8 +24,11 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
+
+var grpcClient pb.WeaviateClient
 
 func SetupClient(uri string) {
 	host, port := "", ""
@@ -34,6 +38,10 @@ func SetupClient(uri string) {
 	}
 	ServerHost = host
 	ServerPort = port
+}
+
+func SetupGRPCClient(t *testing.T, uri string) {
+	grpcClient = ClientGRPC(t, uri)
 }
 
 func CreateClass(t *testing.T, class *models.Class) {
@@ -97,6 +105,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 		WithBody(batch.BatchObjectsCreateBody{
 			Objects: objects,
 		})
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
+func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		}).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
@@ -263,10 +282,24 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
 	_, err := Client(t).Schema.TenantsCreate(params, nil)
+	return err
+}
+
+func UpdateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	_, err := Client(t).Schema.TenantsUpdate(params, nil)
 	return err
 }
 
@@ -275,6 +308,11 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
 	return resp, err
+}
+
+func GetTenantsGRPC(t *testing.T, class string) (*pb.TenantsGetReply, error) {
+	t.Helper()
+	return grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
 }
 
 func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {

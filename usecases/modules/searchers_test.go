@@ -44,7 +44,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
 	t.Run("get a vector for a class", func(t *testing.T) {
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})
@@ -68,16 +68,15 @@ func TestModulesWithSearchers(t *testing.T) {
 		)
 		p.Init(context.Background(), nil, logger)
 
-		res, targetVector, err := p.VectorFromSearchParam(context.Background(), "MyClass",
-			"nearGrape", nil, fakeFindVector, "")
+		res, err := p.VectorFromSearchParam(context.Background(), "MyClass", "", "",
+			"nearGrape", nil, fakeFindVector)
 
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
-		assert.Equal(t, "", targetVector)
 	})
 
 	t.Run("no module configured for a class", func(t *testing.T) {
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})
@@ -101,15 +100,15 @@ func TestModulesWithSearchers(t *testing.T) {
 		)
 		p.Init(context.Background(), nil, logger)
 
-		_, _, err := p.VectorFromSearchParam(context.Background(), "MyClass",
-			"nearDoesNotExist", nil, fakeFindVector, "")
+		_, err := p.VectorFromSearchParam(context.Background(), "MyClass", "", "",
+			"nearDoesNotExist", nil, fakeFindVector)
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "could not vectorize input for collection")
 	})
 
 	t.Run("get a vector across classes", func(t *testing.T) {
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})
@@ -146,7 +145,7 @@ func TestModulesWithSearchers(t *testing.T) {
 	})
 
 	t.Run("explore no vectorizer", func(t *testing.T) {
-		p := NewProvider()
+		p := NewProvider(logger)
 		p.SetSchemaGetter(&fakeSchemaGetter{
 			schema: sch,
 		})

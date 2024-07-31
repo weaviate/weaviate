@@ -38,7 +38,10 @@ import (
 
 // MinimumRequiredRemoteVersion describes the minimal semver version
 // (independent of the model version) of the remote model inference API
-const MinimumRequiredRemoteVersion = "1.0.0"
+const (
+	MinimumRequiredRemoteVersion = "1.0.0"
+	Name                         = "text2vec-contextionary"
+)
 
 func New() *ContextionaryModule {
 	return &ContextionaryModule{}
@@ -79,7 +82,7 @@ type configValidator interface {
 }
 
 func (m *ContextionaryModule) Name() string {
-	return "text2vec-contextionary"
+	return Name
 }
 
 func (m *ContextionaryModule) Type() modulecapabilities.ModuleType {

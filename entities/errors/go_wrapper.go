@@ -37,8 +37,8 @@ func GoWrapper(f func(), logger logrus.FieldLogger) {
 	}()
 }
 
-func GoWrapperWithBlock(f func(), logger logrus.FieldLogger) error {
-	errChan := make(chan error)
+func GoWrapperWithErrorCh(f func(), logger logrus.FieldLogger) chan error {
+	errChan := make(chan error, 1)
 	go func() {
 		defer func() {
 			if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
@@ -53,5 +53,9 @@ func GoWrapperWithBlock(f func(), logger logrus.FieldLogger) error {
 		f()
 		errChan <- nil
 	}()
-	return <-errChan
+	return errChan
+}
+
+func GoWrapperWithBlock(f func(), logger logrus.FieldLogger) error {
+	return <-GoWrapperWithErrorCh(f, logger)
 }

@@ -656,7 +656,7 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 								indexFilterable: filterable,
 								indexSearchable: searchable,
 								expectedErrContains: []string{
-									"`indexInverted` is deprecated and can not be set together with `indexFilterable` or `indexSearchable`",
+									"`indexInverted` is deprecated and can not be set together with `indexFilterable`, `indexSearchable` or `indexRangeFilters`",
 								},
 							})
 							continue

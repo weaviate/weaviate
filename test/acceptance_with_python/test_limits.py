@@ -1,4 +1,3 @@
-import weaviate
 import weaviate.classes as wvc
 
 from .conftest import CollectionFactory

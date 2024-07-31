@@ -17,6 +17,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/dto"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -311,7 +313,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -330,7 +332,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -349,7 +351,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -646,8 +648,9 @@ func (m *nearCustomTextModule) Arguments() map[string]modulecapabilities.GraphQL
 		GetArgumentsFunction: func(classname string) *graphql.ArgumentConfig {
 			return m.getNearCustomTextArgument(classname)
 		},
-		ExtractFunction: func(source map[string]interface{}) interface{} {
-			return m.extractNearCustomTextArgument(source)
+		ExtractFunction: func(source map[string]interface{}) (interface{}, *dto.TargetCombination, error) {
+			params := m.extractNearCustomTextArgument(source)
+			return params, nil, nil
 		},
 		ValidateFunction: func(param interface{}) error {
 			// all is valid

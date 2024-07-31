@@ -24,11 +24,10 @@ func TestCosineDistancer(t *testing.T) {
 		vec2 := Normalize([]float32{0.1, 0.3, 0.7})
 		expectedDistance := float32(0.0)
 
-		dist, ok, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
+		dist, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewCosineDistanceProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewCosineDistanceProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -39,11 +38,10 @@ func TestCosineDistancer(t *testing.T) {
 		vec2 := Normalize([]float32{0.2, 0.6, 1.4})
 		expectedDistance := float32(0.0)
 
-		dist, ok, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
+		dist, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewCosineDistanceProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewCosineDistanceProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -54,11 +52,10 @@ func TestCosineDistancer(t *testing.T) {
 		vec2 := Normalize([]float32{0.2, 0.2, 0.2})
 		expectedDistance := float32(0.173)
 
-		dist, ok, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
+		dist, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewCosineDistanceProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewCosineDistanceProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.InDelta(t, expectedDistance, dist, 0.01)
@@ -70,11 +67,10 @@ func TestCosineDistancer(t *testing.T) {
 		vec2 := Normalize([]float32{-0.1, -0.3, -0.7})
 		expectedDistance := float32(2)
 
-		dist, ok, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
+		dist, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewCosineDistanceProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewCosineDistanceProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.InDelta(t, expectedDistance, dist, 0.01)
@@ -86,9 +82,8 @@ func TestCosineDistancerStepbyStep(t *testing.T) {
 		vec1 := Normalize([]float32{3, 4, 5})
 		vec2 := Normalize([]float32{-3, -4, -5})
 
-		expectedDistance, ok, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
+		expectedDistance, err := NewCosineDistanceProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
 
 		distanceProvider := NewCosineDistanceProvider()
 		sum := float32(0.0)

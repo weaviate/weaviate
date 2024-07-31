@@ -58,7 +58,7 @@ func (b *BackoffTimer) IncreaseInterval() {
 
 // IntervalElapsed returns if the current interval has elapsed
 func (b *BackoffTimer) IntervalElapsed() bool {
-	return time.Since(b.lastInterval) > b.calculateInterval()
+	return time.Since(b.lastInterval) > b.CurrentInterval()
 }
 
 // Reset returns BackoffTimer to its original empty state
@@ -67,7 +67,7 @@ func (b *BackoffTimer) Reset() {
 	b.backoffLevel = 0
 }
 
-func (b *BackoffTimer) calculateInterval() time.Duration {
+func (b *BackoffTimer) CurrentInterval() time.Duration {
 	if b.backoffLevel >= len(b.backoffs) {
 		return b.backoffs[len(b.backoffs)-1]
 	}

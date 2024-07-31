@@ -77,7 +77,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 // Objects returns a list of full objects
 func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
-	className schema.ClassName,
+	className schema.ClassName, properties []string,
 ) ([]*storobj.Object, error) {
 	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
 	if err != nil {
@@ -95,7 +95,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 		it = allowList.Iterator()
 	}
 
-	return s.objectsByDocID(it, additional, limit)
+	return s.objectsByDocID(it, additional, limit, properties)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
@@ -109,7 +109,7 @@ func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 }
 
 func (s *Searcher) objectsByDocID(it docIDsIterator,
-	additional additional.Properties, limit int,
+	additional additional.Properties, limit int, properties []string,
 ) ([]*storobj.Object, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
@@ -122,6 +122,18 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 	// Prevent unbounded iteration
 	if limit == 0 {
 		limit = int(config.DefaultQueryMaximumResults)
+	}
+
+	propStrings := make([]string, len(properties))
+	propStringsList := make([][]string, len(properties))
+	for j := range properties {
+		propStrings[j] = properties[j]
+		propStringsList[j] = []string{properties[j]}
+	}
+
+	props := &storobj.PropertyExtraction{
+		PropStrings:     propStrings,
+		PropStringsList: propStringsList,
 	}
 
 	i := 0
@@ -140,7 +152,7 @@ func (s *Searcher) objectsByDocID(it docIDsIterator,
 		if additional.ReferenceQuery {
 			unmarshalled, err = storobj.FromBinaryUUIDOnly(res)
 		} else {
-			unmarshalled, err = storobj.FromBinaryOptional(res, additional)
+			unmarshalled, err = storobj.FromBinaryOptional(res, additional, props)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
@@ -346,8 +358,9 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop)
 
-	if !hasFilterableIndex && !hasSearchableIndex {
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
 	}
 
@@ -357,6 +370,7 @@ func (s *Searcher) extractPrimitiveProp(prop *models.Property, propType schema.D
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		hasRangeableIndex:  hasRangeableIndex,
 		Class:              class,
 	}, nil
 }
@@ -369,10 +383,11 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		return nil, err
 	}
 
-	hasFilterableIndex := HasFilterableIndexMetaCount && HasInvertedIndex(prop)
-	hasSearchableIndex := HasSearchableIndexMetaCount && HasInvertedIndex(prop)
+	hasFilterableIndex := HasFilterableIndexMetaCount && HasAnyInvertedIndex(prop)
+	hasSearchableIndex := HasSearchableIndexMetaCount && HasAnyInvertedIndex(prop)
+	hasRangeableIndex := HasRangeableIndexMetaCount && HasAnyInvertedIndex(prop)
 
-	if !hasFilterableIndex && !hasSearchableIndex {
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableMetaCountIndexError(prop.Name)
 	}
 
@@ -382,6 +397,7 @@ func (s *Searcher) extractReferenceCount(prop *models.Property, value interface{
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		hasRangeableIndex:  hasRangeableIndex,
 		Class:              class,
 	}, nil
 }
@@ -403,6 +419,7 @@ func (s *Searcher) extractGeoFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: HasFilterableIndex(prop),
 		hasSearchableIndex: HasSearchableIndex(prop),
+		hasRangeableIndex:  HasRangeableIndex(prop),
 		Class:              class,
 	}, nil
 }
@@ -430,8 +447,9 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop)
 
-	if !hasFilterableIndex && !hasSearchableIndex {
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
 	}
 
@@ -441,6 +459,7 @@ func (s *Searcher) extractUUIDFilter(prop *models.Property, value interface{},
 		operator:           operator,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		hasRangeableIndex:  hasRangeableIndex,
 		Class:              class,
 	}, nil
 }
@@ -556,8 +575,9 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 
 	hasFilterableIndex := HasFilterableIndex(prop) && !s.isFallbackToSearchable()
 	hasSearchableIndex := HasSearchableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop)
 
-	if !hasFilterableIndex && !hasSearchableIndex {
+	if !hasFilterableIndex && !hasSearchableIndex && !hasRangeableIndex {
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
 	}
 
@@ -572,6 +592,7 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 			operator:           operator,
 			hasFilterableIndex: hasFilterableIndex,
 			hasSearchableIndex: hasSearchableIndex,
+			hasRangeableIndex:  hasRangeableIndex,
 			Class:              class,
 		})
 	}

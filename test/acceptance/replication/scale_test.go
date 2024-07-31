@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func multiShardScaleOut(t *testing.T) {
+func replicationFactorIncrease(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -77,7 +77,7 @@ func multiShardScaleOut(t *testing.T) {
 				WithTitle(fmt.Sprintf("Article#%d", i)).
 				Object()
 		}
-		createObjects(t, compose.GetWeaviateNode2().URI(), batch)
+		createObjects(t, compose.GetWeaviateNode(2).URI(), batch)
 	})
 
 	t.Run("AddReferences", func(t *testing.T) {

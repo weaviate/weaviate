@@ -182,7 +182,8 @@ func NewFSM(cfg Config) Store {
 			IsLocalHost:       cfg.IsLocalHost,
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
 		}),
-		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
+		schemaManager: schema.NewSchemaManager(
+			cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
 	}
 }
 

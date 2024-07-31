@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -107,6 +106,10 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				DataType: schema.DataTypeGeoCoordinates.PropString(),
 			},
 		},
+	}
+	props := make([]string, len(class.Properties))
+	for i, prop := range class.Properties {
+		props[i] = prop.Name
 	}
 
 	createOrigObj := func() *storobj.Object {
@@ -291,7 +294,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	search := func(t *testing.T, shard ShardLike, filter *filters.LocalFilter) []*storobj.Object {
 		searchLimit := 10
 		found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
-			nil, nil, nil, additional.Properties{})
+			nil, nil, nil, additional.Properties{}, props)
 		require.NoError(t, err)
 		return found
 	}
@@ -507,16 +510,16 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 		return func(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, vectorToBeFound, targetVector,
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
+				found, _, err := shard.ObjectVectorSearch(ctx, [][]float32{vectorToBeFound}, []string{targetVector},
+					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
 				require.NoError(t, err)
 				require.Len(t, found, 1)
 				require.Equal(t, uuid_, found[0].Object.ID)
 			})
 
 			t.Run("not to be found", func(t *testing.T) {
-				found, _, err := shard.ObjectVectorSearch(ctx, vectorNotToBeFound, targetVector,
-					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{})
+				found, _, err := shard.ObjectVectorSearch(ctx, [][]float32{vectorNotToBeFound}, []string{targetVector},
+					vectorSearchDist, vectorSearchLimit, nil, nil, nil, additional.Properties{}, nil, nil)
 				require.NoError(t, err)
 				require.Len(t, found, 0)
 			})

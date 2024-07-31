@@ -18,6 +18,9 @@ To get started quickly, have a look at one of these pages:
 
 For more details, read through the summary on this page or see the system [documentation](https://weaviate.io/developers/weaviate/).
 
+> [!NOTE]
+> **Help us improve your experience** by sharing your feedback, ideas and thoughts: Fill out our [Community Experience Survey](https://forms.gle/hrFGMqtVkdSG6ne48), preferably by June 14th, 2024.
+
 ---
 
 ## Why Weaviate?
@@ -72,27 +75,27 @@ A Weaviate vector database can search text, images, or a combination of both. Fa
 
 Here are some examples that show how Weaviate integrates with other AI and ML tools:
 
-### Use Weaviate with third part embeddings 
+### Use Weaviate with third party embeddings
 
 - [Cohere](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-cohere) ([blogpost](https://txt.cohere.com/embedding-archives-wikipedia/))
 - [Hugging Face](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface)
 - [OpenAI](https://github.com/openai/openai-cookbook/tree/main/examples/vector_databases/weaviate)
 
-### Use Weaviate as a document store 
+### Use Weaviate as a document store
 
 - [DocArray](https://docarray.jina.ai/advanced/document-store/weaviate/)
-- [Haystack](https://docs.haystack.deepset.ai/reference/document-store-api#weaviatedocumentstore) ([blogpost](https://www.deepset.ai/weaviate-vector-search-engine-integration))
+- [Haystack](https://docs.haystack.deepset.ai/reference/integrations-weaviate#weaviatedocumentstore) ([blogpost](https://www.deepset.ai/weaviate-vector-search-engine-integration))
 
 ### Use Weaviate as a memory backend
 
 - [Auto-GPT](https://github.com/Significant-Gravitas/Auto-GPT/blob/master/docs/configuration/memory.md#weaviate-setup) ([blogpost](https://weaviate.io/blog/autogpt-and-weaviate))
-- [LangChain](https://python.langchain.com/docs/ecosystem/integrations/weaviate) ([blogpost](https://weaviate.io/blog/combining-langchain-and-weaviate))
+- [LangChain](https://python.langchain.com/docs/integrations/providers/weaviate) ([blogpost](https://weaviate.io/blog/combining-langchain-and-weaviate))
 - [LlamaIndex](https://gpt-index.readthedocs.io/en/latest/how_to/integrations/vector_stores.html) ([blogpost](https://weaviate.io/blog/llamaindex-and-weaviate))
 - [OpenAI - ChatGPT retrieval plugin](https://github.com/openai/chatgpt-retrieval-plugin/blob/main/docs/providers/weaviate/setup.md)
 
 ### Demos
 
-These demos are working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub. 
+These demos are working applications that highlight some of Weaviate's capabilities. Their source code is available on GitHub.
 
 - [Verba, the Golden RAGtreiver](https://verba.weaviate.io) ([GitHub](https://github.com/weaviate/verba))
 - [Healthsearch](https://healthsearch.weaviate.io) ([GitHub](https://github.com/weaviate/healthsearch-demo))
@@ -100,7 +103,7 @@ These demos are working applications that highlight some of Weaviate's capabilit
 
 ## How can you connect to Weaviate?
 
-Weaviate exposes a [GraphQL API](https://weaviate.io/developers/weaviate/api/graphql) and a [REST API](https://weaviate.io/developers/weaviate/api/rest). Starting in v1.23, a new [gRPC API](https://weaviate.io/developers/weaviate/api/grpc) provides even faster access to your data. 
+Weaviate exposes a [GraphQL API](https://weaviate.io/developers/weaviate/api/graphql) and a [REST API](https://weaviate.io/developers/weaviate/api/rest). Starting in v1.23, a new [gRPC API](https://weaviate.io/developers/weaviate/api/grpc) provides even faster access to your data.
 
 Weaviate provides client libraries for several popular languages:
 
@@ -117,7 +120,7 @@ Free, self-paced courses in [Weaviate Academy](https://weaviate.io/developers/ac
 
 The [Weaviate blog](https://weaviate.io/blog) and [podcast](https://weaviate.io/podcast) regularly post stories on Weaviate and AI.
 
-Here are some popular posts: 
+Here are some popular posts:
 
 ### Blogs
 
@@ -160,4 +163,4 @@ Please reach out, and join our community:
 - [Slack](https://weaviate.io/slack)
 - [X (Twitter)](https://twitter.com/weaviate_io)
 
-To keep up to date with new releases, meetup news, and more, subscribe to our [newsletter](https://newsletter.weaviate.io/) 
+To keep up to date with new releases, meetup news, and more, subscribe to our [newsletter](https://newsletter.weaviate.io/)

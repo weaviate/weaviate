@@ -23,9 +23,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -36,9 +39,23 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+// provider is an interface has to be implemented by modules
+// to get the backend (s3, azure blob storage, google cloud storage) module
+type provider interface {
+	// OffloadBackend returns the backend module for (s3, azure blob storage, google cloud storage)
+	OffloadBackend(backend string) (modulecapabilities.OffloadCloud, bool)
+}
+
+type processor interface {
+	UpdateTenantsProcess(class string, req *command.TenantProcessRequest) (uint64, error)
+}
+
 type Migrator struct {
-	db     *DB
-	logger logrus.FieldLogger
+	db      *DB
+	cloud   modulecapabilities.OffloadCloud
+	logger  logrus.FieldLogger
+	cluster processor
+	nodeId  string
 
 	classLocks *esync.KeyLocker
 }
@@ -49,6 +66,23 @@ func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
 		logger:     logger,
 		classLocks: esync.NewKeyLocker(),
 	}
+}
+
+func (m *Migrator) SetNode(nodeID string) {
+	m.nodeId = nodeID
+}
+
+func (m *Migrator) SetCluster(c processor) {
+	m.cluster = c
+}
+
+func (m *Migrator) SetOffloadProvider(provider provider, moduleName string) {
+	cloud, enabled := provider.OffloadBackend(moduleName)
+	if !enabled {
+		m.logger.Debug(fmt.Sprintf("module %s is not enabled", moduleName))
+	}
+	m.cloud = cloud
+	m.logger.Info(fmt.Sprintf("module %s is enabled", moduleName))
 }
 
 func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
@@ -88,6 +122,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			DisableLazyLoadShards:     m.db.config.DisableLazyLoadShards,
 			ForceFullReplicasSearch:   m.db.config.ForceFullReplicasSearch,
 			ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
+			AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -109,13 +144,21 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	return nil
 }
 
-func (m *Migrator) DropClass(ctx context.Context, className string) error {
+func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	return m.db.DeleteIndex(schema.ClassName(className))
+	if err := m.db.DeleteIndex(schema.ClassName(className)); err != nil {
+		return err
+	}
+
+	if m.cloud != nil && hasFrozen {
+		return m.cloud.Delete(ctx, className, "", "")
+	}
+
+	return nil
 }
 
 func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
@@ -204,11 +247,22 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 		return nil
 	})
 
-	if len(toRemove) > 0 {
-		if err := idx.dropShards(toRemove); err != nil {
+	if len(toRemove) == 0 {
+		return nil
+	}
+
+	if err := idx.dropShards(toRemove); err != nil {
+		return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
+	}
+
+	if m.cloud != nil {
+		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
+		// better to filter the passed shards and get the frozen only
+		if err := idx.dropCloudShards(ctx, m.cloud, toRemove, m.nodeId); err != nil {
 			return fmt.Errorf("drop tenant shards %v during update index: %w", toRemove, err)
 		}
 	}
+
 	return nil
 }
 
@@ -356,27 +410,38 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		return fmt.Errorf("cannot find index for %q", class.Class)
 	}
 
-	updatesHot := make([]string, 0, len(updates))
-	updatesCold := make([]string, 0, len(updates))
-	for _, update := range updates {
-		switch update.Status {
+	hot := make([]string, 0, len(updates))
+	cold := make([]string, 0, len(updates))
+	freezing := make([]string, 0, len(updates))
+	frozen := make([]string, 0, len(updates))
+	unfreezing := make([]string, 0, len(updates))
+
+	for _, tenant := range updates {
+		switch tenant.Status {
 		case models.TenantActivityStatusHOT:
-			updatesHot = append(updatesHot, update.Name)
+			hot = append(hot, tenant.Name)
 		case models.TenantActivityStatusCOLD:
-			updatesCold = append(updatesCold, update.Name)
+			cold = append(cold, tenant.Name)
+		case models.TenantActivityStatusFROZEN:
+			frozen = append(frozen, tenant.Name)
+
+		case types.TenantActivityStatusFREEZING: // never arrives from user
+			freezing = append(freezing, tenant.Name)
+		case types.TenantActivityStatusUNFREEZING: // never arrives from user
+			unfreezing = append(unfreezing, tenant.Name)
 		}
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
-
-	if len(updatesHot) > 0 {
-		idx.backupMutex.RLock()
-		defer idx.backupMutex.RUnlock()
+	ec := &errorcompounder.SafeErrorCompounder{}
+	if len(hot) > 0 {
+		m.logger.WithField("action", "tenants_to_hot").Debug(hot)
+		idx.shardTransferMutex.RLock()
+		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
-		for _, name := range updatesHot {
+		for _, name := range hot {
 			name := name // prevent loop variable capture
 			// enterrors.GoWrapper(func() {
 			// The timeout is rather arbitrary. It's meant to be so high that it can
@@ -401,14 +466,15 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		eg.Wait()
 	}
 
-	if len(updatesCold) > 0 {
-		idx.backupMutex.RLock()
-		defer idx.backupMutex.RUnlock()
+	if len(cold) > 0 {
+		m.logger.WithField("action", "tenants_to_cold").Debug(cold)
+		idx.shardTransferMutex.RLock()
+		defer idx.shardTransferMutex.RUnlock()
 
 		eg := enterrors.NewErrorGroupWrapper(m.logger)
 		eg.SetLimit(_NUMCPU * 2)
 
-		for _, name := range updatesCold {
+		for _, name := range cold {
 			name := name
 
 			eg.Go(func() error {
@@ -448,6 +514,21 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 		eg.Wait()
 	}
 
+	if len(frozen) > 0 {
+		m.logger.WithField("action", "tenants_to_frozen").Debug(frozen)
+		m.frozen(idx, frozen, ec)
+	}
+
+	if len(freezing) > 0 {
+		m.logger.WithField("action", "tenants_to_freezing").Debug(freezing)
+		m.freeze(ctx, idx, class.Class, freezing, ec)
+	}
+
+	if len(unfreezing) > 0 {
+		m.logger.WithField("action", "tenants_to_unfreezing").Debug(unfreezing)
+		m.unfreeze(ctx, idx, class.Class, unfreezing, ec)
+	}
+
 	return ec.ToError()
 }
 
@@ -459,9 +540,23 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []st
 	m.classLocks.Lock(indexID)
 	defer m.classLocks.Unlock(indexID)
 
-	if idx := m.db.GetIndex(schema.ClassName(class)); idx != nil {
-		return idx.dropShards(tenants)
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return nil
 	}
+
+	if err := idx.dropShards(tenants); err != nil {
+		return err
+	}
+
+	if m.cloud != nil {
+		// TODO-offload: currently we send all tenants and if it did find one in the cloud will delete
+		// better to filter the passed shards and get the frozen only
+		if err := idx.dropCloudShards(ctx, m.cloud, tenants, m.nodeId); err != nil {
+			return fmt.Errorf("drop tenant shards %v during update index: %w", tenants, err)
+		}
+	}
+
 	return nil
 }
 
@@ -547,7 +642,11 @@ func (m *Migrator) UpdateInvertedIndexConfig(ctx context.Context, className stri
 	return idx.updateInvertedIndexConfig(ctx, conf)
 }
 
-func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string, factor int64) error {
+func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string, cfg *models.ReplicationConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
 	indexID := indexID(schema.ClassName(className))
 
 	m.classLocks.Lock(indexID)
@@ -558,7 +657,14 @@ func (m *Migrator) UpdateReplicationFactor(ctx context.Context, className string
 		return errors.Errorf("cannot update replication factor of non-existing index for %s", className)
 	}
 
-	idx.Config.ReplicationFactor.Store(factor)
+	{
+		idx.Config.ReplicationFactor.Store(cfg.Factor)
+
+		if err := idx.updateAsyncReplication(ctx, cfg.AsyncEnabled); err != nil {
+			return fmt.Errorf("update async replication for class %q: %w", className, err)
+		}
+	}
+
 	return nil
 }
 

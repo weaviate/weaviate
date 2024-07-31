@@ -24,6 +24,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 
 	"github.com/pkg/errors"
@@ -167,6 +170,8 @@ type Index struct {
 	stopwords                 *stopwords.Detector
 	replicator                *replica.Replicator
 
+	partitioningEnabled bool
+
 	invertedIndexConfig     schema.InvertedIndexConfig
 	invertedIndexConfigLock sync.Mutex
 
@@ -188,12 +193,10 @@ type Index struct {
 	centralJobQueue  chan job
 	indexCheckpoints *indexcheckpoint.Checkpoints
 
-	partitioningEnabled bool
-
 	cycleCallbacks *indexCycleCallbacks
 
-	backupMutex backupMutex
-	lastBackup  atomic.Pointer[BackupState]
+	shardTransferMutex shardTransfer
+	lastBackup         atomic.Pointer[BackupState]
 
 	// canceled when either Shutdown or Drop called
 	closingCtx    context.Context
@@ -204,6 +207,8 @@ type Index struct {
 	allShardsReady   atomic.Bool
 	allocChecker     memwatch.AllocChecker
 	shardCreateLocks *esync.KeyLocker
+
+	asyncReplicationLock sync.RWMutex
 
 	closeLock sync.RWMutex
 	closed    bool
@@ -222,6 +227,7 @@ func (i *Index) path() string {
 }
 
 type nodeResolver interface {
+	AllHostnames() []string
 	NodeHostname(nodeName string) (string, bool)
 }
 
@@ -257,15 +263,15 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		logger:                 logger,
 		classSearcher:          cs,
 		vectorIndexUserConfig:  vectorIndexUserConfig,
-		vectorIndexUserConfigs: vectorIndexUserConfigs,
 		invertedIndexConfig:    invertedIndexConfig,
+		vectorIndexUserConfigs: vectorIndexUserConfigs,
 		stopwords:              sd,
 		replicator:             repl,
+		partitioningEnabled:    shardState.PartitioningEnabled,
 		remote:                 sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:        jobQueueCh,
-		partitioningEnabled:    shardState.PartitioningEnabled,
-		backupMutex:            backupMutex{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		shardTransferMutex:     shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
@@ -274,7 +280,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 	index.initCycleCallbacks()
 
-	if err := index.checkSingleShardMigration(shardState); err != nil {
+	if err := index.checkSingleShardMigration(); err != nil {
 		return nil, errors.Wrap(err, "migrating sharding state from previous version")
 	}
 
@@ -282,7 +288,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return nil, fmt.Errorf("init index %q: %w", index.ID(), err)
 	}
 
-	if err := index.initAndStoreShards(ctx, shardState, class, promMetrics); err != nil {
+	if err := index.initAndStoreShards(ctx, class, shardState, promMetrics); err != nil {
 		return nil, err
 	}
 
@@ -294,8 +300,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 
 // since called in Index's constructor there is no risk same shard will be inited/created in parallel,
 // therefore shardCreateLocks are not used here
-func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.State, class *models.Class,
-	promMetrics *monitoring.PrometheusMetrics,
+func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
+	shardState *sharding.State, promMetrics *monitoring.PrometheusMetrics,
 ) error {
 	if i.Config.DisableLazyLoadShards {
 		eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -417,6 +423,12 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 	})
 }
 
+// ForEachShard applies func f on each shard in the index.
+//
+// WARNING: only use this if you expect all LazyLoadShards to be loaded!
+// Calling this method may lead to shards being force-loaded, causing
+// unexpected CPU spikes. If you only want to apply f on loaded shards,
+// call ForEachLoadedShard instead.
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
@@ -525,6 +537,25 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
+func (i *Index) updateAsyncReplication(ctx context.Context, enabled bool) error {
+	i.asyncReplicationLock.Lock()
+	defer i.asyncReplicationLock.Unlock()
+
+	i.Config.AsyncReplicationEnabled = enabled
+
+	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
+		if err := shard.UpdateAsyncReplication(ctx, enabled); err != nil {
+			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 type IndexConfig struct {
 	RootPath                  string
 	ClassName                 schema.ClassName
@@ -540,6 +571,7 @@ type IndexConfig struct {
 	HNSWMaxLogSize            int64
 	HNSWWaitForCachePrefill   bool
 	ReplicationFactor         *atomic.Int64
+	AsyncReplicationEnabled   bool
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
 	ForceFullReplicasSearch   bool
@@ -634,8 +666,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	defer release()
 
 	// no replication, local shard
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	err = shard.PutObject(ctx, object)
 	if err != nil {
@@ -648,8 +680,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	object *storobj.Object, schemaVersion uint64,
 ) error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
@@ -673,6 +705,13 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 
 func (i *Index) replicationEnabled() bool {
 	return i.Config.ReplicationFactor.Load() > 1
+}
+
+func (i *Index) asyncReplicationEnabled() bool {
+	i.asyncReplicationLock.RLock()
+	defer i.asyncReplicationLock.RUnlock()
+
+	return i.replicationEnabled() && i.Config.AsyncReplicationEnabled
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -834,7 +873,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				if err != nil {
 					errs = []error{err}
 				} else if shard != nil {
-					i.backupMutex.RLockGuard(func() error {
+					i.shardTransferMutex.RLockGuard(func() error {
 						defer release()
 						errs = shard.PutObjectBatch(ctx, group.objects)
 						return nil
@@ -869,8 +908,8 @@ func duplicateErr(in error, count int) []error {
 func (i *Index) IncomingBatchPutObjects(ctx context.Context, shardName string,
 	objects []*storobj.Object, schemaVersion uint64,
 ) []error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	// This is a bit hacky, the problem here is that storobj.Parse() currently
 	// misses date fields as it has no way of knowing that a date-formatted
@@ -935,7 +974,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 			if err != nil {
 				errs = duplicateErr(err, len(group.refs))
 			} else if shard != nil {
-				i.backupMutex.RLockGuard(func() error {
+				i.shardTransferMutex.RLockGuard(func() error {
 					defer release()
 					errs = shard.AddReferencesBatch(ctx, group.refs)
 					return nil
@@ -957,8 +996,8 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 func (i *Index) IncomingBatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
@@ -1197,6 +1236,7 @@ func (i *Index) IncomingExists(ctx context.Context, shardName string,
 func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
+	properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
@@ -1231,7 +1271,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames)
+		filters, keywordRanking, sort, cursor, addlProps, shardNames, properties)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1318,7 +1358,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	addlProps additional.Properties, shards []string,
+	addlProps additional.Properties, shards []string, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	resultObjects, resultScores := objectSearchPreallocate(limit, shards)
 
@@ -1343,7 +1383,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 			if shard != nil {
 				defer release()
-				objs, scores, err = shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps)
+				objs, scores, err = shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
 				if err != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
@@ -1355,8 +1395,8 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					ctx, shardName, nil, "", limit, filters, keywordRanking,
-					sort, cursor, nil, addlProps, i.replicationEnabled())
+					ctx, shardName, nil, nil, limit, filters, keywordRanking,
+					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
 				if err != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
@@ -1443,16 +1483,16 @@ func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
 	return newGroupMerger(objects, dists, groupBy).Do()
 }
 
-func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVector []float32,
-	targetVector string, dist float32, limit int, filters *filters.LocalFilter,
+func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVectors [][]float32,
+	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
-	shard ShardLike,
+	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shard.Name()))
 	}
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
+		ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1485,10 +1525,10 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
-func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
-	targetVector string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
+func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float32,
+	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additional additional.Properties,
-	replProps *additional.ReplicationProperties, tenant string,
+	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
@@ -1506,8 +1546,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 		if shard != nil {
 			defer release()
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVector, targetVector, dist, limit, filters,
-				sort, groupBy, additional, shard)
+			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, filters,
+				sort, groupBy, additional, shard, targetCombination, properties)
 		}
 	}
 
@@ -1536,8 +1576,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 
 			if shard != nil {
 				defer release()
+
 				localShardResult, localShardScores, err := shard.ObjectVectorSearch(
-					ctx, searchVector, targetVector, dist, limit, filters, sort, groupBy, additional)
+					ctx, searchVectors, targetVectors, dist, limit, filters, sort, groupBy, additional, targetCombination, properties)
 				if err != nil {
 					return errors.Wrapf(err, "shard %s", shard.ID())
 				}
@@ -1556,9 +1597,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 				if i.Config.ForceFullReplicasSearch {
 					// Force a search on all the replicas for the shard
 					remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
-						i.logger,
-						shardName, searchVector, targetVector, limit, filters,
-						nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName())
+						i.logger, shardName, searchVectors, targetVectors, limit, filters,
+						nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
 					// Only return an error if we failed to query remote shards AND we had no local shard to query
 					if err != nil && shard == nil {
 						return errors.Wrapf(err, "remote shard %s", shardName)
@@ -1576,8 +1616,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 				} else {
 					// Search only what is necessary
 					remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
-						shardName, searchVector, targetVector, limit, filters,
-						nil, sort, nil, groupBy, additional, i.replicationEnabled())
+						shardName, searchVectors, targetVectors, limit, filters,
+						nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
 					if err != nil {
 						return errors.Wrapf(err, "remote shard %s", shardName)
 					}
@@ -1642,10 +1682,10 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
-	searchVector []float32, targetVector string, distance float32, limit int,
+	searchVectors [][]float32, targetVectors []string, distance float32, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-	additional additional.Properties,
+	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
@@ -1669,8 +1709,8 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		}
 	}
 
-	if searchVector == nil {
-		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional)
+	if len(searchVectors) == 0 {
+		res, scores, err := shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1679,7 +1719,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	}
 
 	res, resDists, err := shard.ObjectVectorSearch(
-		ctx, searchVector, targetVector, distance, limit, filters, sort, groupBy, additional)
+		ctx, searchVectors, targetVectors, distance, limit, filters, sort, groupBy, additional, targetCombination, properties)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
@@ -1725,8 +1765,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	defer release()
 
 	// no replication, local shard
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 	if err = shard.DeleteObject(ctx, id); err != nil {
 		return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
 	}
@@ -1736,8 +1776,8 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID, schemaVersion uint64,
 ) error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
@@ -1901,8 +1941,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	defer release()
 
 	// no replication, local shard
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 	if err = shard.MergeObject(ctx, merge); err != nil {
 		return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
 	}
@@ -1913,8 +1953,8 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
@@ -1983,8 +2023,8 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
-	i.backupMutex.Lock()
-	defer i.backupMutex.Unlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
@@ -2035,8 +2075,8 @@ func (i *Index) drop() error {
 }
 
 func (i *Index) dropShards(names []string) error {
-	i.backupMutex.Lock()
-	defer i.backupMutex.Unlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
@@ -2075,9 +2115,43 @@ func (i *Index) dropShards(names []string) error {
 	return ec.ToError()
 }
 
+func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
+
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	ec := &errorcompounder.ErrorCompounder{}
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU * 2)
+
+	for _, name := range names {
+		name := name
+		eg.Go(func() error {
+			i.shardCreateLocks.Lock(name)
+			defer i.shardCreateLocks.Unlock(name)
+
+			if err := cloud.Delete(ctx, i.ID(), name, nodeId); err != nil {
+				ec.Add(err)
+				i.logger.WithField("action", "cloud_drop_shard").
+					WithField("shard", name).Error(err)
+			}
+			return nil
+		})
+	}
+
+	eg.Wait()
+	return ec.ToError()
+}
+
 func (i *Index) Shutdown(ctx context.Context) error {
-	i.backupMutex.Lock()
-	defer i.backupMutex.Unlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	i.closeLock.Lock()
 	defer i.closeLock.Unlock()
@@ -2131,12 +2205,15 @@ func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 	return nil
 }
 
+func (i *Index) shardState() *sharding.State {
+	return i.getSchema.CopyShardingState(i.Config.ClassName.String())
+}
+
 func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[string]int64, error) {
 	shardsQueueSize := make(map[string]int64)
 
 	// TODO-RAFT should be strongly consistent?
-	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
-	shardNames := shardState.AllPhysicalShards()
+	shardNames := i.shardState().AllPhysicalShards()
 
 	for _, shardName := range shardNames {
 		if tenant != "" && shardName != tenant {
@@ -2369,7 +2446,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 						objects.BatchSimpleObject{Err: err},
 					}
 				} else if shard != nil {
-					i.backupMutex.RLockGuard(func() error {
+					i.shardTransferMutex.RLockGuard(func() error {
 						defer release()
 						objs = shard.DeleteObjectBatch(ctx, uuids, dryRun)
 						return nil
@@ -2398,8 +2475,8 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	uuids []strfmt.UUID, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
-	i.backupMutex.RLock()
-	defer i.backupMutex.RUnlock()
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	shard, release, err := i.getOrInitLocalShardNoShutdown(ctx, shardName)
 	if err != nil {
