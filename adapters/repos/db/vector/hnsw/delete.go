@@ -269,11 +269,17 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	h.resetLock.Unlock()
 
 	breakCleanUpTombstonedNodes := func() bool {
-		return resetCtx.Err() != nil || shouldAbort()
+		shouldbreak := resetCtx.Err() != nil || shouldAbort()
+		if shouldbreak {
+			h.logger.WithField("action", "cleanuptombstones").Debug("breaking tombstone nodes")
+		}
+		return shouldbreak
 	}
 
 	executed := false
+	h.logger.WithField("action", "cleanuptombstones").Debug("copying tombstone nodes")
 	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
+	h.logger.WithField("action", "cleanuptombstones").Debugf("copied tombstone nodes: ok -> %t", ok)
 	if !ok {
 		return executed, nil
 	}
@@ -296,16 +302,24 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	}).Infof("class %s: shard %s: starting tombstone cleanup", h.className, h.shardName)
 
 	executed = true
+	h.logger.WithField("action", "cleanuptombstones").Debug("reassignNeighborsOf")
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
+		h.logger.WithField("action", "cleanuptombstones").WithError(err).Debug("reassignNeighborsOf: ok -> error")
 		return executed, err
 	} else if !ok {
+		h.logger.WithField("action", "cleanuptombstones").Debug("reassignNeighborsOf: ok -> false")
 		return executed, nil
 	}
-	h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
+	h.logger.WithField("action", "cleanuptombstones").Debug("reassignNeighborsOfEntryPoint")
+	ok, err := h.reassignNeighbor(h.getEntrypoint(), deleteList, breakCleanUpTombstonedNodes)
+	h.logger.WithField("action", "cleanuptombstones").WithError(err).Debugf("reassignNeighborsOfEntryPoint: ok -> %t", ok)
 
+	h.logger.WithField("action", "cleanuptombstones").Debug("replaceDeletedEntrypoint")
 	if ok, err := h.replaceDeletedEntrypoint(deleteList, breakCleanUpTombstonedNodes); err != nil {
+		h.logger.WithField("action", "cleanuptombstones").WithError(err).Debug("replaceDeletedEntrypoint: ok -> error")
 		return executed, err
 	} else if !ok {
+		h.logger.WithField("action", "cleanuptombstones").WithError(err).Debug("replaceDeletedEntrypoint: ok -> false")
 		return executed, nil
 	}
 
@@ -764,9 +778,11 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 }
 
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
+	h.logger.WithField("action", "cleanuptombstones").Debug("removeTombstonesAndNodes")
 	it := deleteList.Iterator()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if breakCleanUpTombstonedNodes() {
+			h.logger.WithField("action", "cleanuptombstones").Debug("removeTombstonesAndNodes: ok : false")
 			return false, nil
 		}
 		h.metrics.RemoveTombstone()
@@ -793,6 +809,7 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 			return false, err
 		}
 	}
+	h.logger.WithField("action", "cleanuptombstones").Debug("removeTombstonesAndNodes: ok : true")
 
 	return true, nil
 }
