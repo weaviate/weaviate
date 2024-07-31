@@ -158,19 +158,40 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	if appState.ServerConfig.Config.Sentry.Enabled {
 		err := sentry.Init(sentry.ClientOptions{
-			Dsn:                appState.ServerConfig.Config.Sentry.DSN,
-			Debug:              appState.ServerConfig.Config.Sentry.Debug,
-			Release:            "weaviate-core@" + config.DockerImageTag,
-			Environment:        appState.ServerConfig.Config.Sentry.Environment,
-			EnableTracing:      appState.ServerConfig.Config.Sentry.TracingEnabled,
+			// Setup related config
+			Dsn:         appState.ServerConfig.Config.Sentry.DSN,
+			Debug:       appState.ServerConfig.Config.Sentry.Debug,
+			Release:     "weaviate-core@" + config.DockerImageTag,
+			Environment: appState.ServerConfig.Config.Sentry.Environment,
+			// Enable tracing if requested
+			EnableTracing:    !appState.ServerConfig.Config.Sentry.TracingDisabled,
+			AttachStacktrace: true,
+			// Sample rates based on the config
 			SampleRate:         appState.ServerConfig.Config.Sentry.ErrorSampleRate,
 			ProfilesSampleRate: appState.ServerConfig.Config.Sentry.ProfileSampleRate,
-			AttachStacktrace:   true,
-			// TracesSampler
 			TracesSampler: sentry.TracesSampler(func(ctx sentry.SamplingContext) float64 {
 				// Inherit decision from parent transaction (if any) if it is sampled or not
 				if ctx.Parent != nil && ctx.Parent.Sampled != sentry.SampledUndefined {
 					return 1.0
+				}
+
+				// Filter out uneeded traces
+				switch ctx.Span.Name {
+				// We are not interested in traces related to metrics endpoint
+				case "GET /metrics":
+				// These are some usual internet bot that will spam the server. Won't catch them all but we can reduce
+				// the number a bit
+				case "GET /favicon.ico":
+				case "GET /t4":
+				case "GET /ab2g":
+				case "PRI *":
+				case "GET /api/sonicos/tfa":
+				case "GET /RDWeb/Pages/en-US/login.aspx":
+				case "GET /_profiler/phpinfo":
+				case "POST /wsman":
+				case "POST /dns-query":
+				case "GET /dns-query":
+					return 0.0
 				}
 
 				// Filter out graphql queries, currently we have no context intrumentation around it and it's therefore
@@ -190,6 +211,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		}
 
 		sentry.ConfigureScope(func(scope *sentry.Scope) {
+			// Set cluster ID and cluster owner using sentry user feature to distinguish multiple clusters in the UI
+			scope.SetUser(sentry.User{
+				ID:       appState.ServerConfig.Config.Sentry.ClusterId,
+				Username: appState.ServerConfig.Config.Sentry.ClusterOwner,
+			})
+			// Set any tags defined
 			for key, value := range appState.ServerConfig.Config.Sentry.Tags {
 				scope.SetTag(key, value)
 			}
