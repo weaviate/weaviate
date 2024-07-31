@@ -22,6 +22,10 @@ type ErrorCompounder struct {
 	errors []error
 }
 
+func New() *ErrorCompounder {
+	return &ErrorCompounder{}
+}
+
 func (ec *ErrorCompounder) Add(err error) {
 	if err != nil {
 		ec.errors = append(ec.errors, err)
