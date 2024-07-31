@@ -29,8 +29,8 @@ import (
 )
 
 type CompressorDistancer interface {
-	DistanceToNode(id uint64) (float32, bool, error)
-	DistanceToFloat(vec []float32) (float32, bool, error)
+	DistanceToNode(id uint64) (float32, error)
+	DistanceToFloat(vec []float32) (float32, error)
 }
 
 type ReturnDistancerFn func()
@@ -84,7 +84,13 @@ func (compressor *quantizedVectorsCompressor[T]) Delete(ctx context.Context, id 
 	compressor.cache.Delete(ctx, id)
 	idBytes := make([]byte, 8)
 	compressor.storeId(idBytes, id)
-	compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes)
+	if err := compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM).Delete(idBytes); err != nil {
+		compressor.logger.WithFields(logrus.Fields{
+			"action": "compressor_delete",
+			"id":     id,
+		}).WithError(err).
+			Warnf("cannot delete vector from compressed cache")
+	}
 }
 
 func (compressor *quantizedVectorsCompressor[T]) Preload(id uint64, vector []float32) {
@@ -361,18 +367,18 @@ type quantizedCompressorDistancer[T byte | uint64] struct {
 	distancer  quantizerDistancer[T]
 }
 
-func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (float32, bool, error) {
+func (distancer *quantizedCompressorDistancer[T]) DistanceToNode(id uint64) (float32, error) {
 	compressedVector, err := distancer.compressor.cache.Get(context.Background(), id)
 	if err != nil {
-		return 0, false, err
+		return 0, err
 	}
 	if len(compressedVector) == 0 {
-		return 0, false, fmt.Errorf(
+		return 0, fmt.Errorf(
 			"got a nil or zero-length vector at docID %d", id)
 	}
 	return distancer.distancer.Distance(compressedVector)
 }
 
-func (distancer *quantizedCompressorDistancer[T]) DistanceToFloat(vector []float32) (float32, bool, error) {
+func (distancer *quantizedCompressorDistancer[T]) DistanceToFloat(vector []float32) (float32, error) {
 	return distancer.distancer.DistanceToFloat(vector)
 }

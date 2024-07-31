@@ -25,17 +25,20 @@ import (
 // ConfigOpts all map to environment variables. For example:
 //   - SENTRY_ENABLED=true -> ConfigOpts.Enabled=true
 type ConfigOpts struct {
-	Enabled           bool              `json:"enabled" yaml:"enabled"`
-	DSN               string            `json:"dsn" yaml:"dsn"`
-	Debug             bool              `json:"debug" yaml:"debug"`
-	Tags              map[string]string `json:"tags" yaml:"tags"`
-	Release           string            `json:"release" yaml:"release"`
-	Environment       string            `json:"environment" yaml:"environment"`
-	TracingEnabled    bool              `json:"tracing_enabled" yaml:"tracing_enabled"`
-	ProfilingEnabled  bool              `json:"profiling_enabled" yaml:"profiling_enabled"`
-	ErrorSampleRate   float64           `json:"error_sample_rate" yaml:"error_sample_rate"`
-	TracesSampleRate  float64           `json:"traces_sample_rate" yaml:"traces_sample_rate"`
-	ProfileSampleRate float64           `json:"profile_sample_rate" yaml:"profile_sample_rate"`
+	Enabled                bool              `json:"enabled" yaml:"enabled"`
+	DSN                    string            `json:"dsn" yaml:"dsn"`
+	Debug                  bool              `json:"debug" yaml:"debug"`
+	Tags                   map[string]string `json:"tags" yaml:"tags"`
+	Release                string            `json:"release" yaml:"release"`
+	Environment            string            `json:"environment" yaml:"environment"`
+	ErrorReportingDisabled bool              `json:"error_reporting_disabled" yaml:"error_reporting_disabled"`
+	TracingDisabled        bool              `json:"tracing_disabled" yaml:"tracing_disabled"`
+	ProfilingDisabled      bool              `json:"profiling_disabled" yaml:"profiling_disabled"`
+	ErrorSampleRate        float64           `json:"error_sample_rate" yaml:"error_sample_rate"`
+	TracesSampleRate       float64           `json:"traces_sample_rate" yaml:"traces_sample_rate"`
+	ProfileSampleRate      float64           `json:"profile_sample_rate" yaml:"profile_sample_rate"`
+	ClusterId              string            `json:"cluster_id" yaml:"cluster_id"`
+	ClusterOwner           string            `json:"cluster_owner" yaml:"cluster_owner"`
 }
 
 // Config Global Singleton that can be accessed from anywhere in the app. This
@@ -65,8 +68,14 @@ func InitSentryConfig() (*ConfigOpts, error) {
 		Config.Environment = "unknown"
 	}
 
+	Config.ClusterOwner = os.Getenv("SENTRY_CLUSTER_OWNER")
+	Config.ClusterId = os.Getenv("SENTRY_CLUSTER_ID")
+
 	// Configure error sampling
-	if errorSampleRate, err := strconv.ParseFloat(os.Getenv("SENTRY_ERROR_SAMPLE_RATE"), 64); err == nil && errorSampleRate <= 1.0 && errorSampleRate >= 0.0 {
+	Config.ErrorReportingDisabled = config.Enabled(os.Getenv("SENTRY_ERROR_REPORTING_DISABLED"))
+	if Config.ErrorReportingDisabled {
+		Config.ErrorSampleRate = 0.0
+	} else if errorSampleRate, err := strconv.ParseFloat(os.Getenv("SENTRY_ERROR_SAMPLE_RATE"), 64); err == nil && errorSampleRate <= 1.0 && errorSampleRate >= 0.0 {
 		Config.ErrorSampleRate = errorSampleRate
 	} else {
 		// By default we sample all errors
@@ -74,19 +83,24 @@ func InitSentryConfig() (*ConfigOpts, error) {
 	}
 
 	// Configure tracing & tracing sample rate
-	Config.TracingEnabled = config.Enabled(os.Getenv("SENTRY_TRACING_ENABLED"))
-	if tracesSampleRate, err := strconv.ParseFloat(os.Getenv("SENTRY_TRACES_SAMPLE_RATE"), 64); err == nil && tracesSampleRate <= 1.0 && tracesSampleRate >= 0.0 {
+	Config.TracingDisabled = config.Enabled(os.Getenv("SENTRY_TRACING_DISABLED"))
+	if Config.TracingDisabled {
+		Config.TracesSampleRate = 0.0
+	} else if tracesSampleRate, err := strconv.ParseFloat(os.Getenv("SENTRY_TRACES_SAMPLE_RATE"), 64); err == nil && tracesSampleRate <= 1.0 && tracesSampleRate >= 0.0 {
 		Config.TracesSampleRate = tracesSampleRate
 	} else {
 		// By default we traces only 10%
 		Config.TracesSampleRate = 0.1
 	}
 
-	//  Configure profile sample rate
-	if profileSampleRate, err := strconv.ParseFloat(os.Getenv("SENTRY_PROFILE_SAMPLE_RATE"), 64); err == nil && profileSampleRate <= 1.0 && profileSampleRate >= 0.0 {
+	//  Configure profiling & profile sample rate
+	Config.ProfilingDisabled = config.Enabled(os.Getenv("SENTRY_PROFILING_DISABLED"))
+	if Config.ProfilingDisabled {
+		Config.ProfileSampleRate = 0.0
+	} else if profileSampleRate, err := strconv.ParseFloat(os.Getenv("SENTRY_PROFILE_SAMPLE_RATE"), 64); err == nil && profileSampleRate <= 1.0 && profileSampleRate >= 0.0 {
 		Config.ProfileSampleRate = profileSampleRate
 	} else {
-		// By default we profile everything that we are sampling
+		// By default we profile everything that we are tracing
 		Config.ProfileSampleRate = 1.0
 	}
 

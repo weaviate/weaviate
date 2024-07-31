@@ -92,20 +92,22 @@ func (n *neighborFinderConnector) Do() error {
 
 func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	var dist float32
-	var ok bool
 	var err error
 
 	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
+		dist, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
 	} else {
-		dist, ok, err = n.distancer.DistanceToNode(id)
+		dist, err = n.distancer.DistanceToNode(id)
+	}
+
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID)
+		return math.MaxFloat32, nil
 	}
 	if err != nil {
 		return math.MaxFloat32, fmt.Errorf(
 			"calculate distance between insert node and entrypoint: %w", err)
-	}
-	if !ok {
-		return math.MaxFloat32, nil
 	}
 	return dist, nil
 }
@@ -325,29 +327,31 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	} else {
 		// we need to run the heuristic
 
-		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
-		if err != nil {
-			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
-		}
-
-		if !ok {
+		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		var e storobj.ErrNotFound
+		if err != nil && errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID)
 			// it seems either the node or the neighbor were deleted in the meantime,
 			// there is nothing we can do now
 			return nil
+		}
+		if err != nil {
+			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
 		}
 
 		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
 		candidates.Insert(n.node.id, dist)
 
 		for _, existingConnection := range currentConnections {
-			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-			if err != nil {
-				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
-			}
-
-			if !ok {
+			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				n.graph.handleDeletedNode(e.DocID)
 				// was deleted in the meantime
 				continue
+			}
+			if err != nil {
+				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 			}
 
 			candidates.Insert(existingConnection, dist)
@@ -493,18 +497,19 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	}
 
 	var dist float32
-	var ok bool
 	var err error
 	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+		dist, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
 	} else {
-		dist, ok, err = n.distancer.DistanceToNode(candidate)
+		dist, err = n.distancer.DistanceToNode(candidate)
+	}
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID)
+		return false, nil
 	}
 	if err != nil {
 		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
-	}
-	if !ok {
-		return false, nil
 	}
 
 	// we were able to calculate a distance, we're good
