@@ -659,7 +659,7 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 
 // recoverSingleNode is used to manually force a new configuration in order to
 // recover from a loss of quorum where the current configuration cannot be
-// WARNING! This operation impliciimplicitlylty commits all entries in the Raft log, so
+// WARNING! This operation implicitly commits all entries in the Raft log, so
 // in general this is an extremely unsafe operation and that's why it's made to be
 // used in a single cluster node.
 // for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
@@ -667,7 +667,12 @@ func (st *Store) recoverSingleNode() error {
 	if st.cfg.BootstrapExpect > 1 {
 		return fmt.Errorf("bootstrap expect is more than 1, can't perform auto recovery in multi node cluster")
 	}
-	exNode := st.raft.GetConfiguration().Configuration().Servers[0]
+	servers := st.raft.GetConfiguration().Configuration().Servers
+	if len(servers) == 0 {
+		return nil
+	}
+
+	exNode := servers[0]
 	newNode := raft.Server{
 		ID:       raft.ServerID(st.cfg.NodeID),
 		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
