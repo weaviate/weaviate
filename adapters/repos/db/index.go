@@ -2117,9 +2117,7 @@ func (i *Index) Shutdown(ctx context.Context) error {
 
 	i.closed = true
 
-	if i.bm25Pool != nil {
-		i.bm25Pool.Close()
-	}
+	i.bm25Pool.Close()
 
 	i.closingCancel()
 

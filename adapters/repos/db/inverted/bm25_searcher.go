@@ -44,6 +44,7 @@ type Bm25Pool struct {
 	ListPool chan *[]docPointerWithScore
 	MapPool  chan *map[uint64]int
 	init     bool
+	lock     sync.Mutex
 }
 
 func NewBm25Pool() *Bm25Pool {
@@ -51,6 +52,8 @@ func NewBm25Pool() *Bm25Pool {
 }
 
 func (b *Bm25Pool) Init(size int) {
+	b.lock.Lock()
+	defer b.lock.Unlock()
 	if b.init {
 		return
 	}
@@ -60,6 +63,9 @@ func (b *Bm25Pool) Init(size int) {
 }
 
 func (b *Bm25Pool) Close() {
+	b.lock.Lock()
+	defer b.lock.Unlock()
+
 	if !b.init {
 		return
 	}
@@ -268,6 +274,12 @@ func (b *BM25Searcher) wand(
 	copy(resultsOriginalOrder, results)
 
 	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
+	objs, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations, additional)
+	b.returnToPool(results, indices)
+	return objs, scores, err
+}
+
+func (b *BM25Searcher) returnToPool(results terms, indices []map[uint64]int) {
 	for i := range results {
 		results[i].data = results[i].data[:0]
 		select {
@@ -275,14 +287,15 @@ func (b *BM25Searcher) wand(
 		default:
 		}
 
-		clear(indices[i])
-		select {
-		case b.pools.MapPool <- &indices[i]:
-		default:
+		if indices[i] != nil {
+			clear(indices[i])
+			select {
+			case b.pools.MapPool <- &indices[i]:
+			default:
+			}
 		}
 
 	}
-	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations, additional)
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
