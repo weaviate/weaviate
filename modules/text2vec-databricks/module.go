@@ -94,7 +94,6 @@ func (m *DatabricksModule) InitExtension(modules []modulecapabilities.Module) er
 func (m *DatabricksModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-
 	databricksToken := os.Getenv("DATABRICKS_TOKEN")
 
 	client := clients.New(databricksToken, timeout, logger)

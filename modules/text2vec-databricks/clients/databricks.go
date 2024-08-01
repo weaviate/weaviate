@@ -158,18 +158,15 @@ func (v *client) getError(statusCode int, resBody embedding) error {
 
 	if resBody.ErrorCode != "" {
 		return fmt.Errorf("connection to: %s failed with error code: %s message: %v", endpoint, resBody.ErrorCode, resBody.Message)
-
 	}
 
 	if resBody.Error.Message != "" {
 		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBody.Error.Message)
-
 	}
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
 func (v *client) getEmbeddingsRequest(input []string, instruction string) embeddingsRequest {
-
 	return embeddingsRequest{Input: input, Instruction: instruction}
 }
 
@@ -181,7 +178,6 @@ func (v *client) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, s
 }
 
 func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-
 	key, err := v.getApiKey(ctx)
 	if err != nil {
 		return [32]byte{}
