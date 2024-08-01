@@ -212,6 +212,14 @@ var prefetchFunc func(in uintptr) = func(in uintptr) {
 	// this function will be overridden for amd64
 }
 
+func (s *shardedLockCache[T]) LockAll() {
+	s.shardedLocks.LockAll()
+}
+
+func (s *shardedLockCache[T]) UnlockAll() {
+	s.shardedLocks.UnlockAll()
+}
+
 func (s *shardedLockCache[T]) Prefetch(id uint64) {
 	s.shardedLocks.RLock(id)
 	defer s.shardedLocks.RUnlock(id)
@@ -231,8 +239,16 @@ func (s *shardedLockCache[T]) PreloadNoLock(id uint64, vec []T) {
 	s.cache[id] = vec
 }
 
-func (s *shardedLockCache[T]) SetSizeNoLock(size uint64) {
+func (s *shardedLockCache[T]) SetSizeAndGrowNoLock(size uint64) {
 	atomic.StoreInt64(&s.count, int64(size))
+
+	if size < uint64(len(s.cache)) {
+		return
+	}
+	newSize := size + MinimumIndexGrowthDelta
+	newCache := make([][]T, newSize)
+	copy(newCache, s.cache)
+	s.cache = newCache
 }
 
 func (s *shardedLockCache[T]) Grow(node uint64) {
