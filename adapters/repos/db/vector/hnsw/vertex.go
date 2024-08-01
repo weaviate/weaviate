@@ -119,3 +119,16 @@ func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64, max
 func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
 	v.connections[level] = v.connections[level][:0]
 }
+
+func (v *vertex) connectionsAtLowerLevelsNoLock(level int, visitedNodes map[pair]bool) []pair {
+
+	connections := make([]pair, 0)
+	for i := level; i >= 0; i-- {
+		for _, nodeId := range v.connections[i] {
+			if !visitedNodes[pair{nodeId, i}] {
+				connections = append(connections, pair{nodeId, i})
+			}
+		}
+	}
+	return connections
+}
