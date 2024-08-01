@@ -46,6 +46,10 @@ type Bm25Pool struct {
 	init     bool
 }
 
+func NewBm25Pool() *Bm25Pool {
+	return &Bm25Pool{init: false}
+}
+
 func (b *Bm25Pool) Init(size int) {
 	if b.init {
 		return
@@ -53,6 +57,15 @@ func (b *Bm25Pool) Init(size int) {
 	b.init = true
 	b.ListPool = make(chan *[]docPointerWithScore, size)
 	b.MapPool = make(chan *map[uint64]int, size)
+}
+
+func (b *Bm25Pool) Close() {
+	if !b.init {
+		return
+	}
+	b.init = false
+	close(b.ListPool)
+	close(b.MapPool)
 }
 
 type BM25Searcher struct {

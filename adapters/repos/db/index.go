@@ -271,7 +271,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
-		bm25Pool:               &inverted.Bm25Pool{},
+		bm25Pool:               inverted.NewBm25Pool(),
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -2116,6 +2116,8 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	}
 
 	i.closed = true
+
+	i.bm25Pool.Close()
 
 	i.closingCancel()
 
