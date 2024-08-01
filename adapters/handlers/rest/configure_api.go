@@ -962,7 +962,7 @@ func registerModules(appState *state.State) error {
 		appState.Modules.Register(moddatabricks.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", "text2vec-databricks").
+			WithField("module", moddatabricks.Name).
 			Debug("enabled module")
 	}
 
