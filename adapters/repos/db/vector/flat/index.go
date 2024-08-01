@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -61,9 +62,10 @@ type flat struct {
 	pqResults *common.PqMaxPool
 	pool      *pools
 
-	compression string
-	bqCache     cache.Cache[uint64]
-	count       uint64
+	compression          string
+	bqCache              cache.Cache[uint64]
+	count                uint64
+	concurrentCacheReads int
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -81,15 +83,16 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	index := &flat{
-		id:                cfg.ID,
-		targetVector:      cfg.TargetVector,
-		logger:            logger,
-		distancerProvider: cfg.DistanceProvider,
-		rescore:           extractCompressionRescore(uc),
-		pqResults:         common.NewPqMaxPool(100),
-		compression:       extractCompression(uc),
-		pool:              newPools(),
-		store:             store,
+		id:                   cfg.ID,
+		targetVector:         cfg.TargetVector,
+		logger:               logger,
+		distancerProvider:    cfg.DistanceProvider,
+		rescore:              extractCompressionRescore(uc),
+		pqResults:            common.NewPqMaxPool(100),
+		compression:          extractCompression(uc),
+		pool:                 newPools(),
+		store:                store,
+		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
@@ -408,16 +411,38 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	for i := range idsSlice.slice {
 		idsSlice.slice[i] = heap.Pop().ID
 	}
-	for _, id := range idsSlice.slice {
-		candidateAsBytes, err := index.vectorById(id)
-		if err != nil {
-			return nil, nil, err
-		}
-		distance, err := distanceCalc(candidateAsBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		index.insertToHeap(heap, k, id, distance)
+
+	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
+	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
+
+	eg := enterrors.NewErrorGroupWrapper(index.logger)
+	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
+		workerID := workerID
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(idsSlice.slice); idPos += index.concurrentCacheReads {
+				id := idsSlice.slice[idPos]
+				candidateAsBytes, err := index.vectorById(id)
+				if err != nil {
+					return err
+				}
+				distance, err := distanceCalc(candidateAsBytes)
+				if err != nil {
+					return err
+				}
+
+				distancesUncompressedVectors[idPos] = distance
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	for i, id := range idsSlice.slice {
+		index.insertToHeap(heap, k, id, distancesUncompressedVectors[i])
 	}
 
 	ids, dists := index.extractHeap(heap)
