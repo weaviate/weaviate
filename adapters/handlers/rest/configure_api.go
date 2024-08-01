@@ -780,6 +780,7 @@ func registerModules(appState *state.State) error {
 	defaultVectorizers := []string{
 		modtext2vecaws.Name,
 		modcohere.Name,
+		moddatabricks.Name,
 		modhuggingface.Name,
 		modjinaai.Name,
 		modoctoai.Name,
