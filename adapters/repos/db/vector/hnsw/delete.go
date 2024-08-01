@@ -423,8 +423,8 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
 		g.Go(func() error {
+			h.logger.WithField("action", "cleanuptombstones").Info("starting worker")
 			for {
-				h.logger.WithField("action", "cleanuptombstones").Info("starting worker")
 				if breakCleanUpTombstonedNodes() {
 					cancelled.Store(true)
 					cancel()
