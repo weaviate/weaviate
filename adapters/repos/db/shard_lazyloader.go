@@ -50,11 +50,12 @@ type LazyLoadShard struct {
 	loaded     bool
 	mutex      sync.Mutex
 	memMonitor memwatch.AllocChecker
+	bm25Pool   *inverted.Bm25Pool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
+	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker, bm25Pool *inverted.Bm25Pool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -70,6 +71,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			indexCheckpoints: indexCheckpoints,
 		},
 		memMonitor: memMonitor,
+		bm25Pool:   bm25Pool,
 	}
 }
 
@@ -110,7 +112,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints, l.bm25Pool)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)

@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -32,7 +34,7 @@ import (
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	indexCheckpoints *indexcheckpoint.Checkpoints, bm25Pool *inverted.Bm25Pool,
 ) (_ *Shard, err error) {
 	before := time.Now()
 
@@ -57,7 +59,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
-		status: storagestate.StatusLoading,
+		status:   storagestate.StatusLoading,
+		bm25Pool: bm25Pool,
 	}
 
 	defer func() {

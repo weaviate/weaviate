@@ -210,6 +210,7 @@ type Shard struct {
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
 	shutdownLock *sync.RWMutex
+	bm25Pool     *inverted.Bm25Pool
 }
 
 func (s *Shard) ID() string {

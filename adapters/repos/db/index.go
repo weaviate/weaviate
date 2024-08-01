@@ -207,6 +207,8 @@ type Index struct {
 
 	closeLock sync.RWMutex
 	closed    bool
+
+	bm25Pool *inverted.Bm25Pool
 }
 
 func (i *Index) GetShard(name string) ShardLike {
@@ -269,6 +271,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		indexCheckpoints:       indexCheckpoints,
 		allocChecker:           allocChecker,
 		shardCreateLocks:       esync.NewKeyLocker(),
+		bm25Pool:               &inverted.Bm25Pool{},
 	}
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -310,7 +313,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 
 			shardName := shardName // prevent loop variable capture
 			eg.Go(func() error {
-				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.bm25Pool)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -335,7 +338,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, shardState *sharding.Sta
 			continue
 		}
 
-		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
+		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.bm25Pool)
 		i.shards.Store(shardName, shard)
 	}
 
@@ -418,7 +421,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.bm25Pool)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -426,7 +429,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		return shard, nil
 	}
 
-	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
+	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.bm25Pool)
 	return shard, nil
 }
 

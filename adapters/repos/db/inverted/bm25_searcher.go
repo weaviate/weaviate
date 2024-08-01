@@ -40,6 +40,21 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
+type Bm25Pool struct {
+	ListPool chan *[]docPointerWithScore
+	MapPool  chan *map[uint64]int
+	init     bool
+}
+
+func (b *Bm25Pool) Init(size int) {
+	if b.init {
+		return
+	}
+	b.init = true
+	b.ListPool = make(chan *[]docPointerWithScore, size)
+	b.MapPool = make(chan *map[uint64]int, size)
+}
+
 type BM25Searcher struct {
 	config         schema.BM25Config
 	store          *lsmkv.Store
@@ -49,7 +64,7 @@ type BM25Searcher struct {
 	propLenTracker propLengthRetriever
 	logger         logrus.FieldLogger
 	shardVersion   uint16
-	mapPool        *sync.Pool
+	pools          *Bm25Pool
 }
 
 type propLengthRetriever interface {
@@ -59,13 +74,15 @@ type propLengthRetriever interface {
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
-	logger logrus.FieldLogger, shardVersion uint16,
+	logger logrus.FieldLogger, shardVersion uint16, pools *Bm25Pool,
 ) *BM25Searcher {
-	pool := &sync.Pool{
-		New: func() interface{} {
-			return &[]docPointerWithScore{}
-		},
+	if pools == nil {
+		pools = &Bm25Pool{}
+		pools.Init(0)
+	} else {
+		pools.Init(50)
 	}
+
 	return &BM25Searcher{
 		config:         config,
 		store:          store,
@@ -75,7 +92,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker: propLenTracker,
 		logger:         logger.WithField("action", "bm25_search"),
 		shardVersion:   shardVersion,
-		mapPool:        pool,
+		pools:          pools,
 	}
 }
 
@@ -239,9 +256,18 @@ func (b *BM25Searcher) wand(
 
 	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
 	for i := range results {
-		tmp := results[i].data
-		tmp = tmp[:0]
-		b.mapPool.Put(&tmp)
+		results[i].data = results[i].data[:0]
+		select {
+		case b.pools.ListPool <- &results[i].data:
+		default:
+		}
+
+		clear(indices[i])
+		select {
+		case b.pools.MapPool <- &indices[i]:
+		default:
+		}
+
 	}
 	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations, additional)
 }
@@ -434,11 +460,23 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
-			docMapPairs = b.mapPool.Get().([]docPointerWithScore)
+			select {
+			case val := <-b.pools.ListPool:
+				docMapPairs = *val
+			default: // docMapPairs stays nil and will be created in the next step
+			}
+
 			if cap(docMapPairs) < len(m) {
 				docMapPairs = make([]docPointerWithScore, 0, len(m))
 			}
-			docMapPairsIndices = make(map[uint64]int, len(m))
+
+			select {
+			case val := <-b.pools.MapPool:
+				docMapPairsIndices = *val
+			default:
+				docMapPairsIndices = make(map[uint64]int, len(m))
+			}
+
 			for k, val := range m {
 				if len(val.Value) < 8 {
 					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
