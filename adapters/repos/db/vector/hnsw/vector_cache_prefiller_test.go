@@ -112,9 +112,13 @@ func (f *fakeCache) Grow(id uint64) {
 	panic("not implemented")
 }
 
-func (f *fakeCache) SetSizeNoLock(id uint64) {
+func (f *fakeCache) SetSizeAndGrowNoLock(id uint64) {
 	panic("not implemented")
 }
+
+func (f *fakeCache) LockAll() { panic("not implemented") }
+
+func (f *fakeCache) UnlockAll() { panic("not implemented") }
 
 func (f *fakeCache) UpdateMaxSize(size int64) {
 	panic("not implemented")
