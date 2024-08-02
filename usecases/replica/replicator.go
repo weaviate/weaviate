@@ -132,7 +132,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
 				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
 			} else {
-				r.logger.WithField("op", "MergeObjects").WithField("ok", ok).WithField("replicaErr", replicaErr).WithField("err", err).Error("Error in merge")
+				r.logger.WithField("op", "MergeObjects").WithField("ok", ok).WithField("err", err).Error("Error in merge")
 			}
 		}
 		if err != nil {
