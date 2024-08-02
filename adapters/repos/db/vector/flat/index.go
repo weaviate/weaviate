@@ -114,6 +114,9 @@ func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) 
 	if err != nil {
 		return nil, err
 	}
+	if len(bytes) == 0 {
+		return nil, nil
+	}
 	return uint64SliceFromByteSlice(bytes, make([]uint64, len(bytes)/8)), nil
 }
 
@@ -424,6 +427,9 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 				candidateAsBytes, err := index.vectorById(id)
 				if err != nil {
 					return err
+				}
+				if len(candidateAsBytes) == 0 {
+					continue
 				}
 				distance, err := distanceCalc(candidateAsBytes)
 				if err != nil {
