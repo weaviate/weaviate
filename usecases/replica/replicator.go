@@ -308,6 +308,10 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
+			replicaErr, ok := err.(*Error)
+			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
+				return resp, objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
+			}
 		}
 		if err != nil {
 			err = fmt.Errorf("%s: %w", host, err)
