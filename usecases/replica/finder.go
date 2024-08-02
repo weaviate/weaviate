@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -108,6 +109,9 @@ func (f *Finder) GetOne(ctx context.Context,
 	result := <-f.readOne(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
+			err = objects.NewErrConflictExistOrDeleted(err)
+		}
 	}
 	return result.Value, err
 }

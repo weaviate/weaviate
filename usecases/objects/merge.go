@@ -62,6 +62,8 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		switch err.(type) {
 		case ErrMultiTenancy:
 			return &Error{"repo.object", StatusUnprocessableEntity, err}
+		case ErrConflictExistOrDeleted:
+			return &Error{"not found", StatusNotFound, err}
 		default:
 			return &Error{"repo.object", StatusInternalServerError, err}
 		}

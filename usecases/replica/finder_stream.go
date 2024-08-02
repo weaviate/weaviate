@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -94,7 +95,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			return
 		}
 
-		resultCh <- objResult{nil, errRepair}
+		resultCh <- objResult{nil, errors.Wrap(err, errRepair.Error())}
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
