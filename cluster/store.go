@@ -634,7 +634,6 @@ func (st *Store) reloadDBFromSchema() {
 type Response struct {
 	Error   error
 	Version uint64
-	Data    interface{}
 }
 
 var _ raft.FSM = &Store{}
