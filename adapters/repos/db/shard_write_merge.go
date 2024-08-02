@@ -116,6 +116,10 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 			return errors.Wrap(err, "get bucket")
 		}
 
+		if prevObj == nil {
+			s.index.logger.WithField("id", merge.ID).Error("object not found, maybe it was just deleted? something spooky might occur...")
+		}
+
 		obj, _, err = s.mergeObjectData(prevObj, merge)
 		if err != nil {
 			return errors.Wrap(err, "merge object data")
@@ -235,6 +239,7 @@ func (s *Shard) mergeObjectData(prevObj *storobj.Object,
 	merge objects.MergeDocument,
 ) (*storobj.Object, *storobj.Object, error) {
 	if prevObj == nil {
+		s.index.logger.WithField("id", merge.ID).Error("resurrecting a zombie object")
 		// DocID must be overwritten after status check, simply set to initial
 		// value
 		prevObj = storobj.New(0)
