@@ -537,101 +537,98 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	require.Nil(t, err)
 }
 
-// func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
-// 	t.Setenv("ASYNC_INDEXING", "true")
-// 	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
+func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
 
-// 	ctx := testCtx()
-// 	class := &models.Class{Class: "reindextest"}
-// 	shard, index := testShardWithSettings(
-// 		t,
-// 		ctx,
-// 		&models.Class{Class: class.Class},
-// 		hnsw.UserConfig{
-// 			PQ: hnsw.PQConfig{
-// 				Enabled:       true,
-// 				TrainingLimit: 1000,
-// 				Encoder: hnsw.PQEncoder{
-// 					Type:         hnsw.PQEncoderTypeKMeans,
-// 					Distribution: hnsw.PQEncoderDistributionLogNormal,
-// 				},
-// 				Centroids: 256,
-// 				Segments:  0,
-// 			},
-// 		},
-// 		false,
-// 		true,
-// 	)
+	ctx := testCtx()
+	class := &models.Class{Class: "reindextest"}
+	shard, index := testShardWithSettings(
+		t,
+		ctx,
+		&models.Class{Class: class.Class},
+		hnsw.UserConfig{
+			PQ: hnsw.PQConfig{
+				Enabled:       true,
+				TrainingLimit: 1000,
+				Encoder: hnsw.PQEncoder{
+					Type:         hnsw.PQEncoderTypeKMeans,
+					Distribution: hnsw.PQEncoderDistributionLogNormal,
+				},
+				Centroids: 256,
+				Segments:  0,
+			},
+		},
+		false,
+		true,
+	)
 
-// 	// unknown shard
-// 	err := index.DebugResetVectorIndex(ctx, "unknown", "")
-// 	require.Error(t, err)
+	// unknown shard
+	err := index.DebugResetVectorIndex(ctx, "unknown", "")
+	require.Error(t, err)
 
-// 	// unknown target vector
-// 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "unknown")
-// 	require.Error(t, err)
+	// unknown target vector
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "unknown")
+	require.Error(t, err)
 
-// 	amount := 10_000
+	amount := 10_000
 
-// 	var objs []*storobj.Object
-// 	for i := 0; i < amount; i++ {
-// 		obj := testObject("reindextest")
-// 		objs = append(objs, obj)
-// 	}
+	var objs []*storobj.Object
+	for i := 0; i < amount; i++ {
+		obj := testObject("reindextest")
+		objs = append(objs, obj)
+	}
 
-// 	errs := shard.PutObjectBatch(ctx, objs)
-// 	for _, err := range errs {
-// 		require.Nil(t, err)
-// 	}
+	errs := shard.PutObjectBatch(ctx, objs)
+	for _, err := range errs {
+		require.Nil(t, err)
+	}
 
-// 	// wait until the queue is empty
-// 	for i := 0; i < 500; i++ {
-// 		time.Sleep(100 * time.Millisecond)
-// 		if shard.Queue().Size() == 0 {
-// 			break
-// 		}
-// 	}
+	// wait until the queue is empty
+	for i := 0; i < 500; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if shard.Queue().Size() == 0 {
+			break
+		}
+	}
 
-// 	// wait for the in-flight indexing to finish
-// 	shard.Queue().Wait()
+	// wait until everything is compressed
+	for i := 0; i < 500; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if shard.VectorIndex().Compressed() {
+			break
+		}
+	}
 
-// 	// wait until everything is compressed
-// 	for i := 0; i < 500; i++ {
-// 		time.Sleep(100 * time.Millisecond)
-// 		if shard.VectorIndex().Compressed() {
-// 			break
-// 		}
-// 	}
+	require.True(t, shard.VectorIndex().Compressed())
 
-// 	require.True(t, shard.VectorIndex().Compressed())
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
+	require.Nil(t, err)
 
-// 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
-// 	require.Nil(t, err)
+	// wait until the queue is empty
+	for i := 0; i < 500; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if shard.Queue().Size() == 0 {
+			break
+		}
+	}
 
-// 	// wait until the queue is empty
-// 	for i := 0; i < 500; i++ {
-// 		time.Sleep(100 * time.Millisecond)
-// 		if shard.Queue().Size() == 0 {
-// 			break
-// 		}
-// 	}
+	// wait for the in-flight indexing to finish
+	shard.Queue().Wait()
 
-// 	// wait for the in-flight indexing to finish
-// 	shard.Queue().Wait()
+	// wait until everything is compressed
+	for i := 0; i < 500; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if shard.VectorIndex().Compressed() {
+			break
+		}
+	}
 
-// 	// wait until everything is compressed
-// 	for i := 0; i < 500; i++ {
-// 		time.Sleep(100 * time.Millisecond)
-// 		if shard.VectorIndex().Compressed() {
-// 			break
-// 		}
-// 	}
+	require.True(t, shard.VectorIndex().Compressed())
 
-// 	require.True(t, shard.VectorIndex().Compressed())
-
-// 	err = index.drop()
-// 	require.Nil(t, err)
-// }
+	err = index.drop()
+	require.Nil(t, err)
+}
 
 func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
