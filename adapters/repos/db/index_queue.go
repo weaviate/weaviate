@@ -259,9 +259,7 @@ func (q *IndexQueue) ResetWith(v batchIndexer) error {
 	q.indexLock.Lock()
 	defer q.indexLock.Unlock()
 
-	if !q.paused.Load() {
-		return errors.New("index queue must be paused to reset")
-	}
+	q.PauseIndexing()
 
 	q.index = v
 	err := q.Checkpoints.Update(q.shardID, q.targetVector, 0)

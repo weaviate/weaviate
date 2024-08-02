@@ -878,12 +878,7 @@ func TestIndexQueue(t *testing.T) {
 		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
 		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
 
-		// Call ResetWith without pausing the queue
-		err = q.ResetWith(&idx2)
-		require.Error(t, err)
-
-		// pause the queue
-		q.PauseIndexing()
+		// reset the queue
 		err = q.ResetWith(&idx2)
 		require.NoError(t, err)
 
