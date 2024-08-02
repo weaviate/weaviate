@@ -58,6 +58,11 @@ func setupDebugHandlers(appState *state.State) {
 				WithField("targetVector", targetVector).
 				WithError(err).
 				Error("failed to reset vector index")
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+			}
+
+			http.Error(w, "failed to reset vector index", http.StatusInternalServerError)
 			return
 		}
 
