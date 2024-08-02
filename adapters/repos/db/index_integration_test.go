@@ -542,23 +542,22 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
 
 	ctx := testCtx()
-	class := &models.Class{Class: "reindextest"}
+	var cfg hnsw.UserConfig
+	cfg.SetDefaults()
+	cfg.CleanupIntervalSeconds = 0
+	cfg.DynamicEFFactor = 0
+	cfg.EF = 0
+	cfg.MaxConnections = 0
+	cfg.PQ.Enabled = true
+	cfg.PQ.Centroids = 256
+	cfg.PQ.Segments = 32
+	cfg.PQ.TrainingLimit = 1000
+
 	shard, index := testShardWithSettings(
 		t,
 		ctx,
-		&models.Class{Class: class.Class},
-		hnsw.UserConfig{
-			PQ: hnsw.PQConfig{
-				Enabled:       true,
-				TrainingLimit: 1000,
-				Encoder: hnsw.PQEncoder{
-					Type:         hnsw.PQEncoderTypeKMeans,
-					Distribution: hnsw.PQEncoderDistributionLogNormal,
-				},
-				Centroids: 256,
-				Segments:  0,
-			},
-		},
+		&models.Class{Class: "reindextest"},
+		cfg,
 		false,
 		true,
 	)
@@ -576,6 +575,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject("reindextest")
+		obj.Vector = randVector(128)
 		objs = append(objs, obj)
 	}
 
@@ -599,6 +599,8 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 			break
 		}
 	}
+
+	shard.Queue().Wait()
 
 	require.True(t, shard.VectorIndex().Compressed())
 
