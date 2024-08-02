@@ -35,7 +35,7 @@ func TestPoolGettingItems(t *testing.T) {
 
 	// add a new entry and get it again
 	docMapPairs = make([]docPointerWithScore, 10)
-	pool.Return(docMapPairs, make(map[uint64]int))
+	pool.ReturnList(docMapPairs)
 	val := <-pool.ListPool
 	require.Equal(t, cap(*val), 10)
 	require.Len(t, *val, 0) // has been cleared upon return
@@ -47,7 +47,7 @@ func TestPoolSize(t *testing.T) {
 
 	// add more entries than the pool has
 	for i := 0; i < 20; i++ {
-		pool.Return(make([]docPointerWithScore, 10), nil)
+		pool.ReturnList(make([]docPointerWithScore, 10))
 	}
 
 	for i := 0; i < 20; i++ {
@@ -72,7 +72,7 @@ func TestPoolSizeDecay(t *testing.T) {
 	pool.decayTime = time.Second
 
 	// add item above min size and get it again
-	pool.Return(make([]docPointerWithScore, 10), nil)
+	pool.ReturnList(make([]docPointerWithScore, 10))
 	returned := *<-pool.ListPool
 
 	// wait for decay to be over
@@ -80,7 +80,7 @@ func TestPoolSizeDecay(t *testing.T) {
 
 	// return item, it is now above the min size and will be discarded
 	returned = returned[:5]
-	pool.Return(returned, nil)
+	pool.ReturnList(returned)
 
 	var docMapPairs []docPointerWithScore
 	select {
@@ -96,13 +96,11 @@ func TestPoolSizeDecayMaps(t *testing.T) {
 	pool.Init(10, 5)
 	pool.decayTime = time.Second
 
-	dummyList := make([]docPointerWithScore, 10)
-
 	map1 := make(map[uint64]int, 10)
 	for i := 0; i < 10; i++ {
 		map1[uint64(i)] = i
 	}
-	pool.Return(dummyList, map1)
+	pool.ReturnMap(map1)
 	map1 = *<-pool.MapPool // return and discard
 
 	// wait for decay to be over
@@ -113,7 +111,7 @@ func TestPoolSizeDecayMaps(t *testing.T) {
 		map1[uint64(i)] = i
 	}
 
-	pool.Return(dummyList, map1)
+	pool.ReturnMap(map1)
 
 	var maps map[uint64]int
 	select {
@@ -131,7 +129,7 @@ func TestPoolMinSize(t *testing.T) {
 	pool.Init(10, 5)
 
 	// below min size, does not
-	pool.Return(make([]docPointerWithScore, 4), nil)
+	pool.ReturnList(make([]docPointerWithScore, 4))
 
 	var docMapPairs []docPointerWithScore
 	select {
@@ -150,7 +148,7 @@ func TestPoolConcurencyReturn(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
-			pool.Return(make([]docPointerWithScore, 10), nil)
+			pool.ReturnList(make([]docPointerWithScore, 10))
 			wg.Done()
 		}()
 	}
@@ -179,7 +177,7 @@ func TestPoolConcurencyReturnAndGet(t *testing.T) {
 	for i := 0; i < 20; i++ {
 		wg.Add(2)
 		go func() {
-			pool.Return(make([]docPointerWithScore, 10), nil)
+			pool.ReturnList(make([]docPointerWithScore, 10))
 			wg.Done()
 		}()
 		go func() {

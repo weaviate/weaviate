@@ -63,9 +63,9 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 ) *BM25Searcher {
 	if pools == nil {
 		pools = &Bm25Pool{}
-		pools.Init(0, 100)
+		pools.Init(0, 0, logger)
 	} else {
-		pools.Init(50, 10000) // ~1MB of data if everything is at the min size
+		pools.Init(50, 10000, logger) // ~1MB of data if everything is at the min size
 	}
 
 	return &BM25Searcher{
@@ -246,14 +246,11 @@ func (b *BM25Searcher) wand(
 }
 
 func (b *BM25Searcher) returnToPool(results terms, indices []map[uint64]int) {
-	enterrors.GoWrapper(
-		func() {
-			for i := range results {
-				b.pools.Return(results[i].data, indices[i])
-			}
-		},
-		b.logger,
-	)
+	for i := range results {
+		i := i
+		enterrors.GoWrapper(func() { b.pools.ReturnList(results[i].data) }, b.logger)
+		enterrors.GoWrapper(func() { b.pools.ReturnMap(indices[i]) }, b.logger)
+	}
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
