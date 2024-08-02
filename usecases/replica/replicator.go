@@ -128,11 +128,14 @@ func (r *Replicator) MergeObject(ctx context.Context,
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc)
 		if err == nil {
 			err = resp.FirstError()
+		}
+		if err != nil {
 			replicaErr, ok := err.(*Error)
+			errType := reflect.TypeOf(err)
 			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
 				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
 			} else {
-				r.logger.WithField("op", "MergeObjects").WithField("ok", ok).WithField("err", err).Error("Error in merge")
+				r.logger.WithField("op", "MergeObjects").WithField("ok", ok).WithField("err", err).WithField("errType", errType).Error("Error in merge")
 			}
 		}
 		if err != nil {
@@ -312,9 +315,14 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
 		if err == nil {
 			err = resp.FirstError()
+		}
+		if err != nil {
 			replicaErr, ok := err.(*Error)
+			errType := reflect.TypeOf(err)
 			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
 				return resp, objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
+			} else {
+				r.logger.WithField("op", "MergeObjects").WithField("ok", ok).WithField("err", err).WithField("errType", errType).Error("Error in merge")
 			}
 		}
 		if err != nil {
