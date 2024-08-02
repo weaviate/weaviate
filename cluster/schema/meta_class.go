@@ -38,26 +38,30 @@ type (
 	}
 )
 
-func (m *metaClass) ClassInfo() (ci ClassInfo) {
+func (m *metaClass) ClassInfo() ClassInfo {
 	if m == nil {
-		return
+		return ClassInfo{}
 	}
+
 	m.RLock()
 	defer m.RUnlock()
-	ci.Exists = true
-	ci.Properties = len(m.Class.Properties)
-	if m.Class.MultiTenancyConfig == nil {
-		ci.MultiTenancy = models.MultiTenancyConfig{}
-	} else {
+
+	ci := ClassInfo{
+		ReplicationFactor: 1,
+		Exists:            true,
+		Properties:        len(m.Class.Properties),
+		MultiTenancy:      models.MultiTenancyConfig{},
+		Tenants:           len(m.Sharding.Physical),
+		ClassVersion:      m.ClassVersion,
+		ShardVersion:      m.ShardVersion,
+	}
+
+	if m.Class.MultiTenancyConfig != nil {
 		ci.MultiTenancy = *m.Class.MultiTenancyConfig
 	}
-	ci.ReplicationFactor = 1
 	if m.Class.ReplicationConfig != nil && m.Class.ReplicationConfig.Factor > 1 {
 		ci.ReplicationFactor = int(m.Class.ReplicationConfig.Factor)
 	}
-	ci.Tenants = len(m.Sharding.Physical)
-	ci.ClassVersion = m.ClassVersion
-	ci.ShardVersion = m.ShardVersion
 	return ci
 }
 
