@@ -63,6 +63,9 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		vidx = s.vectorIndex
 	}
 
+	// ensure the queue is still paused
+	q.PauseIndexing()
+
 	err = q.ResetWith(vidx)
 	if err != nil {
 		return errors.Wrap(err, "reset queue")
