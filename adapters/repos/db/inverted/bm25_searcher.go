@@ -246,9 +246,14 @@ func (b *BM25Searcher) wand(
 }
 
 func (b *BM25Searcher) returnToPool(results terms, indices []map[uint64]int) {
-	for i := range results {
-		b.pools.Return(results[i].data, indices[i])
-	}
+	enterrors.GoWrapper(
+		func() {
+			for i := range results {
+				b.pools.Return(results[i].data, indices[i])
+			}
+		},
+		b.logger,
+	)
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
