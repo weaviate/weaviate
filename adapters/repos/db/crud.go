@@ -268,7 +268,12 @@ func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
 
 	err := idx.mergeObject(ctx, merge, repl, tenant)
 	if err != nil {
-		return errors.Wrapf(err, "merge into index %s", idx.ID())
+		switch err.(type) {
+		case objects.ErrDirtyWriteOfDeletedObject:
+			return objects.NewErrDirtyWriteOfDeletedObject(fmt.Errorf("merge into index %s", idx.ID()))
+		default:
+			return errors.Wrapf(err, "merge into index %s", idx.ID())
+		}
 	}
 
 	return nil
