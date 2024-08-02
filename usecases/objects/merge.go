@@ -127,7 +127,12 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant); err != nil {
-		return &Error{"repo.merge", StatusInternalServerError, err}
+		switch err.(type) {
+		case ErrDirtyWriteOfDeletedObject:
+			return &Error{"not found", StatusNotFound, err}
+		default:
+			return &Error{"repo.merge", StatusInternalServerError, err}
+		}
 	}
 
 	return nil

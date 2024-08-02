@@ -127,6 +127,10 @@ func (r *Replicator) MergeObject(ctx context.Context,
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc)
 		if err == nil {
 			err = resp.FirstError()
+			replicaErr, ok := err.(*Error)
+			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
+				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
+			}
 		}
 		if err != nil {
 			return fmt.Errorf("%q: %w", host, err)

@@ -148,3 +148,15 @@ func (e ErrDirtyReadOfDeletedObject) Error() string {
 func NewErrDirtyReadOfDeletedObject(err error) ErrDirtyReadOfDeletedObject {
 	return ErrDirtyReadOfDeletedObject{err}
 }
+
+type ErrDirtyWriteOfDeletedObject struct {
+	err error
+}
+
+func (e ErrDirtyWriteOfDeletedObject) Error() string {
+	return e.err.Error()
+}
+
+func NewErrDirtyWriteOfDeletedObject(err error) ErrDirtyWriteOfDeletedObject {
+	return ErrDirtyWriteOfDeletedObject{err}
+}
