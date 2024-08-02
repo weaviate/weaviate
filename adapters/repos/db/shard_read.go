@@ -339,7 +339,9 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVector []float32, 
 			// attention is required, for example because data is corrupted. That's
 			// why this error is explicitly pushed to sentry.
 			err = fmt.Errorf("vector search: %w", err)
-			entsentry.CaptureException(err)
+			// annotate for sentry so we know which collection/shard this happened on
+			entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
+				s.index.Config.ClassName, s.name, err))
 			return nil, nil, err
 		}
 	}
