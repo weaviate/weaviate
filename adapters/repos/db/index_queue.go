@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -76,7 +77,7 @@ type IndexQueue struct {
 	metrics *IndexQueueMetrics
 
 	// tracks the jobs that are currently being processed
-	jobWg sync.WaitGroup
+	processingJobs *common.SharedGauge
 
 	// tracks the last time vectors were added to the queue
 	lastPushed atomic.Pointer[time.Time]
@@ -201,6 +202,7 @@ func NewIndexQueue(
 		pqMaxPool:         newPqMaxPool(0),
 		Checkpoints:       checkpoints,
 		metrics:           NewIndexQueueMetrics(opts.Logger, promMetrics, className, shard.Name(), targetVector),
+		processingJobs:    common.NewSharedGauge(),
 	}
 
 	q.queue = newVectorQueue(&q)
@@ -242,7 +244,7 @@ func (q *IndexQueue) Close() error {
 	q.wg.Wait()
 
 	// wait for the workers to finish their current tasks
-	q.jobWg.Wait()
+	q.processingJobs.Wait()
 
 	q.Logger.Debug("index queue closed")
 
@@ -254,13 +256,14 @@ func (q *IndexQueue) Close() error {
 // - reset the checkpoint to 0
 // Requires the queue to be paused.
 func (q *IndexQueue) ResetWith(v batchIndexer) error {
+	q.indexLock.Lock()
+	defer q.indexLock.Unlock()
+
 	if !q.paused.Load() {
 		return errors.New("index queue must be paused to reset")
 	}
 
-	q.indexLock.Lock()
 	q.index = v
-	q.indexLock.Unlock()
 	err := q.Checkpoints.Update(q.shardID, q.targetVector, 0)
 	if err != nil {
 		return errors.Wrap(err, "update checkpoint")
@@ -578,20 +581,20 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 			continue
 		}
 
-		q.jobWg.Add(1)
+		q.processingJobs.Incr()
 
 		count += int64(len(ids))
 
 		select {
 		case <-q.ctx.Done():
-			q.jobWg.Done()
+			q.processingJobs.Decr()
 			return count
 		case q.indexCh <- job{
 			indexer: q.index,
 			ctx:     q.ctx,
 			ids:     ids,
 			vectors: vectors,
-			done:    q.jobWg.Done,
+			done:    q.processingJobs.Decr,
 		}:
 			q.queue.ResetDeleted(deleted...)
 		}
@@ -600,7 +603,7 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 	q.queue.persistCheckpoint(minID)
 
 	if wait {
-		q.jobWg.Wait()
+		q.processingJobs.Wait()
 	}
 
 	return count
@@ -728,7 +731,7 @@ func (q *IndexQueue) PauseIndexing() {
 		return
 	}
 	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
-	q.jobWg.Wait()
+	q.processingJobs.Wait()
 	q.Logger.Debug("indexing paused")
 	q.metrics.Paused()
 }
@@ -738,7 +741,7 @@ func (q *IndexQueue) PauseIndexing() {
 // This method can potentially block for a long time
 // if the queue is receiving vectors.
 func (q *IndexQueue) Wait() {
-	q.jobWg.Wait()
+	q.processingJobs.Wait()
 }
 
 // resume indexing
