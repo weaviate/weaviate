@@ -130,11 +130,11 @@ func NewErrMultiTenancy(err error) ErrMultiTenancy {
 // By using this error and handling it in func (m *Manager) MergeObject, any patch updates will assume that
 // the object has been deleted everywhere, despite it only being deleted in one place, and will therefore
 // return a 404 not found error.
-type ErrConflictExistOrDeleted struct {
+type ErrDirtyReadOfDeletedObject struct {
 	err error
 }
 
-func (e ErrConflictExistOrDeleted) Error() string {
+func (e ErrDirtyReadOfDeletedObject) Error() string {
 	return e.err.Error()
 }
 
@@ -145,6 +145,6 @@ func (e ErrConflictExistOrDeleted) Error() string {
 //
 // Updated -> Deleted => It is safe in this case to propagate deletion to all replicas
 // Updated -> Deleted -> Updated => It is also safe in this case since updating a deleted object makes no logical sense
-func NewErrConflictExistOrDeleted(err error) ErrConflictExistOrDeleted {
-	return ErrConflictExistOrDeleted{err}
+func NewErrDirtyReadOfDeletedObject(err error) ErrDirtyReadOfDeletedObject {
+	return ErrDirtyReadOfDeletedObject{err}
 }

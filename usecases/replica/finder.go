@@ -110,7 +110,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
 		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
-			err = objects.NewErrConflictExistOrDeleted(err)
+			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}
 	return result.Value, err

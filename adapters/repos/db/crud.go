@@ -139,8 +139,8 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 			switch err.(type) {
 			case objects.ErrMultiTenancy:
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
-			case objects.ErrConflictExistOrDeleted:
-				return nil, objects.NewErrConflictExistOrDeleted((fmt.Errorf("search index %s: %w", index.ID(), err)))
+			case objects.ErrDirtyReadOfDeletedObject:
+				return nil, objects.NewErrDirtyReadOfDeletedObject((fmt.Errorf("search index %s: %w", index.ID(), err)))
 			default:
 				return nil, errors.Wrapf(err, "search index %s", index.ID())
 			}
@@ -175,8 +175,8 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 		switch err.(type) {
 		case objects.ErrMultiTenancy:
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", idx.ID(), err))
-		case objects.ErrConflictExistOrDeleted:
-			return nil, objects.NewErrConflictExistOrDeleted((fmt.Errorf("search index %s: %w", idx.ID(), err)))
+		case objects.ErrDirtyReadOfDeletedObject:
+			return nil, objects.NewErrDirtyReadOfDeletedObject((fmt.Errorf("search index %s: %w", idx.ID(), err)))
 		default:
 			return nil, errors.Wrapf(err, "search index %s", idx.ID())
 		}
