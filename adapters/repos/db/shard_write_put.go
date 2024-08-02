@@ -197,11 +197,8 @@ func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) 
 	if err != nil {
 		return nil, err
 	}
-
 	if len(objBytes) == 0 {
-		uid := uuid.UUID{}
-		uid.UnmarshalBinary(idBytes)
-		return nil, fmt.Errorf("object with id %s not found", uid)
+		return nil, nil
 	}
 
 	obj, err := storobj.FromBinary(objBytes)
