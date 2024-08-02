@@ -2269,6 +2269,10 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 		return errors.New("vector index not found")
 	}
 
+	if !hnsw.IsHNSWIndex(vidx) {
+		return errors.New("vector index is not hnsw")
+	}
+
 	// Reset the queue
 	var q *IndexQueue
 	if targetVector == "" {
