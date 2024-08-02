@@ -66,6 +66,11 @@ func (r *repairer) repairOne(ctx context.Context,
 			lastUTime = x.UTime
 			winnerIdx = i
 		}
+		if x.o.Object.CreationTimeUnix() == 0 {
+			r.logger.WithField("id", id).WithField("lastUpdateTimeUnix", x.o.Object.LastUpdateTimeUnix()).Warnf("object has no creation time. Is it a zombie?")
+		} else {
+			r.logger.WithField("id", id).WithField("lastUpdateTimeUnix", x.o.Object.LastUpdateTimeUnix()).Debugf("object has a creation time. It's still alive!")
+		}
 	}
 	// fetch most recent object
 	updates := votes[contentIdx].o
