@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -627,6 +628,28 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	}
 
 	require.True(t, shard.VectorIndex().Compressed())
+
+	err = index.drop()
+	require.Nil(t, err)
+}
+
+func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
+
+	ctx := testCtx()
+	class := &models.Class{Class: "reindextest"}
+	shard, index := testShardWithSettings(
+		t,
+		ctx,
+		&models.Class{Class: class.Class, VectorIndexType: "flat"},
+		flat.UserConfig{},
+		false,
+		true,
+	)
+
+	err := index.DebugResetVectorIndex(ctx, shard.Name(), "")
+	require.Error(t, err)
 
 	err = index.drop()
 	require.Nil(t, err)
