@@ -40,40 +40,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-type Bm25Pool struct {
-	ListPool chan *[]docPointerWithScore
-	MapPool  chan *map[uint64]int
-	init     bool
-	lock     sync.Mutex
-}
-
-func NewBm25Pool() *Bm25Pool {
-	return &Bm25Pool{init: false}
-}
-
-func (b *Bm25Pool) Init(size int) {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-	if b.init {
-		return
-	}
-	b.init = true
-	b.ListPool = make(chan *[]docPointerWithScore, size)
-	b.MapPool = make(chan *map[uint64]int, size)
-}
-
-func (b *Bm25Pool) Close() {
-	b.lock.Lock()
-	defer b.lock.Unlock()
-
-	if !b.init {
-		return
-	}
-	b.init = false
-	close(b.ListPool)
-	close(b.MapPool)
-}
-
 type BM25Searcher struct {
 	config         schema.BM25Config
 	store          *lsmkv.Store
@@ -97,9 +63,9 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 ) *BM25Searcher {
 	if pools == nil {
 		pools = &Bm25Pool{}
-		pools.Init(0)
+		pools.Init(0, 100)
 	} else {
-		pools.Init(50)
+		pools.Init(50, 10000) // ~1MB of data if everything is at the min size
 	}
 
 	return &BM25Searcher{
@@ -281,20 +247,7 @@ func (b *BM25Searcher) wand(
 
 func (b *BM25Searcher) returnToPool(results terms, indices []map[uint64]int) {
 	for i := range results {
-		results[i].data = results[i].data[:0]
-		select {
-		case b.pools.ListPool <- &results[i].data:
-		default:
-		}
-
-		if indices[i] != nil {
-			clear(indices[i])
-			select {
-			case b.pools.MapPool <- &indices[i]:
-			default:
-			}
-		}
-
+		b.pools.Return(results[i].data, indices[i])
 	}
 }
 
