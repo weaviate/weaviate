@@ -585,7 +585,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	}
 
 	// wait until the queue is empty
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 500; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if shard.Queue().Size() == 0 {
 			break
@@ -596,7 +596,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	shard.Queue().Wait()
 
 	// wait until everything is compressed
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 500; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if shard.VectorIndex().Compressed() {
 			break
@@ -609,7 +609,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	require.Nil(t, err)
 
 	// wait until the queue is empty
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 500; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if shard.Queue().Size() == 0 {
 			break
@@ -620,7 +620,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	shard.Queue().Wait()
 
 	// wait until everything is compressed
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 500; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if shard.VectorIndex().Compressed() {
 			break

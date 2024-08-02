@@ -44,6 +44,8 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 
 	q.PauseIndexing()
 
+	q.Wait()
+
 	err := vidx.Drop(ctx)
 	if err != nil {
 		return err
