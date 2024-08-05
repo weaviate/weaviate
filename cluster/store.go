@@ -167,8 +167,8 @@ type Store struct {
 	// schemaManager is responsible for applying changes committed by RAFT to the schema representation & querying the
 	// schema
 	schemaManager *schema.SchemaManager
-	// lastAppliedIndexOnStart represents the index of the last applied command when the store is opened.
-	lastAppliedIndexOnStart atomic.Uint64
+	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
+	lastAppliedIndexToDB atomic.Uint64
 	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 }
@@ -209,7 +209,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
-	st.lastAppliedIndexOnStart.Store(l)
+	st.lastAppliedIndexToDB.Store(l)
 
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
@@ -224,7 +224,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
-	if st.lastAppliedIndexOnStart.Load() == 0 && snapIndex == 0 {
+	if st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
 		// if empty node report ready
 		st.dbLoaded.Store(true)
 	}
@@ -234,7 +234,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":                st.raft.AppliedIndex(),
 		"raft_last_index":                   st.raft.LastIndex(),
-		"last_store_applied_index_on_start": st.lastAppliedIndexOnStart.Load(),
+		"last_store_applied_index_on_start": st.lastAppliedIndexToDB.Load(),
 		"last_store_raft_applied_index":     st.lastAppliedIndex.Load(),
 		"last_snapshot_index":               snapIndex,
 	}).Info("raft node constructed")
@@ -503,7 +503,7 @@ func (st *Store) Stats() map[string]any {
 	stats["open"] = st.open.Load()
 	stats["bootstrapped"] = st.bootstrapped.Load()
 	stats["candidates"] = st.candidates
-	stats["last_store_log_applied_index"] = st.lastAppliedIndexOnStart.Load()
+	stats["last_store_log_applied_index"] = st.lastAppliedIndexToDB.Load()
 	stats["last_applied_index"] = st.lastAppliedIndex.Load()
 	stats["db_loaded"] = st.dbLoaded.Load()
 
@@ -611,13 +611,13 @@ func (st *Store) reloadDBFromSchema() {
 	// in this path it means it was called from Apply()
 	// or forced Restore()
 	if st.raft != nil {
-		st.lastAppliedIndexOnStart.Store(st.raft.LastIndex())
+		st.lastAppliedIndexToDB.Store(st.raft.LastIndex())
 		return
 	}
 
 	// restore requests from snapshots before init new RAFT node
 	lastApplied, _ := st.LastAppliedCommand()
-	st.lastAppliedIndexOnStart.Store(lastApplied)
+	st.lastAppliedIndexToDB.Store(lastApplied)
 }
 
 type Response struct {

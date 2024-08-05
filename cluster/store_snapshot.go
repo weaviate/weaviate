@@ -65,14 +65,14 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 
 		snapIndex := lastSnapshotIndex(st.snapshotStore)
-		if st.lastAppliedIndexOnStart.Load() <= snapIndex {
+		if st.lastAppliedIndexToDB.Load() <= snapIndex {
 			// db shall reload after snapshot applied to schema
 			st.reloadDBFromSchema()
 		}
 
 		st.log.WithFields(logrus.Fields{
 			"last_applied_index":           st.lastAppliedIndex.Load(),
-			"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
+			"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			"last_snapshot_index":          snapIndex,
 			"n":                            st.schemaManager.NewSchemaReader().Len(),
 		}).Info("successfully reloaded indexes from snapshot")
