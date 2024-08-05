@@ -232,11 +232,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
-		"raft_applied_index":           st.raft.AppliedIndex(),
-		"raft_last_index":              st.raft.LastIndex(),
-		"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
-		"last_store_applied_index":     st.lastAppliedIndex.Load(),
-		"last_snapshot_index":          snapIndex,
+		"raft_applied_index":                st.raft.AppliedIndex(),
+		"raft_last_index":                   st.raft.LastIndex(),
+		"last_store_applied_index_on_start": st.lastAppliedIndexOnStart.Load(),
+		"last_store_raft_applied_index":     st.lastAppliedIndex.Load(),
+		"last_snapshot_index":               snapIndex,
 	}).Info("raft node constructed")
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
@@ -634,7 +634,6 @@ func (st *Store) reloadDBFromSchema() {
 type Response struct {
 	Error   error
 	Version uint64
-	Data    interface{}
 }
 
 var _ raft.FSM = &Store{}
