@@ -596,32 +596,10 @@ func (st *Store) openDatabase(ctx context.Context) {
 	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
 }
 
-// reloadDBFromSnapshot reloads the node's local db. If the db is already loaded, it will be reloaded.
-// If a snapshot exists and its is up to date with the log, it will be loaded.
-// Otherwise, the database will be loaded when the node synchronizes its state with the leader.
-//
-// In specific scenarios where the follower's state is too far behind the leader's log,
-// the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
-func (st *Store) reloadDBFromSnapshot() (success bool) {
-	defer func() {
-		if success && !st.cfg.MetadataOnlyVoters {
-			st.reloadDBFromSchema()
-		}
-	}()
-
-	if !st.dbLoaded.CompareAndSwap(true, false) {
-		// the snapshot already includes the state from the raft log
-		snapIndex := lastSnapshotIndex(st.snapshotStore)
-		st.log.WithFields(logrus.Fields{
-			"last_applied_index":           st.lastAppliedIndex.Load(),
-			"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
-			"last_snapshot_index":          snapIndex,
-		}).Info("load local db from snapshot")
-		return st.lastAppliedIndexOnStart.Load() <= snapIndex
-	}
-	return true
-}
-
+// reloadDBFromSchema() it will be called from two places Restore(), Apply()
+// on constructing raft.NewRaft(..) the raft lib. will
+// call Restore() first to restore from snapshots if there is any and
+// then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
 		st.schemaManager.ReloadDBFromSchema()
@@ -629,7 +607,17 @@ func (st *Store) reloadDBFromSchema() {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
 	st.dbLoaded.Store(true)
-	st.lastAppliedIndexOnStart.Store(0)
+
+	// in this path it means it was called from Apply()
+	// or forced Restore()
+	if st.raft != nil {
+		st.lastAppliedIndexOnStart.Store(st.raft.LastIndex())
+		return
+	}
+
+	// restore requests from snapshots before init new RAFT node
+	lastApplied, _ := st.LastAppliedCommand()
+	st.lastAppliedIndexOnStart.Store(lastApplied)
 }
 
 type Response struct {
