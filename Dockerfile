@@ -18,10 +18,13 @@ RUN go mod download
 FROM build_base AS server_builder
 ARG TARGETARCH
 ARG GITHASH="unknown"
+ARG DOCKER_IMAGE_TAG="unknown"
 ARG EXTRA_BUILD_ARGS=""
 COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
-      -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' \
+      -ldflags '-w -extldflags "-static" \
+      -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"' \
+      -X github.com/weaviate/weaviate/usecases/config.DockerImageTag='"$DOCKER_IMAGE_TAG"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################

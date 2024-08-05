@@ -138,17 +138,17 @@ func TestGRPCRequest(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"custom": {
 							VectorIndexType:   "hnsw",
-							VectorIndexConfig: hnsw.UserConfig{},
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
 							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 						"first": {
 							VectorIndexType:   "flat",
-							VectorIndexConfig: flat.UserConfig{},
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
 							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
 						},
 						"second": {
 							VectorIndexType:   "flat",
-							VectorIndexConfig: flat.UserConfig{},
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
 							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
 						},
 					},
@@ -161,7 +161,7 @@ func TestGRPCRequest(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"default": {
 							VectorIndexType:   "hnsw",
-							VectorIndexConfig: hnsw.UserConfig{},
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
 							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 					},
@@ -1305,12 +1305,31 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
+				Properties: append(defaultTestClassProps, []search.SelectProperty{{Name: "one", IsPrimitive: true}, {Name: "two", IsPrimitive: true}}...),
+				AdditionalProperties: additional.Properties{
+					Vector:  true,
+					NoProps: false,
+					ModuleParams: map[string]interface{}{
+						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}, PropertiesToExtract: []string{"one", "two"}},
+					},
+				},
+			},
+			error: false,
+		},
+		{
+			name: "Generative without properties",
+			req: &pb.SearchRequest{
+				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true}, Properties: &pb.PropertiesRequest{NonRefProperties: []string{}},
+				Generative: &pb.GenerativeSearch{GroupedResponseTask: someString2},
+			},
+			out: dto.GetParams{
+				ClassName: classname, Pagination: defaultPagination,
 				Properties: defaultTestClassProps,
 				AdditionalProperties: additional.Properties{
 					Vector:  true,
 					NoProps: false,
 					ModuleParams: map[string]interface{}{
-						"generate": &generate.Params{Prompt: &someString1, Task: &someString2, Properties: []string{"one", "two"}},
+						"generate": &generate.Params{Task: &someString2, PropertiesToExtract: []string{"name", "number", "floats", "uuid"}},
 					},
 				},
 			},
@@ -1484,7 +1503,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
 					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1}},
@@ -1500,7 +1519,7 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
-				Properties: defaultTestClassProps,
+				Properties: append(defaultTestClassProps, search.SelectProperty{Name: someString1, IsPrimitive: true}),
 				AdditionalProperties: additional.Properties{
 					NoProps:      false,
 					ModuleParams: map[string]interface{}{"rerank": &rank.Params{Property: &someString1, Query: &someString2}},
@@ -1669,6 +1688,46 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
+		{
+			name: "Dont disable certainty for compatible parameters",
+			req: &pb.SearchRequest{
+				Collection: singleNamedVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: singleNamedVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: true,
+				},
+				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"default": {1, 2, 3}}, TargetVectors: []string{"default"}},
+			},
+			error: false,
+		},
+		{
+			name: "Disable certainty for incompatible parameters",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					Targets:         &pb.Targets{TargetVectors: []string{"first", "second"}},
+					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: make(map[string]float32)},
+				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
+			},
+			error: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1682,6 +1741,7 @@ func TestGRPCRequest(t *testing.T) {
 				// causing this test to be flaky. Sort first, no more flake
 				sortNamedVecs(tt.out.AdditionalProperties.Vectors)
 				sortNamedVecs(out.AdditionalProperties.Vectors)
+				require.EqualValues(t, tt.out.Properties, out.Properties)
 				require.EqualValues(t, tt.out, out)
 			}
 		})

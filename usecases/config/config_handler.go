@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -39,8 +40,12 @@ import (
 // spec only needs to be parsed once.
 var ServerVersion string
 
-// GitHash keeps the current git hash commit information
-var GitHash = "unknown"
+var (
+	// GitHash keeps the current git hash commit information
+	GitHash = "unknown"
+	// DockerImageTag keeps the docker tag the weaviate binary was built in
+	DockerImageTag = "unknown"
+)
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -113,6 +118,7 @@ type Config struct {
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
+	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
@@ -121,6 +127,7 @@ type Config struct {
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?

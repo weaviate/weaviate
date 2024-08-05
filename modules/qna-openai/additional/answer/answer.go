@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -46,7 +48,7 @@ func (p *AnswerProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 
-func (p *AnswerProvider) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (p *AnswerProvider) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return &Params{}
 }
 

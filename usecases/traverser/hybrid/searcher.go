@@ -124,9 +124,6 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		}
 		newResults := make([]*search.Result, len(sr))
 		for i := range sr {
-			if err != nil {
-				return nil, fmt.Errorf("hybrid search post-processing: %w", err)
-			}
 			newResults[i] = &sr[i]
 		}
 		fused = newResults

@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-func multiShardScaleOut(t *testing.T) {
+func replicationFactorIncrease(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 

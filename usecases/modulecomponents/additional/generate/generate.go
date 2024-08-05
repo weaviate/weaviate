@@ -17,14 +17,16 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/configbase"
 )
 
 const maximumNumberOfGoroutines = 10
@@ -47,7 +49,7 @@ func NewGeneric(
 		defaultProviderName:            defaultProviderName,
 		maximumNumberOfGoroutines:      maximumNumberOfGoroutines,
 		logger:                         logger,
-		isDynamicRAGSyntaxEnabled:      configbase.Enabled(os.Getenv("EXPERIMENTAL_DYNAMIC_RAG_SYNTAX")),
+		isDynamicRAGSyntaxEnabled:      entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX")),
 	}
 }
 
@@ -55,8 +57,8 @@ func (p *GenerateProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 
-func (p *GenerateProvider) ExtractAdditionalFn(param []*ast.Argument) interface{} {
-	return p.parseGenerateArguments(param)
+func (p *GenerateProvider) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
+	return p.parseGenerateArguments(param, class)
 }
 
 func (p *GenerateProvider) AdditionalFieldFn(classname string) *graphql.Field {

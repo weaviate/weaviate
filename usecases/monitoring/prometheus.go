@@ -28,6 +28,8 @@ type Config struct {
 type PrometheusMetrics struct {
 	BatchTime                         *prometheus.HistogramVec
 	BatchDeleteTime                   *prometheus.SummaryVec
+	BatchCount                        *prometheus.CounterVec
+	BatchCountBytes                   *prometheus.CounterVec
 	ObjectsTime                       *prometheus.SummaryVec
 	LSMBloomFilters                   *prometheus.SummaryVec
 	AsyncOperations                   *prometheus.GaugeVec
@@ -53,6 +55,13 @@ type PrometheusMetrics struct {
 	BackupRestoreFromStorageDurations *prometheus.SummaryVec
 	BackupRestoreDataTransferred      *prometheus.CounterVec
 	BackupStoreDataTransferred        *prometheus.CounterVec
+
+	// offload metric
+	TenantCloudOffloadDurations       *prometheus.SummaryVec
+	TenantCloudLoadDurations          *prometheus.SummaryVec
+	TenantCloudDeleteDurations        *prometheus.SummaryVec
+	TenantCloudOffloadDataTransferred *prometheus.CounterVec
+	TenantCloudLoadDataTransferred    *prometheus.CounterVec
 
 	IndexQueuePushDuration    *prometheus.SummaryVec
 	IndexQueueDeleteDuration  *prometheus.SummaryVec
@@ -182,6 +191,13 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	pm.BackupStoreDataTransferred.DeletePartialMatch(labels)
 	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
 
+	// delete offload metric
+	pm.TenantCloudOffloadDurations.DeletePartialMatch(labels)
+	pm.TenantCloudLoadDurations.DeletePartialMatch(labels)
+	pm.TenantCloudDeleteDurations.DeletePartialMatch(labels)
+	pm.TenantCloudOffloadDataTransferred.DeletePartialMatch(labels)
+	pm.TenantCloudLoadDataTransferred.DeletePartialMatch(labels)
+
 	return nil
 }
 
@@ -213,6 +229,16 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "batch_delete_durations_ms",
 			Help: "Duration in ms of a single delete batch",
 		}, []string{"operation", "class_name", "shard_name"}),
+
+		BatchCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "batch_objects_processed_total",
+			Help: "Number of objects processed in a batch",
+		}, []string{"class_name", "shard_name"}),
+
+		BatchCountBytes: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "batch_objects_processed_bytes",
+			Help: "Number of bytes processed in a batch",
+		}, []string{"class_name", "shard_name"}),
 
 		ObjectsTime: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "objects_durations_ms",
@@ -427,6 +453,28 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
+
+		// Offload metrics
+		TenantCloudOffloadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "tenant_offload_up_durations_ms",
+			Help: "tenant offload durations",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
+		TenantCloudLoadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "tenant_offload_down_durations_ms",
+			Help: "tenant onload durations",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
+		TenantCloudDeleteDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "tenant_offload_delete_durations_ms",
+			Help: "tenant onload durations",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
+		TenantCloudOffloadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tenant_offload_up_data_bytes",
+			Help: "Total number of bytes transferred during a tenant offload to cloud",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
+		TenantCloudLoadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "tenant_offload_down_data_bytes",
+			Help: "Total number of bytes transferred during a tenant load from cloud",
+		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{

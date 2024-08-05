@@ -22,6 +22,7 @@ import (
 func TestWhereFilter(t *testing.T) {
 	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, "localhost:8080"))
 	t.Run("Contains Text", testContainsText(t, "localhost:8080"))
+	t.Run("Numerical filters", testNumericalFilters("localhost:8080"))
 }
 
 func TestWhereFilter_Cluster(t *testing.T) {
@@ -39,4 +40,5 @@ func TestWhereFilter_Cluster(t *testing.T) {
 
 	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, endpoint))
 	t.Run("Contains Text", testContainsText(t, endpoint))
+	t.Run("Numerical filters", testNumericalFilters(endpoint))
 }

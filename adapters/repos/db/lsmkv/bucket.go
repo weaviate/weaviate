@@ -229,6 +229,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.metrics.TrackStartupBucket(beforeAll)
 
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		// prevent accidentally trying to register the same bucket twice
+		return nil, err
+	}
+
 	return b, nil
 }
 
@@ -920,6 +925,8 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
+	defer GlobalBucketRegistry.Remove(b.dir)
+
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
 	}

@@ -26,6 +26,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/fgprof"
+
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	openapierrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
@@ -75,6 +77,7 @@ import (
 	modcentroid "github.com/weaviate/weaviate/modules/ref2vec-centroid"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
+	modrerankerjinaai "github.com/weaviate/weaviate/modules/reranker-jinaai"
 	modrerankertransformers "github.com/weaviate/weaviate/modules/reranker-transformers"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
@@ -109,6 +112,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+
+	"github.com/getsentry/sentry-go"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -143,7 +148,6 @@ func getCores() (int, error) {
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := startupRoutine(ctx, options)
-	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity = tenantactivity.NewHandler()
@@ -155,6 +159,73 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			mux.Handle("/tenant-activity", appState.TenantActivity)
 			http.ListenAndServe(fmt.Sprintf(":%d", appState.ServerConfig.Config.Monitoring.Port), mux)
 		}, appState.Logger)
+	}
+
+	if appState.ServerConfig.Config.Sentry.Enabled {
+		err := sentry.Init(sentry.ClientOptions{
+			// Setup related config
+			Dsn:         appState.ServerConfig.Config.Sentry.DSN,
+			Debug:       appState.ServerConfig.Config.Sentry.Debug,
+			Release:     "weaviate-core@" + config.DockerImageTag,
+			Environment: appState.ServerConfig.Config.Sentry.Environment,
+			// Enable tracing if requested
+			EnableTracing:    !appState.ServerConfig.Config.Sentry.TracingDisabled,
+			AttachStacktrace: true,
+			// Sample rates based on the config
+			SampleRate:         appState.ServerConfig.Config.Sentry.ErrorSampleRate,
+			ProfilesSampleRate: appState.ServerConfig.Config.Sentry.ProfileSampleRate,
+			TracesSampler: sentry.TracesSampler(func(ctx sentry.SamplingContext) float64 {
+				// Inherit decision from parent transaction (if any) if it is sampled or not
+				if ctx.Parent != nil && ctx.Parent.Sampled != sentry.SampledUndefined {
+					return 1.0
+				}
+
+				// Filter out uneeded traces
+				switch ctx.Span.Name {
+				// We are not interested in traces related to metrics endpoint
+				case "GET /metrics":
+				// These are some usual internet bot that will spam the server. Won't catch them all but we can reduce
+				// the number a bit
+				case "GET /favicon.ico":
+				case "GET /t4":
+				case "GET /ab2g":
+				case "PRI *":
+				case "GET /api/sonicos/tfa":
+				case "GET /RDWeb/Pages/en-US/login.aspx":
+				case "GET /_profiler/phpinfo":
+				case "POST /wsman":
+				case "POST /dns-query":
+				case "GET /dns-query":
+					return 0.0
+				}
+
+				// Filter out graphql queries, currently we have no context intrumentation around it and it's therefore
+				// just a blank line with 0 info except graphql resolve -> do -> return.
+				if ctx.Span.Name == "POST /v1/graphql" {
+					return 0.0
+				}
+
+				// Return the configured sample rate otherwise
+				return appState.ServerConfig.Config.Sentry.TracesSampleRate
+			}),
+		})
+		if err != nil {
+			appState.Logger.
+				WithField("action", "startup").WithError(err).
+				Fatal("sentry initialization failed")
+		}
+
+		sentry.ConfigureScope(func(scope *sentry.Scope) {
+			// Set cluster ID and cluster owner using sentry user feature to distinguish multiple clusters in the UI
+			scope.SetUser(sentry.User{
+				ID:       appState.ServerConfig.Config.Sentry.ClusterId,
+				Username: appState.ServerConfig.Config.Sentry.ClusterOwner,
+			})
+			// Set any tags defined
+			for key, value := range appState.ServerConfig.Config.Sentry.Tags {
+				scope.SetTag(key, value)
+			}
+		})
 	}
 
 	limitResources(appState)
@@ -210,6 +281,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		ResourceUsage:             appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                 appState.ServerConfig.Config.AvoidMmap,
 		DisableLazyLoadShards:     appState.ServerConfig.Config.DisableLazyLoadShards,
+		ForceFullReplicasSearch:   appState.ServerConfig.Config.ForceFullReplicasSearch,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -228,6 +300,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
+
+	setupDebugHandlers(appState)
+	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	migrator := db.NewMigrator(repo, appState.Logger)
 	migrator.SetNode(appState.Cluster.LocalName())
@@ -271,6 +346,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			WithField("raft-join", appState.ServerConfig.Config.Raft.Join).
 			WithError(err).
 			Fatal("parsing raft-join")
+		os.Exit(1)
 	}
 
 	nodeName := appState.Cluster.LocalName()
@@ -301,6 +377,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
 		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
 		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
+		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -346,6 +423,27 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
+	appState.Traverser = traverser.NewTraverser(appState.ServerConfig, appState.Locks,
+		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
+		appState.Modules, traverser.NewMetrics(appState.Metrics),
+		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
+
+	updateSchemaCallback := makeUpdateSchemaCall(appState)
+	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
+
+	// while we accept an overall longer startup, e.g. due to a recovery, we
+	// still want to limit the module startup context, as that's mostly service
+	// discovery / dependency checking
+	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	err = initModules(moduleCtx, appState)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't initialize")
+	}
+
 	enterrors.GoWrapper(func() {
 		if err := appState.ClusterService.Open(context.Background(), executor); err != nil {
 			appState.Logger.
@@ -363,14 +461,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Locks, schemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.Metrics)
 	appState.BatchManager = batchManager
-	objectsTraverser := traverser.NewTraverser(appState.ServerConfig, appState.Locks,
-		appState.Logger, appState.Authorizer, vectorRepo, explorer, schemaManager,
-		appState.Modules, traverser.NewMetrics(appState.Metrics),
-		appState.ServerConfig.Config.MaximumConcurrentGetRequests)
-	appState.Traverser = objectsTraverser
-
-	updateSchemaCallback := makeUpdateSchemaCall(appState.Logger, appState, objectsTraverser)
-	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
 	if err != nil {
@@ -405,23 +495,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	configureServer = makeConfigureServer(appState)
-
-	// while we accept an overall longer startup, e.g. due to a recovery, we
-	// still want to limit the module startup context, as that's mostly service
-	// discovery / dependency checking
-	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-
-	err = initModules(moduleCtx, appState)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
-	}
-
-	// manually update schema once
-	schema := schemaManager.GetSchemaSkipAuth()
-	updateSchemaCallback(schema)
 
 	// Add dimensions to all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
@@ -473,6 +546,11 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	config.ServerVersion = parseVersionFromSwaggerSpec()
 	appState := MakeAppState(ctx, connectorOptionGroup)
 
+	appState.Logger.WithFields(logrus.Fields{
+		"server_version":   config.ServerVersion,
+		"docker_image_tag": config.DockerImageTag,
+	}).Infof("configured versions")
+
 	api.ServeError = openapierrors.ServeError
 
 	api.JSONConsumer = runtime.JSONConsumer()
@@ -482,7 +560,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
-		appState.Logger.WithField("action", "restapi_management").Infof(msg, args...)
+		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "docker_image_tag": config.DockerImageTag}).Infof(msg, args...)
 	}
 
 	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, // the DB is the vectorrepo
@@ -545,6 +623,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
+
+		if appState.ServerConfig.Config.Sentry.Enabled {
+			sentry.Flush(2 * time.Second)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
@@ -702,6 +784,7 @@ func registerModules(appState *state.State) error {
 		modoctoai.Name,
 		modopenai.Name,
 		modtext2vecpalm.Name,
+		modmulti2vecpalm.Name,
 		modvoyageai.Name,
 	}
 	defaultGenerative := []string{
@@ -799,6 +882,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modrerankerdummy.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modrerankerjinaai.Name]; ok {
+		appState.Modules.Register(modrerankerjinaai.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modrerankerjinaai.Name).
 			Debug("enabled module")
 	}
 
@@ -1141,6 +1232,21 @@ func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {
 		return
 	}
 
+	functionsToIgnoreInProfiling := []string{
+		"raft",
+		"http2",
+		"memberlist",
+		"selectgo", // various tickers
+		"cluster",
+		"rest",
+		"signal_recv",
+		"backgroundRead",
+		"SetupGoProfiling",
+		"serve",
+		"Serve",
+		"batchWorker",
+	}
+	http.DefaultServeMux.Handle("/debug/fgprof", fgprof.Handler(functionsToIgnoreInProfiling...))
 	enterrors.GoWrapper(func() {
 		portNumber := config.Profiling.Port
 		if portNumber == 0 {

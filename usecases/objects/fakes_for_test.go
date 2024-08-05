@@ -313,7 +313,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -332,7 +332,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -351,7 +351,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.multi, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 

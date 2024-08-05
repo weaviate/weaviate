@@ -82,6 +82,7 @@ func allTests(endpoint string) func(t *testing.T) {
 		t.Run("hybrid", testHybrid(endpoint))
 		t.Run("generative modules", testNamedVectorsWithGenerativeModules(endpoint))
 		t.Run("aggregate", testAggregate(endpoint))
+		t.Run("vector index types", testVectorIndexTypesConfigurations(endpoint))
 	}
 }
 

@@ -24,6 +24,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -254,6 +255,7 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	defer func() {
 		err := recover()
 		if err != nil {
+			entsentry.Recover(err)
 			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
 			debug.PrintStack()
 		}
