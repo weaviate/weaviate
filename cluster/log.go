@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-func (st *Store) LastAppliedCommand() (uint64, error) {
+func (st *Store) LastLogStoreAppliedCommand() (uint64, error) {
 	if st.logStore == nil {
 		return 0, fmt.Errorf("log store can't be nil")
 	}
@@ -45,4 +45,10 @@ func (st *Store) LastAppliedCommand() (uint64, error) {
 		}
 	}
 	return 0, nil
+}
+
+func (st *Store) LastAppliedCommand() (uint64, error) {
+	lastLog, err := st.LastLogStoreAppliedCommand()
+	lastSnapshot := lastSnapshotIndex(st.snapshotStore)
+	return max(lastSnapshot, lastLog), err
 }

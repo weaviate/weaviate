@@ -55,10 +55,10 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 		st.log.Info("successfully restored schema from snapshot")
 
-		if st.reloadDBFromSnapshot() {
-			st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).
-				Info("successfully reloaded indexes from snapshot")
-		}
+		st.reloadDBFromSchema()
+
+		st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).
+			Info("successfully reloaded indexes from snapshot")
 
 		if st.raft != nil {
 			st.lastAppliedIndex.Store(st.raft.AppliedIndex())
