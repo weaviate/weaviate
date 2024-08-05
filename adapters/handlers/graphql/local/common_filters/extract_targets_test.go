@@ -19,7 +19,6 @@ import (
 )
 
 func TestTargetExtraction(t *testing.T) {
-	emptyWeights := []float32{}
 	cases := []struct {
 		name                  string
 		source                map[string]interface{}
@@ -31,7 +30,7 @@ func TestTargetExtraction(t *testing.T) {
 			name:                  "two target vectors with default",
 			source:                map[string]interface{}{"targets": map[string]interface{}{"targetVectors": []interface{}{"a", "b"}}},
 			expectTargetVectors:   []string{"a", "b"},
-			expectCombinationType: &dto.TargetCombination{Type: dto.Minimum, Weights: emptyWeights},
+			expectCombinationType: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
 		},
 		{
 			name: "two target vectors with min",
@@ -42,7 +41,7 @@ func TestTargetExtraction(t *testing.T) {
 				},
 			},
 			expectTargetVectors:   []string{"a", "b"},
-			expectCombinationType: &dto.TargetCombination{Type: dto.Minimum, Weights: emptyWeights},
+			expectCombinationType: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
 		},
 		{
 			name: "two target vectors with sum",
