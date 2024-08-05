@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -127,12 +128,10 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant); err != nil {
-		switch err.(type) {
-		case ErrDirtyWriteOfDeletedObject:
+		if errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
 			return &Error{"not found", StatusNotFound, err}
-		default:
-			return &Error{"repo.merge", StatusInternalServerError, err}
 		}
+		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 
 	return nil
