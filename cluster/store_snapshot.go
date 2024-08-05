@@ -56,10 +56,6 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 		st.log.Info("successfully restored schema from snapshot")
 
-		if st.raft != nil {
-			st.lastAppliedIndex.Store(st.raft.AppliedIndex())
-		}
-
 		if st.cfg.MetadataOnlyVoters {
 			return nil
 		}
@@ -71,7 +67,7 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 
 		st.log.WithFields(logrus.Fields{
-			"last_applied_index":           st.lastAppliedIndex.Load(),
+			"last_applied_index":           st.lastIndex(),
 			"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			"last_snapshot_index":          snapIndex,
 			"n":                            st.schemaManager.NewSchemaReader().Len(),
