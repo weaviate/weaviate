@@ -96,7 +96,7 @@ func Test_extractNearIMUFn(t *testing.T) {
 				IMU:           "base64;encoded",
 				TargetVectors: []string{"targetVector1", "targetVector2"},
 			},
-			wantTarget: &dto.TargetCombination{Type: dto.ManualWeights, Weights: map[string]float32{"targetVector1": 0.5, "targetVector2": 0.5}},
+			wantTarget: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.5, 0.5}},
 		},
 	}
 	for _, tt := range tests {
