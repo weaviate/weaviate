@@ -1725,7 +1725,7 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false, Certainty: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0, 0, 0}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0, 0}},
 				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {2, 3, 4}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
 			},
 			error: false,
