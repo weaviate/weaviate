@@ -1699,7 +1699,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl); err != nil {
-			return fmt.Errorf("replicate single update: %w", err)
+			return errors.Wrapf(err, "replicate single update:")
 		}
 		return nil
 	}
@@ -1707,7 +1707,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 	// no replication, remote shard
 	if i.localShard(shardName) == nil {
 		if err := i.remote.MergeObject(ctx, shardName, merge); err != nil {
-			return fmt.Errorf("update remote object: shard=%q: %w", shardName, err)
+			return errors.Wrapf(err, "update remote object: shard=%q", shardName)
 		}
 		return nil
 	}
@@ -1720,7 +1720,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		err = shard.MergeObject(ctx, merge)
 	}
 	if err != nil {
-		return fmt.Errorf("update local object: shard=%q: %w", shardName, err)
+		return errors.Wrapf(err, "update local object: shard=%q", shardName)
 	}
 
 	return nil
