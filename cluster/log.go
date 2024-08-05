@@ -20,7 +20,7 @@ import (
 
 func (st *Store) LastAppliedCommand() (uint64, error) {
 	if st.logStore == nil {
-		return 0, nil
+		return 0, fmt.Errorf("log store can't be nil")
 	}
 
 	first, err := st.logStore.FirstIndex()
