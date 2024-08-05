@@ -290,7 +290,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	return nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (n int, err error) {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -337,8 +337,8 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 
 		switch {
 		case existedSharedFrozen && !requestedToFrozen:
-			if err = m.unfreeze(nodeID, i, req, &schemaTenant); err != nil {
-				return n, err
+			if err := m.unfreeze(nodeID, i, req, &schemaTenant); err != nil {
+				return err
 			}
 			if req.Tenants[i] != nil {
 				requestTenant.Status = req.Tenants[i].Status
@@ -373,13 +373,14 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	req.Tenants = req.Tenants[:writeIndex]
 
 	// Check for any missing shard to return an error
+	var err error
 	if len(missingShards) > 0 {
 		err = fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)
 	}
 	// Update the version of the shard to the current version
 	m.ShardVersion = v
 
-	return writeIndex, err
+	return err
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
