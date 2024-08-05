@@ -138,6 +138,10 @@ func (e ErrDirtyReadOfDeletedObject) Error() string {
 	return e.err.Error()
 }
 
+func (e ErrDirtyReadOfDeletedObject) Unwrap() error {
+	return e.err
+}
+
 // It depends on the order of operations
 //
 // Created -> Deleted    => It is safe in this case to propagate deletion to all replicas
@@ -155,6 +159,10 @@ type ErrDirtyWriteOfDeletedObject struct {
 
 func (e ErrDirtyWriteOfDeletedObject) Error() string {
 	return e.err.Error()
+}
+
+func (e ErrDirtyWriteOfDeletedObject) Unwrap() error {
+	return e.err
 }
 
 func NewErrDirtyWriteOfDeletedObject(err error) ErrDirtyWriteOfDeletedObject {
