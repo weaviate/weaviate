@@ -262,6 +262,26 @@ func (s *schema) updateClass(name string, f func(*metaClass) error) error {
 	return meta.LockGuard(f)
 }
 
+// updateStatesNodeName it update the node name inside sharding states.
+// WARNING: this shall be used in one node cluster environments only.
+// because it update the shard node name if the node name got update.
+func (s *schema) updateStatesNodeName(nodeName string) {
+	s.Lock()
+	defer s.Unlock()
+
+	for _, meta := range s.Classes {
+		meta.LockGuard(func(mc *metaClass) error {
+			for k, v := range meta.Sharding.Physical {
+				v = v.DeepCopy()
+				v.BelongsToNodes = []string{nodeName}
+				meta.Sharding.Physical[k] = v
+
+			}
+			return nil
+		})
+	}
+}
+
 func (s *schema) deleteClass(name string) {
 	s.Lock()
 	defer s.Unlock()
