@@ -664,7 +664,7 @@ func (st *Store) recoverSingleNode() error {
 	}
 	servers := st.raft.GetConfiguration().Configuration().Servers
 	// nothing to do here, wasn't a single node
-	if len(servers) == 0 || len(servers) > 1 {
+	if len(servers) != 1 {
 		return nil
 	}
 
