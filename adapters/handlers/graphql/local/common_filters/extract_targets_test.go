@@ -19,7 +19,7 @@ import (
 )
 
 func TestTargetExtraction(t *testing.T) {
-	emptyWeights := make(map[string]float32)
+	emptyWeights := []float32{}
 	cases := []struct {
 		name                  string
 		source                map[string]interface{}

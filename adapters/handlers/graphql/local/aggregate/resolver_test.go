@@ -758,9 +758,9 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedObjectLimit: ptInt(1),
 			expectedNearVectorFilter: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {1, 2, 3}},
-				Distance:        0.3,
-				WithDistance:    true,
+				Vectors:      [][]float32{{1, 2, 3}},
+				Distance:     0.3,
+				WithDistance: true,
 			},
 			resolverReturn: []aggregation.Group{
 				{
@@ -813,8 +813,8 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedObjectLimit: ptInt(1),
 			expectedNearVectorFilter: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {1, 2, 3}},
-				Certainty:       0.7,
+				Vectors:   [][]float32{{1, 2, 3}},
+				Certainty: 0.7,
 			},
 			resolverReturn: []aggregation.Group{
 				{

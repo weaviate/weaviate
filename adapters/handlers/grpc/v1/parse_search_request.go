@@ -437,32 +437,51 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 	}
 
 	var combinationType dto.TargetCombinationType
-	weights := make(map[string]float32, len(in.Weights))
+	weights := make([]float32, len(in.TargetVectors))
 	switch in.Combination {
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_AVERAGE:
 		combinationType = dto.Average
-		for _, target := range in.TargetVectors {
-			weights[target] = 1.0 / float32(len(in.TargetVectors))
+		for i := range in.TargetVectors {
+			weights[i] = 1.0 / float32(len(in.TargetVectors))
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_SUM:
 		combinationType = dto.Sum
-		for _, target := range in.TargetVectors {
-			weights[target] = 1.0
+		for i := range in.TargetVectors {
+			weights[i] = 1.0
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
-		if len(in.Weights) != len(in.TargetVectors) {
-			return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
-		}
-		combinationType = dto.ManualWeights
-		for k, v := range in.Weights {
-			weights[k] = v
+		if in.WeightsForTargets == nil {
+		} else {
+			if len(in.Weights) != len(in.TargetVectors) {
+				return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+			}
+			combinationType = dto.ManualWeights
+			for k, v := range in.Weights {
+				ind := indexOf(in.TargetVectors, k)
+				if ind == -1 {
+					return nil, fmt.Errorf("target vector %s not found in target vectors", k)
+				}
+				weights[ind] = v
+			}
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE:
 		combinationType = dto.RelativeScore
-		for k, v := range in.Weights {
-			weights[k] = v
+		if in.WeightsForTargets == nil {
+		} else {
+			if len(in.Weights) != len(in.TargetVectors) {
+				return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+			}
+			combinationType = dto.ManualWeights
+			for k, v := range in.Weights {
+				ind := indexOf(in.TargetVectors, k)
+				if ind == -1 {
+					return nil, fmt.Errorf("target vector %s not found in target vectors", k)
+				}
+
+				weights[ind] = v
+			}
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_UNSPECIFIED:
 		combinationType = dto.DefaultTargetCombinationType
@@ -1078,18 +1097,30 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 		targetVectorsTmp = []string{""}
 	}
 
-	targetsPerVector := make(map[string][]float32, len(targetVectorsTmp))
+	vectors := make([][]float32, len(targetVectorsTmp))
 	if vector != nil {
-		for _, target := range targetVectorsTmp {
-			targetsPerVector[target] = vector
+		for i := range targetVectorsTmp {
+			vectors[i] = vector
 		}
+	} else if nv.VectorForTargets != nil {
+		if len(nv.VectorForTargets) != len(targetVectorsTmp) {
+			return nil, fmt.Errorf("near_vector: vector for target must have the same lengths as target vectors")
+		}
+
+		for i := range nv.VectorForTargets {
+			if nv.VectorForTargets[i].Name != targetVectorsTmp[i] {
+				return nil, fmt.Errorf("near_vector: vector for target %s is required", targetVectorsTmp[i])
+			}
+			vectors[i] = byteops.Float32FromByteVector(nv.VectorForTargets[i].VectorBytes)
+		}
+
 	} else if nv.VectorPerTarget != nil {
 		if len(nv.VectorPerTarget) != len(targetVectorsTmp) {
 			return nil, fmt.Errorf("near_vector: vector per target must be provided for all targets")
 		}
-		for _, target := range targetVectorsTmp {
+		for i, target := range targetVectorsTmp {
 			if vec, ok := nv.VectorPerTarget[target]; ok {
-				targetsPerVector[target] = byteops.Float32FromByteVector(vec)
+				vectors[i] = byteops.Float32FromByteVector(vec)
 			} else {
 				return nil, fmt.Errorf("near_vector: vector for target %s is required", target)
 			}
@@ -1099,7 +1130,16 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 	}
 
 	return &searchparams.NearVector{
-		VectorPerTarget: targetsPerVector,
-		TargetVectors:   targetVectors,
+		Vectors:       vectors,
+		TargetVectors: targetVectors,
 	}, nil
+}
+
+func indexOf(slice []string, value string) int {
+	for i, v := range slice {
+		if v == value {
+			return i
+		}
+	}
+	return -1
 }

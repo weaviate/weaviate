@@ -63,7 +63,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 		}
 
 		searchVector, err := t.nearParamsVector.vectorFromParams(ctx,
-			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant, targetVectors[0])
+			params.NearVector, params.NearObject, params.ModuleParams, className, params.Tenant, targetVectors[0], 0)
 		if err != nil {
 			return nil, err
 		}

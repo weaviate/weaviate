@@ -207,7 +207,7 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 			name: "Should get vector from nearVector",
 			args: args{
 				nearVector: &searchparams.NearVector{
-					VectorPerTarget: map[string][]float32{"": {1.1, 1.0, 0.1}},
+					Vectors: [][]float32{{1.1, 1.0, 0.1}},
 				},
 			},
 			want:    []float32{1.1, 1.0, 0.1},
@@ -271,7 +271,7 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 				modulesProvider: &fakeModulesProvider{},
 				search:          &fakeNearParamsSearcher{},
 			}
-			got, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "", "")
+			got, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "", "", 0)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("nearParamsVector.targetFromParams() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -351,7 +351,7 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 				assert.Empty(t, targetVector)
 			}
 
-			got, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "", tt.wantTargetVector)
+			got, err := e.vectorFromParams(tt.args.ctx, tt.args.nearVector, tt.args.nearObject, tt.args.moduleParams, tt.args.className, "", tt.wantTargetVector, 0)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("nearParamsVector.vectorFromParams() error = %v, wantErr %v", err, tt.wantErr)
 				return

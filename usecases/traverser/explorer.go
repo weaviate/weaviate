@@ -249,7 +249,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 				searchVectorParam = searchVectorParams[i]
 			}
 
-			searchVectors[i], err = e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
+			searchVectors[i], err = e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
 				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
 			}
@@ -683,9 +683,9 @@ func (e *Explorer) targetFromParams(ctx context.Context,
 }
 
 func (e *Explorer) vectorFromParamsForTarget(ctx context.Context,
-	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string,
+	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string, index int,
 ) ([]float32, error) {
-	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target)
+	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target, index)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
@@ -707,7 +707,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 		if len(params.NearVector.TargetVectors) == 1 {
 			targetVector = params.NearVector.TargetVectors[0]
 		}
-		return params.NearVector.VectorPerTarget[targetVector], targetVector, nil
+		return params.NearVector.Vectors[0], targetVector, nil
 	}
 
 	if params.NearObject != nil {

@@ -37,7 +37,7 @@ type idAndDistance struct {
 }
 
 type ResultContainer interface {
-	AddScores(id uint64, targets []string, distances []float32, weights map[string]float32)
+	AddScores(id uint64, targets []string, distances []float32, weights []float32)
 	RemoveIdFromResult(id uint64)
 }
 
@@ -48,7 +48,7 @@ type ResultContainerHybrid struct {
 	allIDs      map[uint64]struct{}
 }
 
-func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
+func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights []float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	newResult := &search.Result{SecondarySortValue: distances[0], DocID: &id, ID: uuidFromUint64(id)}
 	r.ResultsIn = append(r.ResultsIn, newResult)
@@ -62,11 +62,11 @@ type ResultContainerStandard struct {
 	ResultsIn map[uint64]idAndDistance
 }
 
-func (r *ResultContainerStandard) AddScores(id uint64, targets []string, distances []float32, weights map[string]float32) {
+func (r *ResultContainerStandard) AddScores(id uint64, targets []string, distances []float32, weights []float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	tmp := r.ResultsIn[id]
 	for i := 0; i < len(targets); i++ {
-		tmp.distance += distances[i] * weights[targets[i]]
+		tmp.distance += distances[i] * weights[i]
 	}
 	r.ResultsIn[id] = tmp
 }
@@ -118,8 +118,8 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 
 	if targetCombination.Type == dto.RelativeScore {
 		weights := make([]float64, len(results))
-		for i, target := range targetVectors {
-			weights[i] = float64(targetCombination.Weights[target])
+		for i := range targetVectors {
+			weights[i] = float64(targetCombination.Weights[i])
 		}
 
 		scoresToRemove := make(map[uint64]struct{})
@@ -208,7 +208,7 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 					tmp = idAndDistance{docId: results[i][j], distance: 0}
 				}
 
-				weight := targetCombination.Weights[targetVectors[i]]
+				weight := targetCombination.Weights[i]
 				tmp.distance += weight * dists[i][j]
 			}
 			combinedResults[uid] = tmp
@@ -268,7 +268,7 @@ func collectMissingIds(localIDs map[uint64]struct{}, missingIDs map[uint64]targe
 	}
 }
 
-func getScoresOfMissingResults(ctx context.Context, shard DistanceForVector, logger logrus.FieldLogger, missingIDs map[uint64]targetVectorData, combinedResults ResultContainer, weights map[string]float32) error {
+func getScoresOfMissingResults(ctx context.Context, shard DistanceForVector, logger logrus.FieldLogger, missingIDs map[uint64]targetVectorData, combinedResults ResultContainer, weights []float32) error {
 	if len(missingIDs) == 0 {
 		return nil
 	}
