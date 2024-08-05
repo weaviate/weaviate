@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
+var errObjectNotFound = errors.New("object not found")
+
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -119,7 +121,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		if prevObj == nil {
 			uid := uuid.UUID{}
 			uid.UnmarshalBinary(idBytes)
-			return fmt.Errorf("object with id %s not found", uid)
+			return errObjectNotFound
 		}
 
 		obj, _, err = s.mergeObjectData(prevObj, merge)

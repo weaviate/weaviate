@@ -144,7 +144,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 		r.log.WithField("op", "merge").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
 		replicaErr, ok := err.(*Error)
-		if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
+		if ok && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
 			return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
 		}
 	}
