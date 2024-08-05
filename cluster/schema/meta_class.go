@@ -242,7 +242,7 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) e
 	return nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (int, error) {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -291,7 +291,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// Update the version of the shard to the current version
 	m.ShardVersion = v
 
-	return writeIndex, err
+	return err
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.
