@@ -14,7 +14,6 @@ package replica
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -131,11 +130,8 @@ func (r *Replicator) MergeObject(ctx context.Context,
 		}
 		if err != nil {
 			replicaErr, ok := err.(*Error)
-			errType := reflect.TypeOf(err)
 			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
 				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
-			} else {
-				r.logger.WithField("op", "MergeObjects").WithField("ok", ok).WithField("err", err).WithField("errType", errType).Error("Error in merge")
 			}
 		}
 		if err != nil {
@@ -151,9 +147,8 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
 	if err != nil {
-		errType := reflect.TypeOf(err)
 		r.log.WithField("op", "put").WithField("class", r.class).
-			WithField("shard", shard).WithField("uuid", doc.ID).WithField("errType", errType).Error(err)
+			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
 	}
 	return err
 }
@@ -318,11 +313,8 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 		}
 		if err != nil {
 			replicaErr, ok := err.(*Error)
-			errType := reflect.TypeOf(err)
 			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
 				return resp, objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
-			} else {
-				r.logger.WithField("op", "MergeObjects").WithField("ok", ok).WithField("err", err).WithField("errType", errType).Error("Error in merge")
 			}
 		}
 		if err != nil {
