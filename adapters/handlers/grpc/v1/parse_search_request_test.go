@@ -1524,7 +1524,7 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
 				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
@@ -1704,7 +1704,7 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false, Certainty: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
 				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
@@ -1725,7 +1725,28 @@ func TestGRPCRequest(t *testing.T) {
 				AdditionalProperties: additional.Properties{
 					NoProps: false, Certainty: false,
 				},
-				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{}},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0, 0, 0}},
+				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {2, 3, 4}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
+			},
+			error: false,
+		},
+		{
+			name: "Multi vector input with weights",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					Targets:          &pb.Targets{TargetVectors: []string{"first", "first", "second"}, Combination: pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL, WeightsForTargets: []*pb.WeightsForTarget{{Target: "first", Weight: 0.1}, {Target: "first", Weight: 0.9}, {Target: "second", Weight: 0.5}}},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "first", VectorBytes: byteVector([]float32{1, 2, 3})}, {Name: "first", VectorBytes: byteVector([]float32{2, 3, 4})}, {Name: "second", VectorBytes: byteVector([]float32{1, 2, 3, 4})}},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{0.1, 0.9, 0.5}},
 				NearVector:              &searchparams.NearVector{Vectors: [][]float32{{1, 2, 3}, {2, 3, 4}, {1, 2, 3, 4}}, TargetVectors: []string{"first", "first", "second"}},
 			},
 			error: false,

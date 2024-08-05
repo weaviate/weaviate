@@ -436,6 +436,35 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 		return nil, nil
 	}
 
+	manualScoresDeprecated := func(weightsTmp []float32) error {
+		if len(in.Weights) != len(in.TargetVectors) {
+			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+		}
+
+		for k, v := range in.Weights {
+			ind := indexOf(in.TargetVectors, k)
+			if ind == -1 {
+				return fmt.Errorf("target vector %s not found in target vectors", k)
+			}
+			weightsTmp[ind] = v
+		}
+		return nil
+	}
+
+	manualScores := func(weightsTmp []float32) error {
+		if len(in.WeightsForTargets) != len(in.TargetVectors) {
+			return fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+		}
+
+		for i, v := range in.WeightsForTargets {
+			if v.Target != in.TargetVectors[i] {
+				return fmt.Errorf("target vector %s not found in target vectors", v.Target)
+			}
+			weightsTmp[i] = v.Weight
+		}
+		return nil
+	}
+
 	var combinationType dto.TargetCombinationType
 	weights := make([]float32, len(in.TargetVectors))
 	switch in.Combination {
@@ -452,35 +481,27 @@ func extractTargets(in *pb.Targets) (*dto.TargetCombination, error) {
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MIN:
 		combinationType = dto.Minimum
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_MANUAL:
-		if in.WeightsForTargets == nil {
-		} else {
-			if len(in.Weights) != len(in.TargetVectors) {
-				return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
+		combinationType = dto.ManualWeights
+		if in.WeightsForTargets != nil {
+			if err := manualScores(weights); err != nil {
+				return nil, err
 			}
-			combinationType = dto.ManualWeights
-			for k, v := range in.Weights {
-				ind := indexOf(in.TargetVectors, k)
-				if ind == -1 {
-					return nil, fmt.Errorf("target vector %s not found in target vectors", k)
-				}
-				weights[ind] = v
+		} else {
+			if err := manualScoresDeprecated(weights); err != nil {
+				return nil, err
 			}
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_TYPE_RELATIVE_SCORE:
 		combinationType = dto.RelativeScore
-		if in.WeightsForTargets == nil {
-		} else {
-			if len(in.Weights) != len(in.TargetVectors) {
-				return nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(in.Weights), len(in.TargetVectors))
-			}
-			combinationType = dto.ManualWeights
-			for k, v := range in.Weights {
-				ind := indexOf(in.TargetVectors, k)
-				if ind == -1 {
-					return nil, fmt.Errorf("target vector %s not found in target vectors", k)
+		if in.WeightsForTargets != nil {
+			if in.WeightsForTargets != nil {
+				if err := manualScores(weights); err != nil {
+					return nil, err
 				}
-
-				weights[ind] = v
+			} else {
+				if err := manualScoresDeprecated(weights); err != nil {
+					return nil, err
+				}
 			}
 		}
 	case pb.CombinationMethod_COMBINATION_METHOD_UNSPECIFIED:
