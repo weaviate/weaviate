@@ -345,50 +345,71 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.shards.Store(shardName, shard)
 	}
 
-	f := func() {
+	initLazyShardsInBackground := func() {
+		defer i.allShardsReady.Store(true)
+
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		defer i.allShardsReady.Store(true)
+
 		now := time.Now()
-		err := i.ForEachShard(func(name string, shard ShardLike) error {
+
+		for _, shardName := range shardState.AllLocalPhysicalShards() {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
 			// cases where available
 			select {
 			case <-i.closingCtx.Done():
 				// break loop by returning error
-				return i.closingCtx.Err()
+				i.logger.
+					WithField("action", "load_all_shards").
+					Errorf("failed to load all shards: %v", i.closingCtx.Err())
+				return
 			case <-ticker.C:
 				select {
 				case <-i.closingCtx.Done():
 					// break loop by returning error
-					return i.closingCtx.Err()
+					i.logger.
+						WithField("action", "load_all_shards").
+						Errorf("failed to load all shards: %v", i.closingCtx.Err())
+					return
 				default:
-					lazyShard, ok := shard.(*LazyLoadShard)
-					if ok {
-						if err := lazyShard.Load(context.Background()); err != nil {
-							i.logger.
-								WithField("action", "load_shard").
-								WithField("shard_name", shard.Name()).
-								Errorf("failed to load shard: %v", err)
-						}
+					err := i.loadLocalShardIfActive(shardName)
+					if err != nil {
+						i.logger.
+							WithField("action", "load_shard").
+							WithField("shard_name", shardName).
+							Errorf("failed to load shard: %v", err)
+						return
 					}
-					return nil
 				}
 			}
-		})
-		if err != nil {
-			i.logger.
-				WithField("action", "load_all_shards").
-				Errorf("failed to load all shards: %v", err)
-			return
 		}
+
 		i.logger.
 			WithField("action", "load_all_shards").
 			WithField("took", time.Since(now).String()).
 			Debug("finished loading all shards")
 	}
-	enterrors.GoWrapper(f, i.logger)
+
+	enterrors.GoWrapper(initLazyShardsInBackground, i.logger)
+
+	return nil
+}
+
+func (i *Index) loadLocalShardIfActive(shardName string) error {
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	// check if set to inactive in the meantime by concurrent call
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	lazyShard, ok := shard.(*LazyLoadShard)
+	if ok {
+		return lazyShard.Load(context.Background())
+	}
 
 	return nil
 }
