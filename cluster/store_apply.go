@@ -106,7 +106,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			}).Debug("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
 		}
-		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
