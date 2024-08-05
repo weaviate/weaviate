@@ -1699,11 +1699,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl); err != nil {
-			wrapped := fmt.Errorf("replicate single update: %w", err)
-			if errors.As(err, &objects.ErrDirtyWriteOfDeletedObject{}) {
-				return objects.NewErrDirtyWriteOfDeletedObject(wrapped)
-			}
-			return wrapped
+			return fmt.Errorf("replicate single update: %w", err)
 		}
 		return nil
 	}

@@ -139,8 +139,6 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 			switch err.(type) {
 			case objects.ErrMultiTenancy:
 				return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", index.ID(), err))
-			case objects.ErrDirtyReadOfDeletedObject:
-				return nil, objects.NewErrDirtyReadOfDeletedObject((fmt.Errorf("search index %s: %w", index.ID(), err)))
 			default:
 				return nil, errors.Wrapf(err, "search index %s", index.ID())
 			}
@@ -175,8 +173,6 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 		switch err.(type) {
 		case objects.ErrMultiTenancy:
 			return nil, objects.NewErrMultiTenancy(fmt.Errorf("search index %s: %w", idx.ID(), err))
-		case objects.ErrDirtyReadOfDeletedObject:
-			return nil, objects.NewErrDirtyReadOfDeletedObject((fmt.Errorf("search index %s: %w", idx.ID(), err)))
 		default:
 			return nil, errors.Wrapf(err, "search index %s", idx.ID())
 		}
@@ -268,11 +264,7 @@ func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
 
 	err := idx.mergeObject(ctx, merge, repl, tenant)
 	if err != nil {
-		wrapped := errors.Wrapf(err, "merge into index %s", idx.ID())
-		if errors.As(err, &objects.ErrDirtyWriteOfDeletedObject{}) {
-			return objects.NewErrDirtyWriteOfDeletedObject(wrapped)
-		}
-		return wrapped
+		return errors.Wrapf(err, "merge into index %s", idx.ID())
 	}
 
 	return nil
