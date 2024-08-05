@@ -119,8 +119,6 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		}
 
 		if prevObj == nil {
-			uid := uuid.UUID{}
-			uid.UnmarshalBinary(idBytes)
 			return errObjectNotFound
 		}
 
