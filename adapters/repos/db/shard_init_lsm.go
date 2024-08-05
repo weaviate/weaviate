@@ -17,7 +17,6 @@ import (
 	"path"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -42,15 +41,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	err := s.initLSMStore()
 	if err != nil {
 		return fmt.Errorf("init shard %q: lsm store: %w", s.ID(), err)
-	}
-
-	if s.index.asyncReplicationEnabled() {
-		err = s.initHashTree(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "init shard %q: shard hashtree", s.ID())
-		}
-	} else if s.index.replicationEnabled() {
-		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
 	}
 
 	// the shard versioner is also dependency of some of the bucket
@@ -81,6 +71,16 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		// annotate error with shard id only once, all inner functions should only
 		// annotate what they do, but not repeat the shard id.
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
+	}
+
+	// Object bucket must be available, initHashTree depends on it
+	if s.index.asyncReplicationEnabled() {
+		err = s.initHashTree(ctx)
+		if err != nil {
+			return fmt.Errorf("init shard %q: shard hashtree: %w", s.ID(), err)
+		}
+	} else if s.index.replicationEnabled() {
+		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
 	}
 
 	return nil
