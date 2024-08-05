@@ -98,6 +98,12 @@ func (r *Replicator) PutObject(ctx context.Context,
 			err = resp.FirstError()
 		}
 		if err != nil {
+			replicaErr, ok := err.(*Error)
+			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
+				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
+			}
+		}
+		if err != nil {
 			return fmt.Errorf("%q: %w", host, err)
 		}
 		return nil
