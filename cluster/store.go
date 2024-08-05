@@ -233,7 +233,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
-	if st.cfg.BootstrapExpect == 1 {
+	if st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2 {
 		if err := st.recoverSingleNode(); err != nil {
 			return err
 		}
@@ -658,11 +658,12 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 // used in a single cluster node.
 // for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
 func (st *Store) recoverSingleNode() error {
-	if st.cfg.BootstrapExpect > 1 {
-		return fmt.Errorf("bootstrap expect is more than 1, can't perform auto recovery in multi node cluster")
+	if st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1 {
+		return fmt.Errorf("bootstrap expect  %v,  candidates %v, can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
 	}
 	servers := st.raft.GetConfiguration().Configuration().Servers
-	if len(servers) == 0 {
+	// nothing to do here, wasn't a single node
+	if len(servers) == 0 || len(servers) > 1 {
 		return nil
 	}
 
@@ -672,6 +673,8 @@ func (st *Store) recoverSingleNode() error {
 		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
 		Suffrage: raft.Voter,
 	}
+
+	// same node nothing to do here
 	if exNode.ID == newNode.ID && exNode.Address == newNode.Address {
 		return nil
 	}
@@ -697,7 +700,11 @@ func (st *Store) recoverSingleNode() error {
 		schemaManager: st.schemaManager,
 		logStore:      st.logStore,
 		logCache:      st.logCache,
-	}, st.logCache, st.logStore, st.snapshotStore, st.raftTransport, raft.Configuration{Servers: []raft.Server{newNode}}); err != nil {
+	}, st.logCache,
+		st.logStore,
+		st.snapshotStore,
+		st.raftTransport,
+		raft.Configuration{Servers: []raft.Server{newNode}}); err != nil {
 		return err
 	}
 
