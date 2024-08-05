@@ -37,7 +37,7 @@ type idAndDistance struct {
 }
 
 type ResultContainer interface {
-	AddScores(id uint64, targets []string, distances []float32, weight float32)
+	AddScores(id uint64, targets []string, distances []float32, weights []float32)
 	RemoveIdFromResult(id uint64)
 }
 
@@ -48,7 +48,7 @@ type ResultContainerHybrid struct {
 	allIDs      map[uint64]struct{}
 }
 
-func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weight float32) {
+func (r *ResultContainerHybrid) AddScores(id uint64, targets []string, distances []float32, weights []float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	newResult := &search.Result{SecondarySortValue: distances[0], DocID: &id, ID: uuidFromUint64(id)}
 	r.ResultsIn = append(r.ResultsIn, newResult)
@@ -62,11 +62,11 @@ type ResultContainerStandard struct {
 	ResultsIn map[uint64]idAndDistance
 }
 
-func (r *ResultContainerStandard) AddScores(id uint64, targets []string, distances []float32, weight float32) {
+func (r *ResultContainerStandard) AddScores(id uint64, targets []string, distances []float32, weights []float32) {
 	// we need to add a copy of the properties etc to make sure that the correct object is returned
 	tmp := r.ResultsIn[id]
 	for i := 0; i < len(targets); i++ {
-		tmp.distance += distances[i] * weight
+		tmp.distance += distances[i] * weights[i]
 	}
 	r.ResultsIn[id] = tmp
 }
@@ -78,7 +78,7 @@ func (r *ResultContainerStandard) RemoveIdFromResult(id uint64) {
 type targetVectorData struct {
 	target       []string
 	searchVector [][]float32
-	weight       float32
+	weights      []float32
 }
 
 func uuidFromUint64(id uint64) strfmt.UUID {
@@ -260,10 +260,11 @@ func collectMissingIds(localIDs map[uint64]struct{}, missingIDs map[uint64]targe
 	for id := range localIDs {
 		val, ok := missingIDs[id]
 		if !ok {
-			val = targetVectorData{target: []string{targetVectors[i]}, searchVector: [][]float32{searchVectors[i]}, weight: weights[i]}
+			val = targetVectorData{target: []string{targetVectors[i]}, searchVector: [][]float32{searchVectors[i]}, weights: []float32{weights[i]}}
 		} else {
 			val.target = append(val.target, targetVectors[i])
 			val.searchVector = append(val.searchVector, searchVectors[i])
+			val.weights = append(val.weights, weights[i])
 		}
 		missingIDs[id] = val
 	}
@@ -288,7 +289,7 @@ func getScoresOfMissingResults(ctx context.Context, shard DistanceForVector, log
 				// when we cannot look up missing distances for an object, it will be removed from the result list
 				combinedResults.RemoveIdFromResult(id)
 			} else {
-				combinedResults.AddScores(id, targets.target, distances, targets.weight)
+				combinedResults.AddScores(id, targets.target, distances, targets.weights)
 			}
 			return nil
 		}
