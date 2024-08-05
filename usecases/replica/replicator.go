@@ -98,12 +98,6 @@ func (r *Replicator) PutObject(ctx context.Context,
 			err = resp.FirstError()
 		}
 		if err != nil {
-			replicaErr, ok := err.(*Error)
-			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
-				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
-			}
-		}
-		if err != nil {
 			return fmt.Errorf("%q: %w", host, err)
 		}
 		return nil
@@ -135,9 +129,10 @@ func (r *Replicator) MergeObject(ctx context.Context,
 			err = resp.FirstError()
 		}
 		if err != nil {
+			r.logger.WithField("op", "mergeObject").WithField("err", fmt.Sprintf("%+v", err)).Info("error")
 			replicaErr, ok := err.(*Error)
 			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
-				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
+				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
 			}
 		}
 		if err != nil {
@@ -153,7 +148,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
 	if err != nil {
-		r.log.WithField("op", "put").WithField("class", r.class).
+		r.log.WithField("op", "merge").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
 	}
 	return err
@@ -318,9 +313,10 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 			err = resp.FirstError()
 		}
 		if err != nil {
+			r.logger.WithField("op", "simpleCommit").WithField("err", fmt.Sprintf("%+v", err)).Info("error")
 			replicaErr, ok := err.(*Error)
 			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
-				return resp, objects.NewErrDirtyWriteOfDeletedObject(replicaErr.Err)
+				return resp, objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
 			}
 		}
 		if err != nil {
