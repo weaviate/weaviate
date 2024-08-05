@@ -183,7 +183,7 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 
 // ReplaceStatesNodeName it update the node name inside sharding states.
 // WARNING: this shall be used in one node cluster environments only.
-// because it update the shard node name if the node name got update.
+// because it will replace the shard node name if it did find matched old name.
 func (s *SchemaManager) ReplaceStatesNodeName(old, new string) {
 	s.schema.replaceStatesNodeName(old, new)
 }
