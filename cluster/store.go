@@ -205,8 +205,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
 
-	rLog := rLog{st.logStore}
-	l, err := rLog.LastAppliedCommand()
+	l, err := st.LastAppliedCommand()
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
