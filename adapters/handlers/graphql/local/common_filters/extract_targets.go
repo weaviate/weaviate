@@ -55,30 +55,39 @@ func ExtractTargets(source map[string]interface{}) ([]string, *dto.TargetCombina
 			weightsIn = weightsGQL.(map[string]float64)
 		}
 
-		weights := make(map[string]float32, len(targetVectors))
+		weights := make([]float32, len(targetVectors))
 		switch targetCombinationType {
 		case dto.Average:
-			for _, target := range targetVectors {
-				weights[target] = 1.0 / float32(len(targetVectors))
+			for i := range targetVectors {
+				weights[i] = 1.0 / float32(len(targetVectors))
 			}
 		case dto.Sum:
-			for _, target := range targetVectors {
-				weights[target] = 1.0
+			for i := range targetVectors {
+				weights[i] = 1.0
 			}
 		case dto.Minimum:
 		case dto.ManualWeights:
 			if len(weightsIn) != len(targetVectors) {
 				return nil, nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(weightsIn), len(targetVectors))
 			}
+
 			for k, v := range weightsIn {
-				weights[k] = float32(v)
+				ind := indexOf(targetVectors, k)
+				if ind == -1 {
+					return nil, nil, fmt.Errorf("target vector %s not found in target vectors", k)
+				}
+				weights[ind] = float32(v)
 			}
 		case dto.RelativeScore:
 			if len(weightsIn) != len(targetVectors) {
 				return nil, nil, fmt.Errorf("number of weights (%d) does not match number of targets (%d)", len(weightsIn), len(targetVectors))
 			}
 			for k, v := range weightsIn {
-				weights[k] = float32(v)
+				ind := indexOf(targetVectors, k)
+				if ind == -1 {
+					return nil, nil, fmt.Errorf("target vector %s not found in target vectors", k)
+				}
+				weights[ind] = float32(v)
 			}
 		default:
 			return nil, nil, fmt.Errorf("unknown combination method %v", targetCombinationType)
@@ -97,4 +106,13 @@ func ExtractTargets(source map[string]interface{}) ([]string, *dto.TargetCombina
 		}
 	}
 	return nil, nil, nil
+}
+
+func indexOf(slice []string, value string) int {
+	for i, v := range slice {
+		if v == value {
+			return i
+		}
+	}
+	return -1
 }

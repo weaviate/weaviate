@@ -65,19 +65,21 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 			vector[i] = float32(value.(float64))
 		}
 		if len(targetVectors) == 0 {
-			args.VectorPerTarget = map[string][]float32{"": vector}
+			args.Vectors = [][]float32{vector}
 		} else {
-			args.VectorPerTarget = make(map[string][]float32, len(targetVectors))
-			for _, target := range targetVectors {
-				args.VectorPerTarget[target] = vector
+			args.Vectors = make([][]float32, len(targetVectors))
+			for i := range targetVectors {
+				args.Vectors[i] = vector
 			}
 		}
 	}
 
 	if okVecPerTarget {
 		targets := make([]string, 0, len(vectorPerTarget))
+		vectors := make([][]float32, 0, len(vectorPerTarget))
 		for target := range vectorPerTarget {
 			targets = append(targets, target)
+			vectors = append(vectors, vectorPerTarget[target])
 		}
 
 		if len(targetVectors) == 0 {
@@ -97,7 +99,7 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 			}
 
 		}
-		args.VectorPerTarget = vectorPerTarget
+		args.Vectors = vectors
 	}
 
 	return args, combination, nil

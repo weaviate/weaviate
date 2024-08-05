@@ -328,8 +328,8 @@ func TestSearcher(t *testing.T) {
 						Type:          "hybrid",
 						Alpha:         1.0,
 						NearVectorParams: &searchparams.NearVector{
-							VectorPerTarget: map[string][]float32{"": {1, 2, 3}},
-							Certainty:       0.8,
+							Vectors:   [][]float32{{1, 2, 3}},
+							Certainty: 0.8,
 						},
 					},
 					Class: class,
