@@ -315,7 +315,9 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 		if err != nil {
 			r.logger.WithField("op", "simpleCommit").WithField("err", fmt.Sprintf("%+v", err)).Info("error")
 			replicaErr, ok := err.(*Error)
+			r.logger.WithField("op", "simpleCommit").WithField("ok", ok).WithField("err", fmt.Sprintf("%+v", replicaErr)).Info("error")
 			if ok && replicaErr != nil && replicaErr.Code == StatusConflict {
+				r.logger.WithField("op", "simpleCommit").WithField("code", replicaErr.Code).Info("error")
 				return resp, objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
 			}
 		}
