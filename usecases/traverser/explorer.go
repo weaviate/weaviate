@@ -234,7 +234,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return res, []float32{}, nil
 }
 
-func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	var err error
 	searchVectors := make([][]float32, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
@@ -246,7 +246,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 			if params.NearVector != nil {
 				searchVectorParam = params.NearVector
 			} else if searchVectorParams != nil {
-				searchVectorParam = searchVectorParams[i]
+				searchVectorParam = searchVectorParams
 			}
 
 			searchVectors[i], err = e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
