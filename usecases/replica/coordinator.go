@@ -206,6 +206,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 func (c *coordinator[T]) Pull(ctx context.Context,
 	cl ConsistencyLevel,
 	op readOp[T], directCandidate string,
+	timeout time.Duration,
 ) (<-chan _Result[T], rState, error) {
 	state, err := c.Resolver.State(c.Shard, cl, directCandidate)
 	if err != nil {
@@ -233,12 +234,14 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 			isFullReadWorker := hostIndex == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
+				workerCtx, workerCancel := context.WithTimeout(ctx, timeout)
+				defer workerCancel()
 				// each worker will first try its corresponding host (eg worker0 tries hosts[0],
 				// worker1 tries hosts[1], etc). We want the fullRead to be tried on hosts[0]
 				// because that will be the direct candidate (if a direct candidate was provided),
 				// if we only used the retry queue then we would not have the guarantee that the
 				// fullRead will be tried on hosts[0] first.
-				resp, err := op(ctx, hosts[hostIndex], isFullReadWorker)
+				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker)
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
 				if err == nil {
@@ -253,7 +256,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
-					resp, err := op(ctx, hr.host, isFullReadWorker)
+					resp, err := op(workerCtx, hr.host, isFullReadWorker)
 					if err == nil {
 						replyCh <- _Result[T]{resp, err}
 						return
