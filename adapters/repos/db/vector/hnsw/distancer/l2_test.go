@@ -24,11 +24,9 @@ func TestL2Distancer(t *testing.T) {
 		vec2 := []float32{3, 4, 5}
 		expectedDistance := float32(0)
 
-		dist, ok, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
+		dist, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewL2SquaredProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+		control, err := NewL2SquaredProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -39,11 +37,10 @@ func TestL2Distancer(t *testing.T) {
 		vec2 := []float32{1.5, 2, 2.5}
 		expectedDistance := float32(12.5)
 
-		dist, ok, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
+		dist, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewL2SquaredProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewL2SquaredProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -54,11 +51,9 @@ func TestL2Distancer(t *testing.T) {
 		vec2 := []float32{13, 15}
 		expectedDistance := float32(25)
 
-		dist, ok, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
+		dist, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewL2SquaredProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+		control, err := NewL2SquaredProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -70,9 +65,8 @@ func TestL2DistancerStepbyStep(t *testing.T) {
 		vec1 := []float32{3, 4, 5}
 		vec2 := []float32{1.5, 2, 2.5}
 
-		expectedDistance, ok, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
+		expectedDistance, err := NewL2SquaredProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
 
 		distanceProvider := NewL2SquaredProvider()
 		sum := float32(0.0)

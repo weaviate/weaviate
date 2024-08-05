@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"net"
 
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	pbv0 "github.com/weaviate/weaviate/grpc/generated/protocol/v0"
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -45,6 +47,13 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 				Fatalf("grpc server TLS credential error: %s", err)
 		}
 		o = append(o, grpc.Creds(c))
+	}
+
+	// If sentry is enabled add automatic spans on gRPC requests
+	if state.ServerConfig.Config.Sentry.Enabled {
+		o = append(o, grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
+			grpc_sentry.UnaryServerInterceptor(),
+		)))
 	}
 
 	s := grpc.NewServer(o...)

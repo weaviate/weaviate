@@ -72,8 +72,8 @@ func CreateAuth(apiKey strfmt.UUID, apiToken string) runtime.ClientAuthInfoWrite
 	return authWriter
 }
 
-func ClientGRPC(t *testing.T) pb.WeaviateClient {
-	conn, err := CreateGrpcConnectionClient(":50051")
+func ClientGRPC(t *testing.T, uri string) pb.WeaviateClient {
+	conn, err := CreateGrpcConnectionClient(uri)
 	require.NoError(t, err)
 	require.NotNil(t, conn)
 	grpcClient := CreateGrpcWeaviateClient(conn)

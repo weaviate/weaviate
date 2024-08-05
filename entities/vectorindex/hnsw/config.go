@@ -22,7 +22,7 @@ import (
 const (
 	// Set these defaults if the user leaves them blank
 	DefaultCleanupIntervalSeconds = 5 * 60
-	DefaultMaxConnections         = 64
+	DefaultMaxConnections         = 32
 	DefaultEFConstruction         = 128
 	DefaultEF                     = -1 // indicates "let Weaviate pick"
 	DefaultDynamicEFMin           = 100

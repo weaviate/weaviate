@@ -55,18 +55,9 @@ func TestGenerativeManyModules_SingleNode(t *testing.T) {
 	}
 	// OpenAI
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
-	if openAIApiKey == "" {
-		t.Skip("skipping, OPENAI_APIKEY environment variable not present")
-	}
 	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
-	if openAIApiKey == "" {
-		t.Skip("skipping, OPENAI_ORGANIZATION environment variable not present")
-	}
 	// Cohere
 	cohereApiKey := os.Getenv("COHERE_APIKEY")
-	if cohereApiKey == "" {
-		t.Skip("skipping, COHERE_APIKEY environment variable not present")
-	}
 	ctx := context.Background()
 	compose, err := createSingleNodeEnvironment(ctx, accessKey, secretKey, sessionToken,
 		openAIApiKey, openAIOrganization, googleApiKey, cohereApiKey,
@@ -76,8 +67,9 @@ func TestGenerativeManyModules_SingleNode(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
+	ollamaApiEndpoint := compose.GetOllamaGenerative().GetEndpoint("apiEndpoint")
 
-	t.Run("tests", testGenerativeManyModules(endpoint, region, gcpProject))
+	t.Run("tests", testGenerativeManyModules(endpoint, ollamaApiEndpoint, region, gcpProject))
 }
 
 func createSingleNodeEnvironment(ctx context.Context,
@@ -89,7 +81,7 @@ func createSingleNodeEnvironment(ctx context.Context,
 		openAIApiKey, openAIOrganization, googleApiKey, cohereApiKey,
 	).
 		WithWeaviate().
-		WithWeaviateEnv("EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }
@@ -100,11 +92,10 @@ func composeModules(accessKey, secretKey, sessionToken string,
 ) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecTransformers().
-		WithText2VecAWS(accessKey, secretKey, sessionToken).
+		WithGenerativeOllama().
 		WithGenerativeAWS(accessKey, secretKey, sessionToken).
-		WithGenerativeOpenAI(openAIApiKey, openAIOrganization, "").
 		WithGenerativePaLM(googleApiKey).
-		WithGenerativeCohere(cohereApiKey).
-		WithGenerativeOllama()
+		WithGenerativeOpenAI(openAIApiKey, openAIOrganization, "").
+		WithGenerativeCohere(cohereApiKey)
 	return
 }

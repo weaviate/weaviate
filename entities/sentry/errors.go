@@ -9,15 +9,24 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package configbase
+package sentry
 
-import "strings"
+import (
+	libsentry "github.com/getsentry/sentry-go"
+)
 
-func Enabled(value string) bool {
-	switch strings.ToLower(value) {
-	case "on", "enabled", "1", "true":
-		return true
-	default:
-		return false
+func Recover(err any) {
+	if !Enabled() {
+		return
 	}
+
+	libsentry.CurrentHub().Recover(err)
+}
+
+func CaptureException(err error) {
+	if !Enabled() {
+		return
+	}
+
+	libsentry.CaptureException(err)
 }

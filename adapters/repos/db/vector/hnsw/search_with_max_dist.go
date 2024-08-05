@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
@@ -30,14 +31,14 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
 		defer returnFn()
 	}
-	entryPointDistance, ok, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
-	if err != nil {
-		return nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
-	}
-
-	if !ok {
+	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
+	var e storobj.ErrNotFound
+	if err != nil && errors.As(err, &e) {
 		return nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
+	}
+	if err != nil {
+		return nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
 	// stop at layer 1, not 0!

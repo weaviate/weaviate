@@ -75,6 +75,38 @@ func TestModulesWithSearchers(t *testing.T) {
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
 	})
 
+	t.Run("no module configured for a class", func(t *testing.T) {
+		p := NewProvider(logger)
+		p.SetSchemaGetter(&fakeSchemaGetter{
+			schema: sch,
+		})
+		p.Register(newSearcherModule("mod").
+			withArg("nearGrape").
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
+				className string,
+				findVectorFn modulecapabilities.FindVectorFn,
+				cfg moduletools.ClassConfig,
+			) ([]float32, error) {
+				// verify that the config tool is set, as this is a per-class search,
+				// so it must be set
+				assert.NotNil(t, cfg)
+
+				// take the findVectorFn and append one dimension. This doesn't make too
+				// much sense, but helps verify that the modules method was used in the
+				// decisions
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
+				return append(initial, 4), nil
+			}),
+		)
+		p.Init(context.Background(), nil, logger)
+
+		_, err := p.VectorFromSearchParam(context.Background(), "MyClass", "", "",
+			"nearDoesNotExist", nil, fakeFindVector)
+
+		require.NotNil(t, err)
+		assert.Contains(t, err.Error(), "could not vectorize input for collection")
+	})
+
 	t.Run("get a vector across classes", func(t *testing.T) {
 		p := NewProvider(logger)
 		p.SetSchemaGetter(&fakeSchemaGetter{
@@ -110,6 +142,41 @@ func TestModulesWithSearchers(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, []float32{1, 2, 3, 4}, res)
 		assert.Equal(t, "", targetVector)
+	})
+
+	t.Run("explore no vectorizer", func(t *testing.T) {
+		p := NewProvider(logger)
+		p.SetSchemaGetter(&fakeSchemaGetter{
+			schema: sch,
+		})
+		p.Register(newSearcherModule("mod").
+			withArg("nearGrape").
+			withSearcher("nearGrape", func(ctx context.Context, params interface{},
+				className string,
+				findVectorFn modulecapabilities.FindVectorFn,
+				cfg moduletools.ClassConfig,
+			) ([]float32, error) {
+				// this is a cross-class search, such as is used for Explore{}, in this
+				// case we do not have class-based config, but we need at least pass
+				// a tenant information, that's why we pass an empty config with empty tenant
+				// so that it would be possible to perform cross class searches, without
+				// tenant context. Modules must be able to deal with this situation!
+				assert.NotNil(t, cfg)
+				assert.Equal(t, "", cfg.Tenant())
+
+				// take the findVectorFn and append one dimension. This doesn't make too
+				// much sense, but helps verify that the modules method was used in the
+				// decisions
+				initial, _, _ := findVectorFn(ctx, "class", "123", "", "")
+				return append(initial, 4), nil
+			}),
+		)
+		p.Init(context.Background(), nil, logger)
+
+		_, _, err := p.CrossClassVectorFromSearchParam(context.Background(),
+			"nearDoesNotExist", nil, fakeFindVector)
+
+		require.NotNil(t, err)
 	})
 }
 

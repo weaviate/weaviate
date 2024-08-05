@@ -35,7 +35,7 @@ func manyModulesTests(endpoint string) func(t *testing.T) {
 
 			expectedModuleNames := []string{
 				"generative-cohere", "generative-palm", "generative-openai", "generative-aws", "generative-anyscale",
-				"text2vec-cohere", "text2vec-contextionary", "text2vec-openai", "text2vec-huggingface",
+				"generative-anthropic", "text2vec-cohere", "text2vec-contextionary", "text2vec-openai", "text2vec-huggingface",
 				"text2vec-palm", "text2vec-aws", "text2vec-transformers", "qna-openai", "reranker-cohere",
 				"text2vec-voyageai", "reranker-voyageai",
 			}

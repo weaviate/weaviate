@@ -22,6 +22,7 @@ import (
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -30,6 +31,8 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	wsync "github.com/weaviate/weaviate/entities/sync"
 )
+
+var ErrAlreadyClosed = errors.New("store already closed")
 
 // Store groups multiple buckets together, it "owns" one folder on the file
 // system
@@ -50,6 +53,9 @@ type Store struct {
 	// Prevent concurrent manipulations to the same Bucket, specially if there is
 	// action on the bucket in the meantime.
 	bucketsLocks *wsync.KeyLocker
+
+	closeLock sync.RWMutex
+	closed    bool
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -79,7 +85,14 @@ func (s *Store) Bucket(name string) *Bucket {
 	return s.bucketsByName[name]
 }
 
-func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) {
+func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: updating buckets state in store %q", ErrAlreadyClosed, s.dir)
+	}
+
 	// UpdateBucketsStatus is a write operation on the bucket itself, but from
 	// the perspective of our bucket access map this is a read-only operation,
 	// hence an RLock()
@@ -99,6 +112,8 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) {
 			WithField("path", s.dir).
 			Warn("compaction halted due to shard READONLY status")
 	}
+
+	return nil
 }
 
 func (s *Store) init() error {
@@ -133,6 +148,8 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 			return
 		}
 
+		entsentry.Recover(p)
+
 		err = fmt.Errorf("unexpected error loading bucket %q at path %q: %v",
 			bucketName, s.rootDir, p)
 		// logger is already annotated to identify the store (e.g. collection +
@@ -148,6 +165,13 @@ func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 			WithError(err).Errorf("unexpected error loading shard")
 		debug.PrintStack()
 	}()
+
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: adding a bucket %q to store %q", ErrAlreadyClosed, bucketName, s.dir)
+	}
 
 	s.bucketsLocks.Lock(bucketName)
 	defer s.bucketsLocks.Unlock(bucketName)
@@ -177,8 +201,17 @@ func (s *Store) setBucket(name string, b *Bucket) {
 }
 
 func (s *Store) Shutdown(ctx context.Context) error {
-	s.bucketAccessLock.RLock()
-	defer s.bucketAccessLock.RUnlock()
+	s.closeLock.Lock()
+	defer s.closeLock.Unlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: closing store %q", ErrAlreadyClosed, s.dir)
+	}
+
+	s.closed = true
+
+	s.bucketAccessLock.Lock()
+	defer s.bucketAccessLock.Unlock()
 
 	for name, bucket := range s.bucketsByName {
 		if err := bucket.Shutdown(ctx); err != nil {
@@ -190,6 +223,13 @@ func (s *Store) Shutdown(ctx context.Context) error {
 }
 
 func (s *Store) WriteWALs() error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: writing wals of store %q", ErrAlreadyClosed, s.dir)
+	}
+
 	s.bucketAccessLock.RLock()
 	defer s.bucketAccessLock.RUnlock()
 
@@ -319,6 +359,13 @@ func (s *Store) GetBucketsByName() map[string]*Bucket {
 func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
 ) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: adding a bucket %q to store %q", ErrAlreadyClosed, bucketName, s.dir)
+	}
+
 	s.bucketsLocks.Lock(bucketName)
 	defer s.bucketsLocks.Unlock(bucketName)
 
@@ -338,6 +385,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	}
 
 	s.setBucket(bucketName, b)
+
 	return nil
 }
 
@@ -349,6 +397,13 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 // its files deleted.
 // 2nd bucket becomes 1st bucket
 func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucketName string) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: replacing bucket %q for %q in store %q", ErrAlreadyClosed, bucketName, replacementBucketName, s.dir)
+	}
+
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 
@@ -389,6 +444,13 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 }
 
 func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName string) error {
+	s.closeLock.RLock()
+	defer s.closeLock.RUnlock()
+
+	if s.closed {
+		return fmt.Errorf("%w: renaming bucket %q for %q in store %q", ErrAlreadyClosed, bucketName, newBucketName, s.dir)
+	}
+
 	s.bucketAccessLock.Lock()
 	defer s.bucketAccessLock.Unlock()
 

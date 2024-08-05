@@ -12,15 +12,19 @@
 package test
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	eschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
+	uschema "github.com/weaviate/weaviate/usecases/schema"
 )
 
 var verbose = verbosity.OutputVerbose
@@ -113,6 +117,79 @@ func TestCreateTenants(t *testing.T) {
 		// idempotent operation
 		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "AddTenantAgain"}})
 		require.Nil(t, err)
+	})
+
+	t.Run("Fail to create tenant with forbidden activity status:", func(Z *testing.T) {
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+		helper.CreateClass(t, &testClass)
+
+		activityStatuses := []string{
+			models.TenantActivityStatusFROZEN,
+			models.TenantActivityStatusFREEZING,
+			models.TenantActivityStatusUNFREEZING,
+		}
+		for _, activityStatus := range activityStatuses {
+			Z.Run(activityStatus, func(z *testing.T) {
+				err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "tenant", ActivityStatus: activityStatus}})
+				require.NotNil(t, err)
+			})
+		}
+	})
+
+	t.Run("Create more than 100 tenant", func(Z *testing.T) {
+		expectedTenants := make([]string, 101)
+
+		for idx := 0; idx < 101; idx++ {
+			expectedTenants[idx] = fmt.Sprintf("Tenant%d", idx)
+		}
+
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+
+		helper.CreateClass(t, &testClass)
+
+		tenants := make([]*models.Tenant, len(expectedTenants))
+
+		for i := range tenants {
+			tenants[i] = &models.Tenant{
+				Name:           expectedTenants[i],
+				ActivityStatus: models.TenantActivityStatusCOLD,
+			}
+		}
+
+		err := helper.CreateTenantsReturnError(t, testClass.Class, tenants)
+		require.NotNil(t, err)
+		ee := &eschema.TenantsCreateUnprocessableEntity{}
+		as := errors.As(err, &ee)
+		require.True(t, as)
+		require.Equal(t, uschema.ErrMsgMaxAllowedTenants, ee.Payload.Error[0].Message)
+	})
+
+	t.Run("Create same tenant with different status", func(Z *testing.T) {
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+
+		helper.CreateClass(t, &testClass)
+
+		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{
+			{
+				Name:           "Tenant1",
+				ActivityStatus: models.TenantActivityStatusCOLD,
+			},
+			{
+				Name:           "Tenant1",
+				ActivityStatus: models.TenantActivityStatusHOT,
+			},
+		})
+		require.NotNil(t, err)
+		ee := &eschema.TenantsCreateUnprocessableEntity{}
+		as := errors.As(err, &ee)
+		require.True(t, as)
+		require.Contains(t, ee.Payload.Error[0].Message, "existed multiple times")
 	})
 }
 
@@ -236,4 +313,64 @@ func TestTenantsClassDoesNotExist(t *testing.T) {
 
 	err = helper.DeleteTenants(t, "DoesNotExist", []string{"doesNotMatter"})
 	require.NotNil(t, err)
+}
+
+// Testing of tenant updating from HOT/COLD to FROZEN is handled in test/modules/offload-s3
+func TestUpdateTenants(t *testing.T) {
+	testClass := models.Class{
+		Class: "MultiTenantClass",
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: schema.DataTypeText.PropString(),
+			},
+		},
+	}
+
+	t.Run("Update tenant to COLD from HOT", func(Z *testing.T) {
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+		helper.CreateClass(t, &testClass)
+
+		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: "tenant", ActivityStatus: models.TenantActivityStatusHOT}})
+
+		err := helper.UpdateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "tenant", ActivityStatus: models.TenantActivityStatusCOLD}})
+		require.Nil(t, err)
+	})
+
+	t.Run("Update tenant to HOT from COLD", func(Z *testing.T) {
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+		helper.CreateClass(t, &testClass)
+
+		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: "tenant", ActivityStatus: models.TenantActivityStatusCOLD}})
+
+		err := helper.UpdateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "tenant", ActivityStatus: models.TenantActivityStatusHOT}})
+		require.Nil(t, err)
+	})
+
+	t.Run("Fail to update tenant with forbidden activity status:", func(Z *testing.T) {
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+		helper.CreateClass(t, &testClass)
+
+		helper.CreateTenants(t, testClass.Class, []*models.Tenant{{Name: "tenant", ActivityStatus: models.TenantActivityStatusHOT}})
+
+		activityStatuses := []string{
+			models.TenantActivityStatusFREEZING,
+			models.TenantActivityStatusUNFREEZING,
+		}
+		for _, activityStatus := range activityStatuses {
+			Z.Run(activityStatus, func(z *testing.T) {
+				err := helper.UpdateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "tenant", ActivityStatus: activityStatus}})
+				require.NotNil(t, err)
+			})
+		}
+	})
 }

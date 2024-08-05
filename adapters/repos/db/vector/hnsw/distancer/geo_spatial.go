@@ -16,9 +16,9 @@ import (
 	"math"
 )
 
-func geoDist(a, b []float32) (float32, bool, error) {
+func geoDist(a, b []float32) (float32, error) {
 	if len(a) != 2 || len(b) != 2 {
-		return 0, false, fmt.Errorf("distance vectors must have len 2")
+		return 0, fmt.Errorf("distance vectors must have len 2")
 	}
 
 	latA := a[0]
@@ -37,14 +37,14 @@ func geoDist(a, b []float32) (float32, bool, error) {
 
 	C := 2 * math.Atan2(math.Sqrt(A), math.Sqrt(1-A))
 
-	return float32(R * C), true, nil
+	return float32(R * C), nil
 }
 
 type GeoDistancer struct {
 	a []float32
 }
 
-func (g GeoDistancer) Distance(b []float32) (float32, bool, error) {
+func (g GeoDistancer) Distance(b []float32) (float32, error) {
 	return geoDist(g.a, b)
 }
 
@@ -54,7 +54,7 @@ func (gp GeoProvider) New(vec []float32) Distancer {
 	return GeoDistancer{a: vec}
 }
 
-func (gp GeoProvider) SingleDist(vec1, vec2 []float32) (float32, bool, error) {
+func (gp GeoProvider) SingleDist(vec1, vec2 []float32) (float32, error) {
 	return geoDist(vec1, vec2)
 }
 

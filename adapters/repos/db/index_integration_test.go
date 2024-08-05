@@ -16,6 +16,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"testing"
@@ -122,9 +123,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		{"name": "two"},
 	}
 
-	err = index.addUUIDProperty(context.TODO())
-	require.Nil(t, err)
-
 	err = index.addProperty(context.TODO(), &models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
@@ -174,8 +172,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}, nil, logger, nil, nil, nil, nil, class, nil, nil, nil)
 	require.Nil(t, err)
 
-	err = index.addUUIDProperty(context.TODO())
-	require.Nil(t, err)
 	err = index.addProperty(context.TODO(), &models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
@@ -294,9 +290,6 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		{"name": "two"},
 	}
 
-	err = index.addUUIDProperty(ctx)
-	require.Nil(t, err)
-
 	err = index.addProperty(ctx, &models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
@@ -364,6 +357,9 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 			return filenames, nil
 		}
 		return nil, err
+	}
+	if len(indexRoot) == 0 {
+		return nil, fmt.Errorf("index root length is 0")
 	}
 	shardFiles, err := os.ReadDir(path.Join(rootDir, indexName, indexRoot[0].Name()))
 	if err != nil {

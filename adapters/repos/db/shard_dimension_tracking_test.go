@@ -470,7 +470,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 	})
 
 	t.Run("delete class", func(t *testing.T) {
-		err := migrator.DropClass(context.Background(), "HNSW")
+		err := migrator.DropClass(context.Background(), "HNSW", false)
 		require.Nil(t, err)
 		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("HNSW", shardName)
 		require.Nil(t, err)
@@ -528,7 +528,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 	})
 
 	t.Run("delete class type=BQ", func(t *testing.T) {
-		err := migrator.DropClass(context.Background(), "BQ")
+		err := migrator.DropClass(context.Background(), "BQ", false)
 		require.Nil(t, err)
 		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("BQ", shardName)
 		require.Nil(t, err)
@@ -592,7 +592,7 @@ func Test_DimensionTrackingMetrics(t *testing.T) {
 	})
 
 	t.Run("delete class type=PQ", func(t *testing.T) {
-		err := migrator.DropClass(context.Background(), "PQ")
+		err := migrator.DropClass(context.Background(), "PQ", false)
 		require.Nil(t, err)
 		metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues("PQ", shardName)
 		require.Nil(t, err)

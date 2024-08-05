@@ -18,3 +18,7 @@ type Params struct {
 func (n Params) GetProperties() []string {
 	return n.Properties
 }
+
+func (n Params) GetPropertiesToExtract() []string {
+	return n.Properties
+}

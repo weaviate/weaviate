@@ -92,6 +92,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithGenerativePaLM(os.Getenv("PALM_APIKEY")).
 		WithGenerativeAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeAnyscale().
+		WithGenerativeAnthropic(os.Getenv("ANTHROPIC_APIKEY")).
 		WithQnAOpenAI().
 		WithRerankerCohere().
 		WithRerankerVoyageAI()

@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -88,7 +90,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		pool:              newPools(),
 		store:             store,
 	}
-	index.initBuckets(context.Background())
+	if err := index.initBuckets(context.Background()); err != nil {
+		return nil, fmt.Errorf("init flat index buckets: %w", err)
+	}
+
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
@@ -179,8 +184,13 @@ func (index *flat) getCompressedBucketName() string {
 }
 
 func (index *flat) initBuckets(ctx context.Context) error {
+	// TODO: Forced compaction should not stay an all or nothing option.
+	//       This is only a temporary measure until dynamic compaction
+	//       behavior is implemented.
+	//       See: https://github.com/weaviate/weaviate/issues/5241
+	forceCompaction := shouldForceCompaction()
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
-		lsmkv.WithForceCompation(true),
+		lsmkv.WithForceCompation(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
 	); err != nil {
@@ -188,7 +198,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 	}
 	if index.isBQ() {
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
-			lsmkv.WithForceCompation(true),
+			lsmkv.WithForceCompation(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
 		); err != nil {
@@ -196,6 +206,11 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// TODO: Remove this function when gh-5241 is completed. See flat::initBuckets for more details.
+func shouldForceCompaction() bool {
+	return !entcfg.Enabled(os.Getenv("FLAT_INDEX_DISABLE_FORCED_COMPACTION"))
 }
 
 func (index *flat) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
@@ -342,8 +357,7 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 		defer index.pool.float32SlicePool.Put(vecSlice)
 
 		candidate := float32SliceFromByteSlice(vecAsBytes, vecSlice.slice)
-		distance, _, err := index.distancerProvider.SingleDist(vector, candidate)
-		return distance, err
+		return index.distancerProvider.SingleDist(vector, candidate)
 	}
 }
 
@@ -693,7 +707,7 @@ func (index *flat) Dump(labels ...string) {
 	fmt.Printf("--------------------------------------------------\n")
 }
 
-func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return index.distancerProvider.SingleDist(x, y)
 }
 
@@ -799,16 +813,32 @@ func (index *flat) AlreadyIndexed() uint64 {
 
 func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var distFunc func(nodeID uint64) (float32, error)
+	defaultDistFunc := func(nodeID uint64) (float32, error) {
+		vec, err := index.vectorById(nodeID)
+		if err != nil {
+			return 0, err
+		}
+		dist, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		if err != nil {
+			return 0, err
+		}
+		return dist, nil
+	}
 	switch index.compression {
 	case compressionBQ:
-		queryVecEncode := index.bq.Encode(queryVector)
-		distFunc = func(nodeID uint64) (float32, error) {
-			vec, err := index.bqCache.Get(context.Background(), nodeID)
-			if err != nil {
-				return 0, err
+		if index.bqCache == nil {
+			distFunc = defaultDistFunc
+		} else {
+			queryVecEncode := index.bq.Encode(queryVector)
+			distFunc = func(nodeID uint64) (float32, error) {
+				vec, err := index.bqCache.Get(context.Background(), nodeID)
+				if err != nil {
+					return 0, err
+				}
+				return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
 			}
-			return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
 		}
+
 	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
@@ -818,7 +848,7 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 			if err != nil {
 				return 0, err
 			}
-			dist, _, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+			dist, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
 			if err != nil {
 				return 0, err
 			}

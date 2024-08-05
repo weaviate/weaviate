@@ -83,6 +83,11 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 			ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
 			defer cancel()
 
+			t.logger.WithFields(logrus.Fields{
+				"action":   "broadcast_transaction",
+				"duration": 30 * time.Second,
+			}).Debug("context.WithTimeout")
+
 			// the client call can mutate the tx, so we need to work with copies to
 			// prevent a race and to be able to keep all individual results, so they
 			// can be passed to the consensus fn
@@ -125,6 +130,11 @@ func (t *TxBroadcaster) BroadcastAbortTransaction(rootCtx context.Context, tx *T
 			ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
 			defer cancel()
 
+			t.logger.WithFields(logrus.Fields{
+				"action":   "broadcast_abort_transaction",
+				"duration": 30 * time.Second,
+			}).Debug("context.WithTimeout")
+
 			if err := t.client.AbortTransaction(ctx, host, tx); err != nil {
 				return errors.Wrapf(err, "host %q", host)
 			}
@@ -149,6 +159,12 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *
 		// the tx commit attempt failed.
 		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
 		defer cancel()
+
+		t.logger.WithFields(logrus.Fields{
+			"action":   "broadcast_commit_transaction",
+			"duration": 30 * time.Second,
+		}).Debug("context.WithTimeout")
+
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
 			if err := t.client.CommitTransaction(ctx, host, tx); err != nil {

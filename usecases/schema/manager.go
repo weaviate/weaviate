@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -77,6 +78,7 @@ type ModuleConfig interface {
 	SetClassDefaults(class *models.Class)
 	SetSinglePropertyDefaults(class *models.Class, props ...*models.Property)
 	ValidateClass(ctx context.Context, class *models.Class) error
+	GetByName(name string) modulecapabilities.Module
 }
 
 // State is a cached copy of the schema that can also be saved into a remote
@@ -398,7 +400,8 @@ func (m *Manager) activateTenantIfInactive(class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants: make([]*api.Tenant, 0, len(status)),
+		Tenants:      make([]*api.Tenant, 0, len(status)),
+		ClusterNodes: m.clusterState.Candidates(),
 	}
 
 	for tenant, s := range status {
