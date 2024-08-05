@@ -357,8 +357,7 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 		defer index.pool.float32SlicePool.Put(vecSlice)
 
 		candidate := float32SliceFromByteSlice(vecAsBytes, vecSlice.slice)
-		distance, _, err := index.distancerProvider.SingleDist(vector, candidate)
-		return distance, err
+		return index.distancerProvider.SingleDist(vector, candidate)
 	}
 }
 
@@ -708,7 +707,7 @@ func (index *flat) Dump(labels ...string) {
 	fmt.Printf("--------------------------------------------------\n")
 }
 
-func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	return index.distancerProvider.SingleDist(x, y)
 }
 
@@ -819,7 +818,7 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		if err != nil {
 			return 0, err
 		}
-		dist, _, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		dist, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
 		if err != nil {
 			return 0, err
 		}
@@ -849,7 +848,7 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 			if err != nil {
 				return 0, err
 			}
-			dist, _, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+			dist, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
 			if err != nil {
 				return 0, err
 			}

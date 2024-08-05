@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -128,6 +129,10 @@ func (s *Shard) initDimensionTracking() {
 		// leak. The actual work should be much faster.
 		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
 		defer cancel()
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "init_dimension_tracking",
+			"duration": 30 * time.Minute,
+		}).Debug("context.WithTimeout")
 
 		// always send vector dimensions at startup if tracking is enabled
 		s.publishDimensionMetrics(ctx)
@@ -146,6 +151,10 @@ func (s *Shard) initDimensionTracking() {
 						// leak. The actual work should be much faster.
 						ctx, cancel := context.WithTimeout(rootCtx, 30*time.Minute)
 						defer cancel()
+						s.index.logger.WithFields(logrus.Fields{
+							"action":   "init_dimension_tracking",
+							"duration": 30 * time.Minute,
+						}).Debug("context.WithTimeout")
 						s.publishDimensionMetrics(ctx)
 					}()
 				}

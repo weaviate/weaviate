@@ -121,6 +121,10 @@ type Config struct {
 	SaveLegacySchema schema.SaveLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
 	IsLocalHost bool
+
+	// SentryEnabled configures the sentry integration to add internal middlewares to rpc client/server to set spans &
+	// capture traces
+	SentryEnabled bool
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,

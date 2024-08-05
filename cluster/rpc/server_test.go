@@ -38,12 +38,12 @@ func TestServerNewError(t *testing.T) {
 	)
 
 	t.Run("Empty server address", func(t *testing.T) {
-		srv := NewServer(members, executor, "", logger, raftGrpcMessageMaxSize)
+		srv := NewServer(members, executor, "", logger, raftGrpcMessageMaxSize, false)
 		assert.NotNil(t, srv.Open())
 	})
 
 	t.Run("Invalid IP", func(t *testing.T) {
-		srv := NewServer(members, executor, "abc", logger, raftGrpcMessageMaxSize)
+		srv := NewServer(members, executor, "abc", logger, raftGrpcMessageMaxSize, false)
 		netErr := &net.OpError{}
 		assert.ErrorAs(t, srv.Open(), &netErr)
 	})
@@ -64,10 +64,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Join(ctx, leaderAddr, &cmd.JoinPeerRequest{Id: "Node1", Address: leaderAddr, Voter: false})
@@ -86,10 +86,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Join(ctx, leaderAddr, &cmd.JoinPeerRequest{Id: "Node1", Address: leaderAddr, Voter: false})
@@ -104,10 +104,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Notify(ctx, leaderAddr, &cmd.NotifyPeerRequest{Id: "Node1", Address: leaderAddr})
@@ -126,10 +126,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Notify(ctx, leaderAddr, &cmd.NotifyPeerRequest{Id: "Node1", Address: leaderAddr})
@@ -144,10 +144,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Remove(ctx, leaderAddr, &cmd.RemovePeerRequest{Id: "node1"})
@@ -166,10 +166,10 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Remove(ctx, leaderAddr, &cmd.RemovePeerRequest{Id: "node1"})
@@ -198,10 +198,10 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Query(ctx, leaderAddr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASSES})
@@ -214,10 +214,10 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				n := 0
@@ -240,10 +240,10 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				executor.qf = func(*cmd.QueryRequest) (*cmd.QueryResponse, error) {
@@ -292,10 +292,10 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Apply(leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
@@ -313,10 +313,10 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				n := 0
@@ -340,10 +340,10 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
-				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize)
+				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
 				_, err := client.Apply(leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})

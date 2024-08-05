@@ -117,7 +117,7 @@ type batchIndexer interface {
 	SearchByVector(vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(vector []float32, dist float32,
 		maxLimit int64, allow helpers.AllowList) ([]uint64, []float32, error)
-	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
+	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
 	Delete(id ...uint64) error
 	DistancerProvider() distancer.Provider
@@ -746,7 +746,7 @@ func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k
 			v = distancer.Normalize(v)
 		}
 
-		dist, _, err := q.Index.DistanceBetweenVectors(vector, v)
+		dist, err := q.Index.DistanceBetweenVectors(vector, v)
 		if err != nil {
 			return err
 		}
