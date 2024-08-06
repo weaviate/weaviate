@@ -238,36 +238,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			},
 			wantErr: errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
 		},
-		{
-			name: "Wrong Azure config - empty deploymentId",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"resourceName": "resource-name",
-				},
-			},
-			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
-		},
-		{
-			name: "Wrong Azure config - empty resourceName",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"deploymentId": "deployment-name",
-				},
-			},
-			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
-		},
-		{
-			name: "Wrong Azure config - wrong api version",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiVersion": "wrong-api-version",
-				},
-			},
-			wantErr: errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: " +
-				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview " +
-				"2023-08-01-preview 2023-09-01-preview 2023-12-01-preview 2024-02-15-preview " +
-				"2024-03-01-preview 2024-02-01]"),
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
