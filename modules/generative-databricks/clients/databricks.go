@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -36,22 +35,8 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
-	if resourceName != "" && deploymentID != "" {
-		host := baseURL
-		if host == "" || host == "https://api.openai.com" {
-			// Fall back to old assumption
-			host = "https://" + resourceName + ".openai.azure.com"
-		}
-		path := "openai/deployments/" + deploymentID + "/chat/completions"
-		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
-		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil
-	}
-	path := "/v1/chat/completions"
-	if isLegacy {
-		path = "/v1/completions"
-	}
-	return url.JoinPath(baseURL, path)
+func buildServingUrlFn(servingUrl string) (string, error) {
+	return servingUrl, nil
 }
 
 type openai struct {
@@ -59,7 +44,7 @@ type openai struct {
 	openAIOrganization string
 	azureApiKey        string
 	databricksToken    string
-	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
+	buildServingUrl    func(servingUrl string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
@@ -73,8 +58,8 @@ func New(openAIApiKey, openAIOrganization, azureApiKey, databricksToken string, 
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		buildUrl: buildUrlFn,
-		logger:   logger,
+		buildServingUrl: buildServingUrlFn,
+		logger:          logger,
 	}
 }
 
@@ -99,7 +84,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	oaiUrl, err := v.buildOpenAIUrl(ctx, settings)
+	oaiUrl, err := v.buildDatabricksServingUrl(ctx, settings)
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
@@ -124,9 +109,6 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		return nil, errors.Wrapf(err, "OpenAI API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure()))
-	if openAIOrganization := v.getOpenAIOrganization(ctx); openAIOrganization != "" {
-		req.Header.Add("OpenAI-Organization", openAIOrganization)
-	}
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -227,12 +209,12 @@ func (v *openai) getResponseParams(usage *usage) map[string]interface{} {
 	return nil
 }
 
-func (v *openai) buildOpenAIUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
-	baseURL := settings.BaseURL()
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
-		baseURL = headerBaseURL
+func (v *openai) buildDatabricksServingUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
+	servingURL, _ := v.buildServingUrl(settings.ServingURL())
+	if headerServingURL := v.getValueFromContext(ctx, "X-Databricks-Servingurl"); headerServingURL != "" {
+		servingURL = headerServingURL
 	}
-	return v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), baseURL, settings.ApiVersion())
+	return servingURL, nil
 }
 
 func (v *openai) generateInput(prompt string, params openaiparams.Params, settings config.ClassSettings) (generateInput, error) {
