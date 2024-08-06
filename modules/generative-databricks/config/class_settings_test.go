@@ -39,7 +39,9 @@ func Test_classSettings_Validate(t *testing.T) {
 		{
 			name: "Happy flow",
 			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{},
+				classConfig: map[string]interface{}{
+					"servingUrl": "https://foo.bar.com",
+				},
 			},
 			wantModel:            "gpt-3.5-turbo",
 			wantMaxTokens:        4097,
@@ -55,6 +57,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":       "https://foo.bar.com",
 					"model":            "gpt-3.5-turbo",
 					"maxTokens":        4097,
 					"temperature":      0.5,
@@ -77,6 +80,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "OpenAI Proxy",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":       "https://foo.bar.com",
 					"model":            "gpt-3.5-turbo",
 					"maxTokens":        4097,
 					"temperature":      0.5,
@@ -100,6 +104,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Legacy config",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":       "https://foo.bar.com",
 					"model":            "text-davinci-003",
 					"maxTokens":        1200,
 					"temperature":      0.5,
@@ -122,6 +127,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":       "https://foo.bar.com",
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
 					"maxTokens":        4097,
@@ -148,6 +154,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config with baseURL",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":       "https://foo.bar.com",
 					"baseURL":          "some-base-url",
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
@@ -175,6 +182,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "With gpt-3.5-turbo-16k model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":       "https://foo.bar.com",
 					"model":            "gpt-3.5-turbo-16k",
 					"maxTokens":        4097,
 					"temperature":      0.5,
@@ -197,7 +205,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong maxTokens configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"maxTokens": true,
+					"servingUrl": "https://foo.bar.com",
+					"maxTokens":  true,
 				},
 			},
 			wantErr: errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used"),
@@ -206,6 +215,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong temperature configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":  "https://foo.bar.com",
 					"temperature": true,
 				},
 			},
@@ -215,6 +225,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong frequencyPenalty configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":       "https://foo.bar.com",
 					"frequencyPenalty": true,
 				},
 			},
@@ -224,6 +235,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong presencePenalty configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"servingUrl":      "https://foo.bar.com",
 					"presencePenalty": true,
 				},
 			},
@@ -233,10 +245,20 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong topP configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"topP": true,
+					"servingUrl": "https://foo.bar.com",
+					"topP":       true,
 				},
 			},
 			wantErr: errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
+		},
+		{
+			name: "Empty servingURL",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"servingUrl": "",
+				},
+			},
+			wantErr: errors.Errorf("servingUrl cannot be empty"),
 		},
 	}
 	for _, tt := range tests {

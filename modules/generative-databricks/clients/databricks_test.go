@@ -244,6 +244,7 @@ type fakeClassSettings struct {
 	isAzure          bool
 	baseURL          string
 	apiVersion       string
+	servingUrl       string
 }
 
 func (s *fakeClassSettings) IsLegacy() bool {
@@ -300,4 +301,8 @@ func (s *fakeClassSettings) BaseURL() string {
 
 func (s *fakeClassSettings) ApiVersion() string {
 	return s.apiVersion
+}
+
+func (s *fakeClassSettings) ServingURL() string {
+	return s.servingUrl
 }
