@@ -300,19 +300,19 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	)
 }
 
-func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool) (n int, err error) {
+func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := &command.UpdateTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
-		return 0, fmt.Errorf("%w: %w", ErrBadRequest, err)
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return n, s.apply(
+	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema: func() error { n, err = s.schema.updateTenants(cmd.Class, cmd.Version, req); return err },
+			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},

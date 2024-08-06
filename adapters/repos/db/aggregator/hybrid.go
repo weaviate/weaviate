@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/additional"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -53,7 +55,7 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.getSchema.ReadOnlyClass,
 		propertyspecific.Indices{}, a.classSearcher,
 		a.GetPropertyLengthTracker(), a.logger, a.shardVersion,
-	).BM25F(ctx, nil, a.params.ClassName, *a.params.ObjectLimit, *kw)
+	).BM25F(ctx, nil, a.params.ClassName, *a.params.ObjectLimit, *kw, additional.Properties{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("bm25 objects: %w", err)
 	}

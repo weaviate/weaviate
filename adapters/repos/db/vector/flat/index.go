@@ -18,9 +18,11 @@ import (
 	"io"
 	"math"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -32,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -60,9 +63,10 @@ type flat struct {
 	pqResults *common.PqMaxPool
 	pool      *pools
 
-	compression string
-	bqCache     cache.Cache[uint64]
-	count       uint64
+	compression          string
+	bqCache              cache.Cache[uint64]
+	count                uint64
+	concurrentCacheReads int
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -80,15 +84,16 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	index := &flat{
-		id:                cfg.ID,
-		targetVector:      cfg.TargetVector,
-		logger:            logger,
-		distancerProvider: cfg.DistanceProvider,
-		rescore:           extractCompressionRescore(uc),
-		pqResults:         common.NewPqMaxPool(100),
-		compression:       extractCompression(uc),
-		pool:              newPools(),
-		store:             store,
+		id:                   cfg.ID,
+		targetVector:         cfg.TargetVector,
+		logger:               logger,
+		distancerProvider:    cfg.DistanceProvider,
+		rescore:              extractCompressionRescore(uc),
+		pqResults:            common.NewPqMaxPool(100),
+		compression:          extractCompression(uc),
+		pool:                 newPools(),
+		store:                store,
+		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
@@ -109,6 +114,9 @@ func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) 
 	bytes, err := flat.store.Bucket(flat.getCompressedBucketName()).Get(key.slice)
 	if err != nil {
 		return nil, err
+	}
+	if len(bytes) == 0 {
+		return nil, nil
 	}
 	return uint64SliceFromByteSlice(bytes, make([]uint64, len(bytes)/8)), nil
 }
@@ -193,6 +201,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		lsmkv.WithForceCompation(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
+
+		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+		// was simply missing. Now we want to explicitly set it to false for
+		// performance reasons. There are pread performance improvements in the
+		// pipeline, but as of now, mmap is much more performant – especially for
+		// parallel cache prefilling.
+		//
+		// In the future when the pure pread performance is on par with mmap, we
+		// should update this to pass the global setting.
+		lsmkv.WithPread(false),
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}
@@ -201,6 +219,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 			lsmkv.WithForceCompation(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
+
+			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
+			// was simply missing. Now we want to explicitly set it to false for
+			// performance reasons. There are pread performance improvements in the
+			// pipeline, but as of now, mmap is much more performant – especially for
+			// parallel cache prefilling.
+			//
+			// In the future when the pure pread performance is on par with mmap, we
+			// should update this to pass the global setting.
+			lsmkv.WithPread(false),
 		); err != nil {
 			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
 		}
@@ -389,16 +417,41 @@ func (index *flat) searchByVectorBQ(vector []float32, k int, allow helpers.Allow
 	for i := range idsSlice.slice {
 		idsSlice.slice[i] = heap.Pop().ID
 	}
-	for _, id := range idsSlice.slice {
-		candidateAsBytes, err := index.vectorById(id)
-		if err != nil {
-			return nil, nil, err
-		}
-		distance, err := distanceCalc(candidateAsBytes)
-		if err != nil {
-			return nil, nil, err
-		}
-		index.insertToHeap(heap, k, id, distance)
+
+	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
+	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
+
+	eg := enterrors.NewErrorGroupWrapper(index.logger)
+	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
+		workerID := workerID
+		eg.Go(func() error {
+			for idPos := workerID; idPos < len(idsSlice.slice); idPos += index.concurrentCacheReads {
+				id := idsSlice.slice[idPos]
+				candidateAsBytes, err := index.vectorById(id)
+				if err != nil {
+					return err
+				}
+				if len(candidateAsBytes) == 0 {
+					continue
+				}
+				distance, err := distanceCalc(candidateAsBytes)
+				if err != nil {
+					return err
+				}
+
+				distancesUncompressedVectors[idPos] = distance
+			}
+
+			return nil
+		})
+	}
+
+	if err := eg.Wait(); err != nil {
+		return nil, nil, err
+	}
+
+	for i, id := range idsSlice.slice {
+		index.insertToHeap(heap, k, id, distancesUncompressedVectors[i])
 	}
 
 	ids, dists := index.extractHeap(heap)
@@ -667,34 +720,51 @@ func (index *flat) PostStartup() {
 	// up 75% of the CPU time needed. This new implementation with two loops is
 	// much more efficient and only ever-so-slightly more memory-consuming (about
 	// one additional struct per vector while loading. Should be negligible)
-	type vec struct {
-		id  uint64
-		vec []uint64
-	}
 
 	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
 	// this slice dynamically should be quite cheap compared to other operations
 	// involved here, e.g. disk reads.
-	vecs := make([]vec, 0, 10_000)
+	vecs := make([]BQVecAndID, 0, 10_000)
 	maxID := uint64(0)
 
-	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
-		id := binary.BigEndian.Uint64(key)
-		vecs = append(vecs, vec{
-			id:  id,
-			vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
-		})
-		if id > maxID {
-			maxID = id
+	before := time.Now()
+	bucket := index.store.Bucket(index.getCompressedBucketName())
+	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
+	// however want some kind of relationship to the machine size, so
+	// 2*GOMAXPROCS seems like a good default.
+	it := NewCompressedParallelIterator(bucket, 2*runtime.GOMAXPROCS(0), index.logger)
+	channel := it.IterateAll()
+	if channel == nil {
+		return // nothing to do
+	}
+	for v := range channel {
+		vecs = append(vecs, v...)
+	}
+
+	count := 0
+	for i := range vecs {
+		count++
+		if vecs[i].id > maxID {
+			maxID = vecs[i].id
 		}
 	}
 
 	// Grow cache just once
-	index.bqCache.Grow(maxID)
+	index.bqCache.LockAll()
+	defer index.bqCache.UnlockAll()
 
+	index.bqCache.SetSizeAndGrowNoLock(maxID)
 	for _, vec := range vecs {
-		index.bqCache.Preload(vec.id, vec.vec)
+		index.bqCache.PreloadNoLock(vec.id, vec.vec)
 	}
+
+	took := time.Since(before)
+	index.logger.WithFields(logrus.Fields{
+		"action":   "preload_bq_cache",
+		"count":    count,
+		"took":     took,
+		"index_id": index.id,
+	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
 func (index *flat) Dump(labels ...string) {
