@@ -64,8 +64,9 @@ func (m *GenerativeDatabricksModule) initAdditional(ctx context.Context, timeout
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
 	openAIOrganization := os.Getenv("OPENAI_ORGANIZATION")
 	azureApiKey := os.Getenv("AZURE_APIKEY")
+	databricksToken := os.Getenv("DATABRICKS_TOKEN")
 
-	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, timeout, logger)
+	client := clients.New(openAIApiKey, openAIOrganization, azureApiKey, databricksToken, timeout, logger)
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 

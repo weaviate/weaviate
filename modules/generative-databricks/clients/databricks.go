@@ -58,16 +58,18 @@ type openai struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
+	databricksToken    string
 	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Duration, logger logrus.FieldLogger) *openai {
+func New(openAIApiKey, openAIOrganization, azureApiKey, databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *openai {
 	return &openai{
 		openAIApiKey:       openAIApiKey,
 		openAIOrganization: openAIOrganization,
 		azureApiKey:        azureApiKey,
+		databricksToken:    databricksToken,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -342,9 +344,9 @@ func (v *openai) getApiKey(ctx context.Context, isAzure bool) (string, error) {
 		envVar = "AZURE_APIKEY"
 		envVarValue = v.azureApiKey
 	} else {
-		apiKey = "X-Openai-Api-Key"
-		envVar = "OPENAI_APIKEY"
-		envVarValue = v.openAIApiKey
+		apiKey = "X-Databricks-Token"
+		envVar = "DATABRICKS_TOKEN"
+		envVarValue = v.databricksToken
 	}
 
 	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
