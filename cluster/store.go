@@ -233,7 +233,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
-	if st.cfg.BootstrapExpect == 1 {
+	if st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2 {
 		if err := st.recoverSingleNode(); err != nil {
 			return err
 		}
@@ -658,8 +658,8 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 // used in a single cluster node.
 // for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
 func (st *Store) recoverSingleNode() error {
-	if st.cfg.BootstrapExpect > 1 {
-		return fmt.Errorf("bootstrap expect  %v,  candidates %v,"+
+	if st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1 {
+		return fmt.Errorf("bootstrap expect  %v, candidates %v,"+
 			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
 	}
 	servers := st.raft.GetConfiguration().Configuration().Servers
@@ -725,7 +725,7 @@ func (st *Store) recoverSingleNode() error {
 		"old_single_cluster_node_name": exNode.ID,
 		"new_single_cluster_node_name": newNode.ID,
 	}).Info("perform cluster recovery")
-	st.schemaManager.ReplaceStatesNodeName(string(exNode.ID), string(newNode.ID))
+	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
 
 	return nil
 }
