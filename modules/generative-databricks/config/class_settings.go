@@ -97,6 +97,7 @@ type ClassSettings interface {
 	Validate(class *models.Class) error
 	BaseURL() string
 	ApiVersion() string
+	ServingURL() string
 }
 
 type classSettings struct {
@@ -149,7 +150,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: %v", availableApiVersions)
 	}
 
-	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
+	servingURL := ic.ServingURL()
+	err := ic.ValidateServingURL(servingURL)
 	if err != nil {
 		return err
 	}
@@ -227,9 +229,20 @@ func (ic *classSettings) IsAzure() bool {
 	return ic.ResourceName() != "" && ic.DeploymentID() != ""
 }
 
+func (ic *classSettings) ServingURL() string {
+	return *ic.getStringProperty("servingUrl", "")
+}
+
 func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
 	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
+	}
+	return nil
+}
+
+func (cs *classSettings) ValidateServingURL(servingUrl string) error {
+	if servingUrl == "" {
+		return errors.New("servingUrl cannot be empty")
 	}
 	return nil
 }
