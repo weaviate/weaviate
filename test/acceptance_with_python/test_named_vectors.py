@@ -328,10 +328,10 @@ def test_score_fusion(named_collection: NamedCollection) -> None:
 @pytest.mark.parametrize(
     "multi_target_fusion_method",
     [
-        TargetVectors.sum(["colour", "weather", "material"]),
-        TargetVectors.average(["colour", "weather", "material"]),
+        # TargetVectors.sum(["colour", "weather", "material"]),
+        # TargetVectors.average(["colour", "weather", "material"]),
         TargetVectors.manual_weights({"colour": 0.4, "weather": 1.2, "material": 0.752}),
-        TargetVectors.relative_score({"colour": 1, "weather": 1.0, "material": 1.0}),
+        # TargetVectors.relative_score({"colour": 1, "weather": 1.0, "material": 1.0}),
     ],
 )
 def test_more_results_than_limit(

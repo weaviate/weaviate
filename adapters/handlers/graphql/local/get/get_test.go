@@ -1383,6 +1383,46 @@ func TestNearVectorRanker(t *testing.T) {
 
 		resolver.AssertResolve(t, query)
 	})
+
+	t.Run("with targetvector", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [1, 0], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+							}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title2", "title3"},
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with targetvector and multiple entries for a vector", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [[1, 0], [0,1]], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+							}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title1", "title2", "title3"},
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
 }
 
 func TestExtractPagination(t *testing.T) {

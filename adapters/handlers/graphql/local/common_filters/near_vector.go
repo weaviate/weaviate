@@ -24,7 +24,7 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 	var args searchparams.NearVector
 
 	vectorGQL, okVec := source["vector"].([]interface{})
-	vectorPerTarget, okVecPerTarget := source["vectorPerTarget"].(map[string][]float32)
+	vectorPerTarget, okVecPerTarget := source["vectorPerTarget"].(map[string]interface{})
 	if (!okVec && !okVecPerTarget) || (okVec && okVecPerTarget) {
 		return searchparams.NearVector{}, nil,
 			fmt.Errorf("vector or vectorPerTarget is required field")
@@ -78,14 +78,27 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 		targets := make([]string, 0, len(vectorPerTarget))
 		vectors := make([][]float32, 0, len(vectorPerTarget))
 		for target := range vectorPerTarget {
-			targets = append(targets, target)
-			vectors = append(vectors, vectorPerTarget[target])
+			single, ok := vectorPerTarget[target].([]float32)
+			if ok {
+				vectors = append(vectors, single)
+				targets = append(targets, target)
+			} else {
+				multiple, okMulti := vectorPerTarget[target].([][]float32)
+				if !okMulti {
+					return searchparams.NearVector{}, nil,
+						fmt.Errorf("vectorPerTarget should be a map with strings as keys and list of floats or list of lists of floats as values. Recieved %T", vectorPerTarget[target])
+				}
+				for j := range multiple {
+					vectors = append(vectors, multiple[j])
+					targets = append(targets, target)
+				}
+			}
 		}
 
 		if len(targetVectors) == 0 {
 			args.TargetVectors = targets
 		} else {
-			if len(targetVectors) != len(targets) {
+			if len(targetVectors) != len(vectors) {
 				return searchparams.NearVector{}, nil,
 					fmt.Errorf("number of targets (%d) does not match number of vectors (%d)", len(targetVectors), len(targets))
 			}
