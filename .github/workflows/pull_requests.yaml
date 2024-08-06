@@ -120,7 +120,6 @@ jobs:
           "--only-module-backup-s3",
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
-          "--only-module-multi2vec-clip",
           "--only-module-ref2vec-centroid",
           "--only-module-reranker-transformers",
           "--only-module-text2vec-contextionary",
@@ -269,7 +268,6 @@ jobs:
           "--acceptance-only-graphql",
           "--acceptance-only-replication",
           "--acceptance-go-client-only-fast",
-          "--acceptance-go-client-named-vectors",
           "--acceptance-only-python"
         ]
     steps:
@@ -284,6 +282,28 @@ jobs:
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+        with:
+          # 15 Minute is a large enough timeout for most of our tests
+          timeout_minutes: 15
+          max_attempts: 3
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
+  Acceptance-Tests-large:
+    name: acceptance-tests-large
+    runs-on: ubuntu-latest-4-cores
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ["--acceptance-go-client-named-vectors"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+      - name: Acceptance tests Large (modules)
+        uses: nick-fields/retry@v3
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
