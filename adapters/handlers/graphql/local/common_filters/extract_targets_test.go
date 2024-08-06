@@ -71,7 +71,7 @@ func TestTargetExtraction(t *testing.T) {
 				"targets": map[string]interface{}{
 					"targetVectors":     []interface{}{"a", "b"},
 					"combinationMethod": dto.ManualWeights,
-					"weights":           map[string]float64{"a": 0.5, "b": 0.25},
+					"weights":           map[string]interface{}{"a": 0.5, "b": 0.25},
 				},
 			},
 			expectTargetVectors:   []string{"a", "b"},
@@ -83,7 +83,7 @@ func TestTargetExtraction(t *testing.T) {
 				"targets": map[string]interface{}{
 					"targetVectors":     []interface{}{"a", "b"},
 					"combinationMethod": dto.RelativeScore,
-					"weights":           map[string]float64{"a": 0.5, "b": 0.25},
+					"weights":           map[string]interface{}{"a": 0.5, "b": 0.25},
 				},
 			},
 			expectTargetVectors:   []string{"a", "b"},
@@ -94,7 +94,7 @@ func TestTargetExtraction(t *testing.T) {
 			source: map[string]interface{}{"targets": map[string]interface{}{
 				"targetVectors":     []interface{}{"a", "b"},
 				"combinationMethod": dto.RelativeScore,
-				"weights":           map[string]float64{"a": 0.5},
+				"weights":           map[string]interface{}{"a": 0.5},
 			}},
 			wantErr: true,
 		},
@@ -103,7 +103,7 @@ func TestTargetExtraction(t *testing.T) {
 			source: map[string]interface{}{"targets": map[string]interface{}{
 				"targetVectors":     []interface{}{"a", "b"},
 				"combinationMethod": dto.ManualWeights,
-				"weights":           map[string]float64{"a": 0.5},
+				"weights":           map[string]interface{}{"a": 0.5},
 			}},
 			wantErr: true,
 		},
@@ -112,7 +112,7 @@ func TestTargetExtraction(t *testing.T) {
 			source: map[string]interface{}{"targets": map[string]interface{}{
 				"targetVectors":     []interface{}{"a", "b"},
 				"combinationMethod": "wrong",
-				"weights":           map[string]float64{"a": 0.5, "b": 0.25},
+				"weights":           map[string]interface{}{"a": 0.5, "b": 0.25},
 			}},
 			wantErr: true,
 		},

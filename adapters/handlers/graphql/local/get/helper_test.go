@@ -664,10 +664,13 @@ func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal
 	params dto.GetParams,
 ) ([]interface{}, error) {
 	// order is random due to map access, sort to make tests deterministic
-	tv := targetsAndVectors{targets: params.NearVector.TargetVectors, vectors: params.NearVector.Vectors}
-	sort.Sort(tv)
-	params.NearVector.TargetVectors = tv.targets
-	params.NearVector.Vectors = tv.vectors
+	if params.NearVector != nil && params.NearVector.TargetVectors != nil && params.NearVector.Vectors != nil {
+		tv := targetsAndVectors{targets: params.NearVector.TargetVectors, vectors: params.NearVector.Vectors}
+		sort.Sort(tv)
+		params.NearVector.TargetVectors = tv.targets
+		params.NearVector.Vectors = tv.vectors
+	}
+
 	args := m.Called(params)
 	return args.Get(0).([]interface{}), args.Error(1)
 }
