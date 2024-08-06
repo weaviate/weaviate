@@ -58,6 +58,11 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		if namedSearches["nearVector"] != nil {
 			nearVector := namedSearches["nearVector"].(map[string]interface{})
 			arguments, _, _ := ExtractNearVector(nearVector, targetVectors)
+			// targetvectors need to be set in the hybrid search to be handled correctly, return an error if not set
+			if targetVectors == nil && arguments.TargetVectors != nil {
+				return nil, nil, fmt.Errorf("targetVectors need to be set in the hybrid search to be handled correctly")
+			}
+
 			args.NearVectorParams = &arguments
 
 		}

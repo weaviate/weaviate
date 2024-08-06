@@ -1423,6 +1423,102 @@ func TestNearVectorRanker(t *testing.T) {
 
 		resolver.AssertResolve(t, query)
 	})
+
+	t.Run("with targetvector and multiple entries for a vector and targets", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [[1, 0], [0,1]], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+						targets: {targetVectors: ["title1", "title1", "title2", "title3"], combinationMethod: sum}
+							}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title1", "title2", "title3"},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Sum, Weights: []float32{1, 1, 1, 1}},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with targetvector and weights", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [1, 0], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+						targets: {
+							targetVectors: ["title1", "title2", "title3"], 
+							combinationMethod: manualWeights,
+							weights: {title1: 1, title2: 3, title3: 4}
+						}
+					}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title2", "title3"},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{1, 3, 4}},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with targetvector and multiple entries for a vector and weights", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [[1, 0], [0,1]], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+						targets: {
+							targetVectors: ["title1", "title1", "title2", "title3"], 
+							combinationMethod: manualWeights,
+							weights: {title1: [1, 2], title2: 3, title3: 4}
+						}
+					}) { intField } } }`
+
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeThing",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			NearVector: &searchparams.NearVector{
+				Vectors:       [][]float32{{1., 0}, {0, 1}, {0, 0, 1}, {0, 0, 0, 1}},
+				TargetVectors: []string{"title1", "title1", "title2", "title3"},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.ManualWeights, Weights: []float32{1, 2, 3, 4}},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("with non fitting target vectors", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1: [[1, 0], [0,1]], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+						targets: {
+							targetVectors: ["title1", "title2", "title3"], 
+						}
+					}) { intField } } }`
+		resolver.AssertFailToResolve(t, query)
+	})
+
+	t.Run("with non fitting target vectors 2", func(t *testing.T) {
+		query := `{ Get { SomeThing(
+						nearVector: {
+						vectorPerTarget: {title1:  [0,1], title2: [0, 0, 1], title3:[[1, 0], [0,1]]}
+						targets: {
+							targetVectors: ["title1", "title2", "title3"], 
+						}
+					}) { intField } } }`
+		resolver.AssertFailToResolve(t, query)
+	})
 }
 
 func TestExtractPagination(t *testing.T) {
@@ -1936,6 +2032,202 @@ func TestHybridWithSort(t *testing.T) {
 	resolver := newMockResolverWithNoModules()
 	query := `{Get{SomeAction(hybrid:{query:"apple"},sort:[{path:["name"],order:desc}]){intField}}}`
 	resolver.AssertFailToResolve(t, query, "hybrid search is not compatible with sort")
+}
+
+func TestHybridWithTargets(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	var emptySubsearches []searchparams.WeightedSearchResult
+
+	t.Run("hybrid search", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple"}
+					){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+			},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with targets", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title3"],}
+					){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with targets and vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+                    vector: [0.123, 0.984],
+					targetVectors: ["title1", "title2", "title3"],}
+					){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+				Vector:          []float32{0.123, 0.984},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with targets and vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+                    vector: [0.123, 0.984],
+					targetVectors: ["title1", "title2", "title3"],}
+					){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+				Vector:          []float32{0.123, 0.984},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title3"],
+					searches: {nearVector:{
+     							vector: [0.123, 0.984],
+                    }}
+					}){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+				NearVectorParams: &searchparams.NearVector{
+					Vectors: [][]float32{{0.123, 0.984}, {0.123, 0.984}, {0.123, 0.984}},
+				},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title3"],
+					searches: {nearVector:{
+     							vectorPerTarget: {title1: [1, 0], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+                    }}
+					}){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title3"},
+				NearVectorParams: &searchparams.NearVector{
+					Vectors: [][]float32{{1.0, 0}, {0, 0, 1}, {0, 0, 0, 1}},
+				},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					targetVectors: ["title1", "title2", "title2", "title3", "title3"],
+					searches: {nearVector:{
+     							vectorPerTarget: {title1: [1, 0], title2: [[0, 0, 1], [1,0,0]], title3: [[0, 0, 0, 1], [1, 0, 0, 1]]}
+                    }}
+					}){intField}}}`
+		expectedParams := dto.GetParams{
+			ClassName:  "SomeAction",
+			Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+			HybridSearch: &searchparams.HybridSearch{
+				Query:           "apple",
+				Alpha:           0.75,
+				Type:            "hybrid",
+				FusionAlgorithm: 1,
+				SubSearches:     emptySubsearches,
+				TargetVectors:   []string{"title1", "title2", "title2", "title3", "title3"},
+				NearVectorParams: &searchparams.NearVector{
+					Vectors: [][]float32{{1.0, 0}, {0, 0, 1}, {1, 0, 0}, {0, 0, 0, 1}, {1, 0, 0, 1}},
+				},
+			},
+			TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum},
+		}
+		resolver.On("GetClass", expectedParams).
+			Return([]interface{}{}, nil).Once()
+		resolver.AssertResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
+					searches: {nearVector:{
+     							vectorPerTarget: {title1: [1, 0], title2: [[0, 0, 1], [1,0,0]], title3: [[0, 0, 0, 1], [1, 0, 0, 1]]}
+                    }}
+					}){intField}}}`
+		resolver.AssertFailToResolve(t, query)
+	})
 }
 
 func TestNearObjectNoModules(t *testing.T) {

@@ -13,7 +13,6 @@ package common_filters
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -75,42 +74,57 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 	}
 
 	if okVecPerTarget {
-		targets := make([]string, 0, len(vectorPerTarget))
-		vectors := make([][]float32, 0, len(vectorPerTarget))
-		for target := range vectorPerTarget {
-			single, ok := vectorPerTarget[target].([]float32)
-			if ok {
-				vectors = append(vectors, single)
-				targets = append(targets, target)
-			} else {
-				multiple, okMulti := vectorPerTarget[target].([][]float32)
-				if !okMulti {
-					return searchparams.NearVector{}, nil,
-						fmt.Errorf("vectorPerTarget should be a map with strings as keys and list of floats or list of lists of floats as values. Recieved %T", vectorPerTarget[target])
-				}
-				for j := range multiple {
-					vectors = append(vectors, multiple[j])
+		var vectors [][]float32
+		// needs to handle the case of targetVectors being empty (if you only provide a near vector with targets)
+		if len(targetVectors) == 0 {
+			targets := make([]string, 0, len(vectorPerTarget))
+			vectors = make([][]float32, 0, len(vectorPerTarget))
+
+			for target := range vectorPerTarget {
+				single, ok := vectorPerTarget[target].([]float32)
+				if ok {
+					vectors = append(vectors, single)
 					targets = append(targets, target)
+				} else {
+					multiple, okMulti := vectorPerTarget[target].([][]float32)
+					if !okMulti {
+						return searchparams.NearVector{}, nil,
+							fmt.Errorf("vectorPerTarget should be a map with strings as keys and list of floats or list of lists of floats as values. Recieved %T", vectorPerTarget[target])
+					}
+					for j := range multiple {
+						vectors = append(vectors, multiple[j])
+						targets = append(targets, target)
+					}
 				}
 			}
-		}
-
-		if len(targetVectors) == 0 {
 			args.TargetVectors = targets
 		} else {
-			if len(targetVectors) != len(vectors) {
-				return searchparams.NearVector{}, nil,
-					fmt.Errorf("number of targets (%d) does not match number of vectors (%d)", len(targetVectors), len(targets))
-			}
-			sort.Strings(targetVectors)
-			sort.Strings(targets)
+			vectors = make([][]float32, len(targetVectors))
+			handled := make(map[string]struct{})
 			for i, target := range targetVectors {
-				if target != targets[i] {
-					return searchparams.NearVector{}, nil,
-						fmt.Errorf("targets do not match: %s != %s", target, targets[i])
+				if _, ok := handled[target]; ok {
+					continue
+				} else {
+					handled[target] = struct{}{}
+				}
+				vectorPerTargetParsed, ok := vectorPerTarget[target]
+				if !ok {
+					return searchparams.NearVector{}, nil, fmt.Errorf("vectorPerTarget for target %s is not provided", target)
+				}
+				if vectorIn, ok := vectorPerTargetParsed.([]float32); ok {
+					vectors[i] = vectorIn
+				} else if vectorsIn, ok := vectorPerTargetParsed.([][]float32); ok {
+					for j, w := range vectorsIn {
+
+						if i+j >= len(targetVectors) || targetVectors[i+j] != target {
+							return searchparams.NearVector{}, nil, fmt.Errorf("target %s is not in the correct order", target)
+						}
+						vectors[i+j] = w
+					}
+				} else {
+					return searchparams.NearVector{}, nil, fmt.Errorf("weight for target %s is not a float, got %v", target, vectorPerTargetParsed)
 				}
 			}
-
 		}
 		args.Vectors = vectors
 	}

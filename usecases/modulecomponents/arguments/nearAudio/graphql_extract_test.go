@@ -88,7 +88,7 @@ func Test_extractNearAudioFn(t *testing.T) {
 					"targets": map[string]interface{}{
 						"targetVectors":     []interface{}{"targetVector1", "targetVector2"},
 						"combinationMethod": dto.ManualWeights,
-						"weights":           map[string]float64{"targetVector1": 0.5, "targetVector2": 0.5},
+						"weights":           map[string]interface{}{"targetVector1": 0.5, "targetVector2": 0.5},
 					},
 				},
 			},
