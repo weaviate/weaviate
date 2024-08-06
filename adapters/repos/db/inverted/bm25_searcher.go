@@ -389,7 +389,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 			continue
 		}
 
-		allMsAndProps = append(allMsAndProps, MapPairsAndPropName{MapPairs: m, propname: propName})
+		allMsAndProps = append(allMsAndProps, MapPairsAndPropName{MapPairs: m, propBoost: propertyBoosts[propName]})
 	}
 
 	// sort ascending, this code has two effects
@@ -406,7 +406,6 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 	var docMapPairsIndices map[uint64]int = nil
 	for i, mAndProps := range allMsAndProps {
 		m := mAndProps.MapPairs
-		propName := mAndProps.propname
 
 		// The indices are needed for two things:
 		// a) combining the results of different properties
@@ -434,7 +433,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 				docMapPairs = append(docMapPairs,
 					docPointerWithScore{
 						id:         binary.BigEndian.Uint64(val.Key),
-						frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
+						frequency:  math.Float32frombits(freqBits) * mAndProps.propBoost,
 						propLength: math.Float32frombits(propLenBits),
 					})
 				if includeIndicesForLastElement {
@@ -463,12 +462,12 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 					}
 
 					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
-					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propertyBoosts[propName]
+					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * mAndProps.propBoost
 				} else {
 					docMapPairs = append(docMapPairs,
 						docPointerWithScore{
 							id:         binary.BigEndian.Uint64(val.Key),
-							frequency:  math.Float32frombits(freqBits) * propertyBoosts[propName],
+							frequency:  math.Float32frombits(freqBits) * mAndProps.propBoost,
 							propLength: math.Float32frombits(propLenBits),
 						})
 					if includeIndicesForLastElement {
@@ -637,8 +636,8 @@ func (t terms) Swap(i, j int) {
 }
 
 type MapPairsAndPropName struct {
-	propname string
-	MapPairs []lsmkv.MapPair
+	propBoost float32
+	MapPairs  []lsmkv.MapPair
 }
 
 type AllMapPairsAndPropName []MapPairsAndPropName
