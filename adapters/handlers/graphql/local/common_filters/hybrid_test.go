@@ -63,21 +63,3 @@ func TestHybrid(t *testing.T) {
 		})
 	}
 }
-
-type targetsAndVectors struct {
-	targets []string
-	vectors [][]float32
-}
-
-func (t targetsAndVectors) Len() int {
-	return len(t.targets)
-}
-
-func (t targetsAndVectors) Swap(i, j int) {
-	t.targets[i], t.targets[j] = t.targets[j], t.targets[i]
-	t.vectors[i], t.vectors[j] = t.vectors[j], t.vectors[i]
-}
-
-func (t targetsAndVectors) Less(i, j int) bool {
-	return t.targets[i] < t.targets[j]
-}

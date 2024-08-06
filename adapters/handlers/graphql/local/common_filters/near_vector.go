@@ -89,7 +89,7 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 					multiple, okMulti := vectorPerTarget[target].([][]float32)
 					if !okMulti {
 						return searchparams.NearVector{}, nil,
-							fmt.Errorf("vectorPerTarget should be a map with strings as keys and list of floats or list of lists of floats as values. Recieved %T", vectorPerTarget[target])
+							fmt.Errorf("vectorPerTarget should be a map with strings as keys and list of floats or list of lists of floats as values. Received %T", vectorPerTarget[target])
 					}
 					for j := range multiple {
 						vectors = append(vectors, multiple[j])
