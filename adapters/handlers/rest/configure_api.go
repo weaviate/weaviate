@@ -67,6 +67,7 @@ import (
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
+	modgenerativedatabricks "github.com/weaviate/weaviate/modules/generative-databricks"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
 	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
@@ -791,6 +792,7 @@ func registerModules(appState *state.State) error {
 		modgenerativeanyscale.Name,
 		modgenerativeaws.Name,
 		modgenerativecohere.Name,
+		modgenerativedatabricks.Name,
 		modgenerativemistral.Name,
 		modgenerativeoctoai.Name,
 		modgenerativeopenai.Name,
@@ -986,6 +988,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativeopenai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativedatabricks.Name]; ok {
+		appState.Modules.Register(modgenerativedatabricks.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativedatabricks.Name).
 			Debug("enabled module")
 	}
 
