@@ -1007,7 +1007,7 @@ func TestSkipMissingObjects(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ids := pickRandomIDsBetween(0, 1000, 100)
 	ids = append(ids, 1001, 1002, 1003)
-	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, logger)
+	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
 	require.Nil(t, err)
 	require.Len(t, objs, 100)
 	for _, obj := range objs {
