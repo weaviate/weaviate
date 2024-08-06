@@ -86,7 +86,7 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", 0, nullLogger())
+		c := New("openAIApiKey", "", "", "databricksToken", 0, nullLogger())
 		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
@@ -112,7 +112,7 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", 0, nullLogger())
+		c := New("openAIApiKey", "", "", "", 0, nullLogger())
 		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
@@ -127,7 +127,7 @@ func TestGetAnswer(t *testing.T) {
 		settings := &fakeClassSettings{
 			baseURL: "http://default-url.com",
 		}
-		c := New("openAIApiKey", "", "", 0, nullLogger())
+		c := New("openAIApiKey", "", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
