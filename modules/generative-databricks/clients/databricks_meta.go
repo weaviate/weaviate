@@ -13,7 +13,7 @@ package clients
 
 func (v *openai) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
-		"name":              "Generative Search - OpenAI",
-		"documentationHref": "https://platform.openai.com/docs/api-reference/completions",
+		"name":              "Generative Search - Databricks",
+		"documentationHref": "https://docs.databricks.com/en/machine-learning/foundation-models/api-reference.html#completion-task",
 	}, nil
 }
