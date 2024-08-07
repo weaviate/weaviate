@@ -172,7 +172,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
 		f = func() {
-			ret.Data, ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
+			ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
