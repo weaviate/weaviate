@@ -78,7 +78,7 @@ func TestCompressedParallelIterator(t *testing.T) {
 			bucket := buildCompressedBucketForTest(t, test.totalVecs)
 			defer bucket.Shutdown(context.Background())
 			logger, _ := logrustest.NewNullLogger()
-			cpi := NewCompressedParallelIterator(bucket, test.parallel, logger)
+			cpi := NewCompressedParallelIterator(bucket, test.parallel, test.totalVecs, 8, logger)
 			require.NotNil(t, cpi)
 
 			ch := cpi.IterateAll()
