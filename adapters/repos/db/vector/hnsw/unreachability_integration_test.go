@@ -30,7 +30,6 @@ import (
 )
 
 func TestUnreachablePoints(t *testing.T) {
-
 	var vectors [][]float32
 	var vectorIndex *hnsw
 

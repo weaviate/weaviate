@@ -749,7 +749,6 @@ type StatsIndex struct {
 }
 
 func (h *hnsw) Stats() (StatsIndex, error) {
-
 	distributionLayers := map[int]uint{}
 
 	for _, node := range h.nodes {
