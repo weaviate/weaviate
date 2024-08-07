@@ -97,10 +97,16 @@ func Test_Explorer_GetClass(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Foo",
+					"_additional": map[string]interface{}{
+						"query_vector": []float32{0.8, 0.2, 0.7},
+					},
 				}, res[0])
 			assert.Equal(t,
 				map[string]interface{}{
 					"age": 200,
+					"_additional": map[string]interface{}{
+						"query_vector": []float32{0.8, 0.2, 0.7},
+					},
 				}, res[1])
 		})
 
@@ -666,7 +672,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			search.AssertExpectations(t)
 		})
 
-		t.Run("response must contain concepts2", func(t *testing.T) {
+		t.Run("response must contain concepts9", func(t *testing.T) {
 			require.Len(t, res, 2)
 			assert.Equal(t,
 				map[string]interface{}{
@@ -1127,6 +1133,9 @@ func Test_Explorer_GetClass(t *testing.T) {
 				ID: "id2",
 				Schema: map[string]interface{}{
 					"name": "Bar",
+					"_additional": map[string]interface{}{
+						"query_vector": []float32{1, 2, 3},
+					},
 				},
 			},
 		}
@@ -2163,10 +2172,16 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 			assert.Equal(t,
 				map[string]interface{}{
 					"name": "Foo",
+					"_additional": map[string]interface{}{
+						"query_vector": []float32{1, 2, 3},
+					},
 				}, res[0])
 			assert.Equal(t,
 				map[string]interface{}{
 					"age": 200,
+					"_additional": map[string]interface{}{
+						"query_vector": []float32{1, 2, 3},
+					},
 				}, res[1])
 		})
 	})
@@ -2701,6 +2716,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 								},
 							},
 						},
+						"query_vector": []float32{1, 2, 3},
 					},
 				}, res[0])
 			assert.Equal(t,
@@ -2725,6 +2741,7 @@ func Test_Explorer_GetClass_With_Modules(t *testing.T) {
 								},
 							},
 						},
+						"query_vector": []float32{1, 2, 3},
 					},
 				}, res[1])
 		})

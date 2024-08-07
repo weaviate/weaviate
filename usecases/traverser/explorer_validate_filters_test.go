@@ -374,6 +374,9 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 						ID: "id1",
 						Schema: map[string]interface{}{
 							"name": "Foo",
+							"_additional": map[string]interface{}{
+								"query_vector": []float32{0.8, 0.2, 0.7},
+							},
 						},
 					},
 				}
@@ -405,6 +408,9 @@ func Test_Explorer_GetClass_WithFilters(t *testing.T) {
 						assert.Equal(t,
 							map[string]interface{}{
 								"name": "Foo",
+								"_additional": map[string]interface{}{
+									"query_vector": []float32{0.8, 0.2, 0.7},
+								},
 							}, res[0])
 					})
 				} else {
