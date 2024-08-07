@@ -314,7 +314,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher,
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version())
-		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
+		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -426,7 +426,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 					// This should normally not fail. A failure here could indicate that more
 					// attention is required, for example because data is corrupted. That's
 					// why this error is explicitly pushed to sentry.
-					err = fmt.Errorf("vector search for target vector %s by distance: %w", targetVector, err)
+					err = fmt.Errorf("vector search by distance: %w", err)
 					entsentry.CaptureException(err)
 					return err
 				}
@@ -436,8 +436,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 					// This should normally not fail. A failure here could indicate that more
 					// attention is required, for example because data is corrupted. That's
 					// why this error is explicitly pushed to sentry.
-					err = fmt.Errorf("vector search for target vector %s: %w", targetVector, err)
-					entsentry.CaptureException(err)
+					err = fmt.Errorf("vector search: %w", err)
+					// annotate for sentry so we know which collection/shard this happened on
+					entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
+						s.index.Config.ClassName, s.name, err))
 					return err
 				}
 			}

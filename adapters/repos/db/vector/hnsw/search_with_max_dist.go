@@ -34,6 +34,7 @@ func (h *hnsw) KnnSearchByVectorMaxDist(searchVec []float32, dist float32,
 	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	var e storobj.ErrNotFound
 	if err != nil && errors.As(err, &e) {
+		h.handleDeletedNode(e.DocID)
 		return nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}

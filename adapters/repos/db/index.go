@@ -345,47 +345,71 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.shards.Store(shardName, shard)
 	}
 
-	f := func() {
+	initLazyShardsInBackground := func() {
+		defer i.allShardsReady.Store(true)
+
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		defer i.allShardsReady.Store(true)
+
 		now := time.Now()
-		err := i.ForEachShard(func(name string, shard ShardLike) error {
+
+		for _, shardName := range shardState.AllLocalPhysicalShards() {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
 			// cases where available
 			select {
 			case <-i.closingCtx.Done():
 				// break loop by returning error
-				return i.closingCtx.Err()
+				i.logger.
+					WithField("action", "load_all_shards").
+					Errorf("failed to load all shards: %v", i.closingCtx.Err())
+				return
 			case <-ticker.C:
 				select {
 				case <-i.closingCtx.Done():
 					// break loop by returning error
-					return i.closingCtx.Err()
+					i.logger.
+						WithField("action", "load_all_shards").
+						Errorf("failed to load all shards: %v", i.closingCtx.Err())
+					return
 				default:
-					if err := shard.(*LazyLoadShard).Load(context.Background()); err != nil {
+					err := i.loadLocalShardIfActive(shardName)
+					if err != nil {
 						i.logger.
 							WithField("action", "load_shard").
-							WithField("shard_name", shard.Name()).
+							WithField("shard_name", shardName).
 							Errorf("failed to load shard: %v", err)
+						return
 					}
-					return nil
 				}
 			}
-		})
-		if err != nil {
-			i.logger.
-				WithField("action", "load_all_shards").
-				Errorf("failed to load all shards: %v", err)
-			return
 		}
+
 		i.logger.
 			WithField("action", "load_all_shards").
 			WithField("took", time.Since(now).String()).
 			Debug("finished loading all shards")
 	}
-	enterrors.GoWrapper(f, i.logger)
+
+	enterrors.GoWrapper(initLazyShardsInBackground, i.logger)
+
+	return nil
+}
+
+func (i *Index) loadLocalShardIfActive(shardName string) error {
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	// check if set to inactive in the meantime by concurrent call
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return nil
+	}
+
+	lazyShard, ok := shard.(*LazyLoadShard)
+	if ok {
+		return lazyShard.Load(context.Background())
+	}
 
 	return nil
 }
@@ -461,7 +485,7 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg.SetLimit(_NUMCPU)
 
 	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.createPropertyIndex(ctx, eg, props...)
+		shard.initPropertyBuckets(ctx, eg, props...)
 		return nil
 	})
 
@@ -1798,14 +1822,14 @@ func (i *Index) getClass() *models.Class {
 // Method first tries to get shard from Index::shards map,
 // or inits shard and adds it to the map if shard was not found
 func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
-	return i.optInitLocalShard(ctx, i.getClass(), shardName, i.Config.DisableLazyLoadShards)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false)
 }
 
 func (i *Index) loadLocalShard(ctx context.Context, shardName string) error {
-	return i.optInitLocalShard(ctx, i.getClass(), shardName, true)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true)
 }
 
-func (i *Index) optInitLocalShard(ctx context.Context, class *models.Class, shardName string, disableLazyLoad bool) error {
+func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
@@ -1819,15 +1843,17 @@ func (i *Index) optInitLocalShard(ctx context.Context, class *models.Class, shar
 
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Load(shardName); shard != nil {
-		if disableLazyLoad {
-			asLL, ok := shard.(*LazyLoadShard)
+		if mustLoad {
+			lazyShard, ok := shard.(*LazyLoadShard)
 			if ok {
-				return asLL.Load(ctx)
+				return lazyShard.Load(ctx)
 			}
 		}
 
 		return nil
 	}
+
+	disableLazyLoad := mustLoad || i.Config.DisableLazyLoadShards
 
 	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad)
 	if err != nil {

@@ -74,7 +74,6 @@ func (st *Store) Notify(id, addr string) (err error) {
 		return nil
 	}
 	candidates := make([]raft.Server, 0, len(st.candidates))
-	i := 0
 	for id, addr := range st.candidates {
 		candidates = append(candidates, raft.Server{
 			Suffrage: raft.Voter,
@@ -82,7 +81,6 @@ func (st *Store) Notify(id, addr string) (err error) {
 			Address:  raft.ServerAddress(addr),
 		})
 		delete(st.candidates, id)
-		i++
 	}
 
 	st.log.WithFields(logrus.Fields{
@@ -92,10 +90,14 @@ func (st *Store) Notify(id, addr string) (err error) {
 
 	fut := st.raft.BootstrapCluster(raft.Configuration{Servers: candidates})
 	if err := fut.Error(); err != nil {
-		st.log.WithField("action", "bootstrap").WithError(err).Error("could not bootstrapping cluster")
 		if !errors.Is(err, raft.ErrCantBootstrap) {
+			st.log.WithField("action", "bootstrap").WithError(err).Error("could not bootstrapping cluster")
 			return err
 		}
+		st.log.WithFields(logrus.Fields{
+			"action": "bootstrap",
+			"warn":   err,
+		}).Warn("bootstrapping cluster")
 	}
 	st.bootstrapped.Store(true)
 	return nil
