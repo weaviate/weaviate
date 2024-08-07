@@ -376,7 +376,7 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 
-	ctx := testCtx()
+	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
 	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, hnsw.UserConfig{}, false, true /* withCheckpoints */)
 
@@ -447,7 +447,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 
-	ctx := testCtx()
+	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
 	shard, index := testShardWithSettings(
 		t,
@@ -541,13 +541,10 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
 
-	ctx := testCtx()
+	ctx := context.Background()
 	var cfg hnsw.UserConfig
 	cfg.SetDefaults()
-	cfg.CleanupIntervalSeconds = 0
-	cfg.DynamicEFFactor = 0
-	cfg.EF = 0
-	cfg.MaxConnections = 0
+	cfg.MaxConnections = 16
 	cfg.PQ.Enabled = true
 	cfg.PQ.Centroids = 256
 	cfg.PQ.Segments = 32
@@ -636,7 +633,7 @@ func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
 	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
 
-	ctx := testCtx()
+	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
 	shard, index := testShardWithSettings(
 		t,
