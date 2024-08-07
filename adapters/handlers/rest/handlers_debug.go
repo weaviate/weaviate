@@ -53,12 +53,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		shard := idx.GetShard(shardName)
-		if shard == nil {
-			logger.WithField("shard", shardName).Error("shard not found")
-			http.Error(w, "shard not found", http.StatusNotFound)
+		shard, release, err := idx.GetShard(context.Background(), shardName)
+		if err != nil {
+			logger.WithField("shard", shardName).Error(err)
+			http.Error(w, err.Error(), http.StatusNotFound)
 			return
 		}
+		defer release()
 
 		// Get the vector index
 		var vidx db.VectorIndex
@@ -88,7 +89,7 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		// Reset the vector index
-		err := shard.DebugResetVectorIndex(context.Background(), vecIdxID)
+		err = shard.DebugResetVectorIndex(context.Background(), vecIdxID)
 		if err != nil {
 			logger.WithField("shard", shardName).WithError(err).Error("failed to reset vector index")
 			http.Error(w, "failed to reset vector index", http.StatusInternalServerError)

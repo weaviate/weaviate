@@ -127,7 +127,7 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 		return nil, nil
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
 		if err != nil {
@@ -170,7 +170,7 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		return "", false, errors.Wrap(err, "clean up tmp combining files")
 	}
 
-	ec := &errorcompounder.ErrorCompounder{}
+	ec := errorcompounder.New()
 	sort.Slice(files, func(a, b int) bool {
 		ts1, err := asTimeStamp(files[a].Name())
 		if err != nil {
