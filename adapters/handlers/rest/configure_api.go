@@ -303,6 +303,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	setupDebugHandlers(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
+	setupIndexStatsHandlers(appState)
 
 	migrator := db.NewMigrator(repo, appState.Logger)
 	migrator.SetNode(appState.Cluster.LocalName())

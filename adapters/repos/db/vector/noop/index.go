@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -136,4 +137,8 @@ func (i *Index) TurnOnCompression(callback func()) error {
 
 func (i *Index) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	return common.QueryVectorDistancer{}
+}
+
+func (i *Index) Stats() (hnsw.StatsIndex, error) {
+	return hnsw.StatsIndex{}, errors.New("Stats() is not implemented for noop index")
 }

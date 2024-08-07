@@ -22,23 +22,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-var numNodes = 100
-
 func TestUnreachablePoints(t *testing.T) {
-	efConstruction := 0
-	ef := 0
-	maxNeighbors := 0
 
 	var vectors [][]float32
 	var vectorIndex *hnsw
 
-	t.Run("generate random vectors", func(t *testing.T) {
+	t.Run("generate vectors", func(t *testing.T) {
 		vectors = [][]float32{
 			{0, 0, 0},
 			{1, 1, 1},
@@ -61,12 +57,13 @@ func TestUnreachablePoints(t *testing.T) {
 				return vectors[int(id)], nil
 			},
 		}, ent.UserConfig{
-			MaxConnections: maxNeighbors,
-			EFConstruction: efConstruction,
-			EF:             ef,
+			MaxConnections: 0,
+			EFConstruction: 0,
+			EF:             0,
 		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), nil)
 		require.Nil(t, err)
 		vectorIndex = index
+		groundtruth := [][]uint64{{}, {2}, {}, {1, 2, 3, 4}, {}}
 
 		workerCount := runtime.GOMAXPROCS(0)
 		jobsForWorker := make([][][]float32, workerCount)
@@ -94,115 +91,86 @@ func TestUnreachablePoints(t *testing.T) {
 		fmt.Printf("importing took %s\n", time.Since(before))
 
 		for i := 1; i <= 5; i++ {
-
 			vectorIndex.generateGraphConnections(i)
-			/*println("The entrypoint is ", vectorIndex.entryPointID)
-			for _, node := range vectorIndex.nodes {
-				if node == nil {
-					break
-				}
-				fmt.Println("node.id = ", node.id)
-				for level, connection := range node.connections {
-					fmt.Println("level = ", level)
-					fmt.Println("node.connections = ", connection)
-				}
-				fmt.Println()
-			}*/
-
 			res := vectorIndex.calculateUnreachablePoints()
-			fmt.Println("Unreachable points: ", res)
+			assert.Equal(t, groundtruth[i-1], res)
 			vectorIndex.cleanConnections()
 		}
 	})
-
 }
 
 func (h *hnsw) generateGraphConnections(testCase int) {
 
 	switch testCase {
 	case 1:
-		// CASE 1
-		// Entrypoint
 		h.entryPointID = 0
-		// Current maximum layer
 		h.currentMaximumLayer = 1
-		// Node 0 connections
+		// Node 0
 		h.nodes[0].upgradeToLevelNoLock(1)
 		h.nodes[0].setConnectionsAtLevel(1, []uint64{1, 2})
-		// Node 1 connections
+		// Node 1
 		h.nodes[1].upgradeToLevelNoLock(1)
 		h.nodes[1].setConnectionsAtLevel(1, []uint64{3})
-		// Node 2 connections
+		// Node 2
 		h.nodes[2].upgradeToLevelNoLock(1)
 		h.nodes[2].setConnectionsAtLevel(1, []uint64{4})
-		// Node 3 connections
+		// Node 3
 		h.nodes[3].upgradeToLevelNoLock(1)
-		// Node 4 connections
+		// Node 4
 		h.nodes[4].upgradeToLevelNoLock(1)
 	case 2:
-		// CASE 2
-		// Entrypoint
 		h.entryPointID = 0
-		// Current maximum layer
 		h.currentMaximumLayer = 1
-		// Node 0 connections
+		// Node 0
 		h.nodes[0].upgradeToLevelNoLock(1)
 		h.nodes[0].setConnectionsAtLevel(0, []uint64{1})
-		// Node 1 connections
+		// Node 1
 		h.nodes[1].upgradeToLevelNoLock(1)
 		h.nodes[1].setConnectionsAtLevel(0, []uint64{3})
 		h.nodes[1].setConnectionsAtLevel(1, []uint64{2})
-		// Node 2 connections
+		// Node 2
 		h.nodes[2].upgradeToLevelNoLock(1)
-		// Node 3 connections
+		// Node 3
 		h.nodes[3].setConnectionsAtLevel(0, []uint64{4})
 	case 3:
-		// Entrypoint
 		h.entryPointID = 0
-		// Current maximum layer
 		h.currentMaximumLayer = 1
-		// Node 0 connections
+		// Node 0
 		h.nodes[0].upgradeToLevelNoLock(1)
 		h.nodes[0].setConnectionsAtLevel(0, []uint64{1})
-		// Node 1 connections
+		// Node 1
 		h.nodes[1].setConnectionsAtLevel(0, []uint64{2})
-		// Node 2 connections
+		// Node 2
 		h.nodes[2].setConnectionsAtLevel(0, []uint64{3})
-		// Node 3 connections
+		// Node 3
 		h.nodes[3].setConnectionsAtLevel(0, []uint64{4})
 	case 4:
-		// Entrypoint
 		h.entryPointID = 0
-		// Current maximum layer
 		h.currentMaximumLayer = 2
-		// Node 0 connections
+		// Node 0
 		h.nodes[0].upgradeToLevelNoLock(2)
 	case 5:
-		// Entrypoint
 		h.entryPointID = 0
-		// Current maximum layer
 		h.currentMaximumLayer = 1
-		// Node 0 connections
+		// Node 0
 		h.nodes[0].upgradeToLevelNoLock(1)
 		h.nodes[0].setConnectionsAtLevel(1, []uint64{1, 2})
-		// Node 1 connections
+		// Node 1
 		h.nodes[1].upgradeToLevelNoLock(1)
 		h.nodes[1].setConnectionsAtLevel(0, []uint64{3})
-		// Node 2 connections
+		// Node 2
 		h.nodes[2].upgradeToLevelNoLock(1)
-		// Node 3 connections
+		// Node 3
 		h.nodes[3].setConnectionsAtLevel(0, []uint64{4})
 	}
-
 }
 
 func (h *hnsw) cleanConnections() {
 	for i := 0; i < len(h.nodes); i++ {
 		if h.nodes[i] == nil {
-			break
+			continue
 		}
 		h.nodes[i].connections = make([][]uint64, 1)
 		h.nodes[i].level = 0
 	}
-	fmt.Println("Connections cleaned")
 }

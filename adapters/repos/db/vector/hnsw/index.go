@@ -731,27 +731,36 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 	for k, v := range visitedPairs {
 		if v {
 			visitedNodes[k.nodeId] = true
-
 		}
 	}
 
 	unvisitedNodes := []uint64{}
 	for i := 0; i < len(h.nodes); i++ {
 		if h.nodes[i] == nil {
-			break
+			continue
 		}
 		if !visitedNodes[uint64(i)] {
 			unvisitedNodes = append(unvisitedNodes, h.nodes[i].id)
 		}
 	}
-
 	return unvisitedNodes
 }
 
-func (h *hnsw) Stats() []uint64 {
-	/*fmt.Printf("levels: %d\n", h.currentMaximumLayer)
+type StatsIndex struct {
+	Dimensions         int32
+	EntryPointID       uint64
+	DistributionLayers map[int]uint
+	UnreachablePoints  []uint64
+	NumTombstones      int
+	CacheSize          int32
+	PQConfiguration    ent.PQConfig
+	BQConfiguration    ent.BQConfig
+	SQConfiguration    ent.SQConfig
+}
 
-	perLevelCount := map[int]uint{}
+func (h *hnsw) Stats() (StatsIndex, error) {
+
+	distributionLayers := map[int]uint{}
 
 	for _, node := range h.nodes {
 		if node == nil {
@@ -759,19 +768,27 @@ func (h *hnsw) Stats() []uint64 {
 		}
 		l := node.level
 		if l == 0 && len(node.connections) == 0 {
-			// filter out allocated space without nodes
 			continue
 		}
-		c, ok := perLevelCount[l]
+		c, ok := distributionLayers[l]
 		if !ok {
-			perLevelCount[l] = 0
+			distributionLayers[l] = 0
 		}
 
-		perLevelCount[l] = c + 1
+		distributionLayers[l] = c + 1
 	}
 
-	for level, count := range perLevelCount {
-		fmt.Printf("unique count on level %d: %d\n", level, count)
-	}*/
-	return h.calculateUnreachablePoints()
+	stats := StatsIndex{
+		Dimensions:         h.dims,
+		EntryPointID:       h.entryPointID,
+		DistributionLayers: distributionLayers,
+		UnreachablePoints:  h.calculateUnreachablePoints(),
+		NumTombstones:      len(h.tombstones),
+		CacheSize:          h.cache.Len(),
+		PQConfiguration:    h.pqConfig,
+		BQConfiguration:    h.bqConfig,
+		SQConfiguration:    h.sqConfig,
+	}
+
+	return stats, nil
 }

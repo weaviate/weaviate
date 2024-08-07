@@ -66,13 +66,29 @@ func setupIndexStatsHandlers(appState *state.State) {
 			return
 		}
 
-		if hnsw, ok := vidx.(*vector.hnsw); ok {
-			hnsw.Stats()
-		} else {
-			// Error Log
+		stats, err := vidx.Stats()
+		if err != nil {
+			logger.WithField("shard", shardName).Error(err)
+			http.Error(w, "stats method failed", http.StatusMethodNotAllowed)
+			return
 		}
 
-		logger.WithField("shard", shardName).Info("Stats on HNSW started")
+		logger.Info("Stats on HNSW started")
+		logger.WithField("Dimensions:", stats.Dimensions).Info("Dimensions")
+		logger.WithField("EntryPointID:", stats.EntryPointID).Info("EntryPointID")
+		logger.WithField("Distribution Layers:", stats.DistributionLayers).Info("Distribution Layers")
+		logger.WithField("Unreachable Points:", stats.UnreachablePoints).Info("Unreachable Points")
+		logger.WithField("Number of Tombstones:", stats.NumTombstones).Info("Number of Tombstones")
+		logger.WithField("Cache Size:", stats.CacheSize).Info("Cache Size")
+		if stats.PQConfiguration.Enabled {
+			logger.WithField("PQ Configuration:", stats.PQConfiguration).Info("Quantization")
+		} else if stats.SQConfiguration.Enabled {
+			logger.WithField("SQ Configuration:", stats.SQConfiguration).Info("Quantization")
+		} else if stats.BQConfiguration.Enabled {
+			logger.WithField("BQ Configuration:", stats.BQConfiguration).Info("Quantization")
+		} else {
+			logger.WithField("Quantization:", "None").Info("Quantization")
+		}
 
 		w.WriteHeader(http.StatusAccepted)
 	}))
