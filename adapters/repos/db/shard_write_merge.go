@@ -24,6 +24,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
+var errObjectNotFound = errors.New("object not found")
+
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
@@ -114,6 +116,10 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return errors.Wrap(err, "get bucket")
+		}
+
+		if prevObj == nil {
+			return errObjectNotFound
 		}
 
 		obj, _, err = s.mergeObjectData(prevObj, merge)
@@ -235,6 +241,7 @@ func (s *Shard) mergeObjectData(prevObj *storobj.Object,
 	merge objects.MergeDocument,
 ) (*storobj.Object, *storobj.Object, error) {
 	if prevObj == nil {
+		s.index.logger.WithField("id", merge.ID).Error("resurrecting a zombie object")
 		// DocID must be overwritten after status check, simply set to initial
 		// value
 		prevObj = storobj.New(0)
