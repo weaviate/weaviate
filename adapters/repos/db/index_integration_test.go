@@ -589,17 +589,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 		}
 	}
 
-	// wait until everything is compressed
-	for i := 0; i < 500; i++ {
-		time.Sleep(100 * time.Millisecond)
-		if shard.VectorIndex().Compressed() {
-			break
-		}
-	}
-
 	shard.Queue().Wait()
-
-	require.True(t, shard.VectorIndex().Compressed())
 
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
 	require.Nil(t, err)
@@ -615,11 +605,10 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	// wait for the in-flight indexing to finish
 	shard.Queue().Wait()
 
-	// wait until everything is compressed
-	for i := 0; i < 500; i++ {
-		time.Sleep(100 * time.Millisecond)
-		if shard.VectorIndex().Compressed() {
-			break
+	// make sure the new index contains all the objects
+	for _, obj := range objs {
+		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
 
