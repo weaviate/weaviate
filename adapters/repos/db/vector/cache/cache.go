@@ -25,10 +25,14 @@ type Cache[T any] interface {
 	CountVectors() int64
 	Delete(ctx context.Context, id uint64)
 	Preload(id uint64, vec []T)
+	PreloadNoLock(id uint64, vec []T)
+	SetSizeAndGrowNoLock(id uint64)
 	Prefetch(id uint64)
 	Grow(size uint64)
 	Drop()
 	UpdateMaxSize(size int64)
 	CopyMaxSize() int64
 	All() [][]T
+	LockAll()
+	UnlockAll()
 }
