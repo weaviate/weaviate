@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build tombstone
-// +build tombstone
-
 package hnsw
 
 import (
@@ -20,7 +17,9 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -164,5 +163,56 @@ func TestDelete_ConcurrentWithMetrics(t *testing.T) {
 	t.Run("destroy the index", func(t *testing.T) {
 		time.Sleep(30 * time.Second) // wait to capture final metrics
 		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
+}
+
+func TestPhantom_Tombstones(t *testing.T) {
+	var vectors [][]float32
+	for i := 0; i < 100; i++ {
+		vectors = append(vectors, []float32{rand.Float32(), rand.Float32(), rand.Float32()})
+	}
+	var vectorIndex *hnsw
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			ClassName:            "Tombstone",
+			ShardName:            uuid.New().String(),
+		}, ent.UserConfig{
+			MaxConnections:        30,
+			EFConstruction:        128,
+			VectorCacheMaxObjects: 200000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+		vectorIndex.logger = logrus.New()
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		for i := 0; i < 50; i++ {
+			require.Nil(t, vectorIndex.Delete(uint64(i)))
+		}
+		require.Equal(t, 50, len(vectorIndex.tombstones))
+		var i atomic.Int32
+		ok, err := vectorIndex.cleanUpTombstonedNodes(func() bool {
+			v := i.Add(1)
+			return v > 20 && v < 30
+		})
+		require.Error(t, err)
+		require.True(t, strings.HasPrefix("Could not reassign node with id: ", err.Error()))
+		require.True(t, ok)
+		require.Equal(t, 50, len(vectorIndex.tombstones))
 	})
 }
