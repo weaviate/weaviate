@@ -41,7 +41,6 @@ func TestUnreachablePoints(t *testing.T) {
 			{-5, -5, -5},
 			{5, 5, 5},
 		}
-
 	})
 
 	t.Run("importing into hnsw", func(t *testing.T) {
@@ -99,7 +98,6 @@ func TestUnreachablePoints(t *testing.T) {
 }
 
 func (h *hnsw) generateGraphConnections(testCase int) {
-
 	switch testCase {
 	case 1:
 		h.entryPointID = 0

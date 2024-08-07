@@ -24,7 +24,6 @@ func setupIndexStatsHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
 	http.HandleFunc("/debug/stats/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/stats/collection/"))
 		parts := strings.Split(path, "/")
 		if len(parts) < 3 || len(parts) > 5 || parts[1] != "shards" {
