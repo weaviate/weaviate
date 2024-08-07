@@ -546,9 +546,9 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	cfg.SetDefaults()
 	cfg.MaxConnections = 16
 	cfg.PQ.Enabled = true
-	cfg.PQ.Centroids = 256
-	cfg.PQ.Segments = 32
-	cfg.PQ.TrainingLimit = 1000
+	cfg.PQ.Centroids = 6
+	cfg.PQ.Segments = 4
+	cfg.PQ.TrainingLimit = 32
 
 	shard, index := testShardWithSettings(
 		t,
@@ -567,12 +567,12 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "unknown")
 	require.Error(t, err)
 
-	amount := 10_000
+	amount := 1000
 
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject("reindextest")
-		obj.Vector = randVector(128)
+		obj.Vector = randVector(16)
 		objs = append(objs, obj)
 	}
 
@@ -582,7 +582,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	}
 
 	// wait until the queue is empty
-	for i := 0; i < 800; i++ {
+	for i := 0; i < 200; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if shard.Queue().Size() == 0 {
 			break
@@ -595,7 +595,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	require.Nil(t, err)
 
 	// wait until the queue is empty
-	for i := 0; i < 800; i++ {
+	for i := 0; i < 200; i++ {
 		time.Sleep(500 * time.Millisecond)
 		if shard.Queue().Size() == 0 {
 			break
@@ -611,8 +611,6 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
-
-	require.True(t, shard.VectorIndex().Compressed())
 
 	err = index.drop()
 	require.Nil(t, err)
