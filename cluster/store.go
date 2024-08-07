@@ -659,12 +659,16 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 // for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
 func (st *Store) recoverSingleNode() error {
 	if st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1 {
-		return fmt.Errorf("bootstrap expect  %v, candidates %v,"+
+		return fmt.Errorf("bootstrap expect %v, candidates %v, "+
 			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
 	}
 	servers := st.raft.GetConfiguration().Configuration().Servers
 	// nothing to do here, wasn't a single node
 	if len(servers) != 1 {
+		st.log.WithFields(logrus.Fields{
+			"servers_from_previous_configuration": servers,
+			"candidates":                          st.candidates,
+		}).Warn("didn't perform cluster recovery")
 		return nil
 	}
 
