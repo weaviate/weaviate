@@ -59,8 +59,8 @@ func (s *Searcher) docBitmapInvertedRoaringSet(ctx context.Context, b *lsmkv.Buc
 			out.docIDs.Or(docIDs)
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
+		// NotEqual and NotLike require the full set of potentially existing doc ids
+		if pv.operator == filters.OperatorNotEqual || pv.operator == filters.OperatorNotLike {
 			return true, nil
 		}
 
@@ -113,8 +113,8 @@ func (s *Searcher) docBitmapInvertedSet(ctx context.Context, b *lsmkv.Bucket,
 			out.docIDs.Or(ids)
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
+		// NotEqual and NotLike require the full set of potentially existing doc ids
+		if pv.operator == filters.OperatorNotEqual || pv.operator == filters.OperatorNotLike {
 			return true, nil
 		}
 
@@ -148,8 +148,8 @@ func (s *Searcher) docBitmapInvertedMap(ctx context.Context, b *lsmkv.Bucket,
 			out.docIDs.Or(ids)
 		}
 
-		// NotEqual requires the full set of potentially existing doc ids
-		if pv.operator == filters.OperatorNotEqual {
+		// NotEqual and NotLike requires the full set of potentially existing doc ids
+		if pv.operator == filters.OperatorNotEqual || pv.operator == filters.OperatorNotLike {
 			return true, nil
 		}
 
