@@ -199,7 +199,7 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	var options = []grpc.DialOption{
+	options := []grpc.DialOption{
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultServiceConfig(serviceConfig),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cl.rpcMessageMaxSize)),
