@@ -49,6 +49,7 @@ type BM25Searcher struct {
 	propLenTracker propLengthRetriever
 	logger         logrus.FieldLogger
 	shardVersion   uint16
+	pools          *Bm25Pool
 }
 
 type propLengthRetriever interface {
@@ -58,8 +59,15 @@ type propLengthRetriever interface {
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
-	logger logrus.FieldLogger, shardVersion uint16,
+	logger logrus.FieldLogger, shardVersion uint16, pools *Bm25Pool,
 ) *BM25Searcher {
+	if pools == nil {
+		pools = &Bm25Pool{}
+		pools.Init(0, 0, logger)
+	} else {
+		pools.Init(50, 10000, logger) // ~1MB of data if everything is at the min size
+	}
+
 	return &BM25Searcher{
 		config:         config,
 		store:          store,
@@ -69,6 +77,7 @@ func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 		propLenTracker: propLenTracker,
 		logger:         logger.WithField("action", "bm25_search"),
 		shardVersion:   shardVersion,
+		pools:          pools,
 	}
 }
 
@@ -231,7 +240,17 @@ func (b *BM25Searcher) wand(
 	copy(resultsOriginalOrder, results)
 
 	topKHeap := b.getTopKHeap(limit, results, averagePropLength)
-	return b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations, additional)
+	objs, scores, err := b.getTopKObjects(topKHeap, resultsOriginalOrder, indices, params.AdditionalExplanations, additional)
+	b.returnToPool(results, indices)
+	return objs, scores, err
+}
+
+func (b *BM25Searcher) returnToPool(results terms, indices []map[uint64]int) {
+	for i := range results {
+		i := i
+		enterrors.GoWrapper(func() { b.pools.ReturnList(results[i].data) }, b.logger)
+		enterrors.GoWrapper(func() { b.pools.ReturnMap(indices[i]) }, b.logger)
+	}
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
@@ -421,8 +440,23 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
-			docMapPairs = make([]docPointerWithScore, 0, len(m))
-			docMapPairsIndices = make(map[uint64]int, len(m))
+			select {
+			case val := <-b.pools.ListPool:
+				docMapPairs = *val
+			default: // docMapPairs stays nil and will be created in the next step
+			}
+
+			if cap(docMapPairs) < len(m) {
+				docMapPairs = make([]docPointerWithScore, 0, len(m))
+			}
+
+			select {
+			case val := <-b.pools.MapPool:
+				docMapPairsIndices = *val
+			default:
+				docMapPairsIndices = make(map[uint64]int, len(m))
+			}
+
 			for k, val := range m {
 				if len(val.Value) < 8 {
 					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
