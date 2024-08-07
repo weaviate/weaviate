@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/raft"
+	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -55,14 +56,23 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 		st.log.Info("successfully restored schema from snapshot")
 
-		if st.reloadDBFromSnapshot() {
-			st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).
-				Info("successfully reloaded indexes from snapshot")
+		if st.cfg.MetadataOnlyVoters {
+			return nil
 		}
 
-		if st.raft != nil {
-			st.lastAppliedIndex.Store(st.raft.AppliedIndex())
+		snapIndex := lastSnapshotIndex(st.snapshotStore)
+		if st.lastAppliedIndexToDB.Load() <= snapIndex {
+			// db shall reload after snapshot applied to schema
+			st.reloadDBFromSchema()
 		}
+
+		st.log.WithFields(logrus.Fields{
+			"last_applied_index":           st.lastIndex(),
+			"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
+			"last_snapshot_index":          snapIndex,
+			"n":                            st.schemaManager.NewSchemaReader().Len(),
+		}).Info("successfully reloaded indexes from snapshot")
+
 		return nil
 	}
 
