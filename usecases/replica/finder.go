@@ -231,6 +231,9 @@ func (f *Finder) Exists(ctx context.Context,
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
+			err = objects.NewErrDirtyReadOfDeletedObject(err)
+		}
 	}
 	return result.Value, err
 }
