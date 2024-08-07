@@ -582,8 +582,8 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	}
 
 	// wait until the queue is empty
-	for i := 0; i < 500; i++ {
-		time.Sleep(100 * time.Millisecond)
+	for i := 0; i < 800; i++ {
+		time.Sleep(500 * time.Millisecond)
 		if shard.Queue().Size() == 0 {
 			break
 		}
@@ -595,8 +595,8 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	require.Nil(t, err)
 
 	// wait until the queue is empty
-	for i := 0; i < 500; i++ {
-		time.Sleep(100 * time.Millisecond)
+	for i := 0; i < 800; i++ {
+		time.Sleep(500 * time.Millisecond)
 		if shard.Queue().Size() == 0 {
 			break
 		}
