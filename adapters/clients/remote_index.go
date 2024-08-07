@@ -437,7 +437,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, 9)
 	return resp.Objects, resp.Distributions, err
 }
 
@@ -482,7 +482,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, 9)
 	return resp.Result, err
 }
 
