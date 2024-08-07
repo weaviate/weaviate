@@ -725,7 +725,7 @@ func (index *flat) Shutdown(ctx context.Context) error {
 			if err := b.Put([]byte(bqCacheSizeKey), lenB); err != nil {
 				return err
 			}
-
+			fmt.Println("index.dims", index.dims)
 			dimB := make([]byte, 4) // make separate slice to avoid unexpected behavior such as values not written
 			binary.LittleEndian.PutUint32(dimB, uint32(index.dims))
 			if err := b.Put([]byte(DimensionKey), dimB); err != nil {
@@ -782,6 +782,17 @@ func (index *flat) PostStartup() {
 	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
 	defer cursor.Close()
 
+	// restore dims from existing vector
+	restoreDims := func(vec BQVecAndID) {
+		if index.dims == 0 {
+			candidateAsBytes, err := index.vectorById(vec.id)
+			if err != nil {
+				return
+			}
+			atomic.StoreInt32(&index.dims, int32(len(candidateAsBytes)/4))
+		}
+	}
+
 	// The idea here is to first read everything from disk in one go, then grow
 	// the cache just once before inserting all vectors. A previous iteration
 	// would grow the cache as part of the cursor loop and this ended up making
@@ -805,8 +816,13 @@ func (index *flat) PostStartup() {
 	if channel == nil {
 		return // nothing to do
 	}
+	set := false
 	for v := range channel {
 		vecs = append(vecs, v...)
+		if !set {
+			enterrors.GoWrapper(func() { restoreDims(v[0]) }, index.logger)
+			set = true
+		}
 	}
 
 	count := 0
@@ -815,11 +831,6 @@ func (index *flat) PostStartup() {
 		if vecs[i].id > maxID {
 			maxID = vecs[i].id
 		}
-	}
-
-	// restore dimension of flat index
-	if len(vecs) > 0 {
-		atomic.StoreInt32(&index.dims, int32(len(vecs[0].vec)/4))
 	}
 
 	// Grow cache just once
