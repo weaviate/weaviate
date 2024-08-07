@@ -18,6 +18,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -46,6 +48,13 @@ const (
 	compressionPQ   = "pq"
 	compressionNone = "none"
 )
+
+const (
+	bqCacheSizeKey = "bqCacheSize"
+	DimensionKey   = "Dimension"
+)
+
+var flatBucket = []byte("flat")
 
 type flat struct {
 	sync.Mutex
@@ -66,6 +75,8 @@ type flat struct {
 	bqCache              cache.Cache[uint64]
 	count                uint64
 	concurrentCacheReads int
+	db                   *bolt.DB
+	rootPath             string
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -93,12 +104,28 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		pool:                 newPools(),
 		store:                store,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
+		rootPath:             cfg.RootPath,
 	}
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
 	}
 
 	if uc.BQ.Enabled && uc.BQ.Cache {
+		path := filepath.Join(cfg.RootPath, "index.db")
+
+		db, err := bolt.Open(path, 0o600, nil)
+		if err != nil {
+			return nil, errors.Wrapf(err, "open %q", path)
+		}
+		err = db.Update(func(tx *bolt.Tx) error {
+			_, err := tx.CreateBucketIfNotExists(flatBucket)
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		index.db = db
+
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
 	}
@@ -673,8 +700,12 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 }
 
 func (index *flat) Drop(ctx context.Context) error {
-	// nothing to do here
-	// Shard::drop will take care of handling store's buckets
+	index.Lock()
+	defer index.Unlock()
+	if err := index.db.Close(); err != nil {
+		return err
+	}
+	os.Remove(filepath.Join(index.rootPath, "index.db"))
 	return nil
 }
 
@@ -685,8 +716,29 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	// nothing to do here
-	// Shard::shutdown will take care of handling store's buckets
+	if index.isBQCached() {
+		err := index.db.Update(func(tx *bolt.Tx) error {
+			b := tx.Bucket(flatBucket)
+			bs := make([]byte, 4)
+			binary.LittleEndian.PutUint32(bs, uint32(index.bqCache.Len()))
+			if err := b.Put([]byte(bqCacheSizeKey), bs); err != nil {
+				return err
+			}
+
+			binary.LittleEndian.PutUint32(bs, uint32(index.dims))
+			if err := b.Put([]byte(DimensionKey), bs); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			return errors.Wrap(err, "shutdown: store bq cache size")
+		}
+		if err := index.db.Close(); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -708,6 +760,26 @@ func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
 	}
+
+	cacheSize := 0
+	dimension := 0
+	_ = index.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(flatBucket)
+		s := b.Get([]byte(bqCacheSizeKey))
+		if s == nil || len(s) != 4 {
+			return nil
+		}
+		cacheSize = int(binary.LittleEndian.Uint32(s))
+
+		d := b.Get([]byte(DimensionKey))
+		if d == nil || len(d) != 4 {
+			return nil
+		}
+		dimension = int(binary.LittleEndian.Uint32(d))
+
+		return nil
+	})
+
 	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
 	defer cursor.Close()
 
@@ -729,7 +801,7 @@ func (index *flat) PostStartup() {
 	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
 	// however want some kind of relationship to the machine size, so
 	// 2*GOMAXPROCS seems like a good default.
-	it := NewCompressedParallelIterator(bucket, 2*runtime.GOMAXPROCS(0), index.logger)
+	it := NewCompressedParallelIterator(bucket, 2*runtime.GOMAXPROCS(0), cacheSize, dimension, index.logger)
 	channel := it.IterateAll()
 	if channel == nil {
 		return // nothing to do

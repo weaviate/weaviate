@@ -24,6 +24,7 @@ type Config struct {
 	Logger           logrus.FieldLogger
 	DistanceProvider distancer.Provider
 	AllocChecker     memwatch.AllocChecker
+	RootPath         string
 }
 
 func (c Config) Validate() error {

@@ -83,6 +83,7 @@ func run(dirName string, logger *logrus.Logger, compression string, vectorCache 
 	index, err := New(Config{
 		ID:               runId,
 		DistanceProvider: distancer,
+		RootPath:         dirName,
 	}, flatent.UserConfig{
 		PQ: pq,
 		BQ: bq,

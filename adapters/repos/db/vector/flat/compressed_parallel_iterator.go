@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -22,18 +23,22 @@ import (
 )
 
 type compressedParallelIterator struct {
-	bucket   *lsmkv.Bucket
-	parallel int
-	logger   logrus.FieldLogger
+	bucket    *lsmkv.Bucket
+	parallel  int
+	logger    logrus.FieldLogger
+	cacheSize int
+	dimension int
 }
 
-func NewCompressedParallelIterator(bucket *lsmkv.Bucket, parallel int,
+func NewCompressedParallelIterator(bucket *lsmkv.Bucket, parallel int, cacheSize int, dimension int,
 	logger logrus.FieldLogger,
 ) *compressedParallelIterator {
 	return &compressedParallelIterator{
-		bucket:   bucket,
-		parallel: parallel,
-		logger:   logger,
+		bucket:    bucket,
+		parallel:  parallel,
+		logger:    logger,
+		cacheSize: cacheSize,
+		dimension: dimension,
 	}
 }
 
@@ -56,6 +61,14 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 	wg := sync.WaitGroup{}
 	out := make(chan []BQVecAndID)
 
+	var cacheVecs []uint64
+	var cacheCounter atomic.Uint32
+	if cpi.cacheSize != 0 {
+		vecLength := cpi.dimension / 8 // 8 bytes per uint64
+		cacheVecs = make([]uint64, cpi.cacheSize*vecLength)
+		cacheCounter.Store(0)
+	}
+
 	// There are three scenarios:
 	// 1. Read from beginning to first checkpoint
 	// 2. Read from checkpoint n to checkpoint n+1
@@ -63,7 +76,14 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 
 	extract := func(k, v []byte) BQVecAndID {
 		id := binary.BigEndian.Uint64(k)
-		vec := uint64SliceFromByteSlice(v, make([]uint64, len(v)/8))
+		var vec []uint64
+		if cacheVecs != nil {
+			length := uint32(len(v) / 8)
+			end := cacheCounter.Add(length)
+			vec = uint64SliceFromByteSlice(v, cacheVecs[end-length:end])
+		} else {
+			vec = uint64SliceFromByteSlice(v, make([]uint64, len(v)/8))
+		}
 		return BQVecAndID{id: id, vec: vec}
 	}
 
