@@ -296,14 +296,14 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
 	}
 	cs := meta.Classes()
-	if len(req.Include) > 0 {
+	if len(req.Include) > 0 || len(req.IncludePatterns) > 0 {
 		if first := meta.AllExist(req.Include); first != "" {
 			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
 			return nil, err
 		}
-		meta.Include(req.Include)
+		meta.Include(req.Include, req.IncludePatterns)
 	} else {
-		meta.Exclude(req.Exclude)
+		meta.Exclude(req.Exclude, req.ExcludePatterns)
 	}
 	if meta.RemoveEmpty().Count() == 0 {
 		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
