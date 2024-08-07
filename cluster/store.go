@@ -623,7 +623,10 @@ func (st *Store) reloadDBFromSchema() {
 	}
 
 	// restore requests from snapshots before init new RAFT node
-	lastLogApplied, _ := st.LastAppliedCommand()
+	lastLogApplied, err := st.LastAppliedCommand()
+	if err != nil {
+		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
+	}
 	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
 }
 
