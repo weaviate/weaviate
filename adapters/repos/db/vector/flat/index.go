@@ -717,25 +717,24 @@ func (index *flat) Flush() error {
 
 func (index *flat) Shutdown(ctx context.Context) error {
 	if index.isBQCached() {
+		defer index.db.Close()
 		err := index.db.Update(func(tx *bolt.Tx) error {
 			b := tx.Bucket(flatBucket)
-			bs := make([]byte, 4)
-			binary.LittleEndian.PutUint32(bs, uint32(index.bqCache.Len()))
-			if err := b.Put([]byte(bqCacheSizeKey), bs); err != nil {
+			lenB := make([]byte, 4)
+			binary.LittleEndian.PutUint32(lenB, uint32(index.bqCache.Len()))
+			if err := b.Put([]byte(bqCacheSizeKey), lenB); err != nil {
 				return err
 			}
 
-			binary.LittleEndian.PutUint32(bs, uint32(index.dims))
-			if err := b.Put([]byte(DimensionKey), bs); err != nil {
+			dimB := make([]byte, 4) // make separate slice to avoid unexpected behavior such as values not written
+			binary.LittleEndian.PutUint32(dimB, uint32(index.dims))
+			if err := b.Put([]byte(DimensionKey), dimB); err != nil {
 				return err
 			}
 			return nil
 		})
 		if err != nil {
 			return errors.Wrap(err, "shutdown: store bq cache size")
-		}
-		if err := index.db.Close(); err != nil {
-			return err
 		}
 	}
 
@@ -816,6 +815,11 @@ func (index *flat) PostStartup() {
 		if vecs[i].id > maxID {
 			maxID = vecs[i].id
 		}
+	}
+
+	// restore dimension of flat index
+	if len(vecs) > 0 {
+		atomic.StoreInt32(&index.dims, int32(len(vecs[0].vec)/4))
 	}
 
 	// Grow cache just once

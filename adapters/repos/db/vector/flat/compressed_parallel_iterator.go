@@ -63,7 +63,11 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 
 	var cacheVecs []uint64
 	var cacheCounter atomic.Uint32
-	if cpi.cacheSize != 0 {
+	// preallocate a slice to store all the vectors in - this saves many (expensive) small allocations.
+	// Note that there was a bug that the dimensions were not restored when reloading the index, so we must check that
+	// both values are non-zero before pre-allocating. Otherwise, fall back to small allocations which will load everything
+	// correctly - the next shutdown will then write the correct values.
+	if cpi.cacheSize != 0 && cpi.dimension != 0 {
 		vecLength := cpi.dimension / 8 // 8 bytes per uint64
 		cacheVecs = make([]uint64, cpi.cacheSize*vecLength)
 		cacheCounter.Store(0)
@@ -73,7 +77,6 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 	// 1. Read from beginning to first checkpoint
 	// 2. Read from checkpoint n to checkpoint n+1
 	// 3. Read from last checkpoint to end
-
 	extract := func(k, v []byte) BQVecAndID {
 		id := binary.BigEndian.Uint64(k)
 		var vec []uint64
