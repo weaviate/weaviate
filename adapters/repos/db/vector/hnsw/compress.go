@@ -16,8 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -48,12 +48,18 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			return errors.New("compress command cannot be executed before inserting some data")
 		}
 		cleanData := make([][]float32, 0, len(data))
-		for i := range data {
+		sampler := common.NewSparseFisherYatesIterator(len(data))
+		for !sampler.IsDone() {
+			// Sparse Fisher Yates sampling algorithm to choose random element
+			sampledIndex := sampler.Next()
+			if sampledIndex == nil {
+				break
+			}
 			// Rather than just taking the cache dump at face value, let's explicitly
 			// request the vectors. Otherwise we would miss any vector that's currently
 			// not in the cache, for example because the cache is not hot yet after a
 			// restart.
-			p, err := h.cache.Get(context.Background(), uint64(i))
+			p, err := h.cache.Get(context.Background(), uint64(*sampledIndex))
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
