@@ -170,7 +170,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 			resultCh <- _Result[bool]{obj, nil}
 			return
 		}
-		resultCh <- _Result[bool]{false, errRepair}
+		resultCh <- _Result[bool]{false, errors.Wrap(err, errRepair.Error())}
 
 		var sb strings.Builder
 		for i, c := range votes {
