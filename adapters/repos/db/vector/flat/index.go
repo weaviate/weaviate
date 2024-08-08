@@ -18,12 +18,14 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -51,7 +53,9 @@ type flat struct {
 	sync.Mutex
 	id                  string
 	targetVector        string
+	rootPath            string
 	dims                int32
+	metadata            *bolt.DB
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
@@ -85,6 +89,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	index := &flat{
 		id:                   cfg.ID,
 		targetVector:         cfg.TargetVector,
+		rootPath:             cfg.RootPath,
 		logger:               logger,
 		distancerProvider:    cfg.DistanceProvider,
 		rescore:              extractCompressionRescore(uc),
@@ -101,6 +106,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
+	}
+
+	if err := index.initMetadata(); err != nil {
+		return nil, err
 	}
 
 	return index, nil
@@ -289,7 +298,12 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&index.dims, int32(len(vector)))
+		size := int32(len(vector))
+		atomic.StoreInt32(&index.dims, size)
+		err := index.setDimensions(size)
+		if err != nil {
+			index.logger.WithError(err).Error("could not set dimensions")
+		}
 
 		if index.isBQ() {
 			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
@@ -673,7 +687,12 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 }
 
 func (index *flat) Drop(ctx context.Context) error {
-	// nothing to do here
+	if index.metadata != nil {
+		if err := index.metadata.Close(); err != nil {
+			return err
+		}
+		os.Remove(filepath.Join(index.rootPath, index.getMetadataFile()))
+	}
 	// Shard::drop will take care of handling store's buckets
 	return nil
 }
@@ -685,7 +704,11 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	// nothing to do here
+	if index.metadata != nil {
+		if err := index.metadata.Close(); err != nil {
+			return errors.Wrap(err, "close metadata")
+		}
+	}
 	// Shard::shutdown will take care of handling store's buckets
 	return nil
 }
@@ -695,7 +718,9 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 }
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	// nothing to do here
+	if index.metadata != nil {
+		return []string{filepath.Join(index.rootPath, index.getMetadataFile())}, nil
+	}
 	// Shard::ListBackupFiles will take care of handling store's buckets
 	return []string{}, nil
 }
