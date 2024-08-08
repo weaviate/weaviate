@@ -173,7 +173,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]
 			// TODO: More than likely this will occur due to an object which has already been deleted.
 			//       However, this is not a guarantee. This can be improved by logging, or handling
 			//       errors other than `id not found` rather than skipping them entirely.
-			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", doc).Warning(err)
+			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", doc).WithError(err).Warning("failed to find UUID for docID")
 			continue
 		}
 		uuids[currIdx] = uuid
