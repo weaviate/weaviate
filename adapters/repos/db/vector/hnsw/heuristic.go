@@ -93,8 +93,9 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 			if err := errs[curr.Value]; err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
-					h.logger.WithField("op", "hnsw.select_neighbors_heuristic").WithField("node", e.DocID).Error(err)
-					h.handleDeletedNode(e.DocID)
+					if h.handleDeletedNode(e.DocID) {
+						h.logger.WithField("op", "hnsw.select_neighbors_heuristic").WithField("node", e.DocID).Error(err)
+					}
 					continue
 				} else {
 					// not a typed error, we can recover from, return with err

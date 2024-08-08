@@ -102,8 +102,9 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 
 	var e storobj.ErrNotFound
 	if errors.As(err, &e) {
-		n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.process_node").WithField("node", e.DocID).Error(err)
-		n.graph.handleDeletedNode(e.DocID)
+		if n.graph.handleDeletedNode(e.DocID) {
+			n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.process_node").WithField("node", e.DocID).Error(err)
+		}
 		return math.MaxFloat32, nil
 	}
 	if err != nil {
@@ -125,8 +126,9 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	// lock the nodes slice
 	n.graph.shardedNodeLocks.RLock(from)
 	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
-		n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.process_recursively").WithField("node", from).Error("node not found")
-		n.graph.handleDeletedNode(from)
+		if n.graph.handleDeletedNode(from) {
+			n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.process_recursively").WithField("node", from).Error("node not found")
+		}
 		n.graph.shardedNodeLocks.RUnlock(from)
 		return nil
 	}
@@ -332,8 +334,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
 		var e storobj.ErrNotFound
 		if err != nil && errors.As(err, &e) {
-			n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.connect_neighbor_at_level_one").WithField("node", e.DocID).Error(err)
-			n.graph.handleDeletedNode(e.DocID)
+			if n.graph.handleDeletedNode(e.DocID) {
+				n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.connect_neighbor_at_level_one").WithField("node", e.DocID).Error(err)
+			}
 			// it seems either the node or the neighbor were deleted in the meantime,
 			// there is nothing we can do now
 			return nil
@@ -349,8 +352,9 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
-				n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.connect_neighbor_at_level_two").WithField("node", e.DocID).Error(err)
-				n.graph.handleDeletedNode(e.DocID)
+				if n.graph.handleDeletedNode(e.DocID) {
+					n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.connect_neighbor_at_level_two").WithField("node", e.DocID).Error(err)
+				}
 				// was deleted in the meantime
 				continue
 			}
@@ -510,8 +514,9 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	}
 	var e storobj.ErrNotFound
 	if errors.As(err, &e) {
-		n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.try_ep_candidate").WithField("node", e.DocID).Error(err)
-		n.graph.handleDeletedNode(e.DocID)
+		if n.graph.handleDeletedNode(e.DocID) {
+			n.graph.logger.WithField("op", "hnsw.neighbor_finder_connector.try_ep_candidate").WithField("node", e.DocID).Error(err)
+		}
 		return false, nil
 	}
 	if err != nil {

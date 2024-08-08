@@ -517,8 +517,9 @@ func (h *hnsw) reassignNeighbor(
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.logger.WithField("op", "hnsw.reassign_neighbour").WithField("node", e.DocID).Error(err)
-			h.handleDeletedNode(e.DocID)
+			if h.handleDeletedNode(e.DocID) {
+				h.logger.WithField("op", "hnsw.reassign_neighbour").WithField("node", e.DocID).Error(err)
+			}
 			return true, nil
 		} else {
 			// not a typed error, we can recover from, return with err

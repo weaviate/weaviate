@@ -277,8 +277,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
-					h.logger.WithField("op", "hnsw.search_layer_by_vector_with_distancer").WithField("node", e.DocID).Error(err)
-					h.handleDeletedNode(e.DocID)
+					if h.handleDeletedNode(e.DocID) {
+						h.logger.WithField("op", "hnsw.search_layer_by_vector_with_distancer").WithField("node", e.DocID).Error(err)
+					}
 					continue
 				}
 				h.pools.visitedListsLock.RLock()
@@ -368,8 +369,9 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[an
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
-				h.logger.WithField("op", "hnsw.current_worst_result_distance_to_float").WithField("node", e.DocID).Error(err)
-				h.handleDeletedNode(e.DocID)
+				if h.handleDeletedNode(e.DocID) {
+					h.logger.WithField("op", "hnsw.current_worst_result_distance_to_float").WithField("node", e.DocID).Error(err)
+				}
 				return math.MaxFloat32, nil
 			}
 			return 0, errors.Wrap(err, "calculated distance between worst result and query")
@@ -398,8 +400,9 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
-				h.logger.WithField("op", "hnsw.current_worst_result_distance_to_byte").WithField("node", e.DocID).Error(err)
-				h.handleDeletedNode(e.DocID)
+				if h.handleDeletedNode(e.DocID) {
+					h.logger.WithField("op", "hnsw.current_worst_result_distance_to_byte").WithField("node", e.DocID).Error(err)
+				}
 				return math.MaxFloat32, nil
 			}
 			return 0, errors.Wrap(err,
@@ -423,8 +426,9 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.logger.WithField("op", "hnsw.distance_from_bytes_to_float_node").WithField("node", e.DocID).Error(err)
-			h.handleDeletedNode(e.DocID)
+			if h.handleDeletedNode(e.DocID) {
+				h.logger.WithField("op", "hnsw.distance_from_bytes_to_float_node").WithField("node", e.DocID).Error(err)
+			}
 			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
@@ -451,11 +455,11 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 // the underlying object seems to have been deleted, to recover from
 // this situation let's add a tombstone to the deleted object, so it
 // will be cleaned up and skip this candidate in the current search
-func (h *hnsw) handleDeletedNode(docID uint64) {
+func (h *hnsw) handleDeletedNode(docID uint64) bool {
 	if h.hasTombstone(docID) {
 		// nothing to do, this node already has a tombstone, it will be cleaned up
 		// in the next deletion cycle
-		return
+		return false
 	}
 
 	h.addTombstone(docID)
@@ -463,6 +467,7 @@ func (h *hnsw) handleDeletedNode(docID uint64) {
 		WithField("node_id", docID).
 		Infof("found a deleted node (%d) without a tombstone, "+
 			"tombstone was added", docID)
+	return true
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
@@ -485,8 +490,9 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	var e storobj.ErrNotFound
 	if err != nil && errors.As(err, &e) {
-		h.logger.WithField("op", "hnsw.knn_search_by_vector").WithField("node", e.DocID).Error(err)
-		h.handleDeletedNode(e.DocID)
+		if h.handleDeletedNode(e.DocID) {
+			h.logger.WithField("op", "hnsw.knn_search_by_vector").WithField("node", e.DocID).Error(err)
+		}
 		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}
