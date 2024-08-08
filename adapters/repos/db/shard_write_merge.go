@@ -62,6 +62,11 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 }
 
 func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
+	// see comment in shard_write_put.go::putObjectLSM
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+	lock.Lock()
+	defer lock.Unlock()
+
 	obj, status, err := s.mergeObjectInStorage(doc, idBytes)
 	if err != nil {
 		return err
@@ -104,14 +109,7 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 	var prevObj, obj *storobj.Object
 	var status objectInsertStatus
 
-	// see comment in shard_write_put.go::putObjectLSM
-	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
-
-	// wrapped in function to handle lock/unlock
 	if err := func() error {
-		lock.Lock()
-		defer lock.Unlock()
-
 		var err error
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
