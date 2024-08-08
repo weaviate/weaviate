@@ -52,6 +52,7 @@ type VectorCompressor interface {
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
+	NewCompressedDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
 	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
 
@@ -158,6 +159,17 @@ func (compressor *quantizedVectorsCompressor[T]) NewDistancer(vector []float32) 
 	d := &quantizedCompressorDistancer[T]{
 		compressor: compressor,
 		distancer:  compressor.quantizer.NewQuantizerDistancer(vector),
+	}
+	return d, func() {
+		compressor.returnDistancer(d)
+	}
+}
+
+func (compressor *quantizedVectorsCompressor[T]) NewCompressedDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn) {
+	compressed := compressor.quantizer.Encode(vector)
+	d := &quantizedCompressorDistancer[T]{
+		compressor: compressor,
+		distancer:  compressor.quantizer.NewCompressedQuantizerDistancer(compressed),
 	}
 	return d, func() {
 		compressor.returnDistancer(d)
