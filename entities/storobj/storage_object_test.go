@@ -1002,6 +1002,19 @@ func TestObjectsByDocID(t *testing.T) {
 	}
 }
 
+func TestSkipMissingObjects(t *testing.T) {
+	bucket := genFakeBucket(t, 1000)
+	logger, _ := test.NewNullLogger()
+	ids := pickRandomIDsBetween(0, 1000, 100)
+	ids = append(ids, 1001, 1002, 1003)
+	objs, err := objectsByDocIDParallel(bucket, ids, additional.Properties{}, nil, logger)
+	require.Nil(t, err)
+	require.Len(t, objs, 100)
+	for _, obj := range objs {
+		require.NotNil(t, obj)
+	}
+}
+
 func BenchmarkObjectsByDocID(b *testing.B) {
 	bucket := genFakeBucket(b, 10000)
 	logger, _ := test.NewNullLogger()
@@ -1095,7 +1108,10 @@ func (f *fakeBucket) GetBySecondary(_ int, _ []byte) ([]byte, error) {
 
 func (f *fakeBucket) GetBySecondaryWithBuffer(indexID int, docIDBytes []byte, lsmBuf []byte) ([]byte, []byte, error) {
 	docID := binary.LittleEndian.Uint64(docIDBytes)
-	objBytes := f.objects[uint64(docID)]
+	objBytes, ok := f.objects[docID]
+	if !ok {
+		return nil, nil, nil
+	}
 	if len(lsmBuf) < len(objBytes) {
 		lsmBuf = make([]byte, len(objBytes))
 	}
