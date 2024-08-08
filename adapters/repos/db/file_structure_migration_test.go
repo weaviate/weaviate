@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
@@ -304,7 +305,7 @@ func (sg *fakeMigrationSchemaGetter) TenantsShards(class string, tenants ...stri
 	return nil, nil
 }
 
-func (f *fakeMigrationSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (f *fakeMigrationSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
 	return nil, nil
 }
 

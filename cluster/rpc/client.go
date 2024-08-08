@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
+	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -76,11 +77,14 @@ type Client struct {
 
 	// sentryEnabled will configure the RPC client to set spans and captures traces using sentry SDK
 	sentryEnabled bool
+
+	// logger is the logger to log client warns etc.
+	logger *logrus.Logger
 }
 
 // NewClient returns a Client using the rpcAddressResolver to resolve raft nodes and configured with rpcMessageMaxSize
-func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool) *Client {
-	return &Client{addrResolver: r, rpcMessageMaxSize: rpcMessageMaxSize, sentryEnabled: sentryEnabled}
+func NewClient(r rpcAddressResolver, rpcMessageMaxSize int, sentryEnabled bool, logger *logrus.Logger) *Client {
+	return &Client{addrResolver: r, rpcMessageMaxSize: rpcMessageMaxSize, sentryEnabled: sentryEnabled, logger: logger}
 }
 
 // Join will contact the node at leaderRaftAddr and try to join this node to the cluster leaded by leaderRaftAddress using req
@@ -163,10 +167,17 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 	return cmd.NewClusterServiceClient(conn).Query(ctx, req)
 }
 
-// Close the client and allocated ressources
+// Close the client and allocated resources
 func (cl *Client) Close() error {
 	if cl.leaderRpcConn != nil {
-		return cl.leaderRpcConn.Close()
+		if err := cl.leaderRpcConn.Close(); err != nil {
+			cl.logger.WithFields(
+				logrus.Fields{
+					"error":       err,
+					"leader_addr": cl.leaderRaftAddr,
+				},
+			).Warn("error closing the leader gRPC connection")
+		}
 	}
 	return nil
 }
@@ -184,9 +195,13 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	}
 
 	if cl.leaderRpcConn != nil {
-		// Handle error for closing connection
 		if err := cl.leaderRpcConn.Close(); err != nil {
-			return nil, fmt.Errorf("error closing gRPC connection: %v", err)
+			cl.logger.WithFields(
+				logrus.Fields{
+					"error":       err,
+					"leader_addr": leaderRaftAddr,
+				},
+			).Warn("error closing the leader gRPC connection")
 		}
 	}
 
@@ -204,6 +219,7 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 	if cl.sentryEnabled {
 		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
 	}
+
 	cl.leaderRpcConn, err = grpc.DialContext(ctx, addr, options...)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
