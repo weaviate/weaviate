@@ -82,10 +82,6 @@ type ClassSettings interface {
 	MaxTokens() float64
 	Temperature() float64
 	TopP() float64
-	ResourceName() string
-	DeploymentID() string
-	IsAzure() bool
-	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
 	ServingURL() string
 }
@@ -139,10 +135,6 @@ func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *f
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
-func (ic *classSettings) GetMaxTokensForModel(model string) float64 {
-	return defaultMaxTokens[model]
-}
-
 func (ic *classSettings) validateModel(model string) bool {
 	return contains(availableOpenAIModels, model) || contains(availableOpenAILegacyModels, model)
 }
@@ -161,18 +153,6 @@ func (ic *classSettings) Temperature() float64 {
 
 func (ic *classSettings) TopP() float64 {
 	return *ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
-}
-
-func (ic *classSettings) ResourceName() string {
-	return *ic.getStringProperty("resourceName", "")
-}
-
-func (ic *classSettings) DeploymentID() string {
-	return *ic.getStringProperty("deploymentId", "")
-}
-
-func (ic *classSettings) IsAzure() bool {
-	return ic.ResourceName() != "" && ic.DeploymentID() != ""
 }
 
 func (ic *classSettings) ServingURL() string {
