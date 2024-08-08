@@ -54,7 +54,7 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := New("openAIApiKey", "", "", "databricksToken", 0, nullLogger())
+		c := New("databricksToken", 0, nullLogger())
 		c.buildServingUrl = func(servingUrl string) (string, error) {
 			return fakeBuildUrl(server.URL)
 		}
@@ -73,7 +73,7 @@ func TestGetAnswer(t *testing.T) {
 		settings := &fakeClassSettings{
 			baseURL: "http://default-url.com",
 		}
-		c := New("openAIApiKey", "", "", "", 0, nullLogger())
+		c := New("databricksToken", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Servingurl", []string{"http://base-url-passed-in-header.com"})
