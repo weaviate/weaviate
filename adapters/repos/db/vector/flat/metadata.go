@@ -37,7 +37,6 @@ func (index *flat) getMetadataFile() string {
 }
 
 func (index *flat) initMetadata() error {
-
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
 	var err error
 	index.metadata, err = bolt.Open(path, 0o600, nil)
@@ -92,7 +91,6 @@ func (index *flat) initDimensions() {
 }
 
 func (index *flat) fetchDimensions() (int32, error) {
-
 	if index.metadata == nil {
 		return 0, nil
 	}
