@@ -64,7 +64,7 @@ type SchemaGetter interface {
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
 	TenantsShards(class string, tenants ...string) (map[string]string, error)
-	OptimisticTenantStatus(class string, tenants string) (map[string]string, error)
+	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }

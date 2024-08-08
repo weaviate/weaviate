@@ -1226,7 +1226,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return nil, nil, err
 	}
 
-	shardNames, err := i.targetShardNames(tenant)
+	shardNames, err := i.targetShardNames(ctx, tenant)
 	if err != nil || len(shardNames) == 0 {
 		return nil, nil, err
 	}
@@ -1484,7 +1484,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 }
 
 // to be called after validating multi-tenancy
-func (i *Index) targetShardNames(tenant string) ([]string, error) {
+func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, error) {
 	className := i.Config.ClassName.String()
 	if !i.partitioningEnabled {
 		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
@@ -1494,7 +1494,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("tenant name is empty"))
 	}
 
-	tenantShards, err := i.getSchema.OptimisticTenantStatus(className, tenant)
+	tenantShards, err := i.getSchema.OptimisticTenantStatus(ctx, className, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -1517,7 +1517,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
-	shardNames, err := i.targetShardNames(tenant)
+	shardNames, err := i.targetShardNames(ctx, tenant)
 	if err != nil || len(shardNames) == 0 {
 		return nil, nil, err
 	}
@@ -1958,7 +1958,7 @@ func (i *Index) aggregate(ctx context.Context,
 		return nil, err
 	}
 
-	shardNames, err := i.targetShardNames(params.Tenant)
+	shardNames, err := i.targetShardNames(ctx, params.Tenant)
 	if err != nil || len(shardNames) == 0 {
 		return nil, err
 	}
@@ -2306,7 +2306,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 
 	className := i.Config.ClassName.String()
 
-	shardNames, err := i.targetShardNames(tenant)
+	shardNames, err := i.targetShardNames(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
