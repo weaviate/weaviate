@@ -166,18 +166,20 @@ func (cl *Client) Query(ctx context.Context, leaderRaftAddr string, req *cmd.Que
 }
 
 // Close the client and allocated resources
-func (cl *Client) Close() error {
-	if cl.leaderRpcConn != nil {
-		if err := cl.leaderRpcConn.Close(); err != nil {
-			cl.logger.WithFields(
-				logrus.Fields{
-					"error":       err,
-					"leader_addr": cl.leaderRaftAddr,
-				},
-			).Warn("error closing the leader gRPC connection")
-		}
+func (cl *Client) Close() {
+	if cl.leaderRpcConn == nil {
+		return
 	}
-	return nil
+
+	if err := cl.leaderRpcConn.Close(); err != nil {
+		cl.logger.WithFields(
+			logrus.Fields{
+				"error":       err,
+				"leader_addr": cl.leaderRaftAddr,
+			},
+		).Warn("error closing the leader gRPC connection")
+	}
+
 }
 
 // getConn either returns the cached connection in the client to the leader or will instantiate a new one towards
