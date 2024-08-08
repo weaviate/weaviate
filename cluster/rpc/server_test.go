@@ -298,7 +298,7 @@ func TestApply(t *testing.T) {
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
-				_, err := client.Apply(leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+				_, err := client.Apply(context.TODO(), leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 				assert.NotNil(t, err)
 				st, ok := status.FromError(err)
 				assert.True(t, ok)
@@ -328,7 +328,7 @@ func TestApply(t *testing.T) {
 					return nil
 				}
 
-				_, err := client.Apply(leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+				_, err := client.Apply(context.TODO(), leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 				assert.Nil(t, err)
 				assert.Greater(t, n, 1)
 			},
@@ -346,7 +346,7 @@ func TestApply(t *testing.T) {
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false)
 				defer client.Close()
 
-				_, err := client.Apply(leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+				_, err := client.Apply(context.TODO(), leaderAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 				assert.Nil(t, err)
 			},
 		},
@@ -389,7 +389,7 @@ type MockExecutor struct {
 	qf func(*cmd.QueryRequest) (*cmd.QueryResponse, error)
 }
 
-func (m *MockExecutor) Execute(cmd *cmd.ApplyRequest) (uint64, error) {
+func (m *MockExecutor) Execute(_ context.Context, cmd *cmd.ApplyRequest) (uint64, error) {
 	if m.ef != nil {
 		return 0, m.ef()
 	}

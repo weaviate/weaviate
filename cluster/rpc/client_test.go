@@ -43,7 +43,7 @@ func TestClient(t *testing.T) {
 		require.ErrorIs(t, err, ErrAny)
 		require.ErrorContains(t, err, "resolve")
 
-		_, err = c.Apply(addr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+		_, err = c.Apply(context.TODO(), addr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 		require.ErrorIs(t, err, ErrAny)
 		require.ErrorContains(t, err, "resolve")
 
@@ -66,7 +66,7 @@ func TestClient(t *testing.T) {
 		_, err = c.Remove(ctx, badAddr, &cmd.RemovePeerRequest{Id: "Node1"})
 		require.ErrorContains(t, err, "dial")
 
-		_, err = c.Apply(badAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+		_, err = c.Apply(context.TODO(), badAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 		require.ErrorContains(t, err, "dial")
 
 		_, err = c.Query(ctx, badAddr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASSES})
