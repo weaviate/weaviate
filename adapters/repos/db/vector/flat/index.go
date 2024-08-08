@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	bolt "go.etcd.io/bbolt"
 	"io"
 	"math"
 	"os"
@@ -23,6 +22,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -690,9 +691,12 @@ func (index *flat) PostStartup() {
 
 		return nil
 	})
-	index.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&index.dims, dimension)
-	})
+	if dimension > 0 {
+		// do not set dimension if we could not get a value - it will be set on first insert
+		index.trackDimensionsOnce.Do(func() {
+			atomic.StoreInt32(&index.dims, dimension)
+		})
+	}
 	if !index.isBQCached() {
 		return
 	}
