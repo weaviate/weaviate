@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"time"
 
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -142,10 +141,7 @@ func (cl *Client) Remove(ctx context.Context, leaderRaftAddr string, req *cmd.Re
 // Returns the server response to the apply request
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 // Returns an error if the apply command fails
-func (cl *Client) Apply(leaderRaftAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+func (cl *Client) Apply(ctx context.Context, leaderRaftAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
 	conn, err := cl.getConn(ctx, leaderRaftAddr)
 	if err != nil {
 		return nil, err
