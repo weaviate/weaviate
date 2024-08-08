@@ -15,8 +15,11 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	bolt "go.etcd.io/bbolt"
 	"io"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,6 +45,12 @@ const (
 	compressionNone = "none"
 )
 
+const (
+	DimensionKey = "Dimension"
+)
+
+var flatBucket = []byte("flat")
+
 type flat struct {
 	sync.Mutex
 	id                  string
@@ -59,6 +68,9 @@ type flat struct {
 
 	compression string
 	bqCache     cache.Cache[uint64]
+
+	db       *bolt.DB
+	rootPath string
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -85,8 +97,24 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		compression:       extractCompression(uc),
 		pool:              newPools(),
 		store:             store,
+		rootPath:          cfg.RootPath,
 	}
 	index.initBuckets(context.Background())
+
+	path := filepath.Join(cfg.RootPath, "index_flat.db")
+	db, err := bolt.Open(path, 0o600, nil)
+	if err != nil {
+		return nil, errors.Wrapf(err, "open %q", path)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists(flatBucket)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	index.db = db
+
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
@@ -602,8 +630,12 @@ func (index *flat) UpdateUserConfig(updated schema.VectorIndexConfig, callback f
 }
 
 func (index *flat) Drop(ctx context.Context) error {
-	// nothing to do here
-	// Shard::drop will take care of handling store's buckets
+	index.Lock()
+	defer index.Unlock()
+	if err := index.db.Close(); err != nil {
+		return err
+	}
+	os.Remove(filepath.Join(index.rootPath, "index.db"))
 	return nil
 }
 
@@ -614,8 +646,20 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	// nothing to do here
-	// Shard::shutdown will take care of handling store's buckets
+	defer index.db.Close()
+	err := index.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(flatBucket)
+
+		dimB := make([]byte, 4) // do not reuse for another value
+		binary.LittleEndian.PutUint32(dimB, uint32(index.dims))
+		if err := b.Put([]byte(DimensionKey), dimB); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "shutdown: store bq cache size")
+	}
 	return nil
 }
 
@@ -634,6 +678,21 @@ func (i *flat) ValidateBeforeInsert(vector []float32) error {
 }
 
 func (index *flat) PostStartup() {
+	dimension := int32(0)
+	_ = index.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(flatBucket)
+
+		d := b.Get([]byte(DimensionKey))
+		if d == nil || len(d) != 4 {
+			return nil
+		}
+		dimension = int32(binary.LittleEndian.Uint32(d))
+
+		return nil
+	})
+	index.trackDimensionsOnce.Do(func() {
+		atomic.StoreInt32(&index.dims, dimension)
+	})
 	if !index.isBQCached() {
 		return
 	}
