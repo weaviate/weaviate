@@ -49,12 +49,9 @@ type openai struct {
 	logger             logrus.FieldLogger
 }
 
-func New(openAIApiKey, openAIOrganization, azureApiKey, databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *openai {
+func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *openai {
 	return &openai{
-		openAIApiKey:       openAIApiKey,
-		openAIOrganization: openAIOrganization,
-		azureApiKey:        azureApiKey,
-		databricksToken:    databricksToken,
+		databricksToken: databricksToken,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
