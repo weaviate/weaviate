@@ -209,7 +209,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"maxTokens":  true,
 				},
 			},
-			wantErr: errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used"),
+			wantErr: errors.Errorf("Wrong maxTokens configuration, values should be greater than zero or nil"),
 		},
 		{
 			name: "Wrong temperature configured",
@@ -220,26 +220,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0"),
-		},
-		{
-			name: "Wrong frequencyPenalty configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"servingUrl":       "https://foo.bar.com",
-					"frequencyPenalty": true,
-				},
-			},
-			wantErr: errors.Errorf("Wrong frequencyPenalty configuration, values are between 0.0 and 1.0"),
-		},
-		{
-			name: "Wrong presencePenalty configured",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"servingUrl":      "https://foo.bar.com",
-					"presencePenalty": true,
-				},
-			},
-			wantErr: errors.Errorf("Wrong presencePenalty configuration, values are between 0.0 and 1.0"),
 		},
 		{
 			name: "Wrong topP configured",
@@ -267,17 +247,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			if tt.wantErr != nil {
 				assert.EqualError(t, tt.wantErr, ic.Validate(nil).Error())
 			} else {
-				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
 				assert.Equal(t, tt.wantTopP, ic.TopP())
-				assert.Equal(t, tt.wantFrequencyPenalty, ic.FrequencyPenalty())
-				assert.Equal(t, tt.wantPresencePenalty, ic.PresencePenalty())
 				assert.Equal(t, tt.wantResourceName, ic.ResourceName())
 				assert.Equal(t, tt.wantDeploymentID, ic.DeploymentID())
 				assert.Equal(t, tt.wantIsAzure, ic.IsAzure())
-				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
-				assert.Equal(t, tt.wantApiVersion, ic.ApiVersion())
+
 			}
 		})
 	}

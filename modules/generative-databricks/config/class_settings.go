@@ -21,14 +21,10 @@ import (
 )
 
 const (
-	modelProperty            = "model"
-	temperatureProperty      = "temperature"
-	maxTokensProperty        = "maxTokens"
-	frequencyPenaltyProperty = "frequencyPenalty"
-	presencePenaltyProperty  = "presencePenalty"
-	topPProperty             = "topP"
-	baseURLProperty          = "baseURL"
-	apiVersionProperty       = "apiVersion"
+	temperatureProperty = "temperature"
+	maxTokensProperty   = "maxTokens"
+
+	topPProperty = "topP"
 )
 
 var availableOpenAILegacyModels = []string{
@@ -83,20 +79,14 @@ var availableApiVersions = []string{
 }
 
 type ClassSettings interface {
-	IsLegacy() bool
-	Model() string
 	MaxTokens() float64
 	Temperature() float64
-	FrequencyPenalty() float64
-	PresencePenalty() float64
 	TopP() float64
 	ResourceName() string
 	DeploymentID() string
 	IsAzure() bool
 	GetMaxTokensForModel(model string) float64
 	Validate(class *models.Class) error
-	BaseURL() string
-	ApiVersion() string
 	ServingURL() string
 }
 
@@ -115,39 +105,19 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	model := ic.getStringProperty(modelProperty, DefaultOpenAIModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableOpenAIModels)
-	}
-
 	temperature := ic.getFloatProperty(temperatureProperty, &DefaultOpenAITemperature)
 	if temperature == nil || (*temperature < 0 || *temperature > 1) {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0")
 	}
 
 	maxTokens := ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
-	if maxTokens == nil || (*maxTokens < 0 || *maxTokens > ic.GetMaxTokensForModel(DefaultOpenAIModel)) {
-		return errors.Errorf("Wrong maxTokens configuration, values are should have a minimal value of 1 and max is dependant on the model used")
-	}
-
-	frequencyPenalty := ic.getFloatProperty(frequencyPenaltyProperty, &DefaultOpenAIFrequencyPenalty)
-	if frequencyPenalty == nil || (*frequencyPenalty < 0 || *frequencyPenalty > 1) {
-		return errors.Errorf("Wrong frequencyPenalty configuration, values are between 0.0 and 1.0")
-	}
-
-	presencePenalty := ic.getFloatProperty(presencePenaltyProperty, &DefaultOpenAIPresencePenalty)
-	if presencePenalty == nil || (*presencePenalty < 0 || *presencePenalty > 1) {
-		return errors.Errorf("Wrong presencePenalty configuration, values are between 0.0 and 1.0")
+	if maxTokens != nil && *maxTokens <= 0 {
+		return errors.Errorf("Wrong maxTokens configuration, values should be greater than zero or nil")
 	}
 
 	topP := ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
 	if topP == nil || (*topP < 0 || *topP > 5) {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
-	}
-
-	apiVersion := ic.ApiVersion()
-	if !ic.validateApiVersion(apiVersion) {
-		return errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: %v", availableApiVersions)
 	}
 
 	servingURL := ic.ServingURL()
@@ -181,36 +151,12 @@ func (ic *classSettings) validateApiVersion(apiVersion string) bool {
 	return contains(availableApiVersions, apiVersion)
 }
 
-func (ic *classSettings) IsLegacy() bool {
-	return contains(availableOpenAILegacyModels, ic.Model())
-}
-
-func (ic *classSettings) Model() string {
-	return *ic.getStringProperty(modelProperty, DefaultOpenAIModel)
-}
-
 func (ic *classSettings) MaxTokens() float64 {
 	return *ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
 }
 
-func (ic *classSettings) BaseURL() string {
-	return *ic.getStringProperty(baseURLProperty, DefaultOpenAIBaseURL)
-}
-
-func (ic *classSettings) ApiVersion() string {
-	return *ic.getStringProperty(apiVersionProperty, DefaultApiVersion)
-}
-
 func (ic *classSettings) Temperature() float64 {
 	return *ic.getFloatProperty(temperatureProperty, &DefaultOpenAITemperature)
-}
-
-func (ic *classSettings) FrequencyPenalty() float64 {
-	return *ic.getFloatProperty(frequencyPenaltyProperty, &DefaultOpenAIFrequencyPenalty)
-}
-
-func (ic *classSettings) PresencePenalty() float64 {
-	return *ic.getFloatProperty(presencePenaltyProperty, &DefaultOpenAIPresencePenalty)
 }
 
 func (ic *classSettings) TopP() float64 {

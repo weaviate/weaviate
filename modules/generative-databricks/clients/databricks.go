@@ -164,9 +164,6 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{})
 		params = p
 	}
 
-	if params.Model == "" {
-		params.Model = settings.Model()
-	}
 	if params.Temperature == nil {
 		temperature := settings.Temperature()
 		params.Temperature = &temperature
@@ -175,14 +172,7 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{})
 		topP := settings.TopP()
 		params.TopP = &topP
 	}
-	if params.FrequencyPenalty == nil {
-		frequencyPenalty := settings.FrequencyPenalty()
-		params.FrequencyPenalty = &frequencyPenalty
-	}
-	if params.PresencePenalty == nil {
-		presencePenalty := settings.PresencePenalty()
-		params.PresencePenalty = &presencePenalty
-	}
+
 	if params.MaxTokens == nil {
 		maxTokens := int(settings.MaxTokens())
 		params.MaxTokens = &maxTokens
@@ -215,49 +205,25 @@ func (v *openai) buildDatabricksServingUrl(ctx context.Context, settings config.
 }
 
 func (v *openai) generateInput(prompt string, params openaiparams.Params, settings config.ClassSettings) (generateInput, error) {
-	if settings.IsLegacy() {
-		return generateInput{
-			Prompt:           prompt,
-			Model:            params.Model,
-			FrequencyPenalty: params.FrequencyPenalty,
-			Logprobs:         params.Logprobs,
-			TopLogprobs:      params.TopLogprobs,
-			MaxTokens:        params.MaxTokens,
-			N:                params.N,
-			PresencePenalty:  params.PresencePenalty,
-			Stop:             params.Stop,
-			Temperature:      params.Temperature,
-			TopP:             params.TopP,
-		}, nil
-	} else {
-		var input generateInput
-		messages := []message{{
-			Role:    "user",
-			Content: prompt,
-		}}
-		tokens, err := v.determineTokens(settings.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
-		if err != nil {
-			return input, errors.Wrap(err, "determine tokens count")
-		}
-		input = generateInput{
-			Messages:         messages,
-			Stream:           false,
-			FrequencyPenalty: params.FrequencyPenalty,
-			Logprobs:         params.Logprobs,
-			TopLogprobs:      params.TopLogprobs,
-			MaxTokens:        &tokens,
-			N:                params.N,
-			PresencePenalty:  params.PresencePenalty,
-			Stop:             params.Stop,
-			Temperature:      params.Temperature,
-			TopP:             params.TopP,
-		}
-		if !settings.IsAzure() {
-			// model is mandatory for OpenAI calls, but obsolete for Azure calls
-			input.Model = params.Model
-		}
-		return input, nil
+	var input generateInput
+	messages := []message{{
+		Role:    "user",
+		Content: prompt,
+	}}
+
+	input = generateInput{
+		Messages:    messages,
+		Stream:      false,
+		Logprobs:    params.Logprobs,
+		TopLogprobs: params.TopLogprobs,
+		MaxTokens:   params.MaxTokens,
+		N:           params.N,
+		Stop:        params.Stop,
+		Temperature: params.Temperature,
+		TopP:        params.TopP,
 	}
+
+	return input, nil
 }
 
 func (v *openai) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
@@ -363,19 +329,17 @@ func (v *openai) getOpenAIOrganization(ctx context.Context) string {
 }
 
 type generateInput struct {
-	Prompt           string    `json:"prompt,omitempty"`
-	Messages         []message `json:"messages,omitempty"`
-	Stream           bool      `json:"stream,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	FrequencyPenalty *float64  `json:"frequency_penalty,omitempty"`
-	Logprobs         *bool     `json:"logprobs,omitempty"`
-	TopLogprobs      *int      `json:"top_logprobs,omitempty"`
-	MaxTokens        *int      `json:"max_tokens,omitempty"`
-	N                *int      `json:"n,omitempty"`
-	PresencePenalty  *float64  `json:"presence_penalty,omitempty"`
-	Stop             []string  `json:"stop,omitempty"`
-	Temperature      *float64  `json:"temperature,omitempty"`
-	TopP             *float64  `json:"top_p,omitempty"`
+	Prompt      string    `json:"prompt,omitempty"`
+	Messages    []message `json:"messages,omitempty"`
+	Stream      bool      `json:"stream,omitempty"`
+	Model       string    `json:"model,omitempty"`
+	Logprobs    *bool     `json:"logprobs,omitempty"`
+	TopLogprobs *int      `json:"top_logprobs,omitempty"`
+	MaxTokens   *int      `json:"max_tokens,omitempty"`
+	N           *int      `json:"n,omitempty"`
+	Stop        []string  `json:"stop,omitempty"`
+	Temperature *float64  `json:"temperature,omitempty"`
+	TopP        *float64  `json:"top_p,omitempty"`
 }
 
 type message struct {
