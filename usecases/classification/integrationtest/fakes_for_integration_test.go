@@ -76,7 +76,7 @@ func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) 
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT

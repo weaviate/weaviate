@@ -179,7 +179,7 @@ func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error)
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT
