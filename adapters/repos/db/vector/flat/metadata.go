@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"sync/atomic"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -29,7 +29,7 @@ func (index *flat) initMetadata() error {
 
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
 	var err error
-	index.metadata, err = bolt.Open(path, 0600, nil)
+	index.metadata, err = bolt.Open(path, 0o600, nil)
 	if err != nil {
 		return errors.Wrapf(err, "open %q", path)
 	}
@@ -138,7 +138,7 @@ func (index *flat) setDimensions(dimensions int32) error {
 	err := index.metadata.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(vectorMetadataBucket))
 		if b == nil {
-			return errors.New("no flat metadata bucket")
+			return errors.New("failed to get bucket")
 		}
 		buf := make([]byte, 4)
 		binary.LittleEndian.PutUint32(buf, uint32(dimensions))

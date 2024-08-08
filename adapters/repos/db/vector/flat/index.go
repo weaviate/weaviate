@@ -25,7 +25,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/boltdb/bolt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -41,6 +40,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
