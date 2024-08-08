@@ -74,7 +74,6 @@ func Test_FlatDimensions(t *testing.T) {
 	})
 
 	t.Run("can restore dimensions without root path", func(t *testing.T) {
-
 		emptyRoot := t.TempDir()
 		index.Shutdown(context.Background())
 		index = nil
@@ -92,7 +91,6 @@ func Test_FlatDimensions(t *testing.T) {
 		require.NotNil(t, err)
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 	})
-
 }
 
 func Test_FlatDimensionsTargetVector(t *testing.T) {
