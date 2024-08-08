@@ -18,7 +18,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"sync"
 	"testing"
@@ -149,8 +148,6 @@ func hasDuplicates(results []uint64) bool {
 }
 
 func Test_NoRaceFlatIndex(t *testing.T) {
-	dirName := t.TempDir()
-
 	logger, _ := test.NewNullLogger()
 
 	dimensions := 256
@@ -180,7 +177,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 						targetRecall = 0.8
 					}
 					t.Run("recall", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer)
+						recall, latency, err := run(t.TempDir(), logger, compression, cache, vectors, queries, k, truths, nil, nil, distancer)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -189,7 +186,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					})
 
 					t.Run("recall with deletes", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
+						recall, latency, err := run(t.TempDir(), logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, nil, distancer)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -220,7 +217,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					}
 
 					t.Run("recall on filtered", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer)
+						recall, latency, err := run(t.TempDir(), logger, compression, cache, vectors, queries, k, truths, nil, allowIds, distancer)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -229,7 +226,7 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 					})
 
 					t.Run("recall on filtered with deletes", func(t *testing.T) {
-						recall, latency, err := run(dirName, logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
+						recall, latency, err := run(t.TempDir(), logger, compression, cache, vectors, queries, k, truths, extraVectorsForDelete, allowIds, distancer)
 						require.Nil(t, err)
 
 						fmt.Println(recall, latency)
@@ -239,11 +236,6 @@ func Test_NoRaceFlatIndex(t *testing.T) {
 				})
 			}
 		})
-	}
-
-	err := os.RemoveAll(dirName)
-	if err != nil {
-		fmt.Println(err)
 	}
 }
 
