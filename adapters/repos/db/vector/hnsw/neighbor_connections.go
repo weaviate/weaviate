@@ -120,10 +120,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		return err
 	}
 
+	n.graph.RLock()
+	nodesLen := uint64(len(n.graph.nodes))
+	n.graph.Unlock()
 	var pending []uint64
 	// lock the nodes slice
 	n.graph.shardedNodeLocks.RLock(from)
-	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
+	if nodesLen < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from)
 		n.graph.shardedNodeLocks.RUnlock(from)
 		return nil
