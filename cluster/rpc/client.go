@@ -179,7 +179,6 @@ func (cl *Client) Close() {
 			},
 		).Warn("error closing the leader gRPC connection")
 	}
-
 }
 
 // getConn either returns the cached connection in the client to the leader or will instantiate a new one towards
