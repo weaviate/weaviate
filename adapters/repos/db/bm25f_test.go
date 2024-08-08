@@ -998,7 +998,6 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 }
 
 func TestBM25F_SortMultiProp(t *testing.T) {
-	t.Skip("Currently failing")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
