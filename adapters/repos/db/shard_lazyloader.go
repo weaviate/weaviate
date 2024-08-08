@@ -86,7 +86,10 @@ func (l *LazyLoadShard) mustLoad() {
 
 func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 	if err := l.Load(ctx); err != nil {
-		panic(err.Error())
+		// only panic if multi-tenancy is not enabled, so that we don't take out the whole server
+		if !(l.shardOpts.class.MultiTenancyConfig != nil && l.shardOpts.class.MultiTenancyConfig.Enabled) {
+			panic(err.Error())
+		}
 	}
 }
 
@@ -152,6 +155,10 @@ func (l *LazyLoadShard) GetStatusNoLoad() storagestate.Status {
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	l.mustLoad()
+	// this can be reached on corrupted shards that failed to load on MultiTenant mode
+	if l.shard == nil {
+		return storagestate.StatusError
+	}
 	return l.shard.GetStatus()
 }
 

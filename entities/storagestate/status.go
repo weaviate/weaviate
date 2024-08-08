@@ -18,6 +18,7 @@ const (
 	StatusIndexing Status = "INDEXING"
 	StatusLoading  Status = "LOADING"
 	StatusReady    Status = "READY"
+	StatusError    Status = "ERROR"
 )
 
 var (
@@ -39,6 +40,10 @@ func ValidateStatus(in string) (status Status, err error) {
 		status = StatusIndexing
 	case string(StatusReady):
 		status = StatusReady
+	case string(StatusLoading):
+		status = StatusLoading
+	case string(StatusError):
+		status = StatusError
 	default:
 		err = ErrInvalidStatus
 	}
