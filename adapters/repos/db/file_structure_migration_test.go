@@ -301,7 +301,7 @@ func (sg *fakeMigrationSchemaGetter) ShardOwner(class, shard string) (string, er
 	return "", nil
 }
 
-func (sg *fakeMigrationSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (sg *fakeMigrationSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	return nil, nil
 }
 

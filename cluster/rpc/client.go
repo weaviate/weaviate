@@ -140,8 +140,6 @@ func (cl *Client) Remove(ctx context.Context, leaderRaftAddr string, req *cmd.Re
 }
 
 // Apply will contact the node at leaderRaftAddr and send req to be applied in the RAFT store
-// It does not take a context and will instead use a background context to ensure that request
-// applied the change in the leader node.
 // Returns the server response to the apply request
 // Returns an error if an RPC connection to leaderRaftAddr can't be established
 // Returns an error if the apply command fails
