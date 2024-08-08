@@ -112,9 +112,7 @@ func (c *Service) Close(ctx context.Context) error {
 	}
 
 	c.logger.Info("closing raft-rpc client ...")
-	if err := c.rpcClient.Close(); err != nil {
-		return err
-	}
+	c.rpcClient.Close()
 
 	c.logger.Info("closing raft-rpc server ...")
 	c.rpcServer.Close()
