@@ -427,6 +427,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
+			h.logger.WithField("op", "hnsw.find_best_entrypoint_for_node").WithField("node", e.DocID).Error(err)
 			h.handleDeletedNode(e.DocID)
 			continue
 		}
@@ -481,6 +482,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
+			h.logger.WithField("op", "hnsw.dist_between_nodes_a").WithField("node", e.DocID).Error(err)
 			h.handleDeletedNode(e.DocID)
 			return 0, nil
 		}
@@ -497,6 +499,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
+			h.logger.WithField("op", "hnsw.dist_between_nodes_b").WithField("node", e.DocID).Error(err)
 			h.handleDeletedNode(e.DocID)
 			return 0, nil
 		}
@@ -528,6 +531,7 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, erro
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
+			h.logger.WithField("op", "hnsw.dist_between_node_and_vec").WithField("node", e.DocID).Error(err)
 			h.handleDeletedNode(e.DocID)
 			return 0, nil
 		}

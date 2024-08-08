@@ -93,6 +93,7 @@ func (h *hnsw) selectNeighborsHeuristic(input *priorityqueue.Queue[any],
 			if err := errs[curr.Value]; err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
+					h.logger.WithField("op", "hnsw.select_neighbors_heuristic").WithField("node", e.DocID).Error(err)
 					h.handleDeletedNode(e.DocID)
 					continue
 				} else {
