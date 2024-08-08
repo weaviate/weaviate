@@ -101,11 +101,11 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
 	}
-	apiKey, err := v.getApiKey(ctx, settings.IsAzure())
+	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
 		return nil, errors.Wrapf(err, "OpenAI API Key")
 	}
-	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, settings.IsAzure()))
+	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey))
 	req.Header.Add("Content-Type", "application/json")
 
 	res, err := v.httpClient.Do(req)
@@ -125,7 +125,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error, settings.IsAzure())
+		return nil, v.getError(res.StatusCode, resBody.Error)
 	}
 
 	responseParams := v.getResponseParams(resBody.Usage)
@@ -226,11 +226,8 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params, settin
 	return input, nil
 }
 
-func (v *openai) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
-	endpoint := "OpenAI API"
-	if isAzure {
-		endpoint = "Azure OpenAI API"
-	}
+func (v *openai) getError(statusCode int, resBodyError *openAIApiError) error {
+	endpoint := "Databricks Foundation Model API"
 	if resBodyError != nil {
 		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
 	}
@@ -250,10 +247,7 @@ func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, mod
 	return messageTokens, nil
 }
 
-func (v *openai) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
-	if isAzure {
-		return "api-key", apiKey
-	}
+func (v *openai) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
@@ -281,18 +275,12 @@ func (v *openai) generateForPrompt(textProperties map[string]string, prompt stri
 	return prompt, nil
 }
 
-func (v *openai) getApiKey(ctx context.Context, isAzure bool) (string, error) {
+func (v *openai) getApiKey(ctx context.Context) (string, error) {
 	var apiKey, envVarValue, envVar string
 
-	if isAzure {
-		apiKey = "X-Azure-Api-Key"
-		envVar = "AZURE_APIKEY"
-		envVarValue = v.azureApiKey
-	} else {
-		apiKey = "X-Databricks-Token"
-		envVar = "DATABRICKS_TOKEN"
-		envVarValue = v.databricksToken
-	}
+	apiKey = "X-Databricks-Token"
+	envVar = "DATABRICKS_TOKEN"
+	envVarValue = v.databricksToken
 
 	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
 }

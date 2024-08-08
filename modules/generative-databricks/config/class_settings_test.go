@@ -21,20 +21,13 @@ import (
 
 func Test_classSettings_Validate(t *testing.T) {
 	tests := []struct {
-		name                 string
-		cfg                  moduletools.ClassConfig
-		wantModel            string
-		wantMaxTokens        float64
-		wantTemperature      float64
-		wantTopP             float64
-		wantFrequencyPenalty float64
-		wantPresencePenalty  float64
-		wantResourceName     string
-		wantDeploymentID     string
-		wantIsAzure          bool
-		wantErr              error
-		wantBaseURL          string
-		wantApiVersion       string
+		name            string
+		cfg             moduletools.ClassConfig
+		wantMaxTokens   float64
+		wantTemperature float64
+		wantTopP        float64
+
+		wantErr error
 	}{
 		{
 			name: "Happy flow",
@@ -43,15 +36,11 @@ func Test_classSettings_Validate(t *testing.T) {
 					"servingUrl": "https://foo.bar.com",
 				},
 			},
-			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4097,
-			wantTemperature:      0.0,
-			wantTopP:             1,
-			wantFrequencyPenalty: 0.0,
-			wantPresencePenalty:  0.0,
-			wantErr:              nil,
-			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
+			wantMaxTokens:   4097,
+			wantTemperature: 0.0,
+			wantTopP:        1,
+
+			wantErr: nil,
 		},
 		{
 			name: "Everything non default configured",
@@ -66,140 +55,11 @@ func Test_classSettings_Validate(t *testing.T) {
 					"presencePenalty":  0.9,
 				},
 			},
-			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4097,
-			wantTemperature:      0.5,
-			wantTopP:             3,
-			wantFrequencyPenalty: 0.1,
-			wantPresencePenalty:  0.9,
-			wantErr:              nil,
-			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
-		},
-		{
-			name: "OpenAI Proxy",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"servingUrl":       "https://foo.bar.com",
-					"model":            "gpt-3.5-turbo",
-					"maxTokens":        4097,
-					"temperature":      0.5,
-					"topP":             3,
-					"frequencyPenalty": 0.1,
-					"presencePenalty":  0.9,
-					"baseURL":          "https://proxy.weaviate.dev/",
-				},
-			},
-			wantBaseURL:          "https://proxy.weaviate.dev/",
-			wantApiVersion:       "2024-02-01",
-			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4097,
-			wantTemperature:      0.5,
-			wantTopP:             3,
-			wantFrequencyPenalty: 0.1,
-			wantPresencePenalty:  0.9,
-			wantErr:              nil,
-		},
-		{
-			name: "Legacy config",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"servingUrl":       "https://foo.bar.com",
-					"model":            "text-davinci-003",
-					"maxTokens":        1200,
-					"temperature":      0.5,
-					"topP":             3,
-					"frequencyPenalty": 0.1,
-					"presencePenalty":  0.9,
-				},
-			},
-			wantModel:            "text-davinci-003",
-			wantMaxTokens:        1200,
-			wantTemperature:      0.5,
-			wantTopP:             3,
-			wantFrequencyPenalty: 0.1,
-			wantPresencePenalty:  0.9,
-			wantErr:              nil,
-			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
-		},
-		{
-			name: "Azure OpenAI config",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"servingUrl":       "https://foo.bar.com",
-					"resourceName":     "weaviate",
-					"deploymentId":     "gpt-3.5-turbo",
-					"maxTokens":        4097,
-					"temperature":      0.5,
-					"topP":             3,
-					"frequencyPenalty": 0.1,
-					"presencePenalty":  0.9,
-				},
-			},
-			wantResourceName:     "weaviate",
-			wantDeploymentID:     "gpt-3.5-turbo",
-			wantIsAzure:          true,
-			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4097,
-			wantTemperature:      0.5,
-			wantTopP:             3,
-			wantFrequencyPenalty: 0.1,
-			wantPresencePenalty:  0.9,
-			wantErr:              nil,
-			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
-		},
-		{
-			name: "Azure OpenAI config with baseURL",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"servingUrl":       "https://foo.bar.com",
-					"baseURL":          "some-base-url",
-					"resourceName":     "weaviate",
-					"deploymentId":     "gpt-3.5-turbo",
-					"maxTokens":        4097,
-					"temperature":      0.5,
-					"topP":             3,
-					"frequencyPenalty": 0.1,
-					"presencePenalty":  0.9,
-				},
-			},
-			wantResourceName:     "weaviate",
-			wantDeploymentID:     "gpt-3.5-turbo",
-			wantIsAzure:          true,
-			wantModel:            "gpt-3.5-turbo",
-			wantMaxTokens:        4097,
-			wantTemperature:      0.5,
-			wantTopP:             3,
-			wantFrequencyPenalty: 0.1,
-			wantPresencePenalty:  0.9,
-			wantErr:              nil,
-			wantBaseURL:          "some-base-url",
-			wantApiVersion:       "2024-02-01",
-		},
-		{
-			name: "With gpt-3.5-turbo-16k model",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"servingUrl":       "https://foo.bar.com",
-					"model":            "gpt-3.5-turbo-16k",
-					"maxTokens":        4097,
-					"temperature":      0.5,
-					"topP":             3,
-					"frequencyPenalty": 0.1,
-					"presencePenalty":  0.9,
-				},
-			},
-			wantModel:            "gpt-3.5-turbo-16k",
-			wantMaxTokens:        4097,
-			wantTemperature:      0.5,
-			wantTopP:             3,
-			wantFrequencyPenalty: 0.1,
-			wantPresencePenalty:  0.9,
-			wantErr:              nil,
-			wantBaseURL:          "https://api.openai.com",
-			wantApiVersion:       "2024-02-01",
+			wantMaxTokens:   4097,
+			wantTemperature: 0.5,
+			wantTopP:        3,
+
+			wantErr: nil,
 		},
 		{
 			name: "Wrong maxTokens configured",
@@ -250,9 +110,6 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
 				assert.Equal(t, tt.wantTopP, ic.TopP())
-				assert.Equal(t, tt.wantResourceName, ic.ResourceName())
-				assert.Equal(t, tt.wantDeploymentID, ic.DeploymentID())
-				assert.Equal(t, tt.wantIsAzure, ic.IsAzure())
 
 			}
 		})
