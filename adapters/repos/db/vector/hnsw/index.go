@@ -605,6 +605,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 		// See https://github.com/weaviate/weaviate/issues/1838 for details.
 		// This could be after a crash recovery when the object store is "further
 		// ahead" than the hnsw index and we receive a delete request
+		h.logger.WithField("op", "hnsw.node_by_id").WithField("id", id).Warn("node id out of bounds")
 		return nil
 	}
 
