@@ -1,5 +1,7 @@
 module github.com/weaviate/weaviate
 
+replace github.com/rapidsai/cuvs/go => ../cuvs/go // remove once PR is merged
+
 require (
 	cloud.google.com/go/storage v1.41.0
 	github.com/bmatcuk/doublestar v1.1.3
@@ -65,6 +67,7 @@ require (
 	github.com/ikawaha/kagome/v2 v2.9.11
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
+	github.com/rapidsai/cuvs/go v0.0.0-00010101000000-000000000000
 	github.com/tailor-inc/graphql v0.2.1
 	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
@@ -211,4 +214,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-go 1.21
+go 1.22.4
