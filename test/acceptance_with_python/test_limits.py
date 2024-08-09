@@ -7,6 +7,7 @@ def test_requesting_more_than_the_default_limit(collection_factory: CollectionFa
     collection = collection_factory(
         vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
+
     # This bug is somewhat hard to trigger and needs two things:
     # 1. A higher than default QUERY_MAXIMUM_RESULTS in the weaviate config
     # 2. Adding more objects than the default limit to the collection

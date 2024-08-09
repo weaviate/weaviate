@@ -284,8 +284,8 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			NearVectorParams: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {1, 2, 3}},
-				Certainty:       0.8,
+				Vectors:   [][]float32{{1, 2, 3}},
+				Certainty: 0.8,
 			},
 			Alpha: 1.0,
 		},
@@ -329,8 +329,8 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 			Type:            "hybrid",
 			FusionAlgorithm: common_filters.HybridRelativeScoreFusion,
 			NearVectorParams: &searchparams.NearVector{
-				VectorPerTarget: map[string][]float32{"": {1, 2, 3}},
-				Certainty:       0.8,
+				Vectors:   [][]float32{{1, 2, 3}},
+				Certainty: 0.8,
 			},
 			Alpha:      0.5,
 			Query:      "some query",
