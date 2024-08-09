@@ -23,9 +23,9 @@ type WeaviateJSONFormatter struct {
 }
 
 func (wf *WeaviateJSONFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	e.Data["git_commit"] = config.GitHash
-	e.Data["wv_version"] = config.ImageTag
-	e.Data["go_version"] = goruntime.Version()
+	e.Data["build_git_commit"] = config.GitHash
+	e.Data["build_wv_version"] = config.ImageTag
+	e.Data["build_go_version"] = goruntime.Version()
 	return wf.JSONFormatter.Format(e)
 }
 
@@ -34,8 +34,8 @@ type WeaviateTextFormatter struct {
 }
 
 func (wf *WeaviateTextFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	e.Data["git_commit"] = config.GitHash
-	e.Data["wv_version"] = config.ImageTag
-	e.Data["go_version"] = goruntime.Version()
+	e.Data["build_git_commit"] = config.GitHash
+	e.Data["build_wv_version"] = config.ImageTag
+	e.Data["build_go_version"] = goruntime.Version()
 	return wf.TextFormatter.Format(e)
 }
