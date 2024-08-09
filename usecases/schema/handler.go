@@ -51,6 +51,7 @@ type SchemaManager interface {
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]any
+	Candidates() []string
 	StoreSchemaV1() error
 
 	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
