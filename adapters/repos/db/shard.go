@@ -191,7 +191,7 @@ type Shard struct {
 
 	centralJobQueue chan job // reference to queue used by all shards
 
-	docIdLock []sync.Mutex
+	uuidLock []sync.Mutex
 	// replication
 	replicationMap pendingReplicaTasks
 
@@ -208,6 +208,9 @@ type Shard struct {
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
+
+	batchDeletePatchLocks map[strfmt.UUID]*sync.Mutex // docID -> lock
+	batchDeletePatchLock  *sync.Mutex
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -234,6 +237,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		centralJobQueue:       jobQueueCh,
 		indexCheckpoints:      indexCheckpoints,
 		status:                storagestate.StatusLoading,
+		batchDeletePatchLocks: make(map[strfmt.UUID]*sync.Mutex),
+		batchDeletePatchLock:  &sync.Mutex{},
 	}
 
 	defer func() {
@@ -268,7 +273,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	s.initCycleCallbacks()
 
-	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
+	s.uuidLock = make([]sync.Mutex, IdLockPoolSize)
 
 	defer s.metrics.ShardStartup(before)
 

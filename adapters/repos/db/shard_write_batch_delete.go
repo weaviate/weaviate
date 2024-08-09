@@ -35,6 +35,14 @@ func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryR
 			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
 		}
 	}
+	for _, uuid := range uuids {
+		s.batchDeletePatchLock.Lock()
+		lock := s.batchDeletePatchLocks[uuid]
+		s.batchDeletePatchLock.Unlock()
+
+		lock.Lock()
+		defer lock.Unlock()
+	}
 	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)
 }
 
@@ -76,18 +84,18 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 	eg := enterrors.NewErrorGroupWrapper(b.shard.Index().logger)
 	eg.SetLimit(_NUMCPU) // prevent unbounded concurrency
 
-	for j, docID := range batch {
+	for j, id := range batch {
 		index := j
-		docID := docID
+		id := id
 		f := func() error {
 			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, docID, dryRun)
+			obj := b.deleteObjectOfBatchInLSM(ctx, id, dryRun)
 			objLock.Lock()
 			result[index] = obj
 			objLock.Unlock()
 			return nil
 		}
-		eg.Go(f, index, docID)
+		eg.Go(f, index, id)
 	}
 	// safe to ignore error, as the internal routines never return an error
 	eg.Wait()

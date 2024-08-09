@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -214,6 +215,14 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
+	batchDeleteLock := sync.Mutex{}
+	batchDeleteLock.Lock()
+	defer batchDeleteLock.Unlock()
+
+	s.batchDeletePatchLock.Lock()
+	s.batchDeletePatchLocks[obj.ID()] = &batchDeleteLock
+	s.batchDeletePatchLock.Unlock()
+
 	if s.hasTargetVectors() {
 		if len(obj.Vectors) > 0 {
 			for targetVector, vector := range obj.Vectors {
@@ -240,7 +249,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
 	// to determine if it is insert or an update.
 	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
-	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+	lock := &s.uuidLock[s.uuidToIdLockPoolId(idBytes)]
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {

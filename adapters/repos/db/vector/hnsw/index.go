@@ -427,7 +427,9 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			if h.handleDeletedNode(e.DocID) {
+				h.logger.WithField("op", "hnsw.find_best_entrypoint_for_node").WithField("node", e.DocID).Error(err)
+			}
 			continue
 		}
 		if err != nil {
@@ -481,7 +483,9 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			if h.handleDeletedNode(e.DocID) {
+				h.logger.WithField("op", "hnsw.dist_between_nodes_a").WithField("node", e.DocID).Error(err)
+			}
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -497,7 +501,9 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			if h.handleDeletedNode(e.DocID) {
+				h.logger.WithField("op", "hnsw.dist_between_nodes_b").WithField("node", e.DocID).Error(err)
+			}
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -528,7 +534,9 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, erro
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			if h.handleDeletedNode(e.DocID) {
+				h.logger.WithField("op", "hnsw.dist_between_node_and_vec").WithField("node", e.DocID).Error(err)
+			}
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -597,6 +605,7 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 		// See https://github.com/weaviate/weaviate/issues/1838 for details.
 		// This could be after a crash recovery when the object store is "further
 		// ahead" than the hnsw index and we receive a delete request
+		h.logger.WithField("op", "hnsw.node_by_id").WithField("id", id).Warn("node id out of bounds")
 		return nil
 	}
 
