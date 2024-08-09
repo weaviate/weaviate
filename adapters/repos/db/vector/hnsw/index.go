@@ -721,3 +721,8 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	}
 	return vec
 }
+
+func IsHNSWIndex(index any) bool {
+	_, ok := index.(*hnsw)
+	return ok
+}

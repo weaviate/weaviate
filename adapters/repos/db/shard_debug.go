@@ -46,7 +46,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 
 	err := vidx.Drop(ctx)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "drop vector index")
 	}
 
 	if s.hasTargetVectors() {

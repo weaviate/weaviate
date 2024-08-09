@@ -74,7 +74,7 @@ func (r *repairer) repairOne(ctx context.Context,
 	winner := votes[winnerIdx]
 	if updates.UpdateTime() != lastUTime {
 		updates, err = cl.FullRead(ctx, winner.sender, r.class, shard, id,
-			search.SelectProperties{}, additional.Properties{})
+			search.SelectProperties{}, additional.Properties{}, 9)
 		if err != nil {
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 		}
@@ -149,7 +149,7 @@ func (r *repairer) repairExist(ctx context.Context,
 	}
 	// fetch most recent object
 	winner := votes[winnerIdx]
-	resp, err := cl.FullRead(ctx, winner.sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{})
+	resp, err := cl.FullRead(ctx, winner.sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{}, 9)
 	if err != nil {
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 	}

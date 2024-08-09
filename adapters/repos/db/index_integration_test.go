@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -29,8 +30,10 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -369,4 +372,285 @@ func getIndexFilenames(rootDir, indexName string) ([]string, error) {
 		filenames = append(filenames, f.Name())
 	}
 	return filenames, nil
+}
+
+func TestIndex_DebugResetVectorIndex(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+
+	ctx := context.Background()
+	class := &models.Class{Class: "reindextest"}
+	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, hnsw.UserConfig{}, false, true /* withCheckpoints */)
+
+	// unknown shard
+	err := index.DebugResetVectorIndex(ctx, "unknown", "")
+	require.Error(t, err)
+
+	// unknown target vector
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "unknown")
+	require.Error(t, err)
+
+	amount := 1000
+
+	var objs []*storobj.Object
+	for i := 0; i < amount; i++ {
+		obj := testObject("reindextest")
+		objs = append(objs, obj)
+	}
+
+	errs := shard.PutObjectBatch(ctx, objs)
+	for _, err := range errs {
+		require.Nil(t, err)
+	}
+
+	// wait until the queue is empty
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if shard.Queue().Size() == 0 {
+			break
+		}
+	}
+
+	// wait for the in-flight indexing to finish
+	shard.Queue().Wait()
+
+	// make sure the new index contains all the objects
+	for _, obj := range objs {
+		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should be in the vector index", obj.DocID)
+		}
+	}
+
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
+	require.Nil(t, err)
+
+	// wait until the queue is empty
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if shard.Queue().Size() == 0 {
+			break
+		}
+	}
+
+	// wait for the in-flight indexing to finish
+	shard.Queue().Wait()
+
+	// make sure the new index contains all the objects
+	for _, obj := range objs {
+		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should be in the vector index", obj.DocID)
+		}
+	}
+
+	err = index.drop()
+	require.Nil(t, err)
+}
+
+func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+
+	ctx := context.Background()
+	class := &models.Class{Class: "reindextest"}
+	shard, index := testShardWithSettings(
+		t,
+		ctx,
+		&models.Class{Class: class.Class},
+		hnsw.UserConfig{},
+		false,
+		true,
+		func(i *Index) {
+			i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
+			i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
+		},
+	)
+
+	// unknown shard
+	err := index.DebugResetVectorIndex(ctx, "unknown", "")
+	require.Error(t, err)
+
+	// unknown target vector
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "unknown")
+	require.Error(t, err)
+
+	// non-existing main vector
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
+	require.Error(t, err)
+
+	amount := 1000
+
+	var objs []*storobj.Object
+	for i := 0; i < amount; i++ {
+		obj := testObject("reindextest")
+		obj.Vectors = map[string][]float32{
+			"foo": {1, 2, 3},
+		}
+		objs = append(objs, obj)
+	}
+
+	errs := shard.PutObjectBatch(ctx, objs)
+	for _, err := range errs {
+		require.Nil(t, err)
+	}
+
+	q := shard.Queues()["foo"]
+	// wait until the queue is empty
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if q.Size() == 0 {
+			break
+		}
+	}
+
+	// wait for the in-flight indexing to finish
+	q.Wait()
+
+	// make sure the new index contains all the objects
+	vidx := shard.VectorIndexes()["foo"]
+	for _, obj := range objs {
+		if !vidx.ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should be in the vector index", obj.DocID)
+		}
+	}
+
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "foo")
+	require.Nil(t, err)
+
+	q = shard.Queues()["foo"]
+	// wait until the queue is empty
+	for i := 0; i < 10; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if q.Size() == 0 {
+			break
+		}
+	}
+
+	// wait for the in-flight indexing to finish
+	q.Wait()
+
+	// make sure the new index contains all the objects
+	vidx = shard.VectorIndexes()["foo"]
+	for _, obj := range objs {
+		if !vidx.ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should be in the vector index", obj.DocID)
+		}
+	}
+
+	err = index.drop()
+	require.Nil(t, err)
+}
+
+func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
+
+	ctx := context.Background()
+	var cfg hnsw.UserConfig
+	cfg.SetDefaults()
+	cfg.MaxConnections = 16
+	cfg.PQ.Enabled = true
+	cfg.PQ.Centroids = 6
+	cfg.PQ.Segments = 4
+	cfg.PQ.TrainingLimit = 32
+
+	shard, index := testShardWithSettings(
+		t,
+		ctx,
+		&models.Class{Class: "reindextest"},
+		cfg,
+		false,
+		true,
+	)
+
+	// unknown shard
+	err := index.DebugResetVectorIndex(ctx, "unknown", "")
+	require.Error(t, err)
+
+	// unknown target vector
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "unknown")
+	require.Error(t, err)
+
+	amount := 1000
+
+	var objs []*storobj.Object
+	for i := 0; i < amount; i++ {
+		obj := testObject("reindextest")
+		obj.Vector = randVector(16)
+		objs = append(objs, obj)
+	}
+
+	errs := shard.PutObjectBatch(ctx, objs)
+	for _, err := range errs {
+		require.Nil(t, err)
+	}
+
+	// wait until the queue is empty
+	for i := 0; i < 200; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if shard.Queue().Size() == 0 {
+			break
+		}
+	}
+
+	shard.Queue().Wait()
+
+	// wait until the index is compressed
+	for i := 0; i < 200; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if shard.VectorIndex().Compressed() {
+			break
+		}
+	}
+
+	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
+	require.Nil(t, err)
+
+	// wait until the queue is empty
+	for i := 0; i < 200; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if shard.Queue().Size() == 0 {
+			break
+		}
+	}
+
+	// wait for the in-flight indexing to finish
+	shard.Queue().Wait()
+
+	// wait until the index is compressed
+	for i := 0; i < 200; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if shard.VectorIndex().Compressed() {
+			break
+		}
+	}
+
+	// make sure the new index contains all the objects
+	for _, obj := range objs {
+		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should be in the vector index", obj.DocID)
+		}
+	}
+
+	err = index.drop()
+	require.Nil(t, err)
+}
+
+func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEX_INTERVAL", "100ms")
+
+	ctx := context.Background()
+	class := &models.Class{Class: "reindextest"}
+	shard, index := testShardWithSettings(
+		t,
+		ctx,
+		&models.Class{Class: class.Class, VectorIndexType: "flat"},
+		flat.UserConfig{},
+		false,
+		true,
+	)
+
+	err := index.DebugResetVectorIndex(ctx, shard.Name(), "")
+	require.Error(t, err)
+
+	err = index.drop()
+	require.Nil(t, err)
 }

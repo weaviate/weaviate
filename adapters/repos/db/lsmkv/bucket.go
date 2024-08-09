@@ -649,7 +649,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, error) {
 		}
 	}
 
-	_, err = b.disk.get(key)
+	_, err = b.disk.getErrDeleted(key)
 	switch err {
 	case nil, lsmkv.NotFound:
 		return false, nil
