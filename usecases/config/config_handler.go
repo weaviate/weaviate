@@ -40,10 +40,10 @@ import (
 var ServerVersion string
 
 var (
-	// GitHash keeps the current git hash commit information
+	// GitHash keeps the current git hash commit information, value injected to build by the compiler using ldflags -X
 	GitHash = "unknown"
-	// DockerImageTag keeps the docker tag the weaviate binary was built in
-	DockerImageTag = "unknown"
+	// ImageTag keeps the docker tag the weaviate binary was built in, value injected to build by the compiler
+	ImageTag = "unknown"
 )
 
 // DefaultConfigFile is the default file when no config file is provided
