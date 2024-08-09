@@ -407,6 +407,9 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 	// remove gaps
 	for i := range allMsAndProps {
+		if i >= len(allMsAndProps) {
+			break // in case the length of allMsAndProps changed during the loop
+		}
 		if len(allMsAndProps[i].MapPairs) == 0 {
 			if i == len(allMsAndProps)-1 {
 				allMsAndProps = allMsAndProps[:i]
