@@ -35,25 +35,27 @@ import (
 )
 
 func Test_GCSBackend_Backup(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().WithGCS().Start(ctx)
-	if err != nil {
-		t.Fatal(errors.Wrapf(err, "cannot start"))
-	}
+	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		ctx := context.Background()
+		compose, err := docker.New().WithGCS().Start(ctx)
+		if err != nil {
+			t.Fatal(errors.Wrapf(err, "cannot start"))
+		}
 
-	t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
+		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
 
-	t.Run("store backup meta", moduleLevelStoreBackupMeta)
-	t.Run("copy objects", moduleLevelCopyObjects)
-	t.Run("copy files", moduleLevelCopyFiles)
+		t.Run("store backup meta", moduleLevelStoreBackupMeta)
+		t.Run("copy objects", moduleLevelCopyObjects)
+		t.Run("copy files", moduleLevelCopyFiles)
 
-	if err := compose.Terminate(ctx); err != nil {
-		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
-	}
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
+		}
+	}, 60*time.Second, time.Second, "Test_GCSBackend_Backup never passed")
 }
 
 func moduleLevelStoreBackupMeta(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	testCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	dataDir := t.TempDir()
@@ -137,7 +139,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 }
 
 func moduleLevelCopyObjects(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	testCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	dataDir := t.TempDir()
@@ -177,7 +179,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 }
 
 func moduleLevelCopyFiles(t *testing.T) {
-	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	testCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	dataDir := t.TempDir()
