@@ -380,7 +380,7 @@ func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte
 	keyBuf := bytes.NewBuffer(nil)
 	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
 	if err != nil {
-		return errors.Wrap(err, "write doc id to buffer")
+		return fmt.Errorf("write doc id to buffer: %w", err)
 	}
 	docIDBytes := keyBuf.Bytes()
 
