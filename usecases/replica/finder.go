@@ -296,7 +296,8 @@ func (f *Finder) NodeName() string {
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree,
 ) (replyCh <-chan _Result[*ShardDifferenceReader], hosts []string, err error) {
-	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName)
+	coord := newReadCoordinator[*ShardDifferenceReader](f, shardName,
+		f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime)
 
 	sourceHost, ok := f.resolver.NodeHostname(f.NodeName())
 	if !ok {
@@ -344,7 +345,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, state, err := coord.Pull(ctx, One, op, "")
+	replyCh, state, err := coord.Pull(ctx, One, op, "", 0)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pull shard: %w", err)
 	}
