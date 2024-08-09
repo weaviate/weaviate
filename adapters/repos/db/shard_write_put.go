@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -289,6 +290,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 		return objectInsertStatus{}, errors.Wrap(err, "update inverted indices")
 	}
 	s.metrics.PutObjectUpdateInverted(before)
+	s.batchDeletePatchLocks[obj.ID()] = &sync.Mutex{}
 
 	return status, nil
 }
