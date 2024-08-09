@@ -339,30 +339,20 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 	start := time.Now()
 	defer q.metrics.Delete(start, len(ids))
 
-	remaining := make([]uint64, 0, len(ids))
-	indexed := make([]uint64, 0, len(ids))
-
 	for _, id := range ids {
 		if q.Index.ContainsNode(id) {
-			indexed = append(indexed, id)
-
+			err := q.Index.Delete(id)
+			if err != nil {
+				return errors.Wrap(err, "delete node from index")
+			}
 			// is it already marked as deleted in the queue?
 			if q.queue.IsDeleted(id) {
 				q.queue.ResetDeleted(id)
 			}
-
-			continue
+		} else {
+			q.queue.Delete(id)
 		}
-
-		remaining = append(remaining, id)
 	}
-
-	err := q.Index.Delete(indexed...)
-	if err != nil {
-		return errors.Wrap(err, "delete node from index")
-	}
-
-	q.queue.Delete(remaining)
 
 	return nil
 }
@@ -1059,7 +1049,7 @@ func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vec
 	return nil
 }
 
-func (q *vectorQueue) Delete(ids []uint64) {
+func (q *vectorQueue) Delete(ids ...uint64) {
 	q.deleted.Lock()
 	for _, id := range ids {
 		q.deleted.m[id] = struct{}{}
