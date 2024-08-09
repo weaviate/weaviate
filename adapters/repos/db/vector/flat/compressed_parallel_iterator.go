@@ -76,9 +76,6 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		defer wg.Done()
 
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
-			if len(k) != 8 {
-				continue
-			}
 			localResults = append(localResults, extract(k, v))
 		}
 
@@ -98,9 +95,6 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 			defer c.Close()
 
 			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
-				if len(k) != 8 {
-					continue
-				}
 				localResults = append(localResults, extract(k, v))
 			}
 
@@ -117,9 +111,6 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		localResults := make([]BQVecAndID, 0, 10_000)
 
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			if len(k) != 8 {
-				continue
-			}
 			localResults = append(localResults, extract(k, v))
 		}
 
@@ -143,9 +134,6 @@ func (cpi *compressedParallelIterator) iterateAllNoConcurrency() chan []BQVecAnd
 
 		localResults := make([]BQVecAndID, 0, 10_000)
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			if len(k) != 8 {
-				continue
-			}
 			id := binary.BigEndian.Uint64(k)
 			vec := uint64SliceFromByteSlice(v, make([]uint64, len(v)/8))
 			localResults = append(localResults, BQVecAndID{id: id, vec: vec})

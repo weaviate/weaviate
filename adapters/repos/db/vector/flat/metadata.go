@@ -12,19 +12,59 @@
 package flat
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
+	"path/filepath"
 	"sync/atomic"
 
 	"github.com/pkg/errors"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
+	bolt "go.etcd.io/bbolt"
 )
 
-var metadataPrefix = bytes.Repeat([]byte{0xFF}, 10)
+const (
+	metadataPrefix       = "meta"
+	vectorMetadataBucket = "vector"
+)
 
-func (index *flat) metadataKey(key []byte) []byte {
-	return []byte(fmt.Sprintf("%s%s", metadataPrefix, key))
+func (index *flat) getMetadataFile() string {
+	if index.targetVector != "" {
+		// This may be redundant as target vector is already validated in the schema
+		cleanTarget := filepath.Clean(index.targetVector)
+		cleanTarget = filepath.Base(cleanTarget)
+		return fmt.Sprintf("%s_%s.db", metadataPrefix, cleanTarget)
+	}
+	return fmt.Sprintf("%s.db", metadataPrefix)
+}
+
+func (index *flat) initMetadata() error {
+	path := filepath.Join(index.rootPath, index.getMetadataFile())
+	var err error
+	index.metadata, err = bolt.Open(path, 0o600, nil)
+	if err != nil {
+		return errors.Wrapf(err, "open %q", path)
+	}
+	err = index.metadata.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(vectorMetadataBucket))
+		if err != nil {
+			return errors.Wrap(err, "create bucket")
+		}
+		if b == nil {
+			return errors.New("failed to create or get bucket")
+		}
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "init metadata bucket")
+	}
+	index.initDimensions()
+	defer func() {
+		if err != nil {
+			index.metadata.Close()
+			index.metadata = nil
+		}
+	}()
+
+	return nil
 }
 
 func (index *flat) initDimensions() {
@@ -51,15 +91,27 @@ func (index *flat) initDimensions() {
 }
 
 func (index *flat) fetchDimensions() (int32, error) {
-	key := index.metadataKey([]byte("dimensions"))
-	v, err := index.store.Bucket(index.getBucketName()).Get(key)
-	if v == nil || err == entlsmkv.NotFound {
+	if index.metadata == nil {
 		return 0, nil
 	}
-	if err != entlsmkv.NotFound {
+
+	var dimensions int32 = 0
+	err := index.metadata.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return nil
+		}
+		v := b.Get([]byte("dimensions"))
+		if v == nil {
+			return nil
+		}
+		dimensions = int32(binary.LittleEndian.Uint32(v))
+		return nil
+	})
+	if err != nil {
 		return 0, errors.Wrap(err, "fetch dimensions")
 	}
-	dimensions := int32(binary.LittleEndian.Uint32(v))
+
 	return dimensions, nil
 }
 
@@ -76,9 +128,6 @@ func (index *flat) calculateDimensions() int32 {
 	const maxCursorSize = 100000
 	i := 0
 	for key, v = cursor.First(); key != nil; key, v = cursor.Next() {
-		if len(key) != 8 {
-			continue
-		}
 		if len(v) > 0 {
 			return int32(len(v) / 4)
 		}
@@ -91,15 +140,22 @@ func (index *flat) calculateDimensions() int32 {
 }
 
 func (index *flat) setDimensions(dimensions int32) error {
-	bucket := index.store.Bucket(index.getBucketName())
-	if bucket == nil {
-		return errors.New("failed to get bucket")
+	if index.metadata == nil {
+		return nil
 	}
 
-	key := index.metadataKey([]byte("dimensions"))
-	buf := make([]byte, 4)
-	binary.LittleEndian.PutUint32(buf, uint32(dimensions))
+	err := index.metadata.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(vectorMetadataBucket))
+		if b == nil {
+			return errors.New("failed to get bucket")
+		}
+		buf := make([]byte, 4)
+		binary.LittleEndian.PutUint32(buf, uint32(dimensions))
+		return b.Put([]byte("dimensions"), buf)
+	})
+	if err != nil {
+		return errors.Wrap(err, "set dimensions")
+	}
 
-	err := bucket.Put(key, buf)
-	return err
+	return nil
 }

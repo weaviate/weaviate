@@ -18,6 +18,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -51,7 +53,9 @@ type flat struct {
 	sync.Mutex
 	id                  string
 	targetVector        string
+	rootPath            string
 	dims                int32
+	metadata            *bolt.DB
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
@@ -85,6 +89,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	index := &flat{
 		id:                   cfg.ID,
 		targetVector:         cfg.TargetVector,
+		rootPath:             cfg.RootPath,
 		logger:               logger,
 		distancerProvider:    cfg.DistanceProvider,
 		rescore:              extractCompressionRescore(uc),
@@ -103,7 +108,9 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
 	}
 
-	index.initDimensions()
+	if err := index.initMetadata(); err != nil {
+		return nil, err
+	}
 
 	return index, nil
 }
@@ -513,10 +520,6 @@ func (index *flat) findTopVectors(heap *priorityqueue.Queue[any],
 	// since keys are sorted, once key/id get greater than max allowed one
 	// further search can be stopped
 	for ; key != nil && (allow == nil || id <= allowMax); key, v = cursor.Next() {
-		// skip metadata keys
-		if len(key) != 8 {
-			continue
-		}
 		id = binary.BigEndian.Uint64(key)
 		if allow == nil || allow.Contains(id) {
 			distance, err := distanceCalc(v)
@@ -684,7 +687,12 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 }
 
 func (index *flat) Drop(ctx context.Context) error {
-	// nothing to do here
+	if index.metadata != nil {
+		if err := index.metadata.Close(); err != nil {
+			return err
+		}
+		os.Remove(filepath.Join(index.rootPath, index.getMetadataFile()))
+	}
 	// Shard::drop will take care of handling store's buckets
 	return nil
 }
@@ -696,7 +704,11 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	// nothing to do here
+	if index.metadata != nil {
+		if err := index.metadata.Close(); err != nil {
+			return errors.Wrap(err, "close metadata")
+		}
+	}
 	// Shard::shutdown will take care of handling store's buckets
 	return nil
 }
@@ -706,7 +718,9 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 }
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	// nothing to do here
+	if index.metadata != nil {
+		return []string{filepath.Join(index.rootPath, index.getMetadataFile())}, nil
+	}
 	// Shard::ListBackupFiles will take care of handling store's buckets
 	return []string{}, nil
 }
