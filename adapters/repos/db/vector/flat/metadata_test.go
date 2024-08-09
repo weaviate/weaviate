@@ -24,7 +24,6 @@ import (
 
 func Test_FlatDimensions(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
-	rootPath := t.TempDir()
 	defer store.Shutdown(context.Background())
 	indexID := "init-dimensions-zero"
 	distancer := distancer.NewCosineDistanceProvider()
@@ -34,7 +33,6 @@ func Test_FlatDimensions(t *testing.T) {
 
 	index, err := New(Config{
 		ID:               indexID,
-		RootPath:         rootPath,
 		DistanceProvider: distancer,
 	}, config, store)
 
@@ -61,26 +59,6 @@ func Test_FlatDimensions(t *testing.T) {
 
 		index, err = New(Config{
 			ID:               indexID,
-			RootPath:         rootPath,
-			DistanceProvider: distancer,
-		}, config, store)
-
-		require.Nil(t, err)
-		require.Equal(t, index.dims, int32(3))
-
-		err = index.Add(2, []float32{1, 2, 3, 4})
-		require.NotNil(t, err)
-		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
-	})
-
-	t.Run("can restore dimensions without root path", func(t *testing.T) {
-		emptyRoot := t.TempDir()
-		index.Shutdown(context.Background())
-		index = nil
-
-		index, err = New(Config{
-			ID:               indexID,
-			RootPath:         emptyRoot,
 			DistanceProvider: distancer,
 		}, config, store)
 
@@ -95,7 +73,6 @@ func Test_FlatDimensions(t *testing.T) {
 
 func Test_FlatDimensionsTargetVector(t *testing.T) {
 	store := testinghelpers.NewDummyStore(t)
-	rootPath := t.TempDir()
 	defer store.Shutdown(context.Background())
 	indexID := "test"
 	distancer := distancer.NewCosineDistanceProvider()
@@ -105,7 +82,6 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 
 	index, err := New(Config{
 		ID:               indexID,
-		RootPath:         rootPath,
 		TargetVector:     "target",
 		DistanceProvider: distancer,
 	}, config, store)
@@ -127,7 +103,6 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 
 		index, err = New(Config{
 			ID:               indexID,
-			RootPath:         rootPath,
 			TargetVector:     "target",
 			DistanceProvider: distancer,
 		}, config, store)
@@ -138,10 +113,5 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 		err = index.Add(2, []float32{1, 2, 3, 4})
 		require.NotNil(t, err)
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
-	})
-
-	t.Run("target vector file validation", func(t *testing.T) {
-		index.targetVector = "./../foo"
-		require.Equal(t, "meta_foo.db", index.getMetadataFile())
 	})
 }
