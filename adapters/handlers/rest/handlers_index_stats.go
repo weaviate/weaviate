@@ -12,9 +12,11 @@
 package rest
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -27,7 +29,8 @@ func setupIndexStatsHandlers(appState *state.State) {
 		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/stats/collection/"))
 		parts := strings.Split(path, "/")
 		if len(parts) < 3 || len(parts) > 5 || parts[1] != "shards" {
-			w.WriteHeader(http.StatusNotFound)
+			logger.WithField("parts", parts).Info("invalid path")
+			http.Error(w, "invalid path", http.StatusNotFound)
 			return
 		}
 
@@ -67,28 +70,22 @@ func setupIndexStatsHandlers(appState *state.State) {
 
 		stats, err := vidx.Stats()
 		if err != nil {
-			logger.WithField("shard", shardName).Error(err)
-			http.Error(w, "stats method failed", http.StatusMethodNotAllowed)
+			logger.Error(err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		jsonBytes, err := json.Marshal(stats)
+		if err != nil {
+			err = errors.Wrap(err, "marshal failed on stats")
+			logger.Error(err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
 		logger.Info("Stats on HNSW started")
-		logger.WithField("Dimensions:", stats.Dimensions).Info("Dimensions")
-		logger.WithField("EntryPointID:", stats.EntryPointID).Info("EntryPointID")
-		logger.WithField("Distribution Layers:", stats.DistributionLayers).Info("Distribution Layers")
-		logger.WithField("Unreachable Points:", stats.UnreachablePoints).Info("Unreachable Points")
-		logger.WithField("Number of Tombstones:", stats.NumTombstones).Info("Number of Tombstones")
-		logger.WithField("Cache Size:", stats.CacheSize).Info("Cache Size")
-		if stats.PQConfiguration.Enabled {
-			logger.WithField("PQ Configuration:", stats.PQConfiguration).Info("Quantization")
-		} else if stats.SQConfiguration.Enabled {
-			logger.WithField("SQ Configuration:", stats.SQConfiguration).Info("Quantization")
-		} else if stats.BQConfiguration.Enabled {
-			logger.WithField("BQ Configuration:", stats.BQConfiguration).Info("Quantization")
-		} else {
-			logger.WithField("Quantization:", "None").Info("Quantization")
-		}
 
-		w.WriteHeader(http.StatusAccepted)
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
 	}))
 }

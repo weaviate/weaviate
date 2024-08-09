@@ -737,15 +737,15 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 }
 
 type StatsIndex struct {
-	Dimensions         int32
-	EntryPointID       uint64
-	DistributionLayers map[int]uint
-	UnreachablePoints  []uint64
-	NumTombstones      int
-	CacheSize          int32
-	PQConfiguration    ent.PQConfig
-	BQConfiguration    ent.BQConfig
-	SQConfiguration    ent.SQConfig
+	Dimensions         int32        `json:"dimensions"`
+	EntryPointID       uint64       `json:"entryPointID"`
+	DistributionLayers map[int]uint `json:"distributionLayers"`
+	UnreachablePoints  []uint64     `json:"unreachablePoints"`
+	NumTombstones      int          `json:"numTombstones"`
+	CacheSize          int32        `json:"cacheSize"`
+	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
+	BQConfiguration    ent.BQConfig `json:"bqConfiguration"`
+	SQConfiguration    ent.SQConfig `json:"sqConfiguration"`
 }
 
 func (h *hnsw) Stats() (StatsIndex, error) {

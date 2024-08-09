@@ -1,46 +1,82 @@
-import uuid
-from typing import List, Optional, Union
+import json
 import httpx
-import pytest
-from weaviate.classes.config import Configure, DataType, Property
-from weaviate.classes.data import DataObject
-from weaviate.classes.query import HybridVector, MetadataQuery, Move
-from weaviate.collections.classes.grpc import PROPERTIES
-from weaviate.types import UUID
+from weaviate.classes.config import Configure, VectorDistances
 import weaviate
-from .conftest import CollectionFactory
 
 
-def test_stats_hnsw(weaviate_client) -> None:
 
-    client = weaviate_client(8080, 50051)
-    client.collections.delete_all()
+def test_stats_hnsw() -> None:
+    short_url = "http://localhost:6060/debug/stats/collection/collection_name/shards"
+    response = httpx.post(short_url)
+    assert response.status_code == 404
+    assert "invalid path" in response.text
+    long_url = "http://localhost:6060/debug/stats/collection/collection_name/shards/shard_name/arg4/arg5/arg6"
+    response = httpx.post(long_url)
+    assert response.status_code == 404
+    assert "invalid path" in response.text
+    wrong_url = "http://localhost:6060/debug/stats/collection/collection_name/wrong/shard_name"
+    response = httpx.post(wrong_url)
+    assert response.status_code == 404
+    assert "invalid path" in response.text
+    # HNSW index
+    client = weaviate.connect_to_local()
+    client.collections.delete(name="vector")
+    collection = client.collections.create_from_dict(
+        {
+            "class": "vector",
+            "vectorizer": "none",
+            "moduleConfig": {"reranker-dummy": {}},
+            "properties": [{"name": "prop", "dataType": ["text"]}],
+        }
+    )
 
-    collection = client.collections.create("Vector")
-
-    collections = client.collections.list_all(simple=False)
-
-    print("Collections: ",collections)
-
-    NUM_OBJ = 5
-    data_rows = [{"title": f"Object {i+1}"} for i in range(int(NUM_OBJ))]
-    vectors = [[0.1] * 1 for i in range(int(NUM_OBJ))]
-    with collection.batch.dynamic() as batch:
-        for i, data_row in enumerate(data_rows):
-            batch.add_object(
-                properties=data_row,
-                vector=vectors[i]
-            )
-
+    collection.data.insert({"prop": "hello"}, vector=[1, 0])
+    collection.data.insert({"prop": "hellohellohello"}, vector=[1, 0])
+    collection.data.insert({"prop": "hellohello"}, vector=[1, 0])
     shards = collection.config.get_shards()
-    print("Shards: ",shards[0].name)
-    
 
-    url = "http://localhost:6060/debug/stats/collection/Vector/shard/"+shards[0].name
-    response = httpx.get(url)
-    print("url: ", url)
-    print("Status code: ",response.status_code)
-    print("Response: ",response)
+    wrong_collection = "http://localhost:6060/debug/stats/collection/wrong_collection/shards/"+shards[0].name
+    response = httpx.post(wrong_collection)
+    assert response.status_code == 404
+    assert "collection not found" in response.text
+    wrong_shard = "http://localhost:6060/debug/stats/collection/vector/shards/wrong_shard"
+    response = httpx.post(wrong_shard)
+    assert response.status_code == 404
+    assert "shard not found" in response.text
+
+    url = "http://localhost:6060/debug/stats/collection/vector/shards/"+shards[0].name
+    response = httpx.post(url)
+    keywords = list(json.loads(response.text).keys())
     assert response.status_code == 200
+    assert ['dimensions', 'entryPointID', 'distributionLayers', 'unreachablePoints', 'numTombstones', 'cacheSize', 'pqConfiguration', 'bqConfiguration', 'sqConfiguration'] == keywords
 
-
+    # Flat index
+    flat_index = client.collections.create(
+        name="flatIndex",
+        vector_index_config=Configure.VectorIndex.flat(
+            distance_metric=VectorDistances.COSINE,
+            quantizer=None,
+            vector_cache_max_objects=1000000,
+        )
+    )
+    flat_index.data.insert({"prop": "hello"}, vector=[1, 0])
+    flat_index.data.insert({"prop": "hellohellohello"}, vector=[1, 0])
+    flat_index.data.insert({"prop": "hellohello"}, vector=[1, 0])
+    flat_shards = flat_index.config.get_shards()
+    flat_url = "http://localhost:6060/debug/stats/collection/flatIndex/shards/"+flat_shards[0].name
+    response = httpx.post(flat_url)
+    assert response.status_code == 400
+    assert "Stats() is not implemented for flat index" in response.text
+    # Dynamic Index
+    dynamic_index = client.collections.create(
+        name="dynamicIndex",
+        vector_index_config=Configure.VectorIndex.dynamic()
+    )
+    dynamic_index.data.insert({"prop": "hello"}, vector=[1, 0])
+    dynamic_index.data.insert({"prop": "hellohellohello"}, vector=[1, 0])
+    dynamic_index.data.insert({"prop": "hellohello"}, vector=[1, 0])
+    dynamic_shards = dynamic_index.config.get_shards()
+    dynamic_url = "http://localhost:6060/debug/stats/collection/dynamicIndex/shards/"+dynamic_shards[0].name
+    response = httpx.post(dynamic_url)
+    assert response.status_code == 400
+    assert "Stats() is not implemented for dynamic index" in response.text

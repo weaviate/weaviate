@@ -29,7 +29,7 @@ services:
       CLUSTER_HOSTNAME: "weaviate-test"
       RAFT_JOIN: "weaviate-test"
       RAFT_BOOTSTRAP_EXPECT: "1"
-      ASYNC_INDEXING: ${ASYNC_INDEXING:-false}
+      ASYNC_INDEXING: ${ASYNC_INDEXING:-true}
       DISABLE_TELEMETRY: true
       DISABLE_RECOVERY_ON_PANIC: true
       QUERY_MAXIMUM_RESULTS: 10005
