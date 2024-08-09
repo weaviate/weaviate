@@ -94,14 +94,18 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 
+	if fileInfo.Size() == 0 {
+		return nil, fmt.Errorf("empty file: corrupted empty segment file detected at %q ", path)
+	}
+
 	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
+		return nil, fmt.Errorf("mmap file: %w, segment file is probably corrupted and needs to be fixed manually", err)
 	}
 
 	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
 	if err != nil {
-		return nil, fmt.Errorf("parse header: %w", err)
+		return nil, fmt.Errorf("parse header: %w segment file is probably corrupted and needs to be fixed manually", err)
 	}
 
 	switch header.Strategy {
@@ -113,7 +117,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
-		return nil, fmt.Errorf("extract primary index position: %w", err)
+		return nil, fmt.Errorf("extract primary index position: %w, segment file is probably corrupted and needs to be fixed manually", err)
 	}
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
