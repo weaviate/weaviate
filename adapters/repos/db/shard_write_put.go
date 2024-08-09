@@ -215,6 +215,11 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	before := time.Now()
 	defer s.metrics.PutObject(before)
 
+	batchDeleteLock := sync.Mutex{}
+	batchDeleteLock.Lock()
+	s.batchDeletePatchLocks[obj.ID()] = &batchDeleteLock
+	defer batchDeleteLock.Unlock()
+
 	if s.hasTargetVectors() {
 		if len(obj.Vectors) > 0 {
 			for targetVector, vector := range obj.Vectors {
@@ -290,7 +295,6 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 		return objectInsertStatus{}, errors.Wrap(err, "update inverted indices")
 	}
 	s.metrics.PutObjectUpdateInverted(before)
-	s.batchDeletePatchLocks[obj.ID()] = &sync.Mutex{}
 
 	return status, nil
 }
