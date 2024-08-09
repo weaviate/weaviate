@@ -150,7 +150,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			// Setup related config
 			Dsn:         appState.ServerConfig.Config.Sentry.DSN,
 			Debug:       appState.ServerConfig.Config.Sentry.Debug,
-			Release:     "weaviate-core@" + config.DockerImageTag,
+			Release:     "weaviate-core@" + config.ImageTag,
 			Environment: appState.ServerConfig.Config.Sentry.Environment,
 			// Enable tracing if requested
 			EnableTracing:    !appState.ServerConfig.Config.Sentry.TracingDisabled,
@@ -464,7 +464,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	appState.Logger.WithFields(logrus.Fields{
 		"server_version":   config.ServerVersion,
-		"docker_image_tag": config.DockerImageTag,
+		"docker_image_tag": config.ImageTag,
 	}).Infof("configured versions")
 
 	api.ServeError = openapierrors.ServeError
@@ -476,7 +476,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.APIKey, appState.OIDC)
 
 	api.Logger = func(msg string, args ...interface{}) {
-		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "docker_image_tag": config.DockerImageTag}).Infof(msg, args...)
+		appState.Logger.WithFields(logrus.Fields{"action": "restapi_management", "docker_image_tag": config.ImageTag}).Infof(msg, args...)
 	}
 
 	classifier := classification.New(appState.SchemaManager, appState.ClassificationRepo, appState.DB, // the DB is the vectorrepo
@@ -648,8 +648,22 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 // Defaults to log level info and json format
 func logger() *logrus.Logger {
 	logger := logrus.New()
+	logger.SetFormatter(&WeaviateTextFormatter{
+		config.GitHash,
+		config.ImageTag,
+		config.ServerVersion,
+		goruntime.Version(),
+		&logrus.TextFormatter{},
+	})
+
 	if os.Getenv("LOG_FORMAT") != "text" {
-		logger.SetFormatter(&logrus.JSONFormatter{})
+		logger.SetFormatter(&WeaviateJSONFormatter{
+			config.GitHash,
+			config.ImageTag,
+			config.ServerVersion,
+			goruntime.Version(),
+			&logrus.JSONFormatter{},
+		})
 	}
 	switch os.Getenv("LOG_LEVEL") {
 	case "panic":
