@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -64,6 +65,10 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		case ErrMultiTenancy:
 			return &Error{"repo.object", StatusUnprocessableEntity, err}
 		default:
+			if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
+				m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
+				return &Error{"not found", StatusNotFound, err}
+			}
 			return &Error{"repo.object", StatusInternalServerError, err}
 		}
 	}
@@ -133,7 +138,12 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 			Err:  err,
 		}
 	}
+
 	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant, schemaVersion); err != nil {
+		if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
+			m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
+			return &Error{"not found", StatusNotFound, err}
+		}
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 
