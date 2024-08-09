@@ -481,6 +481,15 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 		termResult.exhausted = true
 		return termResult, docMapPairsIndices, nil
 	}
+
+	if len(allMsAndProps) > 1 {
+		sort.Sort(ById{
+			docMapPairs:            docMapPairs,
+			docMapPairsIndices:     docMapPairsIndices,
+			additionalExplanations: additionalExplanations,
+		})
+	}
+
 	termResult.data = docMapPairs
 
 	n := float64(len(docMapPairs))
