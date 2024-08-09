@@ -358,38 +358,67 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 ) (term, map[uint64]int, error) {
 	termResult := term{queryTerm: query}
 	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+	filterLock := sync.Mutex{}
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
+	eg.SetLimit(_NUMCPU)
 
-	allMsAndProps := make(AllMapPairsAndPropName, 0, len(propertyNames))
-	for _, propName := range propertyNames {
+	allMsAndProps := make(AllMapPairsAndPropName, len(propertyNames))
+	for i, propName := range propertyNames {
+		i := i
+		propName := propName
 
-		bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
-		if bucket == nil {
-			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
-		}
-		preM, err := bucket.MapList(ctx, []byte(query))
-		if err != nil {
-			return termResult, nil, err
-		}
-
-		var m []lsmkv.MapPair
-		if filterDocIds != nil {
-			m = make([]lsmkv.MapPair, 0, len(preM))
-			for _, val := range preM {
-				docID := binary.BigEndian.Uint64(val.Key)
-				if filterDocIds.Contains(docID) {
-					m = append(m, val)
-				} else {
-					filteredDocIDs.Set(docID)
+		eg.Go(
+			func() error {
+				bucket := b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
+				if bucket == nil {
+					return fmt.Errorf("could not find bucket for property %v", propName)
 				}
-			}
-		} else {
-			m = preM
-		}
-		if len(m) == 0 {
-			continue
-		}
+				preM, err := bucket.MapList(ctx, []byte(query))
+				if err != nil {
+					return err
+				}
 
-		allMsAndProps = append(allMsAndProps, MapPairsAndPropName{MapPairs: m, propBoost: propertyBoosts[propName]})
+				var m []lsmkv.MapPair
+				if filterDocIds != nil {
+					m = make([]lsmkv.MapPair, 0, len(preM))
+					for _, val := range preM {
+						docID := binary.BigEndian.Uint64(val.Key)
+						if filterDocIds.Contains(docID) {
+							m = append(m, val)
+						} else {
+							filterLock.Lock()
+							filteredDocIDs.Set(docID)
+							filterLock.Unlock()
+						}
+					}
+				} else {
+					m = preM
+				}
+				if len(m) == 0 {
+					allMsAndProps[i] = MapPairsAndPropName{MapPairs: nil, propBoost: propertyBoosts[propName]}
+				} else {
+					allMsAndProps[i] = MapPairsAndPropName{MapPairs: m, propBoost: propertyBoosts[propName]}
+				}
+				return nil
+			},
+		)
+	}
+	if err := eg.Wait(); err != nil {
+		return termResult, nil, err
+	}
+
+	// remove gaps
+	for i := range allMsAndProps {
+		if i >= len(allMsAndProps) {
+			break // in case the length of allMsAndProps changed during the loop
+		}
+		if len(allMsAndProps[i].MapPairs) == 0 {
+			if i == len(allMsAndProps)-1 {
+				allMsAndProps = allMsAndProps[:i]
+			} else {
+				allMsAndProps = append(allMsAndProps[:i], allMsAndProps[i+1:]...)
+			}
+		}
 	}
 
 	// sort ascending, this code has two effects
