@@ -183,6 +183,10 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 	return nil
 }
 
+func (f *fakeSchemaManager) Candidates() []string {
+	return []string{}
+}
+
 type fakeLocks struct {
 	Err error
 }

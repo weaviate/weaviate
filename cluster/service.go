@@ -129,3 +129,7 @@ func (c *Service) Ready() bool {
 func (c *Service) LeaderWithID() (string, string) {
 	return c.Raft.LeaderWithID()
 }
+
+func (c *Service) Candidates() []string {
+	return c.Raft.Candidates()
+}

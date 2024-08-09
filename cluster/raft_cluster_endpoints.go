@@ -25,6 +25,20 @@ func (s *Raft) LeaderWithID() (string, string) {
 	return string(addr), string(id)
 }
 
+// Candidates return the nodes in the raft configuration.
+func (s *Raft) Candidates() []string {
+	var candidates []string
+	if s.store.raft == nil {
+		return candidates
+	}
+	servers := s.store.raft.GetConfiguration().Configuration().Servers
+	for _, server := range servers {
+		candidates = append(candidates, string(server.ID))
+	}
+
+	return candidates
+}
+
 func (s *Raft) Join(ctx context.Context, id, addr string, voter bool) error {
 	s.log.WithFields(logrus.Fields{
 		"id":      id,

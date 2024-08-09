@@ -214,6 +214,10 @@ func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 	return nil, nil
 }
 
+func (f *fakeSchemaManager) Candidates() []string {
+	return []string{}
+}
+
 type nodeResolver struct {
 	cluster.NodeSelector
 	nodes *[]*node
