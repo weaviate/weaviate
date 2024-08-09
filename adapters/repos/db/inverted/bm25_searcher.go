@@ -393,10 +393,10 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 					m = preM
 				}
 				if len(m) == 0 {
-					return nil
+					allMsAndProps[i] = MapPairsAndPropName{MapPairs: nil, propBoost: propertyBoosts[propName]}
+				} else {
+					allMsAndProps[i] = MapPairsAndPropName{MapPairs: m, propBoost: propertyBoosts[propName]}
 				}
-
-				allMsAndProps[i] = MapPairsAndPropName{MapPairs: m, propBoost: propertyBoosts[propName]}
 				return nil
 			},
 		)
@@ -408,7 +408,11 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 	// remove gaps
 	for i := range allMsAndProps {
 		if len(allMsAndProps[i].MapPairs) == 0 {
-			allMsAndProps = append(allMsAndProps[:i], allMsAndProps[i+1:]...)
+			if i == len(allMsAndProps)-1 {
+				allMsAndProps = allMsAndProps[:i]
+			} else {
+				allMsAndProps = append(allMsAndProps[:i], allMsAndProps[i+1:]...)
+			}
 		}
 	}
 
