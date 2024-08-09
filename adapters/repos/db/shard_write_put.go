@@ -217,8 +217,11 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 
 	batchDeleteLock := sync.Mutex{}
 	batchDeleteLock.Lock()
-	s.batchDeletePatchLocks[obj.ID()] = &batchDeleteLock
 	defer batchDeleteLock.Unlock()
+
+	s.batchDeletePatchLock.Lock()
+	s.batchDeletePatchLocks[obj.ID()] = &batchDeleteLock
+	s.batchDeletePatchLock.Unlock()
 
 	if s.hasTargetVectors() {
 		if len(obj.Vectors) > 0 {

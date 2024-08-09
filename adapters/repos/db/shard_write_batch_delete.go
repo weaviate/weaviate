@@ -36,7 +36,10 @@ func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryR
 		}
 	}
 	for _, uuid := range uuids {
+		s.batchDeletePatchLock.Lock()
 		lock := s.batchDeletePatchLocks[uuid]
+		s.batchDeletePatchLock.Unlock()
+
 		lock.Lock()
 		defer lock.Unlock()
 	}
