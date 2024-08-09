@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -29,6 +30,17 @@ var errObjectNotFound = errors.New("object not found")
 func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) error {
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
+	}
+	lock, ok := s.batchDeletePatchLocks[merge.ID]
+	if !ok {
+		newLock := sync.Mutex{}
+		newLock.Lock()
+		defer newLock.Unlock()
+		s.batchDeletePatchLocks[merge.ID] = &newLock
+		defer delete(s.batchDeletePatchLocks, merge.ID)
+	} else {
+		lock.Lock()
+		defer lock.Unlock()
 	}
 
 	if s.hasTargetVectors() {
