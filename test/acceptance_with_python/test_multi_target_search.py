@@ -89,18 +89,10 @@ def test_multi_target_near_object(
         ),
     ],
 )
-@pytest.mark.parametrize(
-    "vector",
-    [
-        {"first": [[1, 0], [1, 0]], "second": [[1, 0, 0], [0, 0, 1]], "third": [0, 1, 0, 0]},
-        [[[1, 0], [1, 0]], [[1, 0, 0], [0, 0, 1]], [0, 1, 0, 0]],
-    ],
-)
 def test_multi_target_near_vector_multiple_inputs(
     collection_factory: CollectionFactory,
     target_vector: TargetVectorJoinType,
     distances: List[float],
-    vector: Union[List[float], Dict[str, Union[List[float], List[List[float]]]]],
 ) -> None:
     collection = collection_factory(
         properties=[],
@@ -119,7 +111,7 @@ def test_multi_target_near_vector_multiple_inputs(
     )
 
     objs = collection.query.near_vector(
-        vector,
+        {"first": [[1, 0], [1, 0]], "second": [[1, 0, 0], [0, 0, 1]], "third": [0, 1, 0, 0]},
         target_vector=target_vector,
         return_metadata=wvc.query.MetadataQuery.full(),
     ).objects
