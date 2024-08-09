@@ -61,9 +61,9 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 	// 2. Read from checkpoint n to checkpoint n+1
 	// 3. Read from last checkpoint to end
 
-	extract := func(k, v []byte) BQVecAndID {
+	extract := func(k, v []byte, vecBuf []uint64) BQVecAndID {
 		id := binary.BigEndian.Uint64(k)
-		vec := uint64SliceFromByteSlice(v, make([]uint64, len(v)/8))
+		vec := uint64SliceFromByteSlice(v, vecBuf)
 		return BQVecAndID{id: id, vec: vec}
 	}
 
@@ -75,8 +75,15 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		defer c.Close()
 		defer wg.Done()
 
+		var vecBuffer []uint64
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
-			localResults = append(localResults, extract(k, v))
+			length := len(v) / 8
+			if len(vecBuffer) < length {
+				vecBuffer = make([]uint64, length*1000)
+			}
+
+			localResults = append(localResults, extract(k, v, vecBuffer[:length]))
+			vecBuffer = vecBuffer[length:]
 		}
 
 		out <- localResults
@@ -94,8 +101,15 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 			c := cpi.bucket.Cursor()
 			defer c.Close()
 
+			var vecBuffer []uint64
 			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
-				localResults = append(localResults, extract(k, v))
+				length := len(v) / 8
+				if len(vecBuffer) < length {
+					vecBuffer = make([]uint64, length*1000)
+				}
+
+				localResults = append(localResults, extract(k, v, vecBuffer[:length]))
+				vecBuffer = vecBuffer[length:]
 			}
 
 			out <- localResults
@@ -110,8 +124,15 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		defer wg.Done()
 		localResults := make([]BQVecAndID, 0, 10_000)
 
+		var vecBuffer []uint64
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			localResults = append(localResults, extract(k, v))
+			length := len(v) / 8
+			if len(vecBuffer) < length {
+				vecBuffer = make([]uint64, length*1000)
+			}
+
+			localResults = append(localResults, extract(k, v, vecBuffer[:length]))
+			vecBuffer = vecBuffer[length:]
 		}
 
 		out <- localResults
