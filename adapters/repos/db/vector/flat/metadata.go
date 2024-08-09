@@ -14,6 +14,7 @@ package flat
 import (
 	"encoding/binary"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 
@@ -36,6 +37,15 @@ func (index *flat) getMetadataFile() string {
 	return fmt.Sprintf("%s.db", metadataPrefix)
 }
 
+func (index *flat) removeMetadataFile() error {
+	path := filepath.Join(index.rootPath, index.getMetadataFile())
+	err := os.Remove(path)
+	if err != nil {
+		return errors.Wrapf(err, "remove metadata file %q", path)
+	}
+	return nil
+}
+
 func (index *flat) initMetadata() error {
 	path := filepath.Join(index.rootPath, index.getMetadataFile())
 	var err error
@@ -43,6 +53,14 @@ func (index *flat) initMetadata() error {
 	if err != nil {
 		return errors.Wrapf(err, "open %q", path)
 	}
+
+	defer func() {
+		if err != nil {
+			index.metadata.Close()
+			index.metadata = nil
+		}
+	}()
+
 	err = index.metadata.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte(vectorMetadataBucket))
 		if err != nil {
@@ -56,13 +74,8 @@ func (index *flat) initMetadata() error {
 	if err != nil {
 		return errors.Wrap(err, "init metadata bucket")
 	}
+
 	index.initDimensions()
-	defer func() {
-		if err != nil {
-			index.metadata.Close()
-			index.metadata = nil
-		}
-	}()
 
 	return nil
 }

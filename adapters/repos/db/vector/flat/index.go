@@ -689,9 +689,11 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 func (index *flat) Drop(ctx context.Context) error {
 	if index.metadata != nil {
 		if err := index.metadata.Close(); err != nil {
+			return errors.Wrap(err, "close metadata")
+		}
+		if err := index.removeMetadataFile(); err != nil {
 			return err
 		}
-		os.Remove(filepath.Join(index.rootPath, index.getMetadataFile()))
 	}
 	// Shard::drop will take care of handling store's buckets
 	return nil
