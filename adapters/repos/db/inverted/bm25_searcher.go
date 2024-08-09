@@ -469,7 +469,10 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 
 	if len(allMsAndProps) > 1 {
-		sort.Sort(ById(docMapPairs))
+		sort.Sort(ById{
+			DocMapPairs:        docMapPairs,
+			DocMapPairsIndices: docMapPairsIndices,
+		})
 	}
 
 	termResult.data = docMapPairs

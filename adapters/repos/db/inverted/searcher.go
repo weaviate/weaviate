@@ -882,8 +882,15 @@ type docPointerWithScore struct {
 	propLength float32
 }
 
-type ById []docPointerWithScore
+type ById struct {
+	DocMapPairs        []docPointerWithScore
+	DocMapPairsIndices map[uint64]int
+}
 
-func (a ById) Len() int           { return len(a) }
-func (a ById) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a ById) Less(i, j int) bool { return a[i].id < a[j].id }
+func (a ById) Len() int { return len(a.DocMapPairs) }
+func (a ById) Swap(i, j int) {
+	a.DocMapPairs[i], a.DocMapPairs[j] = a.DocMapPairs[j], a.DocMapPairs[i]
+	a.DocMapPairsIndices[a.DocMapPairs[i].id] = i
+	a.DocMapPairsIndices[a.DocMapPairs[j].id] = j
+}
+func (a ById) Less(i, j int) bool { return a.DocMapPairs[i].id < a.DocMapPairs[j].id }
