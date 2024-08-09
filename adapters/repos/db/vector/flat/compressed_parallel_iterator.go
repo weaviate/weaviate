@@ -78,7 +78,7 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		var vecBuffer []uint64
 		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
 			length := len(v) / 8
-			if vecBuffer == nil || len(vecBuffer) < length {
+			if len(vecBuffer) < length {
 				vecBuffer = make([]uint64, length*1000)
 			}
 
@@ -104,7 +104,7 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 			var vecBuffer []uint64
 			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
 				length := len(v) / 8
-				if vecBuffer == nil || len(vecBuffer) < length {
+				if len(vecBuffer) < length {
 					vecBuffer = make([]uint64, length*1000)
 				}
 
@@ -127,7 +127,7 @@ func (cpi *compressedParallelIterator) IterateAll() chan []BQVecAndID {
 		var vecBuffer []uint64
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
 			length := len(v) / 8
-			if vecBuffer == nil || len(vecBuffer) < length {
+			if len(vecBuffer) < length {
 				vecBuffer = make([]uint64, length*1000)
 			}
 
