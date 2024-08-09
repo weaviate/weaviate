@@ -912,3 +912,20 @@ type docPointerWithScore struct {
 	frequency  float32
 	propLength float32
 }
+
+type ById struct {
+	docMapPairs            []docPointerWithScore
+	docMapPairsIndices     map[uint64]int
+	additionalExplanations bool
+}
+
+func (a ById) Len() int { return len(a.docMapPairs) }
+func (a ById) Swap(i, j int) {
+	a.docMapPairs[i], a.docMapPairs[j] = a.docMapPairs[j], a.docMapPairs[i]
+	// also swap term positions for additional explanations
+	if a.additionalExplanations {
+		a.docMapPairsIndices[a.docMapPairs[i].id] = i
+		a.docMapPairsIndices[a.docMapPairs[j].id] = j
+	}
+}
+func (a ById) Less(i, j int) bool { return a.docMapPairs[i].id < a.docMapPairs[j].id }
