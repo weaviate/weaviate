@@ -98,7 +98,7 @@ func (c *replicationClient) DigestObjectsInTokenRange(ctx context.Context,
 	}
 
 	var resp replica.DigestObjectsInTokenRangeResp
-	err = c.do(c.timeoutUnit*20, req, body, &resp)
+	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
 	return resp.Digests, resp.LastTokenRead, err
 }
 
@@ -116,7 +116,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp)
+	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
 	return resp, err
 }
 
