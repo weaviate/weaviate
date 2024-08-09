@@ -358,7 +358,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 ) (term, map[uint64]int, error) {
 	termResult := term{queryTerm: query}
 	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
-
+	filterLock := sync.Mutex{}
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -386,7 +386,9 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 						if filterDocIds.Contains(docID) {
 							m = append(m, val)
 						} else {
+							filterLock.Lock()
 							filteredDocIDs.Set(docID)
+							filterLock.Unlock()
 						}
 					}
 				} else {
