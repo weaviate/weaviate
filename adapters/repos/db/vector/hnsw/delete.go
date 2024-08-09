@@ -251,6 +251,12 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	if h.tombstoneCleanupRunning.Load() {
+		return false, errors.New("tombstone cleanup already running")
+	}
+	h.tombstoneCleanupRunning.Store(true)
+	defer h.tombstoneCleanupRunning.Store(false)
+
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 	defer func() {

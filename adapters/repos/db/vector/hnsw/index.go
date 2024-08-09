@@ -171,6 +171,8 @@ type hnsw struct {
 	store              *lsmkv.Store
 
 	allocChecker memwatch.AllocChecker
+
+	tombstoneCleanupRunning atomic.Bool
 }
 
 type CommitLogger interface {
