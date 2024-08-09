@@ -648,10 +648,22 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 // Defaults to log level info and json format
 func logger() *logrus.Logger {
 	logger := logrus.New()
-	logger.SetFormatter(&WeaviateTextFormatter{&logrus.TextFormatter{}})
+	logger.SetFormatter(&WeaviateTextFormatter{
+		config.GitHash,
+		config.ImageTag,
+		config.ServerVersion,
+		goruntime.Version(),
+		&logrus.TextFormatter{},
+	})
 
 	if os.Getenv("LOG_FORMAT") != "text" {
-		logger.SetFormatter(&WeaviateJSONFormatter{&logrus.JSONFormatter{}})
+		logger.SetFormatter(&WeaviateJSONFormatter{
+			config.GitHash,
+			config.ImageTag,
+			config.ServerVersion,
+			goruntime.Version(),
+			&logrus.JSONFormatter{},
+		})
 	}
 	switch os.Getenv("LOG_LEVEL") {
 	case "panic":

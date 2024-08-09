@@ -12,32 +12,31 @@
 package rest
 
 import (
-	goruntime "runtime"
-
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 type WeaviateJSONFormatter struct {
+	gitHash, imageTag, serverVersion, goVersion string
 	*logrus.JSONFormatter
 }
 
 func (wf *WeaviateJSONFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	e.Data["build_git_commit"] = config.GitHash
-	e.Data["build_image_tag"] = config.ImageTag
-	e.Data["build_wv_version"] = config.ServerVersion
-	e.Data["build_go_version"] = goruntime.Version()
+	e.Data["build_git_commit"] = wf.gitHash
+	e.Data["build_image_tag"] = wf.imageTag
+	e.Data["build_wv_version"] = wf.serverVersion
+	e.Data["build_go_version"] = wf.goVersion
 	return wf.JSONFormatter.Format(e)
 }
 
 type WeaviateTextFormatter struct {
+	gitHash, imageTag, serverVersion, goVersion string
 	*logrus.TextFormatter
 }
 
 func (wf *WeaviateTextFormatter) Format(e *logrus.Entry) ([]byte, error) {
-	e.Data["build_git_commit"] = config.GitHash
-	e.Data["build_image_tag"] = config.ImageTag
-	e.Data["build_wv_version"] = config.ServerVersion
-	e.Data["build_go_version"] = goruntime.Version()
+	e.Data["build_git_commit"] = wf.gitHash
+	e.Data["build_image_tag"] = wf.imageTag
+	e.Data["build_wv_version"] = wf.serverVersion
+	e.Data["build_go_version"] = wf.goVersion
 	return wf.TextFormatter.Format(e)
 }
