@@ -191,7 +191,7 @@ type Shard struct {
 
 	centralJobQueue chan job // reference to queue used by all shards
 
-	docIdLock []sync.Mutex
+	uuidLock []sync.Mutex
 	// replication
 	replicationMap pendingReplicaTasks
 
@@ -273,7 +273,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	s.initCycleCallbacks()
 
-	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
+	s.uuidLock = make([]sync.Mutex, IdLockPoolSize)
 
 	defer s.metrics.ShardStartup(before)
 

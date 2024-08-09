@@ -69,7 +69,7 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 
 func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocument) error {
 	// see comment in shard_write_put.go::putObjectLSM
-	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+	lock := &s.uuidLock[s.uuidToIdLockPoolId(idBytes)]
 	lock.Lock()
 	defer lock.Unlock()
 
@@ -190,7 +190,7 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 	out := mutableMergeResult{}
 
 	// see comment in shard_write_put.go::putObjectLSM
-	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+	lock := &s.uuidLock[s.uuidToIdLockPoolId(idBytes)]
 	lock.Lock()
 	defer lock.Unlock()
 

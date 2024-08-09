@@ -249,7 +249,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
 	// to determine if it is insert or an update.
 	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
-	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+	lock := &s.uuidLock[s.uuidToIdLockPoolId(idBytes)]
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {

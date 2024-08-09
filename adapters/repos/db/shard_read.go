@@ -509,7 +509,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		return nil
 	}
 
-	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+	lock := &s.uuidLock[s.uuidToIdLockPoolId(idBytes)]
 	lock.Lock()
 	defer lock.Unlock()
 
