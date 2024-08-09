@@ -121,7 +121,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		vi, err := flat.New(flat.Config{
 			ID:               vecIdxID,
 			TargetVector:     targetVector,
-			RootPath:         s.path(),
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
 			AllocChecker:     s.index.allocChecker,

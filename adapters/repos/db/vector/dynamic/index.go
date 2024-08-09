@@ -116,7 +116,6 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	flatConfig := flat.Config{
 		ID:               cfg.ID,
-		RootPath:         cfg.RootPath,
 		TargetVector:     cfg.TargetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
@@ -426,6 +425,9 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	cursor := bucket.Cursor()
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		if len(k) != 8 {
+			continue
+		}
 		id := binary.BigEndian.Uint64(k)
 		vc := make([]float32, len(v)/4)
 		float32SliceFromByteSlice(v, vc)
