@@ -391,7 +391,7 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 	var counter int
 
 	defer func() {
-		q.metrics.Preload(start, counter) // TODO: use a different metric
+		q.metrics.Preload(start, counter)
 	}()
 
 	// load non-indexed vectors and add them to the queue
@@ -403,25 +403,74 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		return nil
 	}
 
-	maxDocID := shard.Counter().Get()
 	ctx := context.Background()
-	bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
-	var vectorIndex VectorIndex
-	if q.targetVector != "" {
-		if shard.VectorIndexes() == nil {
-			return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
-		}
-		var ok bool
-		vectorIndex, ok = shard.VectorIndexes()[q.targetVector]
-		if !ok {
-			return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
-		}
-	} else {
-		vectorIndex = shard.VectorIndex()
+
+	vectorIndex := q.getVectorIndex(shard)
+	if vectorIndex == nil {
+		// queue was never initialized, possibly because of a failed shard
+		// initialization. No op.
+		return nil
 	}
 
+	err = q.iterateOnLSM(ctx, shard, checkpoint, func(id uint64, vector []float32) error {
+		if vectorIndex.ContainsNode(id) {
+			return nil
+		}
+		if len(vector) == 0 {
+			return nil
+		}
+
+		desc := vectorDescriptor{
+			id:     id,
+			vector: vector,
+		}
+
+		counter++
+		return q.Push(ctx, desc)
+	})
+	if err != nil {
+		return errors.Wrap(err, "iterate on LSM")
+	}
+
+	maxDocID := shard.Counter().Get()
+
+	q.Logger.
+		WithField("checkpoint", checkpoint).
+		WithField("last_stored_id", maxDocID).
+		WithField("count", counter).
+		WithField("took", time.Since(start)).
+		WithField("shard_id", q.shardID).
+		WithField("target_vector", q.targetVector).
+		Info("enqueued vectors from last indexed checkpoint")
+
+	return nil
+}
+
+func (q *IndexQueue) getVectorIndex(shard ShardLike) VectorIndex {
+	if q.targetVector != "" {
+		if shard.VectorIndexes() == nil {
+			return nil
+		}
+		idx, ok := shard.VectorIndexes()[q.targetVector]
+		if !ok {
+			return nil
+		}
+		return idx
+	}
+
+	return shard.VectorIndex()
+}
+
+func (q *IndexQueue) iterateOnLSM(ctx context.Context, shard ShardLike, fromID uint64, fn func(id uint64, vector []float32) error) error {
+	maxDocID := shard.Counter().Get()
+	bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+
 	buf := make([]byte, 8)
-	for i := uint64(0); i < maxDocID; i++ {
+	for i := fromID; i < maxDocID; i++ {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		binary.LittleEndian.PutUint64(buf, i)
 
 		v, err := bucket.GetBySecondary(0, buf)
@@ -436,14 +485,6 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
 		id := obj.DocID
-		if vectorIndex.ContainsNode(id) {
-			continue
-		}
-		if len(obj.Vector) == 0 {
-			continue
-		}
-
-		counter++
 
 		var vector []float32
 		if q.targetVector == "" {
@@ -453,24 +494,12 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 				vector = obj.Vectors[q.targetVector]
 			}
 		}
-		desc := vectorDescriptor{
-			id:     id,
-			vector: vector,
-		}
-		err = q.Push(ctx, desc)
+
+		err = fn(id, vector)
 		if err != nil {
 			return err
 		}
 	}
-
-	q.Logger.
-		WithField("checkpoint", checkpoint).
-		WithField("last_stored_id", maxDocID).
-		WithField("count", counter).
-		WithField("took", time.Since(start)).
-		WithField("shard_id", q.shardID).
-		WithField("target_vector", q.targetVector).
-		Info("enqueued vectors from last indexed checkpoint")
 
 	return nil
 }
