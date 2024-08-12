@@ -29,15 +29,16 @@ import (
 )
 
 type DebugGraph struct {
-	Ghosts     []uint64           `json:"ghosts"`     // Nodes without objects in the LSM store
+	Ghosts     []DebugGraphVertex `json:"ghosts"`     // Nodes without objects in the LSM store
 	Orphans    []strfmt.UUID      `json:"orphans"`    // Objects in the LSM store without nodes in the graph
 	Tombstones []DebugGraphVertex `json:"tombstones"` // Nodes that have been deleted, objID should be nil for all
 	Vertices   []DebugGraphVertex `json:"nodes"`      // Nodes in the graph
 }
 
 type DebugGraphVertex struct {
-	DocID uint64       `json:"docID"`
-	ObjID *strfmt.UUID `json:"objID"`
+	DocID       uint64       `json:"docID"`
+	ObjID       *strfmt.UUID `json:"objID"`
+	Maintenance bool         `json:"maintenance"`
 }
 
 func setupDebugHandlers(appState *state.State) {
@@ -170,7 +171,7 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		var ghosts []uint64
+		var ghosts []DebugGraphVertex
 		var orphans []strfmt.UUID
 		var tombstones []DebugGraphVertex
 		var vertices []DebugGraphVertex
@@ -180,11 +181,15 @@ func setupDebugHandlers(appState *state.State) {
 			if obj != nil {
 				id := obj.ID()
 				vertices = append(vertices, DebugGraphVertex{
-					DocID: docID,
-					ObjID: &id,
+					DocID:       docID,
+					Maintenance: node.Maintenance,
+					ObjID:       &id,
 				})
 			} else {
-				ghosts = append(ghosts, docID)
+				ghosts = append(ghosts, DebugGraphVertex{
+					DocID:       docID,
+					Maintenance: node.Maintenance,
+				})
 			}
 		}
 		for docID := range graph.Tombstones {
