@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -755,4 +756,8 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 		}
 	}
 	return nil
+}
+
+func (index *flat) Stats() (hnsw.StatsIndex, error) {
+	return hnsw.StatsIndex{}, errors.New("Stats() is not implemented for flat index")
 }
