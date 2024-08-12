@@ -67,6 +67,7 @@ type cuvs_index struct {
 	dlpackTensor    cuvs.Tensor[float32]
 	idCuvsIdMap     map[uint32]uint64
 	cuvsResource    *cuvs.Resource
+	cuvsExpandCount uint64
 
 	// rescore             int64
 	// bq                  compressionhelpers.BinaryQuantizer
