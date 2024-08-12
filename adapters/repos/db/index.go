@@ -2292,7 +2292,7 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 
 	// Reindex in the background
 	enterrors.GoWrapper(func() {
-		err = shard.PreloadQueue("")
+		err = shard.PreloadQueue(targetVector)
 		if err != nil {
 			i.logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
 			return
