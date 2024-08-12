@@ -28,7 +28,8 @@ import (
 )
 
 type DebugGraph struct {
-	Nodes []DebugGraphNode `json:"nodes"`
+	Nodes      []DebugGraphNode `json:"nodes"`
+	Tombstones []DebugGraphNode `json:"tombstones"`
 }
 
 type DebugGraphNode struct {
@@ -168,20 +169,34 @@ func setupDebugHandlers(appState *state.State) {
 
 		var nodes []DebugGraphNode
 		for _, node := range graph.Nodes {
+			docID := node.ID
 			var objID *strfmt.UUID
-			obj, _ := shard.ObjectByIndexID(r.Context(), node.ID, true) // Ignore error, object will be nil in response if cannot be found
+			obj, _ := shard.ObjectByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
 			if obj != nil {
 				id := obj.ID()
 				objID = &id
 			}
 			nodes = append(nodes, DebugGraphNode{
-				DocID: node.ID,
+				DocID: docID,
+				ObjID: objID,
+			})
+		}
+		var tombstones []DebugGraphNode
+		for docID := range graph.Tombstones {
+			var objID *strfmt.UUID
+			obj, _ := shard.ObjectByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
+			if obj != nil {
+				id := obj.ID()
+				objID = &id
+			}
+			tombstones = append(tombstones, DebugGraphNode{
+				DocID: docID,
 				ObjID: objID,
 			})
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(DebugGraph{Nodes: nodes})
+		json.NewEncoder(w).Encode(DebugGraph{Nodes: nodes, Tombstones: tombstones})
 	}))
 }
