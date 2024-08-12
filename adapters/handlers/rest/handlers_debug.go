@@ -30,7 +30,7 @@ import (
 
 type DebugGraph struct {
 	Ghosts     []DebugGraphVertex `json:"ghosts"`     // Nodes without objects in the LSM store
-	Orphans    []strfmt.UUID      `json:"orphans"`    // Objects in the LSM store without nodes in the graph
+	Orphans    []DebugGraphVertex `json:"orphans"`    // Objects in the LSM store without nodes in the graph
 	Tombstones []DebugGraphVertex `json:"tombstones"` // Nodes that have been deleted, objID should be nil for all
 	Vertices   []DebugGraphVertex `json:"nodes"`      // Nodes in the graph
 }
@@ -175,7 +175,7 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		var ghosts []DebugGraphVertex
-		var orphans []strfmt.UUID
+		var orphans []DebugGraphVertex
 		var tombstones []DebugGraphVertex
 		var vertices []DebugGraphVertex
 		for _, node := range graph.Nodes {
@@ -222,7 +222,10 @@ func setupDebugHandlers(appState *state.State) {
 				docID := obj.DocID
 				if !vidx.ContainsNode(docID) {
 					id := obj.ID()
-					orphans = append(orphans, id)
+					orphans = append(orphans, DebugGraphVertex{
+						DocID: docID,
+						ObjID: &id,
+					})
 				}
 			}
 			count -= limit
