@@ -17,9 +17,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 type Index struct{}
@@ -54,7 +55,7 @@ func (i *Index) SearchByVectorDistance(vector []float32, dist float32, maxLimit 
 func (i *Index) UpdateUserConfig(updated schema.VectorIndexConfig, callback func()) error {
 	callback()
 	switch t := updated.(type) {
-	case hnsw.UserConfig:
+	case hnswconf.UserConfig:
 		// the fact that we are in the noop index means that 'skip' must have been
 		// set to true before, so changing it now is not possible. But if it
 		// stays, we don't mind.
@@ -130,4 +131,8 @@ func (i *Index) AlreadyIndexed() uint64 {
 
 func (i *Index) TurnOnCompression(callback func()) error {
 	return nil
+}
+
+func (i *Index) Stats() (hnsw.StatsIndex, error) {
+	return hnsw.StatsIndex{}, errors.New("Stats() is not implemented for noop index")
 }
