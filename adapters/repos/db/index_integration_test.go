@@ -682,10 +682,10 @@ func TestIndex_PreloadQueue(t *testing.T) {
 	}
 
 	// reset the queue
-	err := shard.Queue().ResetWith(shard.VectorIndex())
+	q := shard.Queue()
+	err := q.ResetWith(shard.VectorIndex())
 	require.Nil(t, err)
-
-	shard.Queue().ResumeIndexing()
+	q.ResumeIndexing()
 
 	err = shard.PreloadQueue("")
 	require.Nil(t, err)
@@ -693,17 +693,84 @@ func TestIndex_PreloadQueue(t *testing.T) {
 	// wait until the queue is empty
 	for i := 0; i < 200; i++ {
 		time.Sleep(500 * time.Millisecond)
-		if shard.Queue().Size() == 0 {
+		if q.Size() == 0 {
 			break
 		}
 	}
 
 	// wait for the in-flight indexing to finish
-	shard.Queue().Wait()
+	q.Wait()
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
 		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+			t.Fatalf("node %d should be in the vector index", obj.DocID)
+		}
+	}
+
+	err = index.drop()
+	require.Nil(t, err)
+}
+
+func TestIndex_PreloadQueueTargetVector(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+
+	ctx := context.Background()
+	class := &models.Class{Class: "preloadtest"}
+	shard, index := testShardWithSettings(
+		t,
+		ctx,
+		&models.Class{Class: class.Class},
+		hnsw.UserConfig{},
+		false,
+		true,
+		func(i *Index) {
+			i.vectorIndexUserConfigs = make(map[string]schema.VectorIndexConfig)
+			i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
+		},
+	)
+	amount := 1000
+
+	var objs []*storobj.Object
+	for i := 0; i < amount; i++ {
+		obj := testObject("preloadtest")
+		obj.Vectors = map[string][]float32{
+			"foo": {1, 2, 3},
+		}
+		objs = append(objs, obj)
+	}
+
+	errs := shard.PutObjectBatch(ctx, objs)
+	for _, err := range errs {
+		require.Nil(t, err)
+	}
+
+	q := shard.Queues()["foo"]
+	vectorIndex := shard.VectorIndexes()["foo"]
+
+	// reset the queue
+	q.PauseIndexing()
+	err := q.ResetWith(vectorIndex)
+	require.Nil(t, err)
+	q.ResumeIndexing()
+
+	err = shard.PreloadQueue("foo")
+	require.Nil(t, err)
+
+	// wait until the queue is empty
+	for i := 0; i < 200; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if q.Size() == 0 {
+			break
+		}
+	}
+
+	// wait for the in-flight indexing to finish
+	q.Wait()
+
+	// make sure the index contains all the objects
+	for _, obj := range objs {
+		if !vectorIndex.ContainsNode(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
