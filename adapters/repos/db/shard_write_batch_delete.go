@@ -35,14 +35,13 @@ func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, dryR
 			objects.BatchSimpleObject{Err: storagestate.ErrStatusReadOnly},
 		}
 	}
+	s.batchDeletePatchLock.Lock()
 	for _, uuid := range uuids {
-		s.batchDeletePatchLock.Lock()
 		lock := s.batchDeletePatchLocks[uuid]
-		s.batchDeletePatchLock.Unlock()
-
 		lock.Lock()
 		defer lock.Unlock()
 	}
+	s.batchDeletePatchLock.Unlock()
 	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, dryRun)
 }
 
