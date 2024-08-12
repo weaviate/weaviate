@@ -66,6 +66,7 @@ func (h *hnsw) DumpJSON(labels ...string) {
 			ID:          node.id,
 			Level:       node.level,
 			Connections: node.connections,
+			Maintenance: node.maintenance,
 		}
 		dump.Nodes = append(dump.Nodes, dumpNode)
 	}
@@ -117,6 +118,7 @@ type JSONDumpNode struct {
 	ID          uint64     `json:"id"`
 	Level       int        `json:"level"`
 	Connections [][]uint64 `json:"connections"`
+	Maintenance bool       `json:"maintenance"`
 }
 
 type JSONDumpMap struct {
