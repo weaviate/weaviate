@@ -48,7 +48,6 @@ const (
 	StatusConflict = iota + 300
 	StatusPreconditionFailed
 	StatusReadOnly
-	StatusObjectNotFound
 )
 
 // Error reports error happening during replication
@@ -105,8 +104,6 @@ func statusText(code StatusCode) string {
 		return "local index not ready"
 	case StatusReadOnly:
 		return "read only"
-	case StatusObjectNotFound:
-		return "object not found"
 	default:
 		return ""
 	}

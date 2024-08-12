@@ -90,7 +90,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Nil(t, got)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
 		f.assertLogErrorContains(t, "conflict")
 	})
@@ -146,7 +146,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.Nil(t, got)
 		f.assertLogContains(t, "msg", "A:3", "B:2", "C:3")
 	})
@@ -167,7 +167,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Nil(t, got)
 		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
@@ -190,7 +190,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.Nil(t, got)
 		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
 		f.assertLogErrorContains(t, errConflictObjectChanged.Error())
@@ -282,7 +282,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		}
 
 		got, err := finder.Exists(ctx, All, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 
@@ -346,7 +346,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 		got, err := finder.Exists(ctx, All, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 
@@ -371,7 +371,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.Exists(ctx, All, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 
@@ -396,7 +396,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(item1, nil)
 
 		got, err := finder.Exists(ctx, All, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:1", "B:2", "C:3")
@@ -447,7 +447,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[2], cls, shard, digestIDs).Return(digestR3, nil)
 
 		got, err := finder.Exists(ctx, All, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
@@ -557,7 +557,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("OverwriteObjects", anyVal, nodes[1], cls, shard, updates).Return(digestR2, errAny)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:3", "B:2")
@@ -581,7 +581,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[2], cls, shard, id, proj, adds).Return(emptyItem, errAny)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 		f.assertLogContains(t, "msg", "A:1", "C:3")
@@ -604,7 +604,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("FetchObject", anyVal, nodes[1], cls, shard, id, proj, adds).Return(item1, nil)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
 
@@ -652,7 +652,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		f.RClient.On("DigestObjects", anyVal, nodes[1], cls, shard, digestIDs).Return(digestR2, nil)
 
 		got, err := finder.Exists(ctx, Quorum, shard, id)
-		assert.ErrorContains(t, err, errRepair.Error())
+		assert.ErrorIs(t, err, errRepair)
 		assert.ErrorContains(t, err, msgCLevel)
 		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
 		assert.Equal(t, false, got)
