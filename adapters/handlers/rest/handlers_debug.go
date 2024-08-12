@@ -182,7 +182,6 @@ func setupDebugHandlers(appState *state.State) {
 			docID := node.ID
 			obj, _ := shard.ObjectByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
 			vertex := DebugGraphVertex{
-				Connections: node.Connections,
 				DocID:       docID,
 				Maintenance: node.Maintenance,
 			}
