@@ -386,6 +386,14 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		return nil
 	}
 
+	start := time.Now()
+
+	var counter int
+
+	defer func() {
+		q.metrics.Preload(start, counter) // TODO: use a different metric
+	}()
+
 	// load non-indexed vectors and add them to the queue
 	checkpoint, exists, err := q.Checkpoints.Get(q.shardID, q.targetVector)
 	if err != nil {
@@ -395,23 +403,28 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 		return nil
 	}
 
-	start := time.Now()
-
 	maxDocID := shard.Counter().Get()
-
-	var counter int
-
-	defer func() {
-		q.metrics.Preload(start, counter)
-	}()
-
 	ctx := context.Background()
+	bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
+	var vectorIndex VectorIndex
+	if q.targetVector != "" {
+		if shard.VectorIndexes() == nil {
+			return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
+		}
+		var ok bool
+		vectorIndex, ok = shard.VectorIndexes()[q.targetVector]
+		if !ok {
+			return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
+		}
+	} else {
+		vectorIndex = shard.VectorIndex()
+	}
 
 	buf := make([]byte, 8)
-	for i := checkpoint; i < maxDocID; i++ {
+	for i := uint64(0); i < maxDocID; i++ {
 		binary.LittleEndian.PutUint64(buf, i)
 
-		v, err := shard.Store().Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
+		v, err := bucket.GetBySecondary(0, buf)
 		if err != nil {
 			return errors.Wrap(err, "get last indexed object")
 		}
@@ -423,28 +436,13 @@ func (q *IndexQueue) PreloadShard(shard ShardLike) error {
 			return errors.Wrap(err, "unmarshal last indexed object")
 		}
 		id := obj.DocID
-		if q.targetVector == "" {
-			if shard.VectorIndex().ContainsNode(id) {
-				continue
-			}
-			if len(obj.Vector) == 0 {
-				continue
-			}
-		} else {
-			if shard.VectorIndexes() == nil {
-				return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
-			}
-			vectorIndex, ok := shard.VectorIndexes()[q.targetVector]
-			if !ok {
-				return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
-			}
-			if vectorIndex.ContainsNode(id) {
-				continue
-			}
-			if len(obj.Vectors) == 0 {
-				continue
-			}
+		if vectorIndex.ContainsNode(id) {
+			continue
 		}
+		if len(obj.Vector) == 0 {
+			continue
+		}
+
 		counter++
 
 		var vector []float32
