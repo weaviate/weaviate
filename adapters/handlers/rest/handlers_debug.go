@@ -39,6 +39,7 @@ type DebugGraphVertex struct {
 	DocID       uint64       `json:"docID"`
 	ObjID       *strfmt.UUID `json:"objID"`
 	Maintenance bool         `json:"maintenance"`
+	Connections [][]uint64   `json:"connections"`
 }
 
 func setupDebugHandlers(appState *state.State) {
@@ -139,6 +140,8 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
+		includeConnections := r.URL.Query().Get("include") == "connections"
+
 		colName, shardName := parts[0], parts[2]
 		vecIdxID := "main"
 		if len(parts) == 4 {
@@ -178,18 +181,20 @@ func setupDebugHandlers(appState *state.State) {
 		for _, node := range graph.Nodes {
 			docID := node.ID
 			obj, _ := shard.ObjectByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
+			vertex := DebugGraphVertex{
+				Connections: node.Connections,
+				DocID:       docID,
+				Maintenance: node.Maintenance,
+			}
+			if includeConnections {
+				vertex.Connections = node.Connections
+			}
 			if obj != nil {
 				id := obj.ID()
-				vertices = append(vertices, DebugGraphVertex{
-					DocID:       docID,
-					Maintenance: node.Maintenance,
-					ObjID:       &id,
-				})
+				vertex.ObjID = &id
+				vertices = append(vertices, vertex)
 			} else {
-				ghosts = append(ghosts, DebugGraphVertex{
-					DocID:       docID,
-					Maintenance: node.Maintenance,
-				})
+				ghosts = append(ghosts, vertex)
 			}
 		}
 		for docID := range graph.Tombstones {
