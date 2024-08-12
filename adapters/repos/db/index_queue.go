@@ -251,6 +251,7 @@ func (q *IndexQueue) Close() error {
 // - discard any pending vectors
 // - reset the checkpoint to 0
 // Requires the queue to be paused.
+// It does not resume the queue.
 func (q *IndexQueue) ResetWith(v batchIndexer) error {
 	q.indexLock.Lock()
 	defer q.indexLock.Unlock()
