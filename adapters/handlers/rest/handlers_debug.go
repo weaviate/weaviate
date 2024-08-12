@@ -22,17 +22,20 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type DebugGraph struct {
-	Nodes      []DebugGraphNode `json:"nodes"`
-	Tombstones []DebugGraphNode `json:"tombstones"`
+	Ghosts     []uint64           `json:"ghosts"`     // Nodes without objects in the LSM store
+	Orphans    []strfmt.UUID      `json:"orphans"`    // Objects in the LSM store without nodes in the graph
+	Tombstones []DebugGraphVertex `json:"tombstones"` // Nodes that have been deleted, objID should be nil for all
+	Vertices   []DebugGraphVertex `json:"nodes"`      // Nodes in the graph
 }
 
-type DebugGraphNode struct {
+type DebugGraphVertex struct {
 	DocID uint64       `json:"docID"`
 	ObjID *strfmt.UUID `json:"objID"`
 }
@@ -167,21 +170,23 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		var nodes []DebugGraphNode
+		var ghosts []uint64
+		var orphans []strfmt.UUID
+		var tombstones []DebugGraphVertex
+		var vertices []DebugGraphVertex
 		for _, node := range graph.Nodes {
 			docID := node.ID
-			var objID *strfmt.UUID
 			obj, _ := shard.ObjectByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
 			if obj != nil {
 				id := obj.ID()
-				objID = &id
+				vertices = append(vertices, DebugGraphVertex{
+					DocID: docID,
+					ObjID: &id,
+				})
+			} else {
+				ghosts = append(ghosts, docID)
 			}
-			nodes = append(nodes, DebugGraphNode{
-				DocID: docID,
-				ObjID: objID,
-			})
 		}
-		var tombstones []DebugGraphNode
 		for docID := range graph.Tombstones {
 			var objID *strfmt.UUID
 			obj, _ := shard.ObjectByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
@@ -189,14 +194,37 @@ func setupDebugHandlers(appState *state.State) {
 				id := obj.ID()
 				objID = &id
 			}
-			tombstones = append(tombstones, DebugGraphNode{
+			tombstones = append(tombstones, DebugGraphVertex{
 				DocID: docID,
 				ObjID: objID,
 			})
 		}
 
+		count := shard.ObjectCount()
+		limit := 10000
+		for count > 0 {
+			objs, err := shard.ObjectList(r.Context(), limit, nil, nil, additional.Properties{}, schema.ClassName(shardName))
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			for _, obj := range objs {
+				docID := obj.DocID
+				if !vidx.ContainsNode(docID) {
+					id := obj.ID()
+					orphans = append(orphans, id)
+				}
+			}
+			count -= limit
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(DebugGraph{Nodes: nodes, Tombstones: tombstones})
+		json.NewEncoder(w).Encode(DebugGraph{
+			Ghosts:     ghosts,
+			Orphans:    orphans,
+			Tombstones: tombstones,
+			Vertices:   vertices,
+		})
 	}))
 }
