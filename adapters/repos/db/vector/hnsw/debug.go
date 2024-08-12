@@ -77,6 +77,33 @@ func (h *hnsw) DumpJSON(labels ...string) {
 	fmt.Printf("%s\n", string(out))
 }
 
+func GetGraph(vectorIndex any, labels ...string) (*JSONDump, error) {
+	h, ok := vectorIndex.(*hnsw)
+	if !ok {
+		return nil, fmt.Errorf("not an hnsw index")
+	}
+	dump := JSONDump{
+		Labels:              labels,
+		ID:                  h.id,
+		Entrypoint:          h.entryPointID,
+		CurrentMaximumLayer: h.currentMaximumLayer,
+		Tombstones:          h.tombstones,
+	}
+	for _, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+
+		dumpNode := JSONDumpNode{
+			ID:          node.id,
+			Level:       node.level,
+			Connections: node.connections,
+		}
+		dump.Nodes = append(dump.Nodes, dumpNode)
+	}
+	return &dump, nil
+}
+
 type JSONDump struct {
 	Labels              []string            `json:"labels"`
 	ID                  string              `json:"id"`

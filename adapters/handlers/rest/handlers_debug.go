@@ -13,16 +13,28 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
+type DebugGraph struct {
+	Nodes []DebugGraphNode `json:"nodes"`
+}
+
+type DebugGraphNode struct {
+	DocID uint64       `json:"docID"`
+	ObjID *strfmt.UUID `json:"objID"`
+}
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
@@ -107,5 +119,69 @@ func setupDebugHandlers(appState *state.State) {
 		logger.WithField("shard", shardName).Info("reindexing started")
 
 		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/graph/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			w.Write([]byte("GET is allowed only"))
+			return
+		}
+		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/graph/collection/"))
+		parts := strings.Split(path, "/")
+		if len(parts) < 3 || len(parts) > 5 || parts[1] != "shards" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		colName, shardName := parts[0], parts[2]
+		vecIdxID := "main"
+		if len(parts) == 4 {
+			vecIdxID = parts[3]
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			http.Error(w, "index ", http.StatusNotFound)
+			return
+		}
+
+		shard := idx.GetShard(shardName)
+		if shard == nil {
+			http.Error(w, "shard not found", http.StatusNotFound)
+			return
+		}
+
+		// Get the vector index
+		var vidx db.VectorIndex
+		if vecIdxID == "main" {
+			vidx = shard.VectorIndex()
+		} else {
+			vidx = shard.VectorIndexes()[vecIdxID]
+		}
+
+		graph, err := hnsw.GetGraph(vidx, "/debug/graph/collection/"+colName+"/shards/"+shardName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		var nodes []DebugGraphNode
+		for _, node := range graph.Nodes {
+			var objID *strfmt.UUID
+			obj, _ := shard.ObjectByIndexID(r.Context(), node.ID, true) // Ignore error, object will be nil in response if cannot be found
+			if obj != nil {
+				id := obj.ID()
+				objID = &id
+			}
+			nodes = append(nodes, DebugGraphNode{
+				DocID: node.ID,
+				ObjID: objID,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(DebugGraph{Nodes: nodes})
 	}))
 }

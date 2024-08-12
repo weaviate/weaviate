@@ -139,7 +139,7 @@ func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return true, nil
 }
 
-func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
+func (s *Shard) ObjectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
