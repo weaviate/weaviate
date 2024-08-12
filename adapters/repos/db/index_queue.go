@@ -14,7 +14,6 @@ package db
 import (
 	"container/list"
 	"context"
-	"encoding/binary"
 	"math"
 	"os"
 	"runtime"
@@ -35,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // IndexQueue is an in-memory queue of vectors to index.
@@ -44,7 +42,6 @@ import (
 type IndexQueue struct {
 	Shard        shardStatusUpdater
 	index        batchIndexer
-	className    string
 	shardID      string
 	targetVector string
 
@@ -192,7 +189,6 @@ func NewIndexQueue(
 	}
 
 	q := IndexQueue{
-		className:         className,
 		shardID:           shardID,
 		targetVector:      targetVector,
 		IndexQueueOptions: opts,
@@ -375,131 +371,6 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 	}
 
 	q.queue.Delete(remaining)
-
-	return nil
-}
-
-// PreloadShard goes through the LSM store from the last checkpoint
-// and enqueues any unindexed vector.
-func (q *IndexQueue) PreloadShard(shard ShardLike) error {
-	if !asyncEnabled() {
-		return nil
-	}
-
-	start := time.Now()
-
-	var counter int
-
-	defer func() {
-		q.metrics.Preload(start, counter)
-	}()
-
-	// load non-indexed vectors and add them to the queue
-	checkpoint, exists, err := q.Checkpoints.Get(q.shardID, q.targetVector)
-	if err != nil {
-		return errors.Wrap(err, "get last indexed id")
-	}
-	if !exists {
-		return nil
-	}
-
-	ctx := context.Background()
-
-	vectorIndex := q.getVectorIndex(shard)
-	if vectorIndex == nil {
-		// queue was never initialized, possibly because of a failed shard
-		// initialization. No op.
-		return nil
-	}
-
-	err = q.iterateOnLSM(ctx, shard, checkpoint, func(id uint64, vector []float32) error {
-		if vectorIndex.ContainsNode(id) {
-			return nil
-		}
-		if len(vector) == 0 {
-			return nil
-		}
-
-		desc := vectorDescriptor{
-			id:     id,
-			vector: vector,
-		}
-
-		counter++
-		return q.Push(ctx, desc)
-	})
-	if err != nil {
-		return errors.Wrap(err, "iterate on LSM")
-	}
-
-	maxDocID := shard.Counter().Get()
-
-	q.Logger.
-		WithField("checkpoint", checkpoint).
-		WithField("last_stored_id", maxDocID).
-		WithField("count", counter).
-		WithField("took", time.Since(start)).
-		WithField("shard_id", q.shardID).
-		WithField("target_vector", q.targetVector).
-		Info("enqueued vectors from last indexed checkpoint")
-
-	return nil
-}
-
-func (q *IndexQueue) getVectorIndex(shard ShardLike) VectorIndex {
-	if q.targetVector != "" {
-		if shard.VectorIndexes() == nil {
-			return nil
-		}
-		idx, ok := shard.VectorIndexes()[q.targetVector]
-		if !ok {
-			return nil
-		}
-		return idx
-	}
-
-	return shard.VectorIndex()
-}
-
-func (q *IndexQueue) iterateOnLSM(ctx context.Context, shard ShardLike, fromID uint64, fn func(id uint64, vector []float32) error) error {
-	maxDocID := shard.Counter().Get()
-	bucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
-
-	buf := make([]byte, 8)
-	for i := fromID; i < maxDocID; i++ {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		binary.LittleEndian.PutUint64(buf, i)
-
-		v, err := bucket.GetBySecondary(0, buf)
-		if err != nil {
-			return errors.Wrap(err, "get last indexed object")
-		}
-		if v == nil {
-			continue
-		}
-		obj, err := storobj.FromBinary(v)
-		if err != nil {
-			return errors.Wrap(err, "unmarshal last indexed object")
-		}
-		id := obj.DocID
-
-		var vector []float32
-		if q.targetVector == "" {
-			vector = obj.Vector
-		} else {
-			if len(obj.Vectors) > 0 {
-				vector = obj.Vectors[q.targetVector]
-			}
-		}
-
-		err = fn(id, vector)
-		if err != nil {
-			return err
-		}
-	}
 
 	return nil
 }

@@ -10,9 +10,9 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// PreloadShard goes through the LSM store from the last checkpoint
+// PreloadQueue goes through the LSM store from the last checkpoint
 // and enqueues any unindexed vector.
-func (s *Shard) PreloadShard(targetVector string) error {
+func (s *Shard) PreloadQueue(targetVector string) error {
 	if !asyncEnabled() {
 		return nil
 	}
@@ -79,8 +79,8 @@ func (s *Shard) PreloadShard(targetVector string) error {
 		WithField("last_stored_id", maxDocID).
 		WithField("count", counter).
 		WithField("took", time.Since(start)).
-		WithField("shard_id", q.shardID).
-		WithField("target_vector", q.targetVector).
+		WithField("shard_id", s.ID()).
+		WithField("target_vector", targetVector).
 		Info("enqueued vectors from last indexed checkpoint")
 
 	return nil
