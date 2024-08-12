@@ -36,10 +36,14 @@ type DebugGraph struct {
 }
 
 type DebugGraphVertex struct {
-	DocID       uint64       `json:"docID"`
-	ObjID       *strfmt.UUID `json:"objID"`
-	Maintenance bool         `json:"maintenance"`
-	Connections [][]uint64   `json:"connections"`
+	IDs         DebugGraphIDs     `json:"ids,omitempty"`
+	Maintenance bool              `json:"maintenance"`
+	Adjacents   [][]DebugGraphIDs `json:"adjacents,omitempty"`
+}
+
+type DebugGraphIDs struct {
+	Doc uint64       `json:"doc"`
+	Obj *strfmt.UUID `json:"obj"`
 }
 
 func setupDebugHandlers(appState *state.State) {
@@ -180,17 +184,29 @@ func setupDebugHandlers(appState *state.State) {
 		var vertices []DebugGraphVertex
 		for _, node := range graph.Nodes {
 			docID := node.ID
-			obj, _ := shard.ObjectByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
 			vertex := DebugGraphVertex{
-				DocID:       docID,
+				IDs:         DebugGraphIDs{Doc: docID},
 				Maintenance: node.Maintenance,
 			}
 			if includeConnections {
-				vertex.Connections = node.Connections
+				layerAdjacents := make([][]DebugGraphIDs, len(node.Connections))
+				for layer, adjacents := range node.Connections {
+					perLayerAdjacents := make([]DebugGraphIDs, len(adjacents))
+					for _, adjacent := range adjacents {
+						id, _ := shard.UUIDByIndexID(r.Context(), adjacent, true) // Ignore error, object will be nil in response if cannot be found
+						adjacentIDs := DebugGraphIDs{Doc: adjacent}
+						if id != "" {
+							adjacentIDs.Obj = &id
+						}
+						perLayerAdjacents = append(perLayerAdjacents, adjacentIDs)
+					}
+					layerAdjacents[layer] = perLayerAdjacents
+				}
+				vertex.Adjacents = layerAdjacents
 			}
-			if obj != nil {
-				id := obj.ID()
-				vertex.ObjID = &id
+			id, _ := shard.UUIDByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
+			if id != "" {
+				vertex.IDs.Obj = &id
 				vertices = append(vertices, vertex)
 			} else {
 				ghosts = append(ghosts, vertex)
@@ -198,14 +214,12 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		for docID := range graph.Tombstones {
 			var objID *strfmt.UUID
-			obj, _ := shard.ObjectByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
-			if obj != nil {
-				id := obj.ID()
+			id, _ := shard.UUIDByIndexID(r.Context(), docID, true) // Ignore error, object will be nil in response if cannot be found
+			if id != "" {
 				objID = &id
 			}
 			tombstones = append(tombstones, DebugGraphVertex{
-				DocID: docID,
-				ObjID: objID,
+				IDs: DebugGraphIDs{Doc: docID, Obj: objID},
 			})
 		}
 
@@ -222,8 +236,7 @@ func setupDebugHandlers(appState *state.State) {
 				if !vidx.ContainsNode(docID) {
 					id := obj.ID()
 					orphans = append(orphans, DebugGraphVertex{
-						DocID: docID,
-						ObjID: &id,
+						IDs: DebugGraphIDs{Doc: docID, Obj: &id},
 					})
 				}
 			}

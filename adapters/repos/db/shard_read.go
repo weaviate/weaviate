@@ -139,7 +139,7 @@ func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
 	return true, nil
 }
 
-func (s *Shard) ObjectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
+func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error) {
 	keyBuf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(keyBuf, indexID)
 
@@ -160,6 +160,29 @@ func (s *Shard) ObjectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	}
 
 	return obj, nil
+}
+
+func (s *Shard) UUIDByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (strfmt.UUID, error) {
+	keyBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(keyBuf, indexID)
+
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondary(0, keyBuf)
+	if err != nil {
+		return "", err
+	}
+
+	if bytes == nil {
+		return "", storobj.NewErrNotFoundf(indexID,
+			"uuid found for docID, but object is nil")
+	}
+
+	obj, err := storobj.FromBinaryUUIDOnly(bytes)
+	if err != nil {
+		return "", errors.Wrap(err, "unmarshal kind object")
+	}
+
+	return obj.ID(), nil
 }
 
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {

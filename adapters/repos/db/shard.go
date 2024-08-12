@@ -155,7 +155,7 @@ type ShardLike interface {
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	ObjectByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (*storobj.Object, error)
+	UUIDByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (strfmt.UUID, error)
 
 	Metrics() *Metrics
 
