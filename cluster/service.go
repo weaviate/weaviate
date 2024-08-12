@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -44,11 +45,11 @@ type Service struct {
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
-func New(cfg Config) *Service {
+func New(selector cluster.NodeSelector, cfg Config) *Service {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
 	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 	fsm := NewFSM(cfg)
-	raft := NewRaft(&fsm, cl)
+	raft := NewRaft(selector, &fsm, cl)
 	return &Service{
 		Raft:              raft,
 		raftAddr:          fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort),
