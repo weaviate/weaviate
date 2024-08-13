@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -929,6 +928,12 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }
 
-func (index *flat) Stats() (hnsw.StatsIndex, error) {
-	return hnsw.StatsIndex{}, errors.New("Stats() is not implemented for flat index")
+type FlatStats struct{}
+
+func (s *FlatStats) IndexType() common.IndexType {
+	return common.IndexTypeFlat
+}
+
+func (index *flat) Stats() (common.IndexStats, error) {
+	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
 }

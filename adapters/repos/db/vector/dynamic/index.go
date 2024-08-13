@@ -462,6 +462,12 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	return nil
 }
 
-func (dynamic *dynamic) Stats() (hnsw.StatsIndex, error) {
-	return hnsw.StatsIndex{}, errors.New("Stats() is not implemented for dynamic index")
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
+}
+
+func (index *dynamic) Stats() (common.IndexStats, error) {
+	return &DynamicStats{}, errors.New("Stats() is not implemented for dynamic index")
 }

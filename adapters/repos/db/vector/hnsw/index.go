@@ -726,17 +726,24 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 
 	unvisitedNodes := []uint64{}
 	for i := 0; i < len(h.nodes); i++ {
-		if h.nodes[i] == nil {
+		var id uint64
+		h.shardedNodeLocks.RLock(uint64(i))
+		if h.nodes[i] != nil {
+			id = h.nodes[i].id
+		}
+		h.shardedNodeLocks.RUnlock(uint64(i))
+		if id == 0 {
 			continue
 		}
 		if !visitedNodes[uint64(i)] {
-			unvisitedNodes = append(unvisitedNodes, h.nodes[i].id)
+			unvisitedNodes = append(unvisitedNodes, id)
 		}
+
 	}
 	return unvisitedNodes
 }
 
-type StatsIndex struct {
+type HnswStats struct {
 	Dimensions         int32        `json:"dimensions"`
 	EntryPointID       uint64       `json:"entryPointID"`
 	DistributionLayers map[int]uint `json:"distributionLayers"`
@@ -744,11 +751,13 @@ type StatsIndex struct {
 	NumTombstones      int          `json:"numTombstones"`
 	CacheSize          int32        `json:"cacheSize"`
 	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
-	BQConfiguration    ent.BQConfig `json:"bqConfiguration"`
-	SQConfiguration    ent.SQConfig `json:"sqConfiguration"`
 }
 
-func (h *hnsw) Stats() (StatsIndex, error) {
+func (s *HnswStats) IndexType() common.IndexType {
+	return common.IndexTypeHNSW
+}
+
+func (h *hnsw) Stats() (common.IndexStats, error) {
 	distributionLayers := map[int]uint{}
 
 	for _, node := range h.nodes {
@@ -767,7 +776,7 @@ func (h *hnsw) Stats() (StatsIndex, error) {
 		distributionLayers[l] = c + 1
 	}
 
-	stats := StatsIndex{
+	stats := HnswStats{
 		Dimensions:         h.dims,
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
@@ -775,9 +784,7 @@ func (h *hnsw) Stats() (StatsIndex, error) {
 		NumTombstones:      len(h.tombstones),
 		CacheSize:          h.cache.Len(),
 		PQConfiguration:    h.pqConfig,
-		BQConfiguration:    h.bqConfig,
-		SQConfiguration:    h.sqConfig,
 	}
 
-	return stats, nil
+	return &stats, nil
 }

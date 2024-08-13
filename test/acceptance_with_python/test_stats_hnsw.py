@@ -48,7 +48,7 @@ def test_stats_hnsw() -> None:
     response = httpx.post(url)
     keywords = list(json.loads(response.text).keys())
     assert response.status_code == 200
-    assert ['dimensions', 'entryPointID', 'distributionLayers', 'unreachablePoints', 'numTombstones', 'cacheSize', 'pqConfiguration', 'bqConfiguration', 'sqConfiguration'] == keywords
+    assert ['dimensions', 'entryPointID', 'distributionLayers', 'unreachablePoints', 'numTombstones', 'cacheSize', 'pqConfiguration'] == keywords
 
     # Flat index
     flat_index = client.collections.create(
@@ -67,3 +67,4 @@ def test_stats_hnsw() -> None:
     response = httpx.post(flat_url)
     assert response.status_code == 400
     assert "Stats() is not implemented for flat index" in response.text
+    
