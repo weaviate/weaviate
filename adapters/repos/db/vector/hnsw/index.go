@@ -677,6 +677,44 @@ func (h *hnsw) ContainsNode(id uint64) bool {
 	return len(h.nodes) > int(id) && h.nodes[id] != nil
 }
 
+func (h *hnsw) Iterate(fn func(id uint64) bool) {
+	var id uint64
+
+	for {
+		if h.shutdownCtx.Err() != nil {
+			return
+		}
+		if h.resetCtx.Err() != nil {
+			return
+		}
+
+		h.RLock()
+		h.shardedNodeLocks.RLock(id)
+		stop := int(id) >= len(h.nodes)
+		exists := !stop && h.nodes[id] != nil
+		h.shardedNodeLocks.RUnlock(id)
+		h.RUnlock()
+
+		if stop {
+			return
+		}
+
+		if exists {
+			h.tombstoneLock.RLock()
+			_, tombstoned := h.tombstones[id]
+			h.tombstoneLock.RUnlock()
+
+			if !tombstoned {
+				if !fn(id) {
+					return
+				}
+			}
+		}
+
+		id++
+	}
+}
+
 func (h *hnsw) DistancerProvider() distancer.Provider {
 	return h.distancerProvider
 }
