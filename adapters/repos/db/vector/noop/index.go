@@ -133,8 +133,7 @@ func (i *Index) TurnOnCompression(callback func()) error {
 	return nil
 }
 
-type NoopStats struct {
-}
+type NoopStats struct{}
 
 func (s *NoopStats) IndexType() common.IndexType {
 	return common.IndexTypeNoop
