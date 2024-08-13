@@ -670,11 +670,12 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
-	defer h.RUnlock()
 	h.shardedNodeLocks.RLock(id)
-	defer h.shardedNodeLocks.RUnlock(id)
+	exists := len(h.nodes) > int(id) && h.nodes[id] != nil
+	h.shardedNodeLocks.RUnlock(id)
+	h.RUnlock()
 
-	return len(h.nodes) > int(id) && h.nodes[id] != nil
+	return exists && !h.hasTombstone(id)
 }
 
 func (h *hnsw) Iterate(fn func(id uint64) bool) {
@@ -699,15 +700,9 @@ func (h *hnsw) Iterate(fn func(id uint64) bool) {
 			return
 		}
 
-		if exists {
-			h.tombstoneLock.RLock()
-			_, tombstoned := h.tombstones[id]
-			h.tombstoneLock.RUnlock()
-
-			if !tombstoned {
-				if !fn(id) {
-					return
-				}
+		if exists && !h.hasTombstone(id) {
+			if !fn(id) {
+				return
 			}
 		}
 
