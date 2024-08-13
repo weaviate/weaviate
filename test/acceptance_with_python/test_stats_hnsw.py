@@ -67,16 +67,3 @@ def test_stats_hnsw() -> None:
     response = httpx.post(flat_url)
     assert response.status_code == 400
     assert "Stats() is not implemented for flat index" in response.text
-    # Dynamic Index
-    dynamic_index = client.collections.create(
-        name="dynamicIndex",
-        vector_index_config=Configure.VectorIndex.dynamic()
-    )
-    dynamic_index.data.insert({"prop": "hello"}, vector=[1, 0])
-    dynamic_index.data.insert({"prop": "hellohellohello"}, vector=[1, 0])
-    dynamic_index.data.insert({"prop": "hellohello"}, vector=[1, 0])
-    dynamic_shards = dynamic_index.config.get_shards()
-    dynamic_url = "http://localhost:6060/debug/stats/collection/dynamicIndex/shards/"+dynamic_shards[0].name
-    response = httpx.post(dynamic_url)
-    assert response.status_code == 400
-    assert "Stats() is not implemented for dynamic index" in response.text

@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -318,6 +319,25 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 
 	err = index.drop()
 	require.Nil(t, err)
+}
+
+func TestIndex_StatsDynamicIndex(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+
+	ctx := context.Background()
+	class := &models.Class{Class: "dynamicIndex"}
+	shard, _ := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, dynamic.UserConfig{}, false, true /* withCheckpoints */)
+
+	vectorIndex := shard.VectorIndex()
+
+	vectorIndex.Add(1, []float32{0.1, 0.2, 0.3})
+	vectorIndex.Add(2, []float32{0.2, 0.3, 0.4})
+	vectorIndex.Add(3, []float32{0.3, 0.4, 0.5})
+
+	_, err := vectorIndex.Stats()
+	str := err.Error()
+	assert.Equal(t, "Stats() is not implemented for dynamic index", str)
+	println(err)
 }
 
 func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
