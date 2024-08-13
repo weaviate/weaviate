@@ -153,6 +153,55 @@ func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[fl
 	return index
 }
 
+func TestHnswIndexContainsNode(t *testing.T) {
+	t.Run("should return false if index is empty", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			t.Fatalf("vecForID should not be called on empty index")
+			return nil, nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		require.False(t, index.ContainsNode(1))
+	})
+
+	t.Run("should return true if node is in the index", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+		require.True(t, index.ContainsNode(5))
+	})
+
+	t.Run("should return false if node is not in the index", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+		require.False(t, index.ContainsNode(100))
+	})
+
+	t.Run("should return false if node is deleted", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+		err := index.Delete(5)
+		require.Nil(t, err)
+		require.False(t, index.ContainsNode(5))
+	})
+}
+
 func TestHnswIndexIterate(t *testing.T) {
 	t.Run("should not run callback on empty index", func(t *testing.T) {
 		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
