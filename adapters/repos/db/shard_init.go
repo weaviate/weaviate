@@ -134,13 +134,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			// preload unindexed objects in the background
 			if s.hasTargetVectors() {
 				for targetVector, queue := range s.queues {
-					err := queue.PreloadShard(s)
+					err := s.PreloadQueue(targetVector)
 					if err != nil {
 						queue.Logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
 					}
 				}
 			} else {
-				err := s.queue.PreloadShard(s)
+				err := s.PreloadQueue("")
 				if err != nil {
 					s.queue.Logger.WithError(err).Error("preload shard")
 				}
