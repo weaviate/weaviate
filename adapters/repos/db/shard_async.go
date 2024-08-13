@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -42,7 +43,7 @@ func (s *Shard) PreloadQueue(targetVector string) error {
 
 	q, err := s.getIndexQueue(targetVector)
 	if err != nil {
-		s.index.logger.Warn("preload queue: queue not found")
+		s.index.logger.WithError(err).Warn("preload queue: queue not found")
 		// queue was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
@@ -136,6 +137,86 @@ func (s *Shard) iterateOnLSMVectors(ctx context.Context, fromID uint64, targetVe
 			return err
 		}
 	}
+
+	return nil
+}
+
+// RepairIndex ensures the vector index is consistent with the LSM store.
+// It goes through the LSM store and enqueues any unindexed vector, and
+// it also removes any indexed vector that is not in the LSM store.
+// It it safe to call or interrupt this method at any time.
+// If ASYNC_INDEXING is disabled, it's a no-op.
+func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
+	if !asyncEnabled() {
+		return nil
+	}
+
+	vectorIndex := s.getVectorIndex(targetVector)
+	if vectorIndex == nil {
+		s.index.logger.Warn("repair index: vector index not found")
+		// shard was never initialized, possibly because of a failed shard
+		// initialization. No op.
+		return nil
+	}
+
+	q, err := s.getIndexQueue(targetVector)
+	if err != nil {
+		s.index.logger.WithError(err).Warn("repair index: queue not found")
+		// queue was never initialized, possibly because of a failed shard
+		// initialization. No op.
+		return nil
+	}
+
+	maxDocID := s.Counter().Get()
+
+	visited := visited.NewList(int(maxDocID))
+
+	var added, deleted int
+
+	// add non-indexed vectors to the queue
+	err = s.iterateOnLSMVectors(ctx, 0, targetVector, func(id uint64, vector []float32) error {
+		visited.Visit(id)
+
+		if vectorIndex.ContainsNode(id) {
+			return nil
+		}
+		if len(vector) == 0 {
+			return nil
+		}
+
+		desc := vectorDescriptor{
+			id:     id,
+			vector: vector,
+		}
+
+		added++
+		return q.Push(ctx, desc)
+	})
+	if err != nil {
+		return errors.Wrap(err, "iterate on LSM")
+	}
+
+	// remove any indexed vector that is not in the LSM store
+	vectorIndex.Iterate(func(id uint64) bool {
+		if visited.Visited(id) {
+			return true
+		}
+
+		deleted++
+		err := q.Delete(id)
+		if err != nil {
+			s.index.logger.WithError(err).WithField("id", id).Warn("delete vector from queue")
+		}
+
+		return true
+	})
+
+	s.index.logger.
+		WithField("added", added).
+		WithField("deleted", deleted).
+		WithField("shard_id", s.ID()).
+		WithField("target_vector", targetVector).
+		Info("repaired vector index")
 
 	return nil
 }
