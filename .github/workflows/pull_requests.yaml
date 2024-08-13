@@ -456,7 +456,7 @@ jobs:
           await github.rest.actions.createWorkflowDispatch({
           owner: '${{ github.repository_owner }}',
           repo: 'weaviate-chaos-engineering',
-          workflow_id: 'matrix',
+          workflow_id: 'matrix.yaml',
           ref: 'main',
           inputs: {              
               weaviate_version: 'preview-auto-chaos-235c778',
