@@ -751,6 +751,8 @@ type HnswStats struct {
 	NumTombstones      int          `json:"numTombstones"`
 	CacheSize          int32        `json:"cacheSize"`
 	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
+	BQConfiguration    ent.BQConfig `json:"bqConfiguration"`
+	SQConfiguration    ent.SQConfig `json:"sqConfiguration"`
 }
 
 func (s *HnswStats) IndexType() common.IndexType {
@@ -784,6 +786,8 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 		NumTombstones:      len(h.tombstones),
 		CacheSize:          h.cache.Len(),
 		PQConfiguration:    h.pqConfig,
+		BQConfiguration:    h.bqConfig,
+		SQConfiguration:    h.sqConfig,
 	}
 
 	return &stats, nil
