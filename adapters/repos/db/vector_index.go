@@ -40,5 +40,10 @@ type VectorIndex interface {
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
+	// Iterate over all nodes in the index.
+	// Consistency is not guaranteed, as the
+	// index may be concurrently modified.
+	// If the callback returns false, the iteration will stop.
+	Iterate(fn func(id uint64) bool)
 	DistancerProvider() distancer.Provider
 }
