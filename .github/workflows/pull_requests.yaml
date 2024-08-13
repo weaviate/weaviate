@@ -453,7 +453,7 @@ jobs:
           owner: 'weaviate',
           repo: 'weaviate-chaos-engineering',
           workflow_id: 'matrix.yml',
-          ref: 'main'
+          ref: 'main',
           inputs: {
               weaviate_version: ${{ needs.Push-Docker-Fast.outputs.preview_tag }},              
               weaviate_max_major_version_test_set: 1.25
