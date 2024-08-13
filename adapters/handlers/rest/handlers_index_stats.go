@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -77,8 +76,7 @@ func setupIndexStatsHandlers(appState *state.State) {
 
 		jsonBytes, err := json.Marshal(stats)
 		if err != nil {
-			err = errors.Wrap(err, "marshal failed on stats")
-			logger.Error(err)
+			logger.WithError(err).Error("marshal failed on stats")
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
