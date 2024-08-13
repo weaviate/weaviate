@@ -716,12 +716,14 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 
 	unvisitedNodes := []uint64{}
 	for i := 0; i < len(h.nodes); i++ {
+		h.shardedNodeLocks.RLock(uint64(i))
 		if h.nodes[i] == nil {
 			continue
 		}
 		if !visitedNodes[uint64(i)] {
 			unvisitedNodes = append(unvisitedNodes, h.nodes[i].id)
 		}
+		h.shardedNodeLocks.RUnlock(uint64(i))
 	}
 	return unvisitedNodes
 }
