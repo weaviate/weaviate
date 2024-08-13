@@ -367,13 +367,7 @@ func extractGroupBy(groupIn *pb.GroupBy, out *dto.GetParams) (*searchparams.Grou
 func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string, error) {
 	var targetVectors *[]string
 	if hs := req.HybridSearch; hs != nil {
-		if hsnr := hs.NearText; hsnr != nil {
-			targetVectors = &hsnr.TargetVectors
-		} else if hsnv := hs.NearVector; hsnv != nil {
-			targetVectors = &hsnv.TargetVectors
-		} else {
-			targetVectors = &hs.TargetVectors
-		}
+		targetVectors = &hs.TargetVectors
 	}
 	if na := req.NearAudio; na != nil {
 		targetVectors = &na.TargetVectors
