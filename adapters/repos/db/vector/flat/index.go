@@ -757,8 +757,7 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 	return nil
 }
 
-type FlatStats struct {
-}
+type FlatStats struct{}
 
 func (s *FlatStats) IndexType() common.IndexType {
 	return common.IndexTypeFlat
