@@ -681,6 +681,13 @@ func (h *hnsw) Iterate(fn func(id uint64) bool) {
 	var id uint64
 
 	for {
+		if h.shutdownCtx.Err() != nil {
+			return
+		}
+		if h.resetCtx.Err() != nil {
+			return
+		}
+
 		h.RLock()
 		h.shardedNodeLocks.RLock(id)
 		stop := int(id) >= len(h.nodes)
