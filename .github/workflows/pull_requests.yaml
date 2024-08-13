@@ -452,7 +452,7 @@ jobs:
           await github.rest.actions.createWorkflowDispatch({
           owner: 'weaviate',
           repo: 'weaviate-chaos-engineering',
-          workflow_id: matrix.yml',
+          workflow_id: 'matrix.yml',
           ref: 'main'
           inputs: {
               weaviate_version: ${{ needs.Push-Docker-Fast.outputs.preview_tag }},              
