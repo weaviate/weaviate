@@ -735,8 +735,6 @@ func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
 	}
-	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
-	defer cursor.Close()
 
 	// The idea here is to first read everything from disk in one go, then grow
 	// the cache just once before inserting all vectors. A previous iteration
