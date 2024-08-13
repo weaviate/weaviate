@@ -437,3 +437,23 @@ jobs:
         env:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
         run: ./ci/generate_docker_report.sh
+  Run-Chaos-Tests:
+    needs: [Push-Docker]
+    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'stable/v') }} # no PRs from fork    
+    name: Trigger automation tests
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/github-script@v6
+      with:
+        github_token: ${{ github.token }}
+        script: |
+          await github.rest.actions.createWorkflowDispatch({
+          owner: 'weaviate',
+          repo: 'weaviate-chaos-engineering',
+          workflow_id: matrix.yml',
+          ref: 'main'
+          inputs: {
+              weaviate_version: ${{ steps.push-container.outputs.PREVIEW_TAG }}
+              weaviate_max_major_version_test_set: 1.25
+            },
+          })
