@@ -440,8 +440,8 @@ jobs:
     outputs:
         preview_tag: ${{ steps.push-container.outputs.PREVIEW_TAG }}
   Run-Chaos-Tests:
-    # permissions:
-      # contents: write-all
+    permissions:
+      actions: write
       # pull-requests: write
       # repository-projects: write
     # needs: [Push-Docker-Fast]
