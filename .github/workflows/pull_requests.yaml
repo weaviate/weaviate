@@ -439,7 +439,7 @@ jobs:
         run: ./ci/generate_docker_report.sh
   Run-Chaos-Tests:
     needs: [Push-Docker]
-    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'stable/v') }} # no PRs from fork    
+    # if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'stable/v') }} # no PRs from fork   
     name: Trigger automation tests
     runs-on: ubuntu-latest
     steps:
