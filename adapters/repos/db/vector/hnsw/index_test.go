@@ -264,4 +264,31 @@ func TestHnswIndexIterate(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("should skip deleted nodes", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		err := index.Delete(uint64(5))
+		require.Nil(t, err)
+
+		visited := make([]bool, len(testVectors))
+		index.Iterate(func(id uint64) bool {
+			visited[id] = true
+			return true
+		})
+		for i, v := range visited {
+			if i == 5 {
+				assert.False(t, v, "node %d was visited", i)
+			} else {
+				assert.True(t, v, "node %d was not visited", i)
+			}
+		}
+	})
 }

@@ -700,8 +700,14 @@ func (h *hnsw) Iterate(fn func(id uint64) bool) {
 		}
 
 		if exists {
-			if !fn(id) {
-				return
+			h.tombstoneLock.RLock()
+			_, tombstoned := h.tombstones[id]
+			h.tombstoneLock.RUnlock()
+
+			if !tombstoned {
+				if !fn(id) {
+					return
+				}
 			}
 		}
 
