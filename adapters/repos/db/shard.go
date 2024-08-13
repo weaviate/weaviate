@@ -94,6 +94,7 @@ type ShardLike interface {
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
+	PreloadQueue(targetVector string) error
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
@@ -229,6 +230,13 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 		return fmt.Sprintf("vectors_%s", targetVector)
 	}
 	return "main"
+}
+
+func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
+	if targetVector != "" {
+		return s.vectorIndexes[targetVector]
+	}
+	return s.vectorIndex
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
