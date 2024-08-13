@@ -615,10 +615,7 @@ func (st *Store) openDatabase(ctx context.Context) {
 // then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
-		// to avoid any not needed db reloads
-		if st.raft != nil && st.lastAppliedIndexToDB.Load() != st.raft.LastIndex() {
-			st.schemaManager.ReloadDBFromSchema()
-		}
+		st.schemaManager.ReloadDBFromSchema()
 	} else {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
