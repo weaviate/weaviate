@@ -444,7 +444,7 @@ jobs:
       # contents: write
       # pull-requests: write
       repository-projects: write
-    needs: [Push-Docker-Fast]
+    # needs: [Push-Docker-Fast]
     # if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'stable/v') }} # no PRs from fork   
     name: Trigger automation tests
     runs-on: ubuntu-latest
@@ -458,8 +458,8 @@ jobs:
           repo: 'weaviate-chaos-engineering',
           workflow_id: 'matrix.yml',
           ref: 'main',
-          inputs: {
-              weaviate_version: '${{ needs.Push-Docker-Fast.outputs.preview_tag }}',
+          inputs: {              
+              weaviate_version: 'preview-auto-chaos-235c778',
               weaviate_max_major_version_test_set: '1.25'
             },
           })
