@@ -440,13 +440,13 @@ jobs:
     outputs:
         preview_tag: ${{ steps.push-container.outputs.PREVIEW_TAG }}
   Run-Chaos-Tests:
-    permissions: write-all
+    # permissions:
       # contents: write-all
       # pull-requests: write
       # repository-projects: write
     # needs: [Push-Docker-Fast]
     # if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'stable/v') }} # no PRs from fork   
-    name: Trigger automation tests
+    name: Trigger chaos tests
     runs-on: ubuntu-latest
     steps:
     - uses: actions/github-script@v6
@@ -454,7 +454,7 @@ jobs:
         github-token: ${{ github.token }}
         script: |
           await github.rest.actions.createWorkflowDispatch({
-          owner: 'weaviate',
+          owner: '${{ github.repository_owner }}',
           repo: 'weaviate-chaos-engineering',
           workflow_id: 'matrix.yml',
           ref: 'main',
