@@ -728,7 +728,7 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 	return unvisitedNodes
 }
 
-type StatsIndex struct {
+type HnswStats struct {
 	Dimensions         int32        `json:"dimensions"`
 	EntryPointID       uint64       `json:"entryPointID"`
 	DistributionLayers map[int]uint `json:"distributionLayers"`
@@ -738,7 +738,11 @@ type StatsIndex struct {
 	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
 }
 
-func (h *hnsw) Stats() (StatsIndex, error) {
+func (s *HnswStats) IndexType() common.IndexType {
+	return common.IndexTypeHNSW
+}
+
+func (h *hnsw) Stats() (common.IndexStats, error) {
 	distributionLayers := map[int]uint{}
 
 	for _, node := range h.nodes {
@@ -757,7 +761,7 @@ func (h *hnsw) Stats() (StatsIndex, error) {
 		distributionLayers[l] = c + 1
 	}
 
-	stats := StatsIndex{
+	stats := HnswStats{
 		Dimensions:         h.dims,
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
@@ -767,5 +771,5 @@ func (h *hnsw) Stats() (StatsIndex, error) {
 		PQConfiguration:    h.pqConfig,
 	}
 
-	return stats, nil
+	return &stats, nil
 }
