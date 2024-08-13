@@ -43,7 +43,6 @@ const (
 )
 
 type flat struct {
-	sync.Mutex
 	id                  string
 	targetVector        string
 	dims                int32
@@ -684,6 +683,33 @@ func (index *flat) ContainsNode(id uint64) bool {
 	}
 
 	return true
+}
+
+func (index *flat) Iterate(fn func(id uint64) bool) {
+	var bucketName string
+
+	// logic modeled after SearchByVector which indicates that the PQ bucket is
+	// the same as the uncompressed bucket "for now"
+	switch index.compression {
+	case compressionBQ:
+		bucketName = index.getCompressedBucketName()
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		bucketName = index.getBucketName()
+	}
+
+	bucket := index.store.Bucket(bucketName)
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
+		id := binary.BigEndian.Uint64(key)
+		if !fn(id) {
+			break
+		}
+	}
 }
 
 func (index *flat) DistancerProvider() distancer.Provider {

@@ -106,6 +106,7 @@ type ShardLike interface {
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
+	PreloadQueue(targetVector string) error
 	Shutdown(context.Context) error // Shutdown the shard
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
@@ -315,13 +316,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 			// preload unindexed objects in the background
 			if s.hasTargetVectors() {
 				for targetVector, queue := range s.queues {
-					err := queue.PreloadShard(s)
+					err := s.PreloadQueue(targetVector)
 					if err != nil {
 						queue.Logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
 					}
 				}
 			} else {
-				err := s.queue.PreloadShard(s)
+				err := s.PreloadQueue("")
 				if err != nil {
 					s.queue.Logger.WithError(err).Error("preload shard")
 				}
@@ -554,6 +555,13 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 		return fmt.Sprintf("vectors_%s", targetVector)
 	}
 	return "main"
+}
+
+func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
+	if targetVector != "" {
+		return s.vectorIndexes[targetVector]
+	}
+	return s.vectorIndex
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
