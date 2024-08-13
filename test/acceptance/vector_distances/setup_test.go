@@ -44,6 +44,7 @@ func Test_GraphQL(t *testing.T) {
 	deleteObjectClass(t, "Dot_Class")
 	deleteObjectClass(t, "Manhattan_Class")
 	deleteObjectClass(t, "Hamming_Class")
+	deleteObjectClass(t, "C1")
 
 	// now only l2 is left so we can test explore with L2
 	t.Run("explore across multiple non-cosine classes", testExplore)
