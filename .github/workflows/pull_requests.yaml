@@ -440,6 +440,8 @@ jobs:
     outputs:
         preview_tag: ${{ steps.push-container.outputs.PREVIEW_TAG }}
   Run-Chaos-Tests:
+    permissions:
+      contents: write
     needs: [Push-Docker-Fast]
     # if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'stable/v') }} # no PRs from fork   
     name: Trigger automation tests
