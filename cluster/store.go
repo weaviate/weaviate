@@ -170,7 +170,7 @@ type Store struct {
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 
-	//dbReloadOnce is used to reload db once caught up on startup
+	// dbReloadOnce is used to reload db once caught up on startup
 	dbReloadOnce sync.Once
 }
 
