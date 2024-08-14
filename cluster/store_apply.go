@@ -98,20 +98,16 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		// to avoid any not needed db reloads we will call it only if the db need to catchup
-		triggerDBReload := st.raft != nil && // st.raft != nil to make sure it's not a restore request
-			l.Index != 0 && // not 1st log
-			st.lastAppliedIndexToDB.Load() <= st.raft.AppliedIndex() && // what applied to db is less than or eq in RAFT
-			l.Index == st.lastAppliedIndexToDB.Load() // we arrived to the point of reload
-
-		if triggerDBReload {
-			st.log.WithFields(logrus.Fields{
-				"log_type":                     l.Type,
-				"log_name":                     l.Type.String(),
-				"log_index":                    l.Index,
-				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
-			}).Debug("reloading local DB as RAFT and local DB are now caught up")
-			st.reloadDBFromSchema()
+		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
+			st.dbReloadOnce.Do(func() {
+				st.log.WithFields(logrus.Fields{
+					"log_type":                     l.Type,
+					"log_name":                     l.Type.String(),
+					"log_index":                    l.Index,
+					"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
+				}).Debug("reloading local DB as RAFT and local DB are now caught up")
+				st.reloadDBFromSchema()
+			})
 		}
 
 		if ret.Error != nil {
