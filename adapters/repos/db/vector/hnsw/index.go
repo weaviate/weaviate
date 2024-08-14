@@ -718,7 +718,7 @@ func IsHNSWIndex(index any) bool {
 	return ok
 }
 
-type pair struct {
+type nodeLevel struct {
 	nodeId uint64
 	level  int
 }
@@ -727,15 +727,18 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 	h.RLock()
 	defer h.RUnlock()
 
-	visitedPairs := make(map[pair]bool)
-	candidateList := []pair{{h.entryPointID, h.currentMaximumLayer}}
+	visitedPairs := make(map[nodeLevel]bool)
+	candidateList := []nodeLevel{{h.entryPointID, h.currentMaximumLayer}}
 
 	for len(candidateList) > 0 {
 		currentNode := candidateList[len(candidateList)-1]
 		candidateList = candidateList[:len(candidateList)-1]
 		if !visitedPairs[currentNode] {
 			visitedPairs[currentNode] = true
-			neighbors := h.nodes[currentNode.nodeId].connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+			node := h.nodes[currentNode.nodeId]
+			node.Lock()
+			neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+			node.Unlock()
 			candidateList = append(candidateList, neighbors...)
 		}
 	}
