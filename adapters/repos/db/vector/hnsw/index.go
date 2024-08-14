@@ -806,7 +806,6 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 
 			distributionLayers[l] = c + 1
 		}()
-
 	}
 
 	stats := HnswStats{
