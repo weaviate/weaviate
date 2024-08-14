@@ -39,6 +39,8 @@ type VectorIndex interface {
 	Compressed() bool
 	ValidateBeforeInsert(vector []float32) error
 	DistanceBetweenVectors(x, y []float32) (float32, error)
+	// ContainsNode returns true if the index contains the node with the given id.
+	// It must return false if the node does not exist, or has a tombstone.
 	ContainsNode(id uint64) bool
 	// Iterate over all nodes in the index.
 	// Consistency is not guaranteed, as the
