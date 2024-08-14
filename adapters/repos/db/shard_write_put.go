@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -214,14 +213,6 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 ) (status objectInsertStatus, err error) {
 	before := time.Now()
 	defer s.metrics.PutObject(before)
-
-	batchDeleteLock := sync.Mutex{}
-	batchDeleteLock.Lock()
-	defer batchDeleteLock.Unlock()
-
-	s.batchDeletePatchLock.Lock()
-	s.batchDeletePatchLocks[obj.ID()] = &batchDeleteLock
-	s.batchDeletePatchLock.Unlock()
 
 	if s.hasTargetVectors() {
 		if len(obj.Vectors) > 0 {

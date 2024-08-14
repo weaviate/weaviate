@@ -210,9 +210,6 @@ type Shard struct {
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
-
-	batchDeletePatchLocks map[strfmt.UUID]*sync.Mutex // docID -> lock
-	batchDeletePatchLock  *sync.Mutex
 }
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -239,8 +236,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		centralJobQueue:       jobQueueCh,
 		indexCheckpoints:      indexCheckpoints,
 		status:                storagestate.StatusLoading,
-		batchDeletePatchLocks: make(map[strfmt.UUID]*sync.Mutex),
-		batchDeletePatchLock:  &sync.Mutex{},
 	}
 
 	defer func() {

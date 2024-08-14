@@ -30,12 +30,6 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 	if s.isReadOnly() {
 		return storagestate.ErrStatusReadOnly
 	}
-	s.batchDeletePatchLock.Lock()
-	lock := s.batchDeletePatchLocks[merge.ID]
-	s.batchDeletePatchLock.Unlock()
-
-	lock.Lock()
-	defer lock.Unlock()
 
 	if s.hasTargetVectors() {
 		for targetVector, vector := range merge.Vectors {
