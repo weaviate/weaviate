@@ -283,7 +283,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.DB = repo
 	setupDebugHandlers(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
-	setupIndexStatsHandlers(appState)
 
 	vectorMigrator = db.NewMigrator(repo, appState.Logger)
 	vectorRepo = repo
