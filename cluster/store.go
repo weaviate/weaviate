@@ -196,7 +196,7 @@ func (st *Store) ID() string    { return st.cfg.NodeID }
 // by checking either raft or max(snapshot, log store) instead the db will catchup
 func (st *Store) lastIndex() uint64 {
 	if st.raft != nil {
-		return st.raft.LastIndex()
+		return st.raft.AppliedIndex()
 	}
 
 	l, err := st.LastAppliedCommand()

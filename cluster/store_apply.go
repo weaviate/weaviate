@@ -101,7 +101,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		// to avoid any not needed db reloads we will call it only if the db need to catchup
 		triggerDBReload := st.raft != nil && // st.raft != nil to make sure it's not a restore request
 			l.Index != 0 && // not 1st log
-			st.lastAppliedIndexToDB.Load() <= st.raft.LastIndex() && // what applied to db is less than or eq in RAFT
+			st.lastAppliedIndexToDB.Load() <= st.raft.AppliedIndex() && // what applied to db is less than or eq in RAFT
 			l.Index == st.lastAppliedIndexToDB.Load() // we arrived to the point of reload
 
 		if triggerDBReload {
