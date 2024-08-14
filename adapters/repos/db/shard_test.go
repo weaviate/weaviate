@@ -497,6 +497,9 @@ func TestShard_RepairIndex(t *testing.T) {
 				}
 			}
 
+			// wait for the worker to start the indexing
+			time.Sleep(500 * time.Millisecond)
+
 			// make sure all objects except >= 100 < 300 are back in the vector index
 			for i := 0; i < amount; i++ {
 				if i >= 100 && i < 300 {
