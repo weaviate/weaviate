@@ -744,3 +744,15 @@ func IsHNSWIndex(index any) bool {
 	_, ok := index.(*hnsw)
 	return ok
 }
+
+func AsHNSWIndex(index any) Index {
+	h, _ := index.(*hnsw)
+	return h
+}
+
+// This interface exposes public methods of the HNSW index
+// that are not part of the VectorIndex interface.
+// It is a workaround to avoid circular dependencies.
+type Index interface {
+	CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) error
+}
