@@ -784,22 +784,29 @@ func (s *HnswStats) IndexType() common.IndexType {
 }
 
 func (h *hnsw) Stats() (common.IndexStats, error) {
+	h.RLock()
+	defer h.RUnlock()
 	distributionLayers := map[int]uint{}
 
 	for _, node := range h.nodes {
-		if node == nil {
-			continue
-		}
-		l := node.level
-		if l == 0 && len(node.connections) == 0 {
-			continue
-		}
-		c, ok := distributionLayers[l]
-		if !ok {
-			distributionLayers[l] = 0
-		}
+		func() {
+			if node == nil {
+				return
+			}
+			node.Lock()
+			defer node.Unlock()
+			l := node.level
+			if l == 0 && len(node.connections) == 0 {
+				return
+			}
+			c, ok := distributionLayers[l]
+			if !ok {
+				distributionLayers[l] = 0
+			}
 
-		distributionLayers[l] = c + 1
+			distributionLayers[l] = c + 1
+		}()
+
 	}
 
 	stats := HnswStats{
