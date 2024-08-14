@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"google.golang.org/grpc"
 )
@@ -197,20 +198,18 @@ func hnswConsistency(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// compose, err := docker.New().
-	// 	WithWeaviateWithGRPC().
-	// 	WithWeaviateEnv("ASYNC_INDEXING", "true").
-	// 	Start(ctx)
-	// require.Nil(t, err)
-	// defer func() {
-	// 	if err := compose.Terminate(ctx); err != nil {
-	// 		t.Fatalf("failed to terminate test containers: %s", err.Error())
-	// 	}
-	// }()
-	// helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupClient("localhost:8080")
-	// grpcClient, _ := newGRPCClient(t, compose.GetWeaviate().GetEndpoint(docker.GRPC))
-	grpcClient, _ := newGRPCClient(t, "localhost:50051")
+	compose, err := docker.New().
+		WithWeaviateWithGRPC().
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	grpcClient, _ := newGRPCClient(t, compose.GetWeaviate().GetEndpoint(docker.GRPC))
 
 	t.Run("Create replicated class", func(t *testing.T) {
 		helper.CreateClass(t, &models.Class{
@@ -263,8 +262,7 @@ func hnswConsistency(t *testing.T) {
 		time.Sleep(5 * time.Second) // give index time to ensure any orphans are successfully added to the graph
 		nodes := helper.GetNodes(t)
 		for _, node := range nodes {
-			// profilingUri := compose.GetWeaviate().GetEndpoint(docker.PROF)
-			profilingUri := "localhost:6060"
+			profilingUri := compose.GetWeaviate().GetEndpoint(docker.PROF)
 			for _, shard := range node.Shards {
 				require.NotNil(t, shard)
 
