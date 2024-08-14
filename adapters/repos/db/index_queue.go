@@ -339,6 +339,9 @@ func (q *IndexQueue) Size() int64 {
 // Delete marks the given vectors as deleted.
 // This method can be called even if the async indexing is disabled.
 func (q *IndexQueue) Delete(ids ...uint64) error {
+	if len(ids) == 0 {
+		return nil
+	}
 	if !asyncEnabled() {
 		return q.index.Delete(ids...)
 	}

@@ -488,6 +488,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	if d.withWeaviate {
 		image := os.Getenv(envTestWeaviateImage)
 		hostname := Weaviate
+		envSettings["PROFILING_PORT"] = "6060"
 		if d.withWeaviateCluster {
 			envSettings["CLUSTER_HOSTNAME"] = "node1"
 			envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
@@ -519,6 +520,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	if d.withWeaviateCluster {
 		image := os.Getenv(envTestWeaviateImage)
 		hostname := WeaviateNode2
+		envSettings["PROFILING_PORT"] = "6061"
 		envSettings["CLUSTER_HOSTNAME"] = "node2"
 		envSettings["CLUSTER_GOSSIP_BIND_PORT"] = "7102"
 		envSettings["CLUSTER_DATA_BIND_PORT"] = "7103"
@@ -543,6 +545,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "CLUSTER_GOSSIP_BIND_PORT")
 		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_PORT")
 		delete(secondWeaviateSettings, "CLUSTER_JOIN")
+		secondWeaviateSettings["PROFILING_PORT"] = "6062"
 		for k, v := range d.weaviateEnvs {
 			envSettings[k] = v
 		}

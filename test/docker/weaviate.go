@@ -100,6 +100,9 @@ func startWeaviate(ctx context.Context,
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
+	profPort := nat.Port("6060/tcp")
+	exposedPorts = append(exposedPorts, "6060/tcp")
+	waitStrategies = append(waitStrategies, wait.ForListeningPort(profPort))
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
@@ -134,5 +137,10 @@ func startWeaviate(ctx context.Context,
 		}
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
 	}
+	profUri, err := c.PortEndpoint(ctx, profPort, "")
+	if err != nil {
+		return nil, err
+	}
+	endpoints[PROF] = endpoint{profPort, profUri}
 	return &DockerContainer{containerName, endpoints, c, nil}, nil
 }

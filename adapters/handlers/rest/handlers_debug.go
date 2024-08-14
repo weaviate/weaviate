@@ -172,7 +172,10 @@ func setupDebugHandlers(appState *state.State) {
 				vertex.IDs.Obj = &id
 				vertices = append(vertices, vertex)
 			} else {
-				ghosts = append(ghosts, vertex)
+				_, isTombstone := graph.Tombstones[docID]
+				if !isTombstone {
+					ghosts = append(ghosts, vertex)
+				}
 			}
 		}
 		for docID := range graph.Tombstones {
