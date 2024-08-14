@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -159,6 +160,16 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		return nil
 	}
 
+	// if it's HNSW, trigger a tombstone cleanup
+	if hnsw.IsHNSWIndex(vectorIndex) {
+		err := hnsw.AsHNSWIndex(vectorIndex).CleanUpTombstonedNodes(func() bool {
+			return ctx.Err() != nil
+		})
+		if err != nil {
+			return errors.Wrap(err, "clean up tombstoned nodes")
+		}
+	}
+
 	q, err := s.getIndexQueue(targetVector)
 	if err != nil {
 		s.index.logger.WithError(err).Warn("repair index: queue not found")
@@ -196,6 +207,14 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		return errors.Wrap(err, "iterate on LSM")
 	}
 
+	// if no nodes were visited, it either means the LSM store is empty or
+	// there was an uncaught error during the iteration.
+	// in any case, we should not touch the index.
+	if visited.Len() == 0 {
+		s.index.logger.Warn("repair index: empty LSM store")
+		return nil
+	}
+
 	// remove any indexed vector that is not in the LSM store
 	vectorIndex.Iterate(func(id uint64) bool {
 		if visited.Visited(id) {
@@ -203,7 +222,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 
 		deleted++
-		err := q.Delete(id)
+		err := vectorIndex.Delete(id)
 		if err != nil {
 			s.index.logger.WithError(err).WithField("id", id).Warn("delete vector from queue")
 		}
