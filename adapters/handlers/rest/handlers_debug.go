@@ -71,23 +71,19 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	http.HandleFunc("/debug/repair/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/debug/index/repair/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
 			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
 			return
 		}
 
-		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/repair/collection/"))
-		parts := strings.Split(path, "/")
-		if len(parts) < 3 || len(parts) > 5 || parts[1] != "shards" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
 
-		colName, shardName := parts[0], parts[2]
-		targetVector := ""
-		if len(parts) == 4 {
-			targetVector = parts[3]
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
 		}
 
 		idx := appState.DB.GetIndex(schema.ClassName(colName))
