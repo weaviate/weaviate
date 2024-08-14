@@ -70,4 +70,53 @@ func setupDebugHandlers(appState *state.State) {
 
 		w.WriteHeader(http.StatusAccepted)
 	}))
+
+	http.HandleFunc("/debug/repair/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
+			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/repair/collection/"))
+		parts := strings.Split(path, "/")
+		if len(parts) < 3 || len(parts) > 5 || parts[1] != "shards" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		colName, shardName := parts[0], parts[2]
+		targetVector := ""
+		if len(parts) == 4 {
+			targetVector = parts[3]
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.DebugRepairIndex(context.Background(), shardName, targetVector)
+		if err != nil {
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to repair vector index")
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+			}
+
+			http.Error(w, "failed to repair vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Info("repair started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
 }
