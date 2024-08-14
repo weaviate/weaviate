@@ -152,6 +152,8 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		return nil
 	}
 
+	start := time.Now()
+
 	vectorIndex := s.getVectorIndex(targetVector)
 	if vectorIndex == nil {
 		s.index.logger.Warn("repair index: vector index not found")
@@ -234,6 +236,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		WithField("added", added).
 		WithField("deleted", deleted).
 		WithField("shard_id", s.ID()).
+		WithField("took", time.Since(start)).
 		WithField("target_vector", targetVector).
 		Info("repaired vector index")
 
