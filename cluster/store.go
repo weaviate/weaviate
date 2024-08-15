@@ -169,6 +169,8 @@ type Store struct {
 	schemaManager *schema.SchemaManager
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
+	// / lastAppliedIndex index of latest update to the store
+	lastAppliedIndex atomic.Uint64
 }
 
 func NewFSM(cfg Config) Store {
@@ -196,7 +198,7 @@ func (st *Store) ID() string    { return st.cfg.NodeID }
 // by checking either raft or max(snapshot, log store) instead the db will catchup
 func (st *Store) lastIndex() uint64 {
 	if st.raft != nil {
-		return st.raft.LastIndex()
+		return st.raft.AppliedIndex()
 	}
 
 	l, err := st.LastAppliedCommand()
@@ -244,6 +246,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		// if empty node report ready
 		st.dbLoaded.Store(true)
 	}
+
+	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":                st.raft.AppliedIndex(),
@@ -431,7 +435,7 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
 func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
-	if idx := st.lastIndex(); idx >= version {
+	if idx := st.lastAppliedIndex.Load(); idx >= version {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
@@ -444,7 +448,7 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 		case <-ctx.Done():
 			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
 		case <-ticker.C:
-			if idx = st.lastIndex(); idx >= version {
+			if idx = st.lastAppliedIndex.Load(); idx >= version {
 				return nil
 			} else {
 				st.log.WithFields(logrus.Fields{
@@ -624,7 +628,7 @@ func (st *Store) reloadDBFromSchema() {
 	// in this path it means it was called from Apply()
 	// or forced Restore()
 	if st.raft != nil {
-		st.lastAppliedIndexToDB.Store(st.raft.LastIndex())
+		st.lastAppliedIndexToDB.Store(st.raft.AppliedIndex())
 		return
 	}
 
