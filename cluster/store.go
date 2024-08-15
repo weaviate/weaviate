@@ -628,7 +628,7 @@ func (st *Store) reloadDBFromSchema() {
 	// in this path it means it was called from Apply()
 	// or forced Restore()
 	if st.raft != nil {
-		st.lastAppliedIndexToDB.Store(st.raft.AppliedIndex())
+		// we don't update lastAppliedIndexToDB if not a restore
 		return
 	}
 
