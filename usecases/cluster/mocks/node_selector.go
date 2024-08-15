@@ -19,7 +19,7 @@ type memberlist struct {
 }
 
 func (m memberlist) StorageCandidates() []string {
-	// sort.Strings(m.nodes)
+	sort.Strings(m.nodes)
 	return m.nodes
 }
 
