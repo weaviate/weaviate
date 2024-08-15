@@ -142,5 +142,5 @@ func startWeaviate(ctx context.Context,
 		return nil, err
 	}
 	endpoints[PROF] = endpoint{profPort, profUri}
-	return &DockerContainer{containerName, endpoints, c, nil}, nil
+	return &DockerContainer{containerName, endpoints, c, env}, nil
 }

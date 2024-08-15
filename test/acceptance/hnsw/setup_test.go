@@ -13,11 +13,7 @@ package replication
 
 import "testing"
 
-func TestReplication(t *testing.T) {
-	t.Run("immediate replica CRUD", immediateReplicaCRUD)
-	t.Run("eventual replica CRUD", eventualReplicaCRUD)
-	t.Run("multishard scale out", multiShardScaleOut)
-	t.Run("read repair", readRepair)
-	t.Run("graphql search", graphqlSearch)
-	t.Run("multi-tenancy enabled", multiTenancyEnabled)
+func TestGraphConsistency(t *testing.T) {
+	t.Run("replication factor 1", graphConsistencyNonReplicated)
+	t.Run("replication factor 2", graphConsistencyReplicated)
 }

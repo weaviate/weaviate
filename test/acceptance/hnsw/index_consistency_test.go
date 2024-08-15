@@ -35,8 +35,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-const className = "ReplicatedClass"
-
 func newGRPCClient(t *testing.T, address string) (pb.WeaviateClient, *grpc.ClientConn) {
 	conn, err := helper.CreateGrpcConnectionClient(address)
 	require.NoError(t, err)
@@ -64,7 +62,7 @@ func randomByteVector(dim int) []byte {
 	return vector
 }
 
-func batchInsert(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient, batchSize int) {
+func batchInsert(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient, className string, batchSize int) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -94,7 +92,7 @@ func batchInsert(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient
 	}
 }
 
-func patchMany(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient, howMany uint32) {
+func patchMany(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient, className string, howMany uint32) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -157,7 +155,7 @@ func patchMany(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient, 
 	}
 }
 
-func deleteMany(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient) {
+func deleteMany(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient, className string) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -194,7 +192,59 @@ func deleteMany(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient)
 	}
 }
 
-func hnswConsistency(t *testing.T) {
+func runOps(t *testing.T, ctx context.Context, client pb.WeaviateClient, className string) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		batchInsert(t, ctx, client, className, 1000)
+	}(ctx)
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		patchMany(t, ctx, client, className, 100)
+	}(ctx)
+	wg.Add(1)
+	go func(ctx context.Context) {
+		defer wg.Done()
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		deleteMany(t, ctx, client, className)
+	}(ctx)
+	wg.Wait()
+}
+
+func assertGraphConsistencies(t *testing.T, compose *docker.DockerCompose, className string, isCluster bool) {
+	nodes := helper.GetNodes(t)
+	for _, node := range nodes {
+		var profilingUri string
+		if isCluster {
+			profilingUri = compose.GetContainerByClusterHostName(node.Name).GetEndpoint(docker.PROF)
+		} else {
+			profilingUri = compose.GetWeaviate().GetEndpoint(docker.PROF)
+		}
+		for _, shard := range node.Shards {
+			require.NotNil(t, shard)
+
+			resp, err := http.Get(fmt.Sprintf("http://%s/debug/graph/collection/%s/shards/%s", profilingUri, className, shard.Name))
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			var data *rest.DebugGraph
+			decoder := json.NewDecoder(resp.Body)
+			err = decoder.Decode(&data)
+			require.NoError(t, err)
+
+			require.Equal(t, []int{0, 0}, []int{len(data.Ghosts), len(data.Orphans)})
+		}
+	}
+}
+
+func graphConsistencyNonReplicated(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -208,10 +258,14 @@ func hnswConsistency(t *testing.T) {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
+
 	helper.SetupClient(compose.GetWeaviate().URI())
 	grpcClient, _ := newGRPCClient(t, compose.GetWeaviate().GetEndpoint(docker.GRPC))
 
-	t.Run("Create replicated class", func(t *testing.T) {
+	className := "NonReplicatedClass"
+	defer helper.DeleteClass(t, className)
+
+	t.Run("Create class", func(t *testing.T) {
 		helper.CreateClass(t, &models.Class{
 			Class: className,
 			InvertedIndexConfig: &models.InvertedIndexConfig{
@@ -223,32 +277,9 @@ func hnswConsistency(t *testing.T) {
 			Vectorizer: "none",
 		})
 	})
-	defer helper.DeleteClass(t, className)
 
 	t.Run("Perform concurrent operations", func(t *testing.T) {
-		var wg sync.WaitGroup
-		wg.Add(1)
-		go func(ctx context.Context, client pb.WeaviateClient) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-			defer cancel()
-			batchInsert(t, ctx, client, 1000)
-		}(ctx, grpcClient)
-		wg.Add(1)
-		go func(ctx context.Context, client pb.WeaviateClient) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-			defer cancel()
-			patchMany(t, ctx, client, 100)
-		}(ctx, grpcClient)
-		wg.Add(1)
-		go func(ctx context.Context, client pb.WeaviateClient) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-			defer cancel()
-			deleteMany(t, ctx, client)
-		}(ctx, grpcClient)
-		wg.Wait()
+		runOps(t, ctx, grpcClient, className)
 	})
 
 	t.Run("Wait for any async indexing to finish", func(t *testing.T) {
@@ -260,23 +291,57 @@ func hnswConsistency(t *testing.T) {
 
 	t.Run("Call the graph debug endpoints to check for consistency", func(t *testing.T) {
 		time.Sleep(5 * time.Second) // give index time to ensure any orphans are successfully added to the graph
-		nodes := helper.GetNodes(t)
-		for _, node := range nodes {
-			profilingUri := compose.GetWeaviate().GetEndpoint(docker.PROF)
-			for _, shard := range node.Shards {
-				require.NotNil(t, shard)
+		assertGraphConsistencies(t, compose, className, false)
+	})
+}
 
-				resp, err := http.Get(fmt.Sprintf("http://%s/debug/graph/collection/%s/shards/%s", profilingUri, className, shard.Name))
-				require.NoError(t, err)
-				defer resp.Body.Close()
+func graphConsistencyReplicated(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
 
-				var data *rest.DebugGraph
-				decoder := json.NewDecoder(resp.Body)
-				err = decoder.Decode(&data)
-				require.NoError(t, err)
-
-				require.Equal(t, []int{0, 0}, []int{len(data.Ghosts), len(data.Orphans)})
-			}
+	compose, err := docker.New().
+		WithWeaviateClusterWithGRPC().
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		Start(ctx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	grpcClient, _ := newGRPCClient(t, compose.GetWeaviate().GetEndpoint(docker.GRPC))
+
+	className := "ReplicatedClass"
+	defer helper.DeleteClass(t, className)
+
+	t.Run("Create class", func(t *testing.T) {
+		helper.CreateClass(t, &models.Class{
+			Class: className,
+			InvertedIndexConfig: &models.InvertedIndexConfig{
+				IndexTimestamps: true,
+			},
+			ReplicationConfig: &models.ReplicationConfig{
+				Factor: 2,
+			},
+			Vectorizer: "none",
+		})
+	})
+
+	t.Run("Perform concurrent operations", func(t *testing.T) {
+		runOps(t, ctx, grpcClient, className)
+	})
+
+	t.Run("Wait for any async indexing to finish", func(t *testing.T) {
+		ctx, cancel = context.WithTimeout(ctx, 1*time.Minute)
+		defer cancel()
+		helper.WaitForAsyncIndexing(t, ctx)
+		fmt.Println("Async indexing finished")
+	})
+
+	t.Run("Call the graph debug endpoints to check for consistency", func(t *testing.T) {
+		time.Sleep(5 * time.Second) // give index time to ensure any orphans are successfully added to the graph
+		assertGraphConsistencies(t, compose, className, true)
 	})
 }
