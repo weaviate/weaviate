@@ -92,14 +92,16 @@ func TestCreateTenants(t *testing.T) {
 		assert.ElementsMatch(t, expectedTenants, foundTenants)
 	})
 
-	t.Run("Create duplicate tenant once", func(Z *testing.T) {
+	t.Run("Create duplicate tenant once", func(t *testing.T) {
 		defer func() {
 			helper.DeleteClass(t, testClass.Class)
 		}()
 		helper.CreateClass(t, &testClass)
 		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}, {Name: "DoubleTenant"}})
-		require.Nil(t, err)
+		require.NotNil(t, err)
 
+		err = helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}})
+		require.Nil(t, err)
 		// only added once
 		respGet, errGet := helper.GetTenants(t, testClass.Class)
 		require.Nil(t, errGet)
