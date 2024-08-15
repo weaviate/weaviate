@@ -759,5 +759,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		},
 	}
 
+	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
+
 	return cfg, nil
 }

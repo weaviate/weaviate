@@ -436,6 +436,11 @@ func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, s
 	return l.shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
 }
 
+func (l *LazyLoadShard) PreloadQueue(targetVector string) error {
+	l.mustLoad()
+	return l.shard.PreloadQueue(targetVector)
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()

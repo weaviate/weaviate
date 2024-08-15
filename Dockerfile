@@ -24,7 +24,7 @@ COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
       -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"' \
-      -X github.com/weaviate/weaviate/usecases/config.DockerImageTag='"$DOCKER_IMAGE_TAG"'' \
+      -X github.com/weaviate/weaviate/usecases/config.ImageTag='"$DOCKER_IMAGE_TAG"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################
