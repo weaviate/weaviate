@@ -105,6 +105,7 @@ type ShardLike interface {
 	Queue() *IndexQueue
 	Queues() map[string]*IndexQueue
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targets []string) ([]float32, error)
+	PreloadQueue(targetVector string) error
 	Shutdown(context.Context) error // Shutdown the shard
 	preventShutdown() (release func(), err error)
 
@@ -260,6 +261,13 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 
 func (s *Shard) pathHashTree() string {
 	return path.Join(s.path(), "hashtree")
+}
+
+func (s *Shard) getVectorIndex(targetVector string) VectorIndex {
+	if targetVector != "" {
+		return s.vectorIndexes[targetVector]
+	}
+	return s.vectorIndex
 }
 
 func (s *Shard) uuidToIdLockPoolId(idBytes []byte) uint8 {
