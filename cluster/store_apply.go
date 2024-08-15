@@ -108,6 +108,8 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			st.reloadDBFromSchema()
 		}
 
+		st.lastAppliedIndex.Store(l.Index)
+
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
 				"log_type":      l.Type,
