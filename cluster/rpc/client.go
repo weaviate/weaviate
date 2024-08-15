@@ -197,8 +197,9 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 		if err := cl.leaderRpcConn.Close(); err != nil {
 			cl.logger.WithFields(
 				logrus.Fields{
-					"error":       err,
-					"leader_addr": leaderRaftAddr,
+					"error":                  err,
+					"closing_on_leader_addr": cl.leaderRaftAddr,
+					"new_leader_addr":        leaderRaftAddr,
 				},
 			).Warn("error closing the leader gRPC connection")
 		}
