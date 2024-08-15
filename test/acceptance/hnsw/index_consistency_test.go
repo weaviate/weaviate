@@ -263,7 +263,6 @@ func graphConsistencyNonReplicated(t *testing.T) {
 	grpcClient, _ := newGRPCClient(t, compose.GetWeaviate().GetEndpoint(docker.GRPC))
 
 	className := "NonReplicatedClass"
-	defer helper.DeleteClass(t, className)
 
 	t.Run("Create class", func(t *testing.T) {
 		helper.CreateClass(t, &models.Class{
@@ -279,11 +278,11 @@ func graphConsistencyNonReplicated(t *testing.T) {
 	})
 
 	t.Run("Perform concurrent operations", func(t *testing.T) {
-		runOps(t, ctx, grpcClient, className)
+		runOps(t, context.Background(), grpcClient, className)
 	})
 
 	t.Run("Wait for any async indexing to finish", func(t *testing.T) {
-		ctx, cancel = context.WithTimeout(ctx, 1*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 		defer cancel()
 		helper.WaitForAsyncIndexing(t, ctx)
 		fmt.Println("Async indexing finished")
@@ -314,7 +313,6 @@ func graphConsistencyReplicated(t *testing.T) {
 	grpcClient, _ := newGRPCClient(t, compose.GetWeaviate().GetEndpoint(docker.GRPC))
 
 	className := "ReplicatedClass"
-	defer helper.DeleteClass(t, className)
 
 	t.Run("Create class", func(t *testing.T) {
 		helper.CreateClass(t, &models.Class{
@@ -330,11 +328,11 @@ func graphConsistencyReplicated(t *testing.T) {
 	})
 
 	t.Run("Perform concurrent operations", func(t *testing.T) {
-		runOps(t, ctx, grpcClient, className)
+		runOps(t, context.Background(), grpcClient, className)
 	})
 
 	t.Run("Wait for any async indexing to finish", func(t *testing.T) {
-		ctx, cancel = context.WithTimeout(ctx, 1*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 		defer cancel()
 		helper.WaitForAsyncIndexing(t, ctx)
 		fmt.Println("Async indexing finished")
