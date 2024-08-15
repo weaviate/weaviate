@@ -109,17 +109,17 @@ func patchMany(t *testing.T, ctx context.Context, grpcClient pb.WeaviateClient, 
 				Limit:       howMany,
 				Metadata:    &pb.MetadataRequest{Uuid: true},
 				Uses_123Api: true,
-				Filters: &pb.Filters{
-					Operator: pb.Filters_OPERATOR_LESS_THAN_EQUAL,
-					TestValue: &pb.Filters_ValueText{
-						ValueText: time.Now().UTC().Add(-time.Second * 10).Format(time.RFC3339), // helps to avoid patching objects that are being indexed
-					},
-					Target: &pb.FilterTarget{
-						Target: &pb.FilterTarget_Property{
-							Property: "_creationTimeUnix",
-						},
-					},
-				},
+				// Filters: &pb.Filters{
+				// 	Operator: pb.Filters_OPERATOR_LESS_THAN_EQUAL,
+				// 	TestValue: &pb.Filters_ValueText{
+				// 		ValueText: time.Now().UTC().Add(-time.Second * 10).Format(time.RFC3339), // helps to avoid patching objects that are being indexed
+				// 	},
+				// 	Target: &pb.FilterTarget{
+				// 		Target: &pb.FilterTarget_Property{
+				// 			Property: "_creationTimeUnix",
+				// 		},
+				// 	},
+				// },
 			})
 			require.NoError(t, err)
 			if len(reply.Results) == 0 {
@@ -197,21 +197,21 @@ func runOps(t *testing.T, ctx context.Context, client pb.WeaviateClient, classNa
 	wg.Add(1)
 	go func(ctx context.Context) {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		batchInsert(t, ctx, client, className, 1000)
 	}(ctx)
 	wg.Add(1)
 	go func(ctx context.Context) {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		patchMany(t, ctx, client, className, 100)
 	}(ctx)
 	wg.Add(1)
 	go func(ctx context.Context) {
 		defer wg.Done()
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel()
 		deleteMany(t, ctx, client, className)
 	}(ctx)
