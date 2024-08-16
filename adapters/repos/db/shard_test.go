@@ -17,6 +17,7 @@ package db
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -25,14 +26,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -227,6 +231,7 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 
 func TestShard_DebugResetVectorIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
 
 	ctx := testCtx()
 	className := "TestClass"
@@ -287,6 +292,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
 
 	ctx := testCtx()
 	className := "TestClass"
@@ -315,6 +321,9 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject(className)
+		obj.Vectors = map[string][]float32{
+			"foo": {1, 2, 3},
+		}
 		objs = append(objs, obj)
 	}
 
@@ -355,4 +364,158 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+func TestShard_RepairIndex(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_STALE_TIMEOUT", "200ms")
+
+	tests := []struct {
+		name           string
+		targetVector   string
+		cfg            schema.VectorIndexConfig
+		idxOpt         func(*Index)
+		getQueue       func(ShardLike) *IndexQueue
+		getVectorIndex func(ShardLike) VectorIndex
+	}{
+		{
+			"hnsw",
+			"",
+			hnsw.UserConfig{},
+			nil,
+			func(s ShardLike) *IndexQueue {
+				return s.Queue()
+			},
+			func(s ShardLike) VectorIndex {
+				return s.VectorIndex()
+			},
+		},
+		{
+			"hnsw with target vectors",
+			"foo",
+			hnsw.UserConfig{},
+			func(i *Index) {
+				i.vectorIndexUserConfigs = make(map[string]schema.VectorIndexConfig)
+				i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
+			},
+			func(s ShardLike) *IndexQueue {
+				return s.Queues()["foo"]
+			},
+			func(s ShardLike) VectorIndex {
+				return s.VectorIndexes()["foo"]
+			},
+		},
+		{
+			"flat",
+			"",
+			flat.NewDefaultUserConfig(),
+			nil,
+			func(s ShardLike) *IndexQueue {
+				return s.Queue()
+			},
+			func(s ShardLike) VectorIndex {
+				return s.VectorIndex()
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			className := "TestClass"
+			var opts []func(*Index)
+			if test.idxOpt != nil {
+				opts = append(opts, test.idxOpt)
+			}
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true /* withCheckpoints */, opts...)
+
+			amount := 1000
+
+			defer func(path string) {
+				err := os.RemoveAll(path)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}(shd.Index().Config.RootPath)
+
+			var objs []*storobj.Object
+			for i := 0; i < amount; i++ {
+				obj := testObject(className)
+				if test.targetVector != "" {
+					obj.Vectors = map[string][]float32{
+						test.targetVector: {1, 2, 3},
+					}
+				}
+				objs = append(objs, obj)
+			}
+
+			errs := shd.PutObjectBatch(ctx, objs)
+			for _, err := range errs {
+				require.Nil(t, err)
+			}
+
+			vidx := test.getVectorIndex(shd)
+			q := test.getQueue(shd)
+
+			// wait for the queue to be empty
+			for i := 0; i < 20; i++ {
+				time.Sleep(500 * time.Millisecond)
+				if q.Size() == 0 {
+					break
+				}
+			}
+
+			// remove some objects from the vector index
+			for i := 400; i < 600; i++ {
+				err := vidx.Delete(uint64(i))
+				require.NoError(t, err)
+			}
+
+			// remove some objects from the store
+			bucket := shd.Store().Bucket(helpers.ObjectsBucketLSM)
+			buf := make([]byte, 8)
+			for i := 100; i < 300; i++ {
+				binary.LittleEndian.PutUint64(buf, uint64(i))
+				v, err := bucket.GetBySecondary(0, buf)
+				require.NoError(t, err)
+				obj, err := storobj.FromBinary(v)
+				require.NoError(t, err)
+				idBytes, err := uuid.MustParse(obj.ID().String()).MarshalBinary()
+				require.NoError(t, err)
+				err = bucket.Delete(idBytes)
+				require.NoError(t, err)
+			}
+
+			err := shd.RepairIndex(ctx, test.targetVector)
+			require.NoError(t, err)
+
+			// wait for the queue to be empty
+			for i := 0; i < 20; i++ {
+				time.Sleep(500 * time.Millisecond)
+				if q.Size() == 0 {
+					break
+				}
+			}
+
+			// wait for the worker to start the indexing
+			time.Sleep(500 * time.Millisecond)
+
+			// make sure all objects except >= 100 < 300 are back in the vector index
+			for i := 0; i < amount; i++ {
+				if i >= 100 && i < 300 {
+					if vidx.ContainsNode(uint64(i)) {
+						t.Fatalf("node %d should not be in the vector index", i)
+					}
+					continue
+				}
+
+				if !vidx.ContainsNode(uint64(i)) {
+					t.Fatalf("node %d should be in the vector index", i)
+				}
+			}
+
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		})
+	}
 }
