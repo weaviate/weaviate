@@ -121,7 +121,6 @@ jobs:
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
           "--only-module-ref2vec-centroid",
-          "--only-module-reranker-transformers",
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
           "--only-module-text2vec-ollama",
@@ -151,7 +150,8 @@ jobs:
         test: [
           "--only-module-qna-transformers",
           "--only-module-sum-transformers",
-          "--only-module-multi2vec-clip"
+          "--only-module-multi2vec-clip",
+          "--only-module-reranker-transformers"
         ]
     steps:
       - uses: actions/checkout@v4
