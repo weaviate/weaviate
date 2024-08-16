@@ -2301,3 +2301,21 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 
 	return nil
 }
+
+func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector string) error {
+	shard := i.GetShard(shardName)
+	if shard == nil {
+		return errors.New("shard not found")
+	}
+
+	// Repair in the background
+	enterrors.GoWrapper(func() {
+		err := shard.RepairIndex(context.Background(), targetVector)
+		if err != nil {
+			i.logger.WithField("shard", shardName).WithError(err).Error("failed to repair vector index")
+			return
+		}
+	}, i.logger)
+
+	return nil
+}

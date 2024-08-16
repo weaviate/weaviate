@@ -35,7 +35,7 @@ func TestCheckpoint(t *testing.T) {
 	})
 
 	t.Run("set and get", func(t *testing.T) {
-		err := c.Update("shard1", "a", 123)
+		err := c.UpdateIfNewer("shard1", "a", 123)
 		require.NoError(t, err)
 
 		v, ok, err := c.Get("shard1", "a")
@@ -45,7 +45,7 @@ func TestCheckpoint(t *testing.T) {
 	})
 
 	t.Run("set and get: no target", func(t *testing.T) {
-		err := c.Update("shard1", "", 123)
+		err := c.UpdateIfNewer("shard1", "", 123)
 		require.NoError(t, err)
 
 		v, ok, err := c.Get("shard1", "")
@@ -55,7 +55,7 @@ func TestCheckpoint(t *testing.T) {
 	})
 
 	t.Run("overwrite", func(t *testing.T) {
-		err := c.Update("shard1", "a", 456)
+		err := c.UpdateIfNewer("shard1", "a", 456)
 		require.NoError(t, err)
 
 		v, ok, err := c.Get("shard1", "a")
@@ -85,7 +85,7 @@ func TestCheckpoint(t *testing.T) {
 		_, _, err = c.Get("shard1", "a")
 		require.Error(t, err)
 
-		err = c.Update("shard1", "a", 123)
+		err = c.UpdateIfNewer("shard1", "a", 123)
 		require.Error(t, err)
 
 		err = c.Delete("shard1", "a")
