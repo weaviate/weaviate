@@ -301,7 +301,7 @@ jobs:
         with:
           go-version: '1.21'
           cache: true
-      - name: Acceptance tests Large (modules)
+      - name: Acceptance tests Large
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
