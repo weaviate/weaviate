@@ -549,33 +549,6 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, erro
 	return h.distancerProvider.SingleDist(vecA, vecB)
 }
 
-func (h *hnsw) Stats() {
-	fmt.Printf("levels: %d\n", h.currentMaximumLayer)
-
-	perLevelCount := map[int]uint{}
-
-	for _, node := range h.nodes {
-		if node == nil {
-			continue
-		}
-		l := node.level
-		if l == 0 && len(node.connections) == 0 {
-			// filter out allocated space without nodes
-			continue
-		}
-		c, ok := perLevelCount[l]
-		if !ok {
-			perLevelCount[l] = 0
-		}
-
-		perLevelCount[l] = c + 1
-	}
-
-	for level, count := range perLevelCount {
-		fmt.Printf("unique count on level %d: %d\n", level, count)
-	}
-}
-
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
@@ -745,4 +718,121 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 func IsHNSWIndex(index any) bool {
 	_, ok := index.(*hnsw)
 	return ok
+}
+
+func AsHNSWIndex(index any) Index {
+	h, _ := index.(*hnsw)
+	return h
+}
+
+// This interface exposes public methods of the HNSW index
+// that are not part of the VectorIndex interface.
+// It is a workaround to avoid circular dependencies.
+type Index interface {
+	CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) error
+}
+
+type nodeLevel struct {
+	nodeId uint64
+	level  int
+}
+
+func (h *hnsw) calculateUnreachablePoints() []uint64 {
+	h.RLock()
+	defer h.RUnlock()
+
+	visitedPairs := make(map[nodeLevel]bool)
+	candidateList := []nodeLevel{{h.entryPointID, h.currentMaximumLayer}}
+
+	for len(candidateList) > 0 {
+		currentNode := candidateList[len(candidateList)-1]
+		candidateList = candidateList[:len(candidateList)-1]
+		if !visitedPairs[currentNode] {
+			visitedPairs[currentNode] = true
+			h.shardedNodeLocks.RLock(currentNode.nodeId)
+			node := h.nodes[currentNode.nodeId]
+			node.Lock()
+			neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+			node.Unlock()
+			h.shardedNodeLocks.RUnlock(currentNode.nodeId)
+			candidateList = append(candidateList, neighbors...)
+		}
+	}
+
+	visitedNodes := make(map[uint64]bool, len(visitedPairs))
+	for k, v := range visitedPairs {
+		if v {
+			visitedNodes[k.nodeId] = true
+		}
+	}
+
+	unvisitedNodes := []uint64{}
+	for i := 0; i < len(h.nodes); i++ {
+		var id uint64
+		h.shardedNodeLocks.RLock(uint64(i))
+		if h.nodes[i] != nil {
+			id = h.nodes[i].id
+		}
+		h.shardedNodeLocks.RUnlock(uint64(i))
+		if id == 0 {
+			continue
+		}
+		if !visitedNodes[uint64(i)] {
+			unvisitedNodes = append(unvisitedNodes, id)
+		}
+
+	}
+	return unvisitedNodes
+}
+
+type HnswStats struct {
+	Dimensions         int32        `json:"dimensions"`
+	EntryPointID       uint64       `json:"entryPointID"`
+	DistributionLayers map[int]uint `json:"distributionLayers"`
+	UnreachablePoints  []uint64     `json:"unreachablePoints"`
+	NumTombstones      int          `json:"numTombstones"`
+	CacheSize          int32        `json:"cacheSize"`
+	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
+}
+
+func (s *HnswStats) IndexType() common.IndexType {
+	return common.IndexTypeHNSW
+}
+
+func (h *hnsw) Stats() (common.IndexStats, error) {
+	h.RLock()
+	defer h.RUnlock()
+	distributionLayers := map[int]uint{}
+
+	for _, node := range h.nodes {
+		func() {
+			if node == nil {
+				return
+			}
+			node.Lock()
+			defer node.Unlock()
+			l := node.level
+			if l == 0 && len(node.connections) == 0 {
+				return
+			}
+			c, ok := distributionLayers[l]
+			if !ok {
+				distributionLayers[l] = 0
+			}
+
+			distributionLayers[l] = c + 1
+		}()
+	}
+
+	stats := HnswStats{
+		Dimensions:         h.dims,
+		EntryPointID:       h.entryPointID,
+		DistributionLayers: distributionLayers,
+		UnreachablePoints:  h.calculateUnreachablePoints(),
+		NumTombstones:      len(h.tombstones),
+		CacheSize:          h.cache.Len(),
+		PQConfiguration:    h.pqConfig,
+	}
+
+	return &stats, nil
 }
