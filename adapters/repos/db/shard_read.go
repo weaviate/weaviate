@@ -271,6 +271,9 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 		}
 		return queue, nil
 	}
+	if targetVector != "" {
+		return nil, fmt.Errorf("index queue: target vector not found: %q", targetVector)
+	}
 	return s.queue, nil
 }
 
