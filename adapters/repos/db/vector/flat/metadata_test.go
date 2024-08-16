@@ -55,6 +55,13 @@ func Test_FlatDimensions(t *testing.T) {
 		require.ErrorContains(t, err, "insert called with a vector of the wrong size")
 	})
 
+	t.Run("backup metadata file exists", func(t *testing.T) {
+		files, err := index.ListFiles(context.Background(), rootPath)
+		require.Nil(t, err)
+		require.Len(t, files, 1)
+		require.Equal(t, "meta.db", files[0])
+	})
+
 	t.Run("can restore dimensions", func(t *testing.T) {
 		index.Shutdown(context.Background())
 		index = nil

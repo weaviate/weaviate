@@ -720,11 +720,23 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 }
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	var files []string
+
 	if index.metadata != nil {
-		return []string{filepath.Join(index.rootPath, index.getMetadataFile())}, nil
+		metadataFile := index.getMetadataFile()
+		fullPath := filepath.Join(index.rootPath, metadataFile)
+
+		if _, err := os.Stat(fullPath); err == nil {
+			relPath, err := filepath.Rel(basePath, fullPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get relative path: %w", err)
+			}
+			files = append(files, relPath)
+		}
+		// If the file doesn't exist, we simply don't add it to the list
 	}
-	// Shard::ListBackupFiles will take care of handling store's buckets
-	return []string{}, nil
+
+	return files, nil
 }
 
 func (i *flat) ValidateBeforeInsert(vector []float32) error {
