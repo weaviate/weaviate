@@ -125,6 +125,11 @@ type Config struct {
 	// SentryEnabled configures the sentry integration to add internal middlewares to rpc client/server to set spans &
 	// capture traces
 	SentryEnabled bool
+
+	// ForceOneNodeRecovery will force the single node recovery routine to run. This is useful if the cluster has
+	// committed wrong peer configuration entry that makes it unable to obtain a quorum to start.
+	// WARNING: This should be run on *actual* one node cluster only.
+	ForceOneNodeRecovery bool
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -235,8 +240,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
-	if st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2 {
-		if err := st.recoverSingleNode(); err != nil {
+	if st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2) {
+		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
 		}
 	}
@@ -661,14 +666,14 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 // in general this is an extremely unsafe operation and that's why it's made to be
 // used in a single cluster node.
 // for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
-func (st *Store) recoverSingleNode() error {
-	if st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1 {
+func (st *Store) recoverSingleNode(force bool) error {
+	if !force && (st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1) {
 		return fmt.Errorf("bootstrap expect %v, candidates %v, "+
 			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
 	}
 	servers := st.raft.GetConfiguration().Configuration().Servers
 	// nothing to do here, wasn't a single node
-	if len(servers) != 1 {
+	if !force && len(servers) != 1 {
 		st.log.WithFields(logrus.Fields{
 			"servers_from_previous_configuration": servers,
 			"candidates":                          st.candidates,
@@ -684,7 +689,7 @@ func (st *Store) recoverSingleNode() error {
 	}
 
 	// same node nothing to do here
-	if exNode.ID == newNode.ID && exNode.Address == newNode.Address {
+	if !force && (exNode.ID == newNode.ID && exNode.Address == newNode.Address) {
 		return nil
 	}
 
