@@ -476,16 +476,19 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	}
 
 	keyBuf := bytes.NewBuffer(nil)
-	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
+	if err != nil {
+		return "", fmt.Errorf("write doc id to buffer: %w", err)
+	}
 	docIDBytes := keyBuf.Bytes()
 	res, err := bucket.GetBySecondary(0, docIDBytes)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("get object by doc id: %w", err)
 	}
 
 	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("parse and extract property: %w", err)
 	}
 
 	return strfmt.UUID(prop[0]), nil
