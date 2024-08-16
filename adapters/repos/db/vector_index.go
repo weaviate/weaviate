@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -48,4 +49,5 @@ type VectorIndex interface {
 	// If the callback returns false, the iteration will stop.
 	Iterate(fn func(id uint64) bool)
 	DistancerProvider() distancer.Provider
+	Stats() (common.IndexStats, error)
 }
