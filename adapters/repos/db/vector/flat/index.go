@@ -782,3 +782,13 @@ func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
 	}
 	return nil
 }
+
+type FlatStats struct{}
+
+func (s *FlatStats) IndexType() common.IndexType {
+	return common.IndexTypeFlat
+}
+
+func (index *flat) Stats() (common.IndexStats, error) {
+	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
+}

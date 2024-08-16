@@ -177,6 +177,9 @@ func NewIndexQueue(
 	if opts.StaleTimeout == 0 {
 		opts.StaleTimeout = 5 * time.Second
 	}
+	if v, _ := time.ParseDuration(os.Getenv("ASYNC_STALE_TIMEOUT")); v > 0 {
+		opts.StaleTimeout = v
+	}
 
 	if opts.MaxChunksPerTick == 0 {
 		opts.MaxChunksPerTick = runtime.GOMAXPROCS(0) - 1
@@ -474,6 +477,8 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 			}
 		}
 
+		q.queue.ResetDeleted(deleted...)
+
 		if len(ids) == 0 {
 			q.Logger.Debug("all vectors in the chunk are deleted. skipping")
 			continue
@@ -494,7 +499,6 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 			vectors: vectors,
 			done:    q.processingJobs.Decr,
 		}:
-			q.queue.ResetDeleted(deleted...)
 		}
 	}
 
@@ -875,9 +879,9 @@ func (q *vectorQueue) persistCheckpoint(minID uint64) {
 		checkpoint = 0
 	}
 
-	err := q.IndexQueue.Checkpoints.Update(q.IndexQueue.shardID, q.IndexQueue.targetVector, checkpoint)
+	err := q.IndexQueue.Checkpoints.UpdateIfNewer(q.IndexQueue.shardID, q.IndexQueue.targetVector, checkpoint)
 	if err != nil {
-		q.IndexQueue.Logger.WithError(err).Error("update checkpoint")
+		q.IndexQueue.Logger.WithError(err).Warn("checkpoint not updated")
 	}
 }
 

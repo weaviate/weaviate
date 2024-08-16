@@ -162,6 +162,7 @@ type ShardLike interface {
 
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
+	RepairIndex(ctx context.Context, targetVector string) error
 }
 
 // Shard is the smallest completely-contained index unit. A shard manages
