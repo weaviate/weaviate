@@ -410,6 +410,11 @@ func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
 	return l.shard.Queues()
 }
 
+func (l *LazyLoadShard) PreloadQueue(targetVector string) error {
+	l.mustLoad()
+	return l.shard.PreloadQueue(targetVector)
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()

@@ -575,11 +575,11 @@ func indexID(class schema.ClassName) string {
 	return strings.ToLower(string(class))
 }
 
-func (i *Index) determineObjectShard(id strfmt.UUID, tenant string) (string, error) {
-	return i.determineObjectShardByStatus(id, tenant, nil)
+func (i *Index) determineObjectShard(ctx context.Context, id strfmt.UUID, tenant string) (string, error) {
+	return i.determineObjectShardByStatus(ctx, id, tenant, nil)
 }
 
-func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shardsStatus map[string]string) (string, error) {
+func (i *Index) determineObjectShardByStatus(ctx context.Context, id strfmt.UUID, tenant string, shardsStatus map[string]string) (string, error) {
 	if tenant == "" {
 		uuid, err := uuid.Parse(id.String())
 		if err != nil {
@@ -595,7 +595,7 @@ func (i *Index) determineObjectShardByStatus(id strfmt.UUID, tenant string, shar
 
 	var err error
 	if len(shardsStatus) == 0 {
-		shardsStatus, err = i.getSchema.TenantsShards(i.Config.ClassName.String(), tenant)
+		shardsStatus, err = i.getSchema.TenantsShards(ctx, i.Config.ClassName.String(), tenant)
 		if err != nil {
 			return "", err
 		}
@@ -627,7 +627,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 			object.Class(), i.Config.ClassName)
 	}
 
-	shardName, err := i.determineObjectShard(object.ID(), object.Object.Tenant)
+	shardName, err := i.determineObjectShard(ctx, object.ID(), object.Object.Tenant)
 	if err != nil {
 		return objects.NewErrInvalidUserInput("determine shard: %v", err)
 	}
@@ -807,7 +807,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	}
 
 	if len(tenants) > 0 {
-		tenantsStatus, err = i.getSchema.TenantsShards(i.Config.ClassName.String(), tenants...)
+		tenantsStatus, err = i.getSchema.TenantsShards(ctx, i.Config.ClassName.String(), tenants...)
 		if err != nil {
 			return []error{err}
 		}
@@ -818,7 +818,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			out[pos] = err
 			continue
 		}
-		shardName, err := i.determineObjectShardByStatus(obj.ID(), obj.Object.Tenant, tenantsStatus)
+		shardName, err := i.determineObjectShardByStatus(ctx, obj.ID(), obj.Object.Tenant, tenantsStatus)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -938,7 +938,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 			out[pos] = err
 			continue
 		}
-		shardName, err := i.determineObjectShard(ref.From.TargetID, ref.Tenant)
+		shardName, err := i.determineObjectShard(ctx, ref.From.TargetID, ref.Tenant)
 		if err != nil {
 			out[pos] = err
 			continue
@@ -1001,7 +1001,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		return nil, err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenant)
+	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
 		switch err.(type) {
 		case objects.ErrMultiTenancy:
@@ -1092,7 +1092,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 
 	byShard := map[string]idsAndPos{}
 	for pos, id := range query {
-		shardName, err := i.determineObjectShard(strfmt.UUID(id.ID), tenant)
+		shardName, err := i.determineObjectShard(ctx, strfmt.UUID(id.ID), tenant)
 		if err != nil {
 			return nil, objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
@@ -1161,7 +1161,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		return false, err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenant)
+	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
 		switch err.(type) {
 		case objects.ErrMultiTenancy:
@@ -1226,7 +1226,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		return nil, nil, err
 	}
 
-	shardNames, err := i.targetShardNames(tenant)
+	shardNames, err := i.targetShardNames(ctx, tenant)
 	if err != nil || len(shardNames) == 0 {
 		return nil, nil, err
 	}
@@ -1484,7 +1484,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 }
 
 // to be called after validating multi-tenancy
-func (i *Index) targetShardNames(tenant string) ([]string, error) {
+func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, error) {
 	className := i.Config.ClassName.String()
 	if !i.partitioningEnabled {
 		return i.getSchema.CopyShardingState(className).AllPhysicalShards(), nil
@@ -1494,7 +1494,7 @@ func (i *Index) targetShardNames(tenant string) ([]string, error) {
 		return []string{}, objects.NewErrMultiTenancy(fmt.Errorf("tenant name is empty"))
 	}
 
-	tenantShards, err := i.getSchema.OptimisticTenantStatus(className, tenant)
+	tenantShards, err := i.getSchema.OptimisticTenantStatus(ctx, className, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -1517,7 +1517,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVector []float32,
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
-	shardNames, err := i.targetShardNames(tenant)
+	shardNames, err := i.targetShardNames(ctx, tenant)
 	if err != nil || len(shardNames) == 0 {
 		return nil, nil, err
 	}
@@ -1718,7 +1718,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		return err
 	}
 
-	shardName, err := i.determineObjectShard(id, tenant)
+	shardName, err := i.determineObjectShard(ctx, id, tenant)
 	if err != nil {
 		return objects.NewErrInvalidUserInput("determine shard: %v", err)
 	}
@@ -1896,7 +1896,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		return err
 	}
 
-	shardName, err := i.determineObjectShard(merge.ID, tenant)
+	shardName, err := i.determineObjectShard(ctx, merge.ID, tenant)
 	if err != nil {
 		return objects.NewErrInvalidUserInput("determine shard: %v", err)
 	}
@@ -1958,7 +1958,7 @@ func (i *Index) aggregate(ctx context.Context,
 		return nil, err
 	}
 
-	shardNames, err := i.targetShardNames(params.Tenant)
+	shardNames, err := i.targetShardNames(ctx, params.Tenant)
 	if err != nil || len(shardNames) == 0 {
 		return nil, err
 	}
@@ -2306,7 +2306,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 
 	className := i.Config.ClassName.String()
 
-	shardNames, err := i.targetShardNames(tenant)
+	shardNames, err := i.targetShardNames(ctx, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -2543,7 +2543,7 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 
 	// Reindex in the background
 	enterrors.GoWrapper(func() {
-		err = q.PreloadShard(shard)
+		err = shard.PreloadQueue(targetVector)
 		if err != nil {
 			i.logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
 			return

@@ -135,7 +135,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, 0, fmt.Errorf("init sharding state: %w", err)
 	}
-	version, err := h.schemaManager.AddClass(cls, shardState)
+	version, err := h.schemaManager.AddClass(ctx, cls, shardState)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -184,7 +184,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 	shardingState.MigrateFromOldFormat()
 	shardingState.ApplyNodeMapping(m)
-	_, err = h.schemaManager.RestoreClass(class, &shardingState)
+	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
 	return err
 }
 
@@ -195,7 +195,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 		return err
 	}
 
-	_, err = h.schemaManager.DeleteClass(class)
+	_, err = h.schemaManager.DeleteClass(ctx, class)
 	return err
 }
 
@@ -245,7 +245,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	_, err = h.schemaManager.UpdateClass(updated, shardingState)
+	_, err = h.schemaManager.UpdateClass(ctx, updated, shardingState)
 	return err
 }
 
