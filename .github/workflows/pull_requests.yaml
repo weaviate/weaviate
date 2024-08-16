@@ -121,7 +121,6 @@ jobs:
           "--only-module-img2vec-neural",
           "--only-module-many-modules",
           "--only-module-ref2vec-centroid",
-          "--only-module-reranker-transformers",
           "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
           "--only-module-text2vec-ollama",
@@ -151,7 +150,8 @@ jobs:
         test: [
           "--only-module-qna-transformers",
           "--only-module-sum-transformers",
-          "--only-module-multi2vec-clip"
+          "--only-module-multi2vec-clip",
+          "--only-module-reranker-transformers"
         ]
     steps:
       - uses: actions/checkout@v4
@@ -278,7 +278,6 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests
-        uses: nick-fields/retry@v3
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
@@ -302,8 +301,7 @@ jobs:
         with:
           go-version: '1.21'
           cache: true
-      - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v3
+      - name: Acceptance tests Large
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15

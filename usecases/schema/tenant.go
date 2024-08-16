@@ -62,7 +62,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		})
 	}
 
-	return h.schemaManager.AddTenants(class, &request)
+	return h.schemaManager.AddTenants(ctx, class, &request)
 }
 
 func validateTenants(tenants []*models.Tenant) (validated []*models.Tenant, err error) {
@@ -141,7 +141,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	for i, tenant := range tenants {
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
-	_, err = h.schemaManager.UpdateTenants(class, &req)
+	_, err = h.schemaManager.UpdateTenants(ctx, class, &req)
 	return err
 }
 
@@ -162,7 +162,7 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	_, err := h.schemaManager.DeleteTenants(class, &req)
+	_, err := h.schemaManager.DeleteTenants(ctx, class, &req)
 	return err
 }
 
