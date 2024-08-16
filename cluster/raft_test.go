@@ -53,7 +53,7 @@ func TestRaftEndpoints(t *testing.T) {
 	srv := NewRaft(m.store, nil)
 
 	// LeaderNotFound
-	_, err := srv.Execute(&command.ApplyRequest{})
+	_, err := srv.Execute(ctx, &command.ApplyRequest{})
 	assert.ErrorIs(t, err, types.ErrLeaderNotFound)
 	assert.ErrorIs(t, srv.Join(ctx, m.store.cfg.NodeID, addr, true), types.ErrLeaderNotFound)
 	assert.ErrorIs(t, srv.Remove(ctx, m.store.cfg.NodeID), types.ErrLeaderNotFound)
@@ -84,7 +84,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Equal(t, schemaReader.Len(), 0)
 
 	// AddClass
-	_, err = srv.AddClass(nil, nil)
+	_, err = srv.AddClass(ctx, nil, nil)
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
 	assert.Equal(t, schemaReader.ClassEqual("C"), "")
 
@@ -93,17 +93,17 @@ func TestRaftEndpoints(t *testing.T) {
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 	}
 	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
-	version0, err := srv.AddClass(cls, ss)
+	version0, err := srv.AddClass(ctx, cls, ss)
 	assert.Nil(t, err)
 	assert.Equal(t, schemaReader.ClassEqual("C"), "C")
 
 	// Add same class again
-	_, err = srv.AddClass(cls, ss)
+	_, err = srv.AddClass(ctx, cls, ss)
 	assert.Error(t, err)
 	assert.Equal(t, "class name C already exists", err.Error())
 
 	// Add similar class
-	_, err = srv.AddClass(&models.Class{Class: "c"}, ss)
+	_, err = srv.AddClass(ctx, &models.Class{Class: "c"}, ss)
 	assert.ErrorIs(t, err, schema.ErrClassExists)
 
 	// QueryReadOnlyClass
@@ -155,14 +155,14 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.NotNil(t, err)
 
 	// QueryShardOwner
-	srv.UpdateClass(cls, &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}})
+	srv.UpdateClass(ctx, cls, &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}})
 	getShardOwner, _, err := srv.QueryShardOwner(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 
 	// QueryShardingState
 	shardingState := &sharding.State{Physical: map[string]sharding.Physical{"T0": {BelongsToNodes: []string{"N0"}}}}
-	srv.UpdateClass(cls, shardingState)
+	srv.UpdateClass(ctx, cls, shardingState)
 	getShardingState, _, err := srv.QueryShardingState(cls.Class)
 	assert.Nil(t, err)
 	assert.Equal(t, shardingState, getShardingState)
@@ -174,12 +174,12 @@ func TestRaftEndpoints(t *testing.T) {
 		ReplicationFactor: 1,
 		Tenants:           1,
 	}
-	_, err = srv.UpdateClass(nil, nil)
+	_, err = srv.UpdateClass(ctx, nil, nil)
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 	cls.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	ss.Physical = map[string]sharding.Physical{"T0": {Name: "T0"}}
-	version, err := srv.UpdateClass(cls, nil)
+	version, err := srv.UpdateClass(ctx, cls, nil)
 	info.ClassVersion = version
 	info.ShardVersion = version0
 	assert.Nil(t, err)
@@ -188,44 +188,44 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastIndex()+1), types.ErrDeadlineExceeded)
 
 	// DeleteClass
-	_, err = srv.DeleteClass("X")
+	_, err = srv.DeleteClass(ctx, "X")
 	assert.Nil(t, err)
-	_, err = srv.DeleteClass("C")
+	_, err = srv.DeleteClass(ctx, "C")
 	assert.Nil(t, err)
 	assert.Equal(t, schema.ClassInfo{}, schemaReader.ClassInfo("C"))
 
 	// RestoreClass
-	_, err = srv.RestoreClass(nil, nil)
+	_, err = srv.RestoreClass(ctx, nil, nil)
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	version, err = srv.RestoreClass(cls, ss)
+	version, err = srv.RestoreClass(ctx, cls, ss)
 	assert.Nil(t, err)
 	info.ClassVersion = version
 	info.ShardVersion = version
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
 
 	// AddProperty
-	_, err = srv.AddProperty("C", nil)
+	_, err = srv.AddProperty(ctx, "C", nil)
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	_, err = srv.AddProperty("", &models.Property{Name: "P1"})
+	_, err = srv.AddProperty(ctx, "", &models.Property{Name: "P1"})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	version, err = srv.AddProperty("C", &models.Property{Name: "P1"})
+	version, err = srv.AddProperty(ctx, "C", &models.Property{Name: "P1"})
 	assert.Nil(t, err)
 	info.ClassVersion = version
 	info.Properties = 1
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
 
 	// UpdateStatus
-	_, err = srv.UpdateShardStatus("", "A", "ACTIVE")
+	_, err = srv.UpdateShardStatus(ctx, "", "A", "ACTIVE")
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	_, err = srv.UpdateShardStatus("C", "", "ACTIVE")
+	_, err = srv.UpdateShardStatus(ctx, "C", "", "ACTIVE")
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	_, err = srv.UpdateShardStatus("C", "A", "ACTIVE")
+	_, err = srv.UpdateShardStatus(ctx, "C", "A", "ACTIVE")
 	assert.Nil(t, err)
 
 	// AddTenants
-	_, err = srv.AddTenants("", &command.AddTenantsRequest{})
+	_, err = srv.AddTenants(ctx, "", &command.AddTenantsRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	version, err = srv.AddTenants("C", &command.AddTenantsRequest{
+	version, err = srv.AddTenants(ctx, "C", &command.AddTenantsRequest{
 		ClusterNodes: []string{"Node-1"},
 		Tenants:      []*command.Tenant{nil, {Name: "T2", Status: "S1"}, nil},
 	})
@@ -235,15 +235,15 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
 
 	// UpdateTenants
-	_, err = srv.UpdateTenants("", &command.UpdateTenantsRequest{})
+	_, err = srv.UpdateTenants(ctx, "", &command.UpdateTenantsRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	_, err = srv.UpdateTenants("C", &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "T2", Status: "S2"}}})
+	_, err = srv.UpdateTenants(ctx, "C", &command.UpdateTenantsRequest{Tenants: []*command.Tenant{{Name: "T2", Status: "S2"}}})
 	assert.Nil(t, err)
 
 	// DeleteTenants
-	_, err = srv.DeleteTenants("", &command.DeleteTenantsRequest{})
+	_, err = srv.DeleteTenants(ctx, "", &command.DeleteTenantsRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
-	version, err = srv.DeleteTenants("C", &command.DeleteTenantsRequest{Tenants: []string{"T0", "Tn"}})
+	version, err = srv.DeleteTenants(ctx, "C", &command.DeleteTenantsRequest{Tenants: []string{"T0", "Tn"}})
 	assert.Nil(t, err)
 	info.Tenants -= 1
 	info.ShardVersion = version
