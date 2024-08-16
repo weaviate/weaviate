@@ -116,7 +116,7 @@ func (f *fakeSchemaManager) ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	return args.Get(0).(clusterSchema.ClassInfo)
 }
 
-func (f *fakeSchemaManager) Candidates() []string {
+func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
 }
 

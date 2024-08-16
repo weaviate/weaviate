@@ -26,39 +26,41 @@ func (s *Raft) LeaderWithID() (string, string) {
 	return string(addr), string(id)
 }
 
-// Candidates return the nodes in the raft configuration or memberlist
+// StorageCandidates return the nodes in the raft configuration or memberlist storage nodes
 // based on the current configuration of the cluster if it does have  MetadataVoterOnly nodes.
-func (s *Raft) Candidates() []string {
-	var candidates []string
-	memberlistCandidates := s.nodeSelector.StorageCandidates()
+func (s *Raft) StorageCandidates() []string {
 	if s.store.raft == nil {
 		// get candidates from memberlist
-		return memberlistCandidates
+		return s.nodeSelector.StorageCandidates()
 	}
 
-	servers := s.store.raft.GetConfiguration().Configuration().Servers
-	for _, server := range servers {
-		candidates = append(candidates, string(server.ID))
+	var (
+		existedRaftCandidates []string
+		raftStorageCandidates []string
+		memStorageCandidates  = s.nodeSelector.StorageCandidates()
+		nonStorageCandidates  = s.nodeSelector.NonStorageNodes()
+	)
+
+	for _, server := range s.store.raft.GetConfiguration().Configuration().Servers {
+		existedRaftCandidates = append(existedRaftCandidates, string(server.ID))
 	}
 
-	storageCandidates := []string{}
-	nonStorage := s.nodeSelector.NonStorageNodes()
-
-	for _, c := range candidates {
-		if slices.Contains(nonStorage, c) {
+	// filter non storage candidates
+	for _, c := range existedRaftCandidates {
+		if slices.Contains(nonStorageCandidates, c) {
 			continue
 		}
-		storageCandidates = append(storageCandidates, c)
+		raftStorageCandidates = append(raftStorageCandidates, c)
 	}
 
-	if len(memberlistCandidates) > len(storageCandidates) {
+	if len(memStorageCandidates) > len(raftStorageCandidates) {
 		// if memberlist has more nodes then use it instead
 		// this case could happen if we have MetaVoterOnly Nodes
 		// in the RAFT config
-		return memberlistCandidates
+		return memStorageCandidates
 	}
 
-	return s.nodeSelector.SortCandidates(storageCandidates)
+	return s.nodeSelector.SortCandidates(raftStorageCandidates)
 }
 
 func (s *Raft) Join(ctx context.Context, id, addr string, voter bool) error {

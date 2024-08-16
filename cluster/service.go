@@ -131,6 +131,6 @@ func (c *Service) LeaderWithID() (string, string) {
 	return c.Raft.LeaderWithID()
 }
 
-func (c *Service) Candidates() []string {
-	return c.Raft.Candidates()
+func (c *Service) StorageCandidates() []string {
+	return c.Raft.StorageCandidates()
 }

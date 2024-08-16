@@ -214,7 +214,7 @@ func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 	return nil, nil
 }
 
-func (f *fakeSchemaManager) Candidates() []string {
+func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
 }
 

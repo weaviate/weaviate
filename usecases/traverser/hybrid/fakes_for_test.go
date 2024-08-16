@@ -80,7 +80,7 @@ func (f *fakeSchemaManager) Statistics() map[string]any {
 	return nil
 }
 
-func (f *fakeSchemaManager) Candidates() []string {
+func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
 }
 

@@ -183,7 +183,7 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 	return nil
 }
 
-func (f *fakeSchemaManager) Candidates() []string {
+func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
 }
 
