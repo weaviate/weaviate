@@ -17,7 +17,7 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/weaviate/weaviate/usecases/configbase"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
@@ -43,10 +43,10 @@ var Tokenizations []string = []string{
 }
 
 func init() {
-	if configbase.Enabled(os.Getenv("USE_GSE")) || configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationGse)
 	}
-	if configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
 	}
 	init_gse()
@@ -54,7 +54,7 @@ func init() {
 }
 
 func init_gse() {
-	if configbase.Enabled(os.Getenv("USE_GSE")) || configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+	if entcfg.Enabled(os.Getenv("USE_GSE")) || entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 		UseGse = true
 	}
 	if UseGse {
@@ -197,7 +197,7 @@ func initializeKagomeTokenizerKr() error {
 	kagomeInitLock.Lock()
 	defer kagomeInitLock.Unlock()
 
-	if configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 		if tokenizers.Korean != nil {
 			return nil
 		}

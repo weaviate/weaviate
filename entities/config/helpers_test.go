@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package configbase
+package config
 
 import (
 	"testing"

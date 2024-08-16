@@ -299,8 +299,8 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 	if len(nodes) == 0 {
 		return nil, fmt.Errorf("list of storage nodes is empty")
 	}
-	if f, n := replFactor, len(nodes); f > int64(n) {
-		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+	if replFactor > int64(len(nodes)) {
+		return nil, fmt.Errorf("not enough replicas: found %d want %d", len(nodes), replFactor)
 	}
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
 	if err != nil {
@@ -310,7 +310,9 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 	partitions := make(map[string][]string, len(shards))
 	nodeSet := make(map[string]bool)
 	for _, name := range shards {
-		if existedShard, alreadyExists := s.Physical[name]; alreadyExists && existedShard.Status != models.TenantActivityStatusFROZEN {
+		if existedShard, exists := s.Physical[name]; exists &&
+			existedShard.Status != models.TenantActivityStatusFROZEN &&
+			existedShard.Status != models.TenantActivityStatusFREEZING {
 			continue
 		}
 		owners := make([]string, 0, replFactor)

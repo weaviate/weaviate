@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/schema/configvalidation"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -30,12 +32,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
@@ -462,9 +462,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			}
 
 			if params.AdditionalProperties.Certainty {
-				if err := e.checkCertaintyCompatibility(params); err != nil {
-					return nil, errors.Errorf("additional: %s", err)
+				targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
+				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+				if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+					return nil, errors.Errorf("additional: %s for class: %v", err, params.ClassName)
 				}
+
 				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
 			}
 
@@ -744,24 +747,7 @@ func (e *Explorer) GetSchema() schema.Schema {
 
 func (e *Explorer) GetClassByName(className string) *models.Class {
 	s := e.GetSchema()
-	return s.GetClass(string(schema.ClassName(className)))
-}
-
-func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
-	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
-	if class == nil {
-		return errors.Errorf("failed to get class: %s", params.ClassName)
-	}
-	targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
-	vectorConfigs, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
-	if err != nil {
-		return err
-	}
-	if dn := vectorConfigs[0].DistanceName(); dn != common.DistanceCosine {
-		return certaintyUnsupportedError(dn)
-	}
-
-	return nil
+	return s.GetClass(className)
 }
 
 func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {

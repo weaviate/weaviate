@@ -28,6 +28,8 @@ type Config struct {
 type PrometheusMetrics struct {
 	BatchTime                         *prometheus.HistogramVec
 	BatchDeleteTime                   *prometheus.SummaryVec
+	BatchCount                        *prometheus.CounterVec
+	BatchCountBytes                   *prometheus.CounterVec
 	ObjectsTime                       *prometheus.SummaryVec
 	LSMBloomFilters                   *prometheus.SummaryVec
 	AsyncOperations                   *prometheus.GaugeVec
@@ -227,6 +229,16 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "batch_delete_durations_ms",
 			Help: "Duration in ms of a single delete batch",
 		}, []string{"operation", "class_name", "shard_name"}),
+
+		BatchCount: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "batch_objects_processed_total",
+			Help: "Number of objects processed in a batch",
+		}, []string{"class_name", "shard_name"}),
+
+		BatchCountBytes: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "batch_objects_processed_bytes",
+			Help: "Number of bytes processed in a batch",
+		}, []string{"class_name", "shard_name"}),
 
 		ObjectsTime: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "objects_durations_ms",

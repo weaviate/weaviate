@@ -19,7 +19,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/configbase"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -598,12 +598,12 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 				models.PropertyTokenizationTrigram:
 				return nil
 			case models.PropertyTokenizationGse:
-				if !configbase.Enabled(os.Getenv("USE_GSE")) && !configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
+				if !entcfg.Enabled(os.Getenv("USE_GSE")) && !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_GSE")) {
 					return fmt.Errorf("the GSE tokenizer is not enabled; set 'ENABLE_TOKENIZER_GSE' to 'true' to enable")
 				}
 				return nil
 			case models.PropertyTokenizationKagomeKr:
-				if !configbase.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
+				if !entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 					return fmt.Errorf("the Korean tokenizer is not enabled; set 'ENABLE_TOKENIZER_KAGOME_KR' to 'true' to enable")
 				}
 				return nil

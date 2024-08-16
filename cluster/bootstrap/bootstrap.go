@@ -17,9 +17,11 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
+	entSentry "github.com/weaviate/weaviate/entities/sentry"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -57,6 +59,14 @@ func NewBootstrapper(joiner joiner, raftID, raftAddr string, r resolver.NodeToAd
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
 func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, voter bool, close chan struct{}) error {
+	if entSentry.Enabled() {
+		transaction := sentry.StartTransaction(ctx, "raft.bootstrap",
+			sentry.WithOpName("init"),
+			sentry.WithDescription("Attempt to bootstrap a raft cluster"),
+		)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
 	servers := make([]string, 0, len(serverPortMap))
 	defer ticker.Stop()
@@ -113,6 +123,16 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 
 // join attempts to join an existing leader
 func (b *Bootstrapper) join(ctx context.Context, servers []string, voter bool) (leader string, err error) {
+	if entSentry.Enabled() {
+		span := sentry.StartSpan(ctx, "raft.bootstrap.join",
+			sentry.WithOpName("join"),
+			sentry.WithDescription("Attempt to join an existing cluster"),
+		)
+		ctx = span.Context()
+		span.SetData("servers", servers)
+		defer span.Finish()
+	}
+
 	var resp *cmd.JoinPeerResponse
 	req := &cmd.JoinPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr, Voter: voter}
 	// For each server, try to join.
@@ -138,6 +158,15 @@ func (b *Bootstrapper) join(ctx context.Context, servers []string, voter bool) (
 
 // notify notifies another server of my presence
 func (b *Bootstrapper) notify(ctx context.Context, servers []string) (err error) {
+	if entSentry.Enabled() {
+		span := sentry.StartSpan(ctx, "raft.bootstrap.notify",
+			sentry.WithOpName("notify"),
+			sentry.WithDescription("Attempt to notify existing node(s) to join a cluster"),
+		)
+		ctx = span.Context()
+		span.SetData("servers", servers)
+		defer span.Finish()
+	}
 	for _, addr := range servers {
 		req := &cmd.NotifyPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr}
 		_, err = b.joiner.Notify(ctx, addr, req)

@@ -32,7 +32,7 @@ type IndexAndDistance struct {
 
 func distance(dp distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
-		dist, _, _ := dp.SingleDist(x, y)
+		dist, _ := dp.SingleDist(x, y)
 		return dist
 	}
 }
@@ -96,7 +96,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 
 		distancer := pq.NewDistancer(query)
 		for v := range vectors {
-			d, _, _ := distancer.Distance(encoded[v])
+			d, _ := distancer.Distance(encoded[v])
 			distances[v] = IndexAndDistance{index: uint64(v), distance: d}
 		}
 		sort.Slice(distances, func(a, b int) bool {

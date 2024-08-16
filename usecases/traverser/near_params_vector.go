@@ -99,7 +99,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearObject != nil {
-		vector, _, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant)
+		vector, _, err := v.vectorFromNearObjectParams(ctx, className, nearObject, tenant, targetVector)
 		if err != nil {
 			return nil, errors.Errorf("nearObject params: %v", err)
 		}
@@ -294,11 +294,11 @@ func (v *nearParamsVector) crossClassFindVector(ctx context.Context, id strfmt.U
 func (v *nearParamsVector) crossClassVectorFromNearObjectParams(ctx context.Context,
 	params *searchparams.NearObject,
 ) ([]float32, string, error) {
-	return v.vectorFromNearObjectParams(ctx, "", params, "")
+	return v.vectorFromNearObjectParams(ctx, "", params, "", "")
 }
 
 func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
-	className string, params *searchparams.NearObject, tenant string,
+	className string, params *searchparams.NearObject, tenant, targetVector string,
 ) ([]float32, string, error) {
 	if len(params.ID) == 0 && len(params.Beacon) == 0 {
 		return nil, "", errors.New("empty id and beacon")
@@ -320,8 +320,7 @@ func (v *nearParamsVector) vectorFromNearObjectParams(ctx context.Context,
 		}
 	}
 
-	targetVector := ""
-	if len(params.TargetVectors) >= 1 {
+	if targetVector == "" && len(params.TargetVectors) >= 1 {
 		targetVector = params.TargetVectors[0]
 	}
 

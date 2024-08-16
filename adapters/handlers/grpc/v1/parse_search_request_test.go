@@ -138,17 +138,17 @@ func TestGRPCRequest(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"custom": {
 							VectorIndexType:   "hnsw",
-							VectorIndexConfig: hnsw.UserConfig{},
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
 							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 						"first": {
 							VectorIndexType:   "flat",
-							VectorIndexConfig: flat.UserConfig{},
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
 							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
 						},
 						"second": {
 							VectorIndexType:   "flat",
-							VectorIndexConfig: flat.UserConfig{},
+							VectorIndexConfig: flat.UserConfig{Distance: vectorIndex.DistanceCosine},
 							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
 						},
 					},
@@ -161,7 +161,7 @@ func TestGRPCRequest(t *testing.T) {
 					VectorConfig: map[string]models.VectorConfig{
 						"default": {
 							VectorIndexType:   "hnsw",
-							VectorIndexConfig: hnsw.UserConfig{},
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
 							Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 						},
 					},
@@ -1685,6 +1685,46 @@ func TestGRPCRequest(t *testing.T) {
 					NoProps: false,
 				},
 				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"default": {1, 2, 3}}, TargetVectors: []string{"default"}},
+			},
+			error: false,
+		},
+		{
+			name: "Dont disable certainty for compatible parameters",
+			req: &pb.SearchRequest{
+				Collection: singleNamedVecClass,
+				NearVector: &pb.NearVector{
+					VectorBytes: byteVector([]float32{1, 2, 3}),
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: singleNamedVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: true,
+				},
+				NearVector: &searchparams.NearVector{VectorPerTarget: map[string][]float32{"default": {1, 2, 3}}, TargetVectors: []string{"default"}},
+			},
+			error: false,
+		},
+		{
+			name: "Disable certainty for incompatible parameters",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				NearVector: &pb.NearVector{
+					Targets:         &pb.Targets{TargetVectors: []string{"first", "second"}},
+					VectorPerTarget: map[string][]byte{"first": byteVector([]float32{1, 2, 3}), "second": byteVector([]float32{1, 2, 3, 4})},
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName: multiVecClass, Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: false,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: make(map[string]float32)},
+				NearVector:              &searchparams.NearVector{VectorPerTarget: map[string][]float32{"first": {1, 2, 3}, "second": {1, 2, 3, 4}}, TargetVectors: []string{"first", "second"}},
 			},
 			error: false,
 		},

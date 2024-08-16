@@ -81,7 +81,9 @@ type Compose struct {
 	withAzurite                bool
 	withBackendFilesystem      bool
 	withBackendS3              bool
-	withBackendS3Bucket        string
+	withBackendS3Buckets       map[string]string
+	withBackupS3Bucket         string
+	withOffloadS3Bucket        string
 	withBackendGCS             bool
 	withBackendGCSBucket       string
 	withBackendAzure           bool
@@ -114,13 +116,7 @@ type Compose struct {
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string)}
-}
-
-func (d *Compose) WithMinIO() *Compose {
-	d.withMinIO = true
-	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
-	return d
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), withBackendS3Buckets: make(map[string]string)}
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -174,17 +170,21 @@ func (d *Compose) WithBackendFilesystem() *Compose {
 	return d
 }
 
-func (d *Compose) WithBackendS3(bucket string) *Compose {
+// WithBackendS3 will prepare MinIO
+func (d *Compose) WithBackendS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withBackupS3Bucket = bucket
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
 }
 
-func (d *Compose) WithOffloadS3(bucket string) *Compose {
+// WithOffloadS3 will prepare MinIO
+func (d *Compose) WithOffloadS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withOffloadS3Bucket = bucket
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modsloads3.Name)
 	return d
@@ -430,17 +430,25 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	envSettings["DISABLE_TELEMETRY"] = "true"
 	containers := []*DockerContainer{}
 	if d.withMinIO {
-		container, err := startMinIO(ctx, networkName)
+		container, err := startMinIO(ctx, networkName, d.withBackendS3Buckets)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
 		containers = append(containers, container)
+
 		if d.withBackendS3 {
+			if d.withBackupS3Bucket != "" {
+				envSettings["BACKUP_S3_BUCKET"] = d.withBackupS3Bucket
+			}
+
+			if d.withOffloadS3Bucket != "" {
+				envSettings["OFFLOAD_S3_BUCKET"] = d.withOffloadS3Bucket
+				envSettings["OFFLOAD_S3_BUCKET_AUTO_CREATE"] = "true"
+			}
+
 			for k, v := range container.envSettings {
 				envSettings[k] = v
 			}
-			envSettings["BACKUP_S3_BUCKET"] = d.withBackendS3Bucket
-			envSettings["OFFLOAD_S3_BUCKET"] = d.withBackendS3Bucket
 		}
 	}
 	if d.withGCS {
@@ -613,10 +621,10 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
 		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
-		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", hostname)
-		}
 		containers = append(containers, container)
+		if err != nil {
+			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
+		}
 	}
 
 	return &DockerCompose{network, containers}, nil
