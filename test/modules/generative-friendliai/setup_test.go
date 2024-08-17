@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package tests
+package generative_friendliai_tests
 
 import (
 	"context"
@@ -21,9 +21,9 @@ import (
 )
 
 func TestGenerativeFriendliAI_SingleNode(t *testing.T) {
-	apiKey := os.Getenv("FRIENDIAI_APIKEY")
+	apiKey := os.Getenv("FRIENDLIAI_APIKEY")
 	if apiKey == "" {
-		t.Skip("skipping, FRIENDIAI_APIKEY environment variable not present")
+		t.Skip("skipping, FRIENDLIAI_APIKEY environment variable not present")
 	}
 	ctx := context.Background()
 	compose, err := createSingleNodeEnvironment(ctx, apiKey)
@@ -38,14 +38,14 @@ func TestGenerativeFriendliAI_SingleNode(t *testing.T) {
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey string,
 ) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules(apiKey, organization).
+	compose, err = composeModules(apiKey).
 		WithWeaviate().
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }
 
-func composeModules(apiKey, organization string) (composeModules *docker.Compose) {
+func composeModules(apiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
 		WithText2VecTransformers().
 		WithGenerativeFriendliAI(apiKey)

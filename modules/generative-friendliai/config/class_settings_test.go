@@ -63,7 +63,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("wrong FriendliAI model name, available model names are: " +
-				"[meta-llama-3-8b-instruct meta-llama-3-70b-instruct mixtral-8x7b-instruct-v0-1]"),
+				"[meta-llama-3-8b-instruct meta-llama-3-70b-instruct]"),
 		},
 	}
 	for _, tt := range tests {

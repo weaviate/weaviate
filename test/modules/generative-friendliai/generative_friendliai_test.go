@@ -51,10 +51,6 @@ func testGenerativeFriendliAI(host string) func(t *testing.T) {
 				name:            "meta-llama-3-70b-instruct",
 				generativeModel: "meta-llama-3-70b-instruct",
 			},
-			{
-				name:            "mixtral-8x7b-instruct-v0-1",
-				generativeModel: "mixtral-8x7b-instruct-v0-1",
-			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {

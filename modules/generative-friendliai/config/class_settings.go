@@ -28,7 +28,6 @@ const (
 var availableFriendliAIModels = []string{
 	"meta-llama-3-8b-instruct",
 	"meta-llama-3-70b-instruct",
-	"mixtral-8x7b-instruct-v0-1",
 }
 
 // note it might not like this -- might want int values for e.g. MaxTokens

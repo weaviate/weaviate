@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -79,7 +78,7 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	}
 
 	input := generateInput{
-		Messages:    anyscalePrompt,
+		Messages:    friendliAIPrompt,
 		Model:       params.Model,
 		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,
@@ -188,7 +187,7 @@ func (v *friendliai) generatePromptForTask(textProperties []map[string]string, t
 %v`, task, string(marshal)), nil
 }
 
-func (v *friendlii) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
+func (v *friendliai) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
 	all := compile.FindAll([]byte(prompt), -1)
 	for _, match := range all {
 		originalProperty := string(match)
