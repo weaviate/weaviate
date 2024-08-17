@@ -28,6 +28,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
@@ -299,6 +300,12 @@ func (d *Compose) WithGenerativeAWS(accessKey, secretKey, sessionToken string) *
 func (d *Compose) WithGenerativeCohere(apiKey string) *Compose {
 	d.weaviateEnvs["COHERE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativecohere.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeFriendliAI(apiKey string) *Compose {
+	d.weaviateEnvs["FRIENDLIAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativefriendliai.Name)
 	return d
 }
 
