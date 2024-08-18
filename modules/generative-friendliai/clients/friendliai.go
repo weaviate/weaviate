@@ -219,9 +219,6 @@ type generateInput struct {
 	Messages    []map[string]string `json:"messages"`
 	MaxTokens   *int                `json:"max_tokens"`
 	Temperature *float64            `json:"temperature,omitempty"`
-	// TODO: should it be identical to the docs?
-	// N           *int                `json:"n,omitempty"`
-	// TopP        *float64            `json:"top_p,omitempty"`
 }
 
 type Message struct {
