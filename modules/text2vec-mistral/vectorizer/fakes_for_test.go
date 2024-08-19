@@ -111,7 +111,7 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
-func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{RemainingTokens: 0, RemainingRequests: 0, LimitTokens: 0, ResetTokens: time.Now(), ResetRequests: time.Now()}
 }
 
