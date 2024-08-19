@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"io"
 
@@ -22,15 +21,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-type compactorMapInverted struct {
+type converterMapInverted struct {
 	c1 *segmentCursorCollectionReusable
-	c2 *segmentCursorInvertedReusable
 
-	c1IsOlder bool
-
-	// the level matching those of the cursors
-	currentLevel        uint16
-	secondaryIndexCount uint16
 	// Tells if tombstones or keys without corresponding values
 	// can be removed from merged segment.
 	// (left segment is root (1st) one, keepTombstones is off for bucket)
@@ -44,30 +37,26 @@ type compactorMapInverted struct {
 	offset int
 
 	tombstonesToWrite *sroar.Bitmap
-	tombstonesToClean *sroar.Bitmap
-	tombstonesCleaned *sroar.Bitmap
 
 	keysLen uint64
 }
 
-func newCompactorMapInvertedCollection(w io.WriteSeeker,
-	c1 *segmentCursorCollectionReusable, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
-	scratchSpacePath string, cleanupTombstones bool, c1IsOlder bool,
-) *compactorMapInverted {
-	return &compactorMapInverted{
-		c1:                  c1,
-		c2:                  c2,
-		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 256*1024),
-		currentLevel:        level,
-		cleanupTombstones:   cleanupTombstones,
-		secondaryIndexCount: secondaryIndexCount,
-		scratchSpacePath:    scratchSpacePath,
-		c1IsOlder:           c1IsOlder,
+func newConverterMapInvertedCollection(w io.WriteSeeker,
+	c1 *segmentCursorCollectionReusable,
+	scratchSpacePath string, cleanupTombstones bool,
+) *converterMapInverted {
+	tombstonesToWrite := sroar.NewBitmap()
+	return &converterMapInverted{
+		c1:                c1,
+		w:                 w,
+		bufw:              bufio.NewWriterSize(w, 256*1024),
+		cleanupTombstones: cleanupTombstones,
+		scratchSpacePath:  scratchSpacePath,
+		tombstonesToWrite: tombstonesToWrite,
 	}
 }
 
-func (c *compactorMapInverted) do() error {
+func (c *converterMapInverted) do() error {
 	if err := c.init(); err != nil {
 		return errors.Wrap(err, "init")
 	}
@@ -103,7 +92,7 @@ func (c *compactorMapInverted) do() error {
 	if len(kis) > 0 {
 		dataEnd = uint64(kis[len(kis)-1].ValueEnd) + 8 + uint64(tombstoneSize)
 	}
-	if err := c.writeHeader(c.currentLevel, 0, c.secondaryIndexCount,
+	if err := c.writeHeader(c.c1.segment.level, 0, c.c1.segment.secondaryIndexCount,
 		dataEnd); err != nil {
 		return errors.Wrap(err, "write header")
 	}
@@ -115,7 +104,7 @@ func (c *compactorMapInverted) do() error {
 	return nil
 }
 
-func (c *compactorMapInverted) init() error {
+func (c *converterMapInverted) init() error {
 	// write a dummy header, we don't know the contents of the actual header yet,
 	// we will seek to the beginning and overwrite the actual header at the very
 	// end
@@ -130,7 +119,7 @@ func (c *compactorMapInverted) init() error {
 // writeKeysLength assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *compactorMapInverted) writeKeysLength() error {
+func (c *converterMapInverted) writeKeysLength() error {
 	if _, err := c.w.Seek(16+2+2, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
@@ -143,7 +132,7 @@ func (c *compactorMapInverted) writeKeysLength() error {
 	return err
 }
 
-func (c *compactorMapInverted) writeKeyValueLen() error {
+func (c *converterMapInverted) writeKeyValueLen() error {
 	// write default key and value length
 	buf := make([]byte, 2)
 	binary.LittleEndian.PutUint16(buf, defaultInvertedKeyLength)
@@ -159,7 +148,7 @@ func (c *compactorMapInverted) writeKeyValueLen() error {
 	return nil
 }
 
-func (c *compactorMapInverted) writeTombstones(tombstones *sroar.Bitmap) (int, error) {
+func (c *converterMapInverted) writeTombstones(tombstones *sroar.Bitmap) (int, error) {
 	tombstonesBuffer := make([]byte, 0)
 
 	if tombstones != nil && tombstones.GetCardinality() > 0 {
@@ -179,7 +168,7 @@ func (c *compactorMapInverted) writeTombstones(tombstones *sroar.Bitmap) (int, e
 	return len(tombstonesBuffer), nil
 }
 
-func (c *compactorMapInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, error) {
+func (c *converterMapInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, error) {
 	// placeholder for the keys length
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, 0)
@@ -190,152 +179,29 @@ func (c *compactorMapInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, e
 	c.offset += 8
 
 	key1, value1, _ := c.c1.first()
-	key2, value2, _ := c.c2.first()
 
 	// the (dummy) header was already written, this is our initial offset
 
 	var kis []segmentindex.Key
-	pairs := newReusableInvertedPairs()
-	me := newInvertedEncoder()
-	sim := newSortedInvertedMerger()
 
-	var err error
-	if c.c1IsOlder {
-		c.tombstonesToClean, err = c.c2.segment.GetTombstones()
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "get tombstones")
+	for key1 != nil {
+		if values, skip := c.cleanupValues(value1); !skip {
+			ki, err := c.writeIndividualNodeLegacy(c.offset, key1, values)
+			if err != nil {
+				return nil, nil, errors.Wrap(err, "write individual node (key1 smaller)")
+			}
+			c.keysLen += uint64(ki.ValueEnd - ki.ValueStart)
+			c.offset = ki.ValueEnd
+			kis = append(kis, ki)
 		}
-		c.tombstonesCleaned = sroar.NewBitmap()
-
-	} else {
-		c.tombstonesToWrite, err = c.c2.segment.GetTombstones()
-		if err != nil {
-			return nil, nil, errors.Wrap(err, "get tombstones")
-		}
-		c.tombstonesCleaned = sroar.NewBitmap()
-
+		key1, value1, _ = c.c1.next()
 	}
 
-	for {
-		if key1 == nil && key2 == nil {
-			break
-		}
-		if bytes.Equal(key1, key2) {
-			pairs.ResizeLeft(len(value1))
-			pairs.ResizeRight(len(value2))
-
-			for i, v := range value1 {
-				if err := pairs.left[i].FromBytesLegacy(v.value, false); err != nil {
-					return nil, nil, err
-				}
-				pairs.left[i].Tombstone = v.tombstone
-				docId := binary.BigEndian.Uint64(pairs.left[i].Key)
-
-				if c.c1IsOlder {
-					if c.tombstonesToClean.Contains(docId) {
-						pairs.left[i].Tombstone = true
-						c.tombstonesCleaned.Set(docId)
-					} else if v.tombstone {
-						c.tombstonesToWrite.Set(docId)
-					}
-				} else if !c.c1IsOlder && v.tombstone {
-					c.tombstonesToClean.Set(docId)
-				}
-			}
-
-			for i, v := range value2 {
-				if err := pairs.right[i].FromBytes(v.value, false, c.c2.segment.invertedKeyLength, c.c2.segment.invertedValueLength); err != nil {
-					return nil, nil, err
-				}
-			}
-			if c.c1IsOlder {
-				sim.reset([][]InvertedPair{pairs.left, pairs.right})
-			} else {
-				sim.reset([][]InvertedPair{pairs.right, pairs.left})
-			}
-
-			mergedPairs, err := sim.
-				doKeepTombstonesReusable()
-			if err != nil {
-				return nil, nil, err
-			}
-
-			mergedEncoded, err := me.DoMultiReusable(mergedPairs)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			if values, skip := c.cleanupValues(mergedEncoded); !skip {
-				ki, err := c.writeIndividualNode(c.offset, key2, values)
-				if err != nil {
-					return nil, nil, errors.Wrap(err, "write individual node (equal keys)")
-				}
-
-				c.keysLen += uint64(ki.ValueEnd - ki.ValueStart)
-				c.offset = ki.ValueEnd
-				kis = append(kis, ki)
-			}
-			// advance both!
-			key1, value1, _ = c.c1.next()
-			key2, value2, _ = c.c2.next()
-			continue
-		}
-
-		if (key1 != nil && bytes.Compare(key1, key2) == -1) || key2 == nil {
-			// key 1 is smaller
-			if values, skip := c.cleanupValues(value1); !skip {
-				ki, err := c.writeIndividualNodeLegacy(c.offset, key1, values)
-				if err != nil {
-					return nil, nil, errors.Wrap(err, "write individual node (key1 smaller)")
-				}
-
-				c.keysLen += uint64(ki.ValueEnd - ki.ValueStart)
-				c.offset = ki.ValueEnd
-				kis = append(kis, ki)
-			}
-			key1, value1, _ = c.c1.next()
-		} else {
-			// key 2 is smaller
-			if values, skip := c.cleanupValues(value2); !skip {
-				ki, err := c.writeIndividualNode(c.offset, key2, values)
-				if err != nil {
-					return nil, nil, errors.Wrap(err, "write individual node (key2 smaller)")
-				}
-				c.keysLen += uint64(ki.ValueEnd - ki.ValueStart)
-				c.offset = ki.ValueEnd
-				kis = append(kis, ki)
-			}
-			key2, value2, _ = c.c2.next()
-		}
-	}
 	tombstones := c.computeTombstones()
 	return kis, tombstones, nil
 }
 
-func (c *compactorMapInverted) writeIndividualNode(offset int, key []byte,
-	values []value,
-) (segmentindex.Key, error) {
-	// NOTE: There are no guarantees in the cursor logic that any memory is valid
-	// for more than a single iteration. Every time you call next() to advance
-	// the cursor, any memory might be reused.
-	//
-	// This includes the key buffer which was the cause of
-	// https://github.com/weaviate/weaviate/issues/3517
-	//
-	// A previous logic created a new assignment in each iteration, but thatwas
-	// not an explicit guarantee. A change in v1.21 (for pread/mmap) added a
-	// reusable buffer for the key which surfaced this bug.
-	keyCopy := make([]byte, len(key))
-	copy(keyCopy, key)
-
-	return segmentInvertedNode{
-		values:     values,
-		primaryKey: keyCopy,
-		offset:     offset,
-	}.KeyIndexAndWriteTo(c.bufw)
-}
-
-func (c *compactorMapInverted) writeIndividualNodeLegacy(offset int, key []byte,
+func (c *converterMapInverted) writeIndividualNodeLegacy(offset int, key []byte,
 	values []value,
 ) (segmentindex.Key, error) {
 	// NOTE: There are no guarantees in the cursor logic that any memory is valid
@@ -358,10 +224,10 @@ func (c *compactorMapInverted) writeIndividualNodeLegacy(offset int, key []byte,
 	}.KeyIndexAndWriteToLegacy(c.bufw)
 }
 
-func (c *compactorMapInverted) writeIndices(keys []segmentindex.Key) error {
+func (c *converterMapInverted) writeIndices(keys []segmentindex.Key) error {
 	indices := segmentindex.Indexes{
 		Keys:                keys,
-		SecondaryIndexCount: c.secondaryIndexCount,
+		SecondaryIndexCount: c.c1.segment.secondaryIndexCount,
 		ScratchSpacePath:    c.scratchSpacePath,
 	}
 
@@ -372,7 +238,7 @@ func (c *compactorMapInverted) writeIndices(keys []segmentindex.Key) error {
 // writeHeader assumes that everything has been written to the underlying
 // writer and it is now safe to seek to the beginning and override the initial
 // header
-func (c *compactorMapInverted) writeHeader(level, version, secondaryIndices uint16,
+func (c *converterMapInverted) writeHeader(level, version, secondaryIndices uint16,
 	startOfIndex uint64,
 ) error {
 	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
@@ -397,7 +263,7 @@ func (c *compactorMapInverted) writeHeader(level, version, secondaryIndices uint
 // Removes values with tombstone set from input slice. Output slice may be smaller than input one.
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
-func (c *compactorMapInverted) cleanupValues(values []value) (vals []value, skip bool) {
+func (c *converterMapInverted) cleanupValues(values []value) (vals []value, skip bool) {
 	if !c.cleanupTombstones {
 		return values, false
 	}
@@ -407,9 +273,9 @@ func (c *compactorMapInverted) cleanupValues(values []value) (vals []value, skip
 	// and reduce slice's length.
 	last := 0
 	for i := 0; i < len(values); i++ {
-		docId := binary.BigEndian.Uint64(values[i].value[0:8])
-		if c.tombstonesToClean.Contains(docId) {
-			c.tombstonesCleaned.Set(docId)
+		if values[i].tombstone {
+			docId := binary.BigEndian.Uint64(values[i].value[0:8])
+			c.tombstonesToWrite.Set(docId)
 		} else if !values[i].tombstone {
 			// Swap both elements instead overwritting `last` by `i`.
 			// Overwrite would result in `values[last].value` pointing to the same slice
@@ -429,10 +295,10 @@ func (c *compactorMapInverted) cleanupValues(values []value) (vals []value, skip
 	return values[:last], false
 }
 
-func (c *compactorMapInverted) computeTombstones() *sroar.Bitmap {
+func (c *converterMapInverted) computeTombstones() *sroar.Bitmap {
 	if c.cleanupTombstones { // no tombstones to write
 		return sroar.NewBitmap()
 	}
 
-	return sroar.Or(c.tombstonesToWrite, c.tombstonesToClean)
+	return c.tombstonesToWrite
 }
