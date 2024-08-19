@@ -121,6 +121,10 @@ type Config struct {
 	SaveLegacySchema schema.SaveLegacySchema
 	// IsLocalHost only required when running Weaviate from the console in localhost
 	IsLocalHost bool
+
+	// SentryEnabled configures the sentry integration to add internal middlewares to rpc client/server to set spans &
+	// capture traces
+	SentryEnabled bool
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -150,6 +154,9 @@ type Store struct {
 
 	// raft log store
 	logStore *raftbolt.BoltStore
+
+	// raft log cache
+	logCache *raft.LogCache
 
 	// cluster bootstrap related attributes
 	bootstrapMutex sync.Mutex
@@ -195,14 +202,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	}
 	defer func() { st.open.Store(err == nil) }()
 
-	// log cache
-	logCache, err := st.init()
-	if err != nil {
+	if err := st.init(); err != nil {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
 
-	rLog := rLog{st.logStore}
-	l, err := rLog.LastAppliedCommand()
+	l, err := st.LastAppliedCommand()
 	if err != nil {
 		return fmt.Errorf("read log last command: %w", err)
 	}
@@ -215,7 +219,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"name":                 st.cfg.NodeID,
 		"metadata_only_voters": st.cfg.MetadataOnlyVoters,
 	}).Info("construct a new raft node")
-	st.raft, err = raft.NewRaft(st.raftConfig(), st, logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
@@ -229,11 +233,11 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
 
 	st.log.WithFields(logrus.Fields{
-		"raft_applied_index":           st.raft.AppliedIndex(),
-		"raft_last_index":              st.raft.LastIndex(),
-		"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
-		"last_store_applied_index":     st.lastAppliedIndex.Load(),
-		"last_snapshot_index":          snapIndex,
+		"raft_applied_index":                st.raft.AppliedIndex(),
+		"raft_last_index":                   st.raft.LastIndex(),
+		"last_store_applied_index_on_start": st.lastAppliedIndexOnStart.Load(),
+		"last_store_raft_applied_index":     st.lastAppliedIndex.Load(),
+		"last_snapshot_index":               snapIndex,
 	}).Info("raft node constructed")
 
 	// There's no hard limit on the migration, so it should take as long as necessary.
@@ -243,39 +247,40 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	return nil
 }
 
-func (st *Store) init() (logCache *raft.LogCache, err error) {
-	if err = os.MkdirAll(st.cfg.WorkDir, 0o755); err != nil {
-		return nil, fmt.Errorf("mkdir %s: %w", st.cfg.WorkDir, err)
+func (st *Store) init() error {
+	var err error
+	if err := os.MkdirAll(st.cfg.WorkDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", st.cfg.WorkDir, err)
 	}
 
 	// log store
 	st.logStore, err = raftbolt.NewBoltStore(filepath.Join(st.cfg.WorkDir, raftDBName))
 	if err != nil {
-		return nil, fmt.Errorf("bolt db: %w", err)
+		return fmt.Errorf("bolt db: %w", err)
 	}
 
 	// log cache
-	logCache, err = raft.NewLogCache(logCacheCapacity, st.logStore)
+	st.logCache, err = raft.NewLogCache(logCacheCapacity, st.logStore)
 	if err != nil {
-		return nil, fmt.Errorf("log cache: %w", err)
+		return fmt.Errorf("log cache: %w", err)
 	}
 
 	// file snapshot store
 	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, os.Stdout)
 	if err != nil {
-		return nil, fmt.Errorf("file snapshot store: %w", err)
+		return fmt.Errorf("file snapshot store: %w", err)
 	}
 
 	// tcp transport
 	address := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
 	if err != nil {
-		return nil, fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
+		return fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
 	}
 
 	st.raftTransport, err = st.raftResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
 	if err != nil {
-		return nil, fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
+		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
 	}
 	st.log.WithFields(logrus.Fields{
 		"address":    address,
@@ -283,7 +288,7 @@ func (st *Store) init() (logCache *raft.LogCache, err error) {
 		"tcpTimeout": tcpTimeout,
 	}).Info("tcp transport")
 
-	return
+	return err
 }
 
 // onLeaderFound execute specific tasks when the leader is detected
@@ -631,7 +636,6 @@ func (st *Store) reloadDBFromSchema() {
 type Response struct {
 	Error   error
 	Version uint64
-	Data    interface{}
 }
 
 var _ raft.FSM = &Store{}

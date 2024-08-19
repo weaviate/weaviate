@@ -55,14 +55,9 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 			continue
 		}
 
-		dist, ok, err := h.distToNode(compressorDistancer, candidate, queryVector)
+		dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
 		if err != nil {
 			return nil, nil, err
-		}
-
-		if !ok {
-			// deleted node, ignore
-			continue
 		}
 
 		if results.Len() < limit {

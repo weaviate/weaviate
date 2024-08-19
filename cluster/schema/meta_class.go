@@ -29,34 +29,39 @@ type (
 	NodeShardProcess map[string]*api.TenantsProcess
 	metaClass        struct {
 		sync.RWMutex
-		Class          models.Class
-		ClassVersion   uint64
-		Sharding       sharding.State
-		ShardVersion   uint64
+		Class        models.Class
+		ClassVersion uint64
+		Sharding     sharding.State
+		ShardVersion uint64
+		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
 	}
 )
 
-func (m *metaClass) ClassInfo() (ci ClassInfo) {
+func (m *metaClass) ClassInfo() ClassInfo {
 	if m == nil {
-		return
+		return ClassInfo{}
 	}
+
 	m.RLock()
 	defer m.RUnlock()
-	ci.Exists = true
-	ci.Properties = len(m.Class.Properties)
-	if m.Class.MultiTenancyConfig == nil {
-		ci.MultiTenancy = models.MultiTenancyConfig{}
-	} else {
+
+	ci := ClassInfo{
+		ReplicationFactor: 1,
+		Exists:            true,
+		Properties:        len(m.Class.Properties),
+		MultiTenancy:      models.MultiTenancyConfig{},
+		Tenants:           len(m.Sharding.Physical),
+		ClassVersion:      m.ClassVersion,
+		ShardVersion:      m.ShardVersion,
+	}
+
+	if m.Class.MultiTenancyConfig != nil {
 		ci.MultiTenancy = *m.Class.MultiTenancyConfig
 	}
-	ci.ReplicationFactor = 1
 	if m.Class.ReplicationConfig != nil && m.Class.ReplicationConfig.Factor > 1 {
 		ci.ReplicationFactor = int(m.Class.ReplicationConfig.Factor)
 	}
-	ci.Tenants = len(m.Sharding.Physical)
-	ci.ClassVersion = m.ClassVersion
-	ci.ShardVersion = m.ShardVersion
 	return ci
 }
 
@@ -285,7 +290,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	return nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (n int, err error) {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) error {
 	m.Lock()
 	defer m.Unlock()
 
@@ -300,10 +305,6 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
 			missingShards = append(missingShards, requestTenant.Name)
-			continue
-		}
-		// If the status is currently the same as the one requested just ignore
-		if schemaTenant.ActivityStatus() == requestTenant.Status {
 			continue
 		}
 
@@ -331,19 +332,19 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			}
 		}
 
-		frozenShard := schemaTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || schemaTenant.ActivityStatus() == models.TenantActivityStatusFREEZING
-		toFrozen := requestTenant.Status == models.TenantActivityStatusFROZEN
+		existedSharedFrozen := schemaTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || schemaTenant.ActivityStatus() == models.TenantActivityStatusFREEZING
+		requestedToFrozen := requestTenant.Status == models.TenantActivityStatusFROZEN
 
 		switch {
-		case !toFrozen && frozenShard:
-			if err = m.unfreeze(nodeID, i, req, &schemaTenant); err != nil {
-				return n, err
+		case existedSharedFrozen && !requestedToFrozen:
+			if err := m.unfreeze(nodeID, i, req, &schemaTenant); err != nil {
+				return err
 			}
 			if req.Tenants[i] != nil {
 				requestTenant.Status = req.Tenants[i].Status
 			}
 
-		case toFrozen && !frozenShard:
+		case requestedToFrozen && !existedSharedFrozen:
 			m.freeze(i, req, schemaTenant)
 		default:
 			// do nothing
@@ -372,13 +373,14 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	req.Tenants = req.Tenants[:writeIndex]
 
 	// Check for any missing shard to return an error
+	var err error
 	if len(missingShards) > 0 {
 		err = fmt.Errorf("%w: %v", ErrShardNotFound, missingShards)
 	}
 	// Update the version of the shard to the current version
 	m.ShardVersion = v
 
-	return writeIndex, err
+	return err
 }
 
 // LockGuard provides convenient mechanism for owning mutex by function which mutates the state.

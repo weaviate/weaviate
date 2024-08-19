@@ -63,7 +63,7 @@ type VectorIndex interface {
 	PostStartup()
 	Compressed() bool
 	ValidateBeforeInsert(vector []float32) error
-	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
+	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
@@ -322,7 +322,7 @@ func (dynamic *dynamic) Dump(labels ...string) {
 	fmt.Printf("--------------------------------------------------\n")
 }
 
-func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.DistanceBetweenVectors(x, y)
