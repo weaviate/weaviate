@@ -44,6 +44,10 @@ func testGenerativeFriendliAI(host string) func(t *testing.T) {
 			generativeModel string
 		}{
 			{
+				name:            "mixtral-8x7b-instruct-v0-1",
+				generativeModel: "mixtral-8x7b-instruct-v0-1",
+			},
+			{
 				name:            "meta-llama-3-8b-instruct",
 				generativeModel: "meta-llama-3-8b-instruct",
 			},

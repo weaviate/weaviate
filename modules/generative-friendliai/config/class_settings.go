@@ -26,6 +26,7 @@ const (
 )
 
 var availableFriendliAIModels = []string{
+	"mixtral-8x7b-instruct-v0-1",
 	"meta-llama-3-8b-instruct",
 	"meta-llama-3-70b-instruct",
 }
