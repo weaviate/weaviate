@@ -14,9 +14,10 @@ package common
 type IndexType string
 
 const (
-	IndexTypeHNSW = "hnsw"
-	IndexTypeFlat = "flat"
-	IndexTypeNoop = "noop"
+	IndexTypeHNSW    = "hnsw"
+	IndexTypeFlat    = "flat"
+	IndexTypeNoop    = "noop"
+	IndexTypeDynamic = "dynamic"
 )
 
 type IndexStats interface {
