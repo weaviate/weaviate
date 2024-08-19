@@ -28,6 +28,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
 )
 
@@ -45,13 +48,13 @@ type VectorIndex interface {
 	// Flush() error
 	// SwitchCommitLogs(ctx context.Context) error
 	// ListFiles(ctx context.Context, basePath string) ([]string, error)
-	// PostStartup()
+	PostStartup()
 	// Compressed() bool
 	// ValidateBeforeInsert(vector []float32) error
 	// DistanceBetweenVectors(x, y []float32) (float32, error)
 	// ContainsNode(id uint64) bool
 	// DistancerProvider() distancer.Provider
-	// AlreadyIndexed() uint64
+	AlreadyIndexed() uint64
 	// QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 }
 
@@ -65,7 +68,7 @@ type cuvs_index struct {
 	distanceMetric  cuvs.Distance
 	cuvsIndex       *cagra.CagraIndex
 	cuvsIndexParams *cagra.IndexParams
-	dlpackTensor    cuvs.Tensor[float32]
+	dlpackTensor    *cuvs.Tensor[float32]
 	idCuvsIdMap     map[uint32]uint64
 	cuvsResource    *cuvs.Resource
 	cuvsExpandCount uint64
@@ -105,16 +108,10 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		return nil, err
 	}
 
-	tensor, err := cuvs.NewTensor(false, make([][]float32, 0))
+	cuvsIndex, err := cagra.CreateIndex()
 
 	if err != nil {
-		return nil, err
-	}
-	// tensor.ToDevice(&res)
-	cuvsIndex, err := cagra.CreateIndex(cuvsIndexParams, &tensor)
-
-	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create cuvs index: %w", err)
 	}
 
 	index := &cuvs_index{
@@ -125,12 +122,13 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		cuvsIndex:       cuvsIndex,
 		cuvsIndexParams: cuvsIndexParams,
 		cuvsResource:    &res,
-		dlpackTensor:    tensor,
+		dlpackTensor:    nil,
+		idCuvsIdMap:     make(map[uint32]uint64),
 	}
 
-	if err := index.initBuckets(context.Background()); err != nil {
-		return nil, fmt.Errorf("init cuvs index buckets: %w", err)
-	}
+	// if err := index.initBuckets(context.Background()); err != nil {
+	// 	return nil, fmt.Errorf("init cuvs index buckets: %w", err)
+	// }
 
 	return index, nil
 
@@ -144,44 +142,48 @@ func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
 }
 
 func (index *cuvs_index) Add(id uint64, vector []float32) error {
-	index.Lock()
-	defer index.Unlock()
+	index.logger.Debug("adding single")
+	return index.AddBatch(context.Background(), []uint64{id}, [][]float32{vector})
+	// index.Lock()
+	// defer index.Unlock()
 
-	if index.cuvsIndex == nil {
-		return errors.New("cuvs index is nil")
-	}
+	// if index.cuvsIndex == nil {
+	// 	return errors.New("cuvs index is nil")
+	// }
 
-	if len(vector) != int(index.dims) {
-		return errors.Errorf("insert called with a vector of the wrong size")
-	}
+	// if len(vector) != int(index.dims) {
+	// 	return errors.Errorf("insert called with a vector of the wrong size")
+	// }
 
-	slice := make([]byte, len(vector)*4)
+	// slice := make([]byte, len(vector)*4)
 
-	// store in bucket
-	idBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(idBytes, id)
-	index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vector, slice))
+	// // store in bucket
+	// idBytes := make([]byte, 8)
+	// binary.BigEndian.PutUint64(idBytes, id)
+	// index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vector, slice))
 
-	// vector = index.normalized(vector)
+	// // vector = index.normalized(vector)
 
-	index.idCuvsIdMap[uint32(index.count)] = id
+	// index.idCuvsIdMap[uint32(index.count)] = id
 
-	index.count += 1
+	// index.count += 1
 
-	index.dlpackTensor.Expand(index.cuvsResource, [][]float32{vector})
+	// index.dlpackTensor.Expand(index.cuvsResource, [][]float32{vector})
 
-	err := cagra.BuildIndex(*index.cuvsResource, index.cuvsIndexParams, &index.dlpackTensor, index.cuvsIndex)
+	// err := cagra.BuildIndex(*index.cuvsResource, index.cuvsIndexParams, index.dlpackTensor, index.cuvsIndex)
 
-	if err != nil {
-		return err
-	}
+	// if err != nil {
+	// 	return err
+	// }
 
-	return nil
+	// return nil
 }
 
 func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) error {
 	index.Lock()
 	defer index.Unlock()
+
+	index.logger.Debug("adding batch, batch size: ", len(id))
 
 	if err := ctx.Err(); err != nil {
 		return err
@@ -192,24 +194,48 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vector [][]f
 	}
 
 	// store in bucket
-	for i := range id {
-		slice := make([]byte, len(vector)*4)
-		idBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(idBytes, id[i])
-		index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vector[i], slice))
-	}
+	// for i := range id {
+	// 	slice := make([]byte, len(vector)*4)
+	// 	idBytes := make([]byte, 8)
+	// 	binary.BigEndian.PutUint64(idBytes, id[i])
+	// 	index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vector[i], slice))
+	// }
 
 	for i := range id {
 		index.idCuvsIdMap[uint32(index.count)] = id[i]
 		index.count += 1
 	}
 
-	index.dlpackTensor.Expand(index.cuvsResource, vector)
+	// index.dlpackTensor.Expand(index.cuvsResource, vector)
+	if index.dlpackTensor == nil {
+		tensor, err := cuvs.NewTensor(false, vector)
+		if err != nil {
+			return err
+		}
+		_, err = tensor.ToDevice(index.cuvsResource)
+		if err != nil {
+			return err
+		}
+		index.dlpackTensor = &tensor
+	} else {
+		_, err := index.dlpackTensor.Expand(index.cuvsResource, vector)
+		if err != nil {
+			return err
+		}
+	}
 
-	cagra.BuildIndex(*index.cuvsResource, index.cuvsIndexParams, &index.dlpackTensor, index.cuvsIndex)
+	err := cagra.BuildIndex(*index.cuvsResource, index.cuvsIndexParams, index.dlpackTensor, index.cuvsIndex)
+
+	if err != nil {
+		return err
+	}
 
 	return nil
 
+}
+
+func (index *cuvs_index) Delete(ids ...uint64) error {
+	return nil
 }
 
 func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -326,30 +352,99 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 	return slice
 }
 
+func (index *cuvs_index) AlreadyIndexed() uint64 {
+	return index.count
+}
+
 func (index *cuvs_index) PostStartup() {
 
-	cursor := index.store.Bucket(index.getBucketName()).Cursor()
-	defer cursor.Close()
+	// cursor := index.store.Bucket(index.getBucketName()).Cursor()
+	// defer cursor.Close()
 
-	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
-	// this slice dynamically should be quite cheap compared to other operations
-	// involved here, e.g. disk reads.
-	ids := make([]uint64, 0, 10_000)
-	vectors := make([][]float32, 0, 10_000)
-	maxID := uint64(0)
+	// // The initial size of 10k is chosen fairly arbitrarily. The cost of growing
+	// // this slice dynamically should be quite cheap compared to other operations
+	// // involved here, e.g. disk reads.
+	// ids := make([]uint64, 0, 10_000)
+	// vectors := make([][]float32, 0, 10_000)
+	// maxID := uint64(0)
 
-	for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
-		id := binary.BigEndian.Uint64(key)
-		// vecs = append(vecs, vec{
-		// 	id:  id,
-		// 	vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
-		// })
-		ids = append(ids, id)
-		vectors = append(vectors, float32SliceFromByteSlice(v, make([]float32, len(v)/4)))
-		if id > maxID {
-			maxID = id
-		}
+	// for key, v := cursor.First(); key != nil; key, v = cursor.Next() {
+	// 	id := binary.BigEndian.Uint64(key)
+	// 	// vecs = append(vecs, vec{
+	// 	// 	id:  id,
+	// 	// 	vec: uint64SliceFromByteSlice(v, make([]uint64, len(v)/8)),
+	// 	// })
+	// 	ids = append(ids, id)
+	// 	vectors = append(vectors, float32SliceFromByteSlice(v, make([]float32, len(v)/4)))
+	// 	if id > maxID {
+	// 		maxID = id
+	// 	}
+	// }
+
+	// index.AddBatch(context.Background(), ids, vectors)
+}
+
+func (index *cuvs_index) Dump(labels ...string) {
+
+}
+
+// searchbyvectordistance
+func (index *cuvs_index) SearchByVectorDistance(vector []float32, dist float32, maxLimit int64, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	return []uint64{}, []float32{}, nil
+}
+
+func (index *cuvs_index) maxLimit() int64 {
+	return 1_000_000_000
+}
+
+func (index *cuvs_index) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, callback func()) error {
+	return nil
+}
+
+func (index *cuvs_index) Drop(ctx context.Context) error {
+	return nil
+}
+
+func (index *cuvs_index) Shutdown(ctx context.Context) error {
+	return nil
+}
+
+func (index *cuvs_index) Flush() error {
+	return nil
+}
+
+func (index *cuvs_index) SwitchCommitLogs(ctx context.Context) error {
+	return nil
+}
+
+func (index *cuvs_index) ListFiles(ctx context.Context, basePath string) ([]string, error) {
+	return []string{}, nil
+}
+
+func (index *cuvs_index) Compressed() bool {
+	return false
+}
+
+func (index *cuvs_index) ValidateBeforeInsert(vector []float32) error {
+	return nil
+}
+
+func (index *cuvs_index) DistanceBetweenVectors(x, y []float32) (float32, error) {
+	return 0, nil
+}
+
+func (index *cuvs_index) ContainsNode(id uint64) bool {
+	return false
+}
+
+func (index *cuvs_index) DistancerProvider() distancer.Provider {
+	return nil
+}
+
+func (index *cuvs_index) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	distFunc := func(nodeID uint64) (float32, error) {
+
+		return 0, nil
 	}
-
-	index.AddBatch(context.Background(), ids, vectors)
+	return common.QueryVectorDistancer{DistanceFunc: distFunc}
 }

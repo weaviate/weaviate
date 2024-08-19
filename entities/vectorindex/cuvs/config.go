@@ -29,7 +29,7 @@ func (u UserConfig) IndexType() string {
 }
 
 func (u UserConfig) DistanceName() string {
-	return "L2Expanded"
+	return "l2-squared"
 }
 
 // SetDefaults in the user-specifyable part of the config

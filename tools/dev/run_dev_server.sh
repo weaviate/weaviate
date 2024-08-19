@@ -25,6 +25,11 @@ function go_run() {
   go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" "$@"
 }
 
+function go_run_cuvs() {
+  GIT_HASH=$(git rev-parse --short HEAD)
+  go run -tags "cuvs" "$@"
+}
+
 case $CONFIG in
   debug)
       CONTEXTIONARY_URL=localhost:9999 \
@@ -50,6 +55,24 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
       go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-cuvs-development)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      PERSISTENCE_DATA_PATH="./data-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
+      ENABLE_MODULES="backup-filesystem" \
+      PROMETHEUS_MONITORING_PORT="2112" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      go_run_cuvs ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
         --port 8080 \
