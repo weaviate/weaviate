@@ -425,14 +425,14 @@ func TestCompaction(t *testing.T) {
 			name: "compactionInvertedStrategy_FrequentPutDeleteOperations",
 			f:    compactionInvertedStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
-				WithStrategy(StrategyInvertedCollection),
+				WithStrategy(StrategyInverted),
 			},
 		},
 		{
 			name: "compactionInvertedStrategy_FrequentPutDeleteOperations_KeepTombstones",
 			f:    compactionInvertedStrategy_FrequentPutDeleteOperations,
 			opts: []BucketOption{
-				WithStrategy(StrategyInvertedCollection),
+				WithStrategy(StrategyInverted),
 				WithKeepTombstones(true),
 			},
 		},
