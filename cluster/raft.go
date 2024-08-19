@@ -31,7 +31,7 @@ type Raft struct {
 
 // client to communicate with remote services
 type client interface {
-	Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error)
+	Apply(ctx context.Context, leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error)
 	Query(ctx context.Context, leaderAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 	Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error)
 	Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)

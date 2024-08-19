@@ -68,7 +68,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		})
 	}
 
-	return h.schemaManager.AddTenants(class, &request)
+	return h.schemaManager.AddTenants(ctx, class, &request)
 }
 
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
@@ -171,7 +171,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
-	if _, err = h.schemaManager.UpdateTenants(class, &req); err != nil {
+	if _, err = h.schemaManager.UpdateTenants(ctx, class, &req); err != nil {
 		return nil, err
 	}
 
@@ -201,7 +201,7 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	_, err := h.schemaManager.DeleteTenants(class, &req)
+	_, err := h.schemaManager.DeleteTenants(ctx, class, &req)
 	return err
 }
 

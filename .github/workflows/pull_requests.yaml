@@ -270,16 +270,10 @@ jobs:
           go-version: '1.21'
           cache: true
       - name: Acceptance tests
-        uses: nick-fields/retry@v3
         env:
           WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
           WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
-        with:
-          # 15 Minute is a large enough timeout for most of our tests
-          timeout_minutes: 15
-          max_attempts: 3
-          command: ./test/run.sh ${{ matrix.test }}
-          on_retry_command: ./test/run.sh --cleanup
+        run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
     name: acceptance-tests-large
     runs-on: ubuntu-latest-4-cores
@@ -294,14 +288,8 @@ jobs:
         with:
           go-version: '1.21'
           cache: true
-      - name: Acceptance tests Large (modules)
-        uses: nick-fields/retry@v3
-        with:
-          # 15 Minute is a large enough timeout for most of our tests
-          timeout_minutes: 15
-          max_attempts: 3
-          command: ./test/run.sh ${{ matrix.test }}
-          on_retry_command: ./test/run.sh --cleanup
+      - name: Acceptance tests Large
+        run: ./test/run.sh ${{ matrix.test }}
   Codecov:
     needs: [Unit-Tests, Integration-Tests]
     name: codecov
