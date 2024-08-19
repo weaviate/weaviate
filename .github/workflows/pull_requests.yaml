@@ -456,7 +456,7 @@ jobs:
         github-token: ${{ github.token }}
         script: |
           github.rest.actions.createWorkflowDispatch({
-          owner: context.repo.owner,
+          owner: 'weaviate',
           repo: 'weaviate-chaos-engineering',
           workflow_id: 'matrix.yaml',
           ref: 'main',
