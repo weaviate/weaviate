@@ -346,7 +346,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}, nil
 	}
 
-	replyCh, state, err := coord.Pull(ctx, One, op, "", 0)
+	replyCh, state, err := coord.Pull(ctx, One, op, "", 20*time.Second)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pull shard: %w", err)
 	}
