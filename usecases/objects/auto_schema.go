@@ -115,7 +115,6 @@ func (m *autoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
 				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
 					principal, schemaClass, true, newProperties...)
-
 				if err != nil {
 					return 0, err
 				}

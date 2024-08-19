@@ -105,7 +105,7 @@ func (b *classBuilder) classField(class *models.Class, fusionEnum *graphql.Enum)
 
 func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 	return graphql.NewObject(graphql.ObjectConfig{
-		Name: class.Class,
+		Name: b.getClassObjectName(class.Class),
 		Fields: (graphql.FieldsThunk)(func() graphql.Fields {
 			classProperties := graphql.Fields{}
 			for _, property := range class.Properties {
@@ -146,6 +146,21 @@ func (b *classBuilder) classObject(class *models.Class) *graphql.Object {
 		}),
 		Description: class.Description,
 	})
+}
+
+func (b *classBuilder) getClassObjectName(name string) string {
+	switch name {
+	// GraphQL scalars have graphql names assigned the same as the name of the scalar.
+	// In order to avoid name clash we must override those class names. We are prepending
+	// underscore character before the class name as it is safe to do so
+	// because class names starting with "_" are not valid Weaviate class names,
+	// so it is safe to override such a class name with "_" prefix and use it as GraphQL name.
+	case graphql.String.Name(), graphql.DateTime.Name(), graphql.Int.Name(), graphql.Float.Name(),
+		graphql.Boolean.Name(), graphql.ID.Name(), graphql.FieldSet.Name():
+		return fmt.Sprintf("_%s", name)
+	default:
+		return name
+	}
 }
 
 func (b *classBuilder) additionalFields(classProperties graphql.Fields, class *models.Class) {

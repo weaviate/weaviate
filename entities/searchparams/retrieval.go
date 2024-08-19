@@ -11,6 +11,14 @@
 
 package searchparams
 
+import (
+	"fmt"
+	"strings"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+)
+
 type NearVector struct {
 	Vector        []float32 `json:"vector"`
 	Certainty     float64   `json:"certainty"`
@@ -24,6 +32,61 @@ type KeywordRanking struct {
 	Properties             []string `json:"properties"`
 	Query                  string   `json:"query"`
 	AdditionalExplanations bool     `json:"additionalExplanations"`
+}
+
+// Indicates whether property should be indexed
+// Index holds document ids with property of/containing particular value
+// and number of its occurrences in that property
+// (index created using bucket of StrategyMapCollection)
+func HasSearchableIndex(prop *models.Property) bool {
+	switch dt, _ := schema.AsPrimitive(prop.DataType); dt {
+	case schema.DataTypeText, schema.DataTypeTextArray:
+		// by default property has searchable index only for text/text[] props
+		if prop.IndexSearchable == nil {
+			return true
+		}
+		return *prop.IndexSearchable
+	default:
+		return false
+	}
+}
+
+func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName string) bool {
+	if class == nil {
+		return false
+	}
+
+	propertyName := strings.Split(tentativePropertyName, "^")[0]
+	p, err := schema.GetPropertyByName(class, propertyName)
+	if err != nil {
+		return false
+	}
+	return HasSearchableIndex(p)
+}
+
+// GetPropertyByName returns the class by its name
+func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
+	for _, prop := range c.Properties {
+		// Check if the name of the property is the given name, that's the property we need
+		if prop.Name == strings.Split(propName, ".")[0] {
+			return prop, nil
+		}
+	}
+	return nil, fmt.Errorf("Property %v not found %v", propName, c.Class)
+}
+
+func (k *KeywordRanking) ChooseSearchableProperties(class *models.Class) {
+	var validProperties []string
+	for _, prop := range k.Properties {
+		property, err := GetPropertyByName(class, prop)
+		if err != nil {
+			continue
+		}
+		if HasSearchableIndex(property) {
+			validProperties = append(validProperties, prop)
+		}
+	}
+	k.Properties = validProperties
 }
 
 type WeightedSearchResult struct {

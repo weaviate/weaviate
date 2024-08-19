@@ -72,7 +72,7 @@ type SearchRequest struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// required
+	//required
 	Collection string `protobuf:"bytes,1,opt,name=collection,proto3" json:"collection,omitempty"`
 	// parameters
 	Tenant           string            `protobuf:"bytes,10,opt,name=tenant,proto3" json:"tenant,omitempty"`
@@ -103,7 +103,7 @@ type SearchRequest struct {
 	NearImu      *NearIMUSearch     `protobuf:"bytes,51,opt,name=near_imu,json=nearImu,proto3,oneof" json:"near_imu,omitempty"`
 	Generative   *GenerativeSearch  `protobuf:"bytes,60,opt,name=generative,proto3,oneof" json:"generative,omitempty"`
 	Rerank       *Rerank            `protobuf:"bytes,61,opt,name=rerank,proto3,oneof" json:"rerank,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Uses_123Api bool `protobuf:"varint,100,opt,name=uses_123_api,json=uses123Api,proto3" json:"uses_123_api,omitempty"`
 	Uses_125Api bool `protobuf:"varint,101,opt,name=uses_125_api,json=uses125Api,proto3" json:"uses_125_api,omitempty"`
 }
@@ -315,7 +315,7 @@ func (x *SearchRequest) GetRerank() *Rerank {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *SearchRequest) GetUses_123Api() bool {
 	if x != nil {
 		return x.Uses_123Api
@@ -780,14 +780,14 @@ type Hybrid struct {
 	Properties []string `protobuf:"bytes,2,rep,name=properties,proto3" json:"properties,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector        []float32         `protobuf:"fixed32,3,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vector_bytes
 	Alpha         float32           `protobuf:"fixed32,4,opt,name=alpha,proto3" json:"alpha,omitempty"`
 	FusionType    Hybrid_FusionType `protobuf:"varint,5,opt,name=fusion_type,json=fusionType,proto3,enum=weaviate.v1.Hybrid_FusionType" json:"fusion_type,omitempty"`
 	VectorBytes   []byte            `protobuf:"bytes,6,opt,name=vector_bytes,json=vectorBytes,proto3" json:"vector_bytes,omitempty"`
 	TargetVectors []string          `protobuf:"bytes,7,rep,name=target_vectors,json=targetVectors,proto3" json:"target_vectors,omitempty"`
-	NearText      *NearTextSearch   `protobuf:"bytes,8,opt,name=near_text,json=nearText,proto3" json:"near_text,omitempty"`
-	NearVector    *NearVector       `protobuf:"bytes,9,opt,name=near_vector,json=nearVector,proto3" json:"near_vector,omitempty"`
+	NearText      *NearTextSearch   `protobuf:"bytes,8,opt,name=near_text,json=nearText,proto3" json:"near_text,omitempty"`       // target_vector in msg is ignored and should not be set for hybrid
+	NearVector    *NearVector       `protobuf:"bytes,9,opt,name=near_vector,json=nearVector,proto3" json:"near_vector,omitempty"` // same as above. Use the target vector in the hybrid message
 }
 
 func (x *Hybrid) Reset() {
@@ -836,7 +836,7 @@ func (x *Hybrid) GetProperties() []string {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *Hybrid) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -1533,7 +1533,7 @@ type NearVector struct {
 
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector        []float32 `protobuf:"fixed32,1,rep,packed,name=vector,proto3" json:"vector,omitempty"` // will be removed in the future, use vector_bytes
 	Certainty     *float64  `protobuf:"fixed64,2,opt,name=certainty,proto3,oneof" json:"certainty,omitempty"`
 	Distance      *float64  `protobuf:"fixed64,3,opt,name=distance,proto3,oneof" json:"distance,omitempty"`
@@ -1573,7 +1573,7 @@ func (*NearVector) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{17}
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *NearVector) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -2058,7 +2058,7 @@ type MetadataResult struct {
 	Id string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	Vector                    []float32  `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"`
 	CreationTimeUnix          int64      `protobuf:"varint,3,opt,name=creation_time_unix,json=creationTimeUnix,proto3" json:"creation_time_unix,omitempty"`
 	CreationTimeUnixPresent   bool       `protobuf:"varint,4,opt,name=creation_time_unix_present,json=creationTimeUnixPresent,proto3" json:"creation_time_unix_present,omitempty"`
@@ -2122,7 +2122,7 @@ func (x *MetadataResult) GetId() string {
 	return ""
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *MetadataResult) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -2282,22 +2282,22 @@ type PropertiesResult struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	NonRefProperties *structpb.Struct       `protobuf:"bytes,1,opt,name=non_ref_properties,json=nonRefProperties,proto3" json:"non_ref_properties,omitempty"`
 	RefProps         []*RefPropertiesResult `protobuf:"bytes,2,rep,name=ref_props,json=refProps,proto3" json:"ref_props,omitempty"`
 	TargetCollection string                 `protobuf:"bytes,3,opt,name=target_collection,json=targetCollection,proto3" json:"target_collection,omitempty"`
 	Metadata         *MetadataResult        `protobuf:"bytes,4,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	NumberArrayProperties []*NumberArrayProperties `protobuf:"bytes,5,rep,name=number_array_properties,json=numberArrayProperties,proto3" json:"number_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	IntArrayProperties []*IntArrayProperties `protobuf:"bytes,6,rep,name=int_array_properties,json=intArrayProperties,proto3" json:"int_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	TextArrayProperties []*TextArrayProperties `protobuf:"bytes,7,rep,name=text_array_properties,json=textArrayProperties,proto3" json:"text_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	BooleanArrayProperties []*BooleanArrayProperties `protobuf:"bytes,8,rep,name=boolean_array_properties,json=booleanArrayProperties,proto3" json:"boolean_array_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	ObjectProperties []*ObjectProperties `protobuf:"bytes,9,rep,name=object_properties,json=objectProperties,proto3" json:"object_properties,omitempty"`
-	// Deprecated: Marked as deprecated in v1/search_get.proto.
+	// Deprecated: Do not use.
 	ObjectArrayProperties []*ObjectArrayProperties `protobuf:"bytes,10,rep,name=object_array_properties,json=objectArrayProperties,proto3" json:"object_array_properties,omitempty"`
 	NonRefProps           *Properties              `protobuf:"bytes,11,opt,name=non_ref_props,json=nonRefProps,proto3" json:"non_ref_props,omitempty"`
 	RefPropsRequested     bool                     `protobuf:"varint,12,opt,name=ref_props_requested,json=refPropsRequested,proto3" json:"ref_props_requested,omitempty"`
@@ -2335,7 +2335,7 @@ func (*PropertiesResult) Descriptor() ([]byte, []int) {
 	return file_v1_search_get_proto_rawDescGZIP(), []int{26}
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetNonRefProperties() *structpb.Struct {
 	if x != nil {
 		return x.NonRefProperties
@@ -2364,7 +2364,7 @@ func (x *PropertiesResult) GetMetadata() *MetadataResult {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
 	if x != nil {
 		return x.NumberArrayProperties
@@ -2372,7 +2372,7 @@ func (x *PropertiesResult) GetNumberArrayProperties() []*NumberArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
 	if x != nil {
 		return x.IntArrayProperties
@@ -2380,7 +2380,7 @@ func (x *PropertiesResult) GetIntArrayProperties() []*IntArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
 	if x != nil {
 		return x.TextArrayProperties
@@ -2388,7 +2388,7 @@ func (x *PropertiesResult) GetTextArrayProperties() []*TextArrayProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties {
 	if x != nil {
 		return x.BooleanArrayProperties
@@ -2396,7 +2396,7 @@ func (x *PropertiesResult) GetBooleanArrayProperties() []*BooleanArrayProperties
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
 	if x != nil {
 		return x.ObjectProperties
@@ -2404,7 +2404,7 @@ func (x *PropertiesResult) GetObjectProperties() []*ObjectProperties {
 	return nil
 }
 
-// Deprecated: Marked as deprecated in v1/search_get.proto.
+// Deprecated: Do not use.
 func (x *PropertiesResult) GetObjectArrayProperties() []*ObjectArrayProperties {
 	if x != nil {
 		return x.ObjectArrayProperties
@@ -3100,54 +3100,51 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 	return file_v1_search_get_proto_rawDescData
 }
 
-var (
-	file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 29)
-	file_v1_search_get_proto_goTypes   = []interface{}{
-		(Hybrid_FusionType)(0),          // 0: weaviate.v1.Hybrid.FusionType
-		(*SearchRequest)(nil),           // 1: weaviate.v1.SearchRequest
-		(*GroupBy)(nil),                 // 2: weaviate.v1.GroupBy
-		(*SortBy)(nil),                  // 3: weaviate.v1.SortBy
-		(*GenerativeSearch)(nil),        // 4: weaviate.v1.GenerativeSearch
-		(*MetadataRequest)(nil),         // 5: weaviate.v1.MetadataRequest
-		(*PropertiesRequest)(nil),       // 6: weaviate.v1.PropertiesRequest
-		(*ObjectPropertiesRequest)(nil), // 7: weaviate.v1.ObjectPropertiesRequest
-		(*Hybrid)(nil),                  // 8: weaviate.v1.Hybrid
-		(*NearTextSearch)(nil),          // 9: weaviate.v1.NearTextSearch
-		(*NearImageSearch)(nil),         // 10: weaviate.v1.NearImageSearch
-		(*NearAudioSearch)(nil),         // 11: weaviate.v1.NearAudioSearch
-		(*NearVideoSearch)(nil),         // 12: weaviate.v1.NearVideoSearch
-		(*NearDepthSearch)(nil),         // 13: weaviate.v1.NearDepthSearch
-		(*NearThermalSearch)(nil),       // 14: weaviate.v1.NearThermalSearch
-		(*NearIMUSearch)(nil),           // 15: weaviate.v1.NearIMUSearch
-		(*BM25)(nil),                    // 16: weaviate.v1.BM25
-		(*RefPropertiesRequest)(nil),    // 17: weaviate.v1.RefPropertiesRequest
-		(*NearVector)(nil),              // 18: weaviate.v1.NearVector
-		(*NearObject)(nil),              // 19: weaviate.v1.NearObject
-		(*Rerank)(nil),                  // 20: weaviate.v1.Rerank
-		(*SearchReply)(nil),             // 21: weaviate.v1.SearchReply
-		(*RerankReply)(nil),             // 22: weaviate.v1.RerankReply
-		(*GenerativeReply)(nil),         // 23: weaviate.v1.GenerativeReply
-		(*GroupByResult)(nil),           // 24: weaviate.v1.GroupByResult
-		(*SearchResult)(nil),            // 25: weaviate.v1.SearchResult
-		(*MetadataResult)(nil),          // 26: weaviate.v1.MetadataResult
-		(*PropertiesResult)(nil),        // 27: weaviate.v1.PropertiesResult
-		(*RefPropertiesResult)(nil),     // 28: weaviate.v1.RefPropertiesResult
-		(*NearTextSearch_Move)(nil),     // 29: weaviate.v1.NearTextSearch.Move
-		(ConsistencyLevel)(0),           // 30: weaviate.v1.ConsistencyLevel
-		(*Filters)(nil),                 // 31: weaviate.v1.Filters
-		(*Vectors)(nil),                 // 32: weaviate.v1.Vectors
-		(*structpb.Struct)(nil),         // 33: google.protobuf.Struct
-		(*NumberArrayProperties)(nil),   // 34: weaviate.v1.NumberArrayProperties
-		(*IntArrayProperties)(nil),      // 35: weaviate.v1.IntArrayProperties
-		(*TextArrayProperties)(nil),     // 36: weaviate.v1.TextArrayProperties
-		(*BooleanArrayProperties)(nil),  // 37: weaviate.v1.BooleanArrayProperties
-		(*ObjectProperties)(nil),        // 38: weaviate.v1.ObjectProperties
-		(*ObjectArrayProperties)(nil),   // 39: weaviate.v1.ObjectArrayProperties
-		(*Properties)(nil),              // 40: weaviate.v1.Properties
-	}
-)
-
+var file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_v1_search_get_proto_goTypes = []interface{}{
+	(Hybrid_FusionType)(0),          // 0: weaviate.v1.Hybrid.FusionType
+	(*SearchRequest)(nil),           // 1: weaviate.v1.SearchRequest
+	(*GroupBy)(nil),                 // 2: weaviate.v1.GroupBy
+	(*SortBy)(nil),                  // 3: weaviate.v1.SortBy
+	(*GenerativeSearch)(nil),        // 4: weaviate.v1.GenerativeSearch
+	(*MetadataRequest)(nil),         // 5: weaviate.v1.MetadataRequest
+	(*PropertiesRequest)(nil),       // 6: weaviate.v1.PropertiesRequest
+	(*ObjectPropertiesRequest)(nil), // 7: weaviate.v1.ObjectPropertiesRequest
+	(*Hybrid)(nil),                  // 8: weaviate.v1.Hybrid
+	(*NearTextSearch)(nil),          // 9: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),         // 10: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),         // 11: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),         // 12: weaviate.v1.NearVideoSearch
+	(*NearDepthSearch)(nil),         // 13: weaviate.v1.NearDepthSearch
+	(*NearThermalSearch)(nil),       // 14: weaviate.v1.NearThermalSearch
+	(*NearIMUSearch)(nil),           // 15: weaviate.v1.NearIMUSearch
+	(*BM25)(nil),                    // 16: weaviate.v1.BM25
+	(*RefPropertiesRequest)(nil),    // 17: weaviate.v1.RefPropertiesRequest
+	(*NearVector)(nil),              // 18: weaviate.v1.NearVector
+	(*NearObject)(nil),              // 19: weaviate.v1.NearObject
+	(*Rerank)(nil),                  // 20: weaviate.v1.Rerank
+	(*SearchReply)(nil),             // 21: weaviate.v1.SearchReply
+	(*RerankReply)(nil),             // 22: weaviate.v1.RerankReply
+	(*GenerativeReply)(nil),         // 23: weaviate.v1.GenerativeReply
+	(*GroupByResult)(nil),           // 24: weaviate.v1.GroupByResult
+	(*SearchResult)(nil),            // 25: weaviate.v1.SearchResult
+	(*MetadataResult)(nil),          // 26: weaviate.v1.MetadataResult
+	(*PropertiesResult)(nil),        // 27: weaviate.v1.PropertiesResult
+	(*RefPropertiesResult)(nil),     // 28: weaviate.v1.RefPropertiesResult
+	(*NearTextSearch_Move)(nil),     // 29: weaviate.v1.NearTextSearch.Move
+	(ConsistencyLevel)(0),           // 30: weaviate.v1.ConsistencyLevel
+	(*Filters)(nil),                 // 31: weaviate.v1.Filters
+	(*Vectors)(nil),                 // 32: weaviate.v1.Vectors
+	(*structpb.Struct)(nil),         // 33: google.protobuf.Struct
+	(*NumberArrayProperties)(nil),   // 34: weaviate.v1.NumberArrayProperties
+	(*IntArrayProperties)(nil),      // 35: weaviate.v1.IntArrayProperties
+	(*TextArrayProperties)(nil),     // 36: weaviate.v1.TextArrayProperties
+	(*BooleanArrayProperties)(nil),  // 37: weaviate.v1.BooleanArrayProperties
+	(*ObjectProperties)(nil),        // 38: weaviate.v1.ObjectProperties
+	(*ObjectArrayProperties)(nil),   // 39: weaviate.v1.ObjectArrayProperties
+	(*Properties)(nil),              // 40: weaviate.v1.Properties
+}
 var file_v1_search_get_proto_depIdxs = []int32{
 	30, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	6,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest

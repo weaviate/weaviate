@@ -71,7 +71,6 @@ type Value struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Kind:
-	//
 	//	*Value_NumberValue
 	//	*Value_StringValue
 	//	*Value_BoolValue
@@ -134,7 +133,7 @@ func (x *Value) GetNumberValue() float64 {
 	return 0
 }
 
-// Deprecated: Marked as deprecated in v1/properties.proto.
+// Deprecated: Do not use.
 func (x *Value) GetStringValue() string {
 	if x, ok := x.GetKind().(*Value_StringValue); ok {
 		return x.StringValue
@@ -209,7 +208,7 @@ func (x *Value) GetNullValue() structpb.NullValue {
 	if x, ok := x.GetKind().(*Value_NullValue); ok {
 		return x.NullValue
 	}
-	return structpb.NullValue(0)
+	return structpb.NullValue_NULL_VALUE
 }
 
 func (x *Value) GetTextValue() string {
@@ -228,7 +227,7 @@ type Value_NumberValue struct {
 }
 
 type Value_StringValue struct {
-	// Deprecated: Marked as deprecated in v1/properties.proto.
+	// Deprecated: Do not use.
 	StringValue string `protobuf:"bytes,2,opt,name=string_value,json=stringValue,proto3,oneof"`
 }
 
@@ -307,10 +306,9 @@ type ListValue struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Deprecated: Marked as deprecated in v1/properties.proto.
+	// Deprecated: Do not use.
 	Values []*Value `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
 	// Types that are assignable to Kind:
-	//
 	//	*ListValue_NumberValues
 	//	*ListValue_BoolValues
 	//	*ListValue_ObjectValues
@@ -353,7 +351,7 @@ func (*ListValue) Descriptor() ([]byte, []int) {
 	return file_v1_properties_proto_rawDescGZIP(), []int{2}
 }
 
-// Deprecated: Marked as deprecated in v1/properties.proto.
+// Deprecated: Do not use.
 func (x *ListValue) GetValues() []*Value {
 	if x != nil {
 		return x.Values
@@ -468,7 +466,7 @@ type NumberValues struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// *
+	//*
 	// The values are stored as a byte array, where each 8 bytes represent a single float64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
 	Values []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`
@@ -753,7 +751,7 @@ type IntValues struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// *
+	//*
 	// The values are stored as a byte array, where each 8 bytes represent a single int64 value.
 	// The byte array is stored in little-endian order using uint64 encoding.
 	Values []byte `protobuf:"bytes,1,opt,name=values,proto3" json:"values,omitempty"`
@@ -1095,26 +1093,23 @@ func file_v1_properties_proto_rawDescGZIP() []byte {
 	return file_v1_properties_proto_rawDescData
 }
 
-var (
-	file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
-	file_v1_properties_proto_goTypes  = []interface{}{
-		(*Properties)(nil),      // 0: weaviate.v1.Properties
-		(*Value)(nil),           // 1: weaviate.v1.Value
-		(*ListValue)(nil),       // 2: weaviate.v1.ListValue
-		(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
-		(*TextValues)(nil),      // 4: weaviate.v1.TextValues
-		(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
-		(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
-		(*DateValues)(nil),      // 7: weaviate.v1.DateValues
-		(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
-		(*IntValues)(nil),       // 9: weaviate.v1.IntValues
-		(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
-		(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
-		nil,                     // 12: weaviate.v1.Properties.FieldsEntry
-		(structpb.NullValue)(0), // 13: google.protobuf.NullValue
-	}
-)
-
+var file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_v1_properties_proto_goTypes = []interface{}{
+	(*Properties)(nil),      // 0: weaviate.v1.Properties
+	(*Value)(nil),           // 1: weaviate.v1.Value
+	(*ListValue)(nil),       // 2: weaviate.v1.ListValue
+	(*NumberValues)(nil),    // 3: weaviate.v1.NumberValues
+	(*TextValues)(nil),      // 4: weaviate.v1.TextValues
+	(*BoolValues)(nil),      // 5: weaviate.v1.BoolValues
+	(*ObjectValues)(nil),    // 6: weaviate.v1.ObjectValues
+	(*DateValues)(nil),      // 7: weaviate.v1.DateValues
+	(*UuidValues)(nil),      // 8: weaviate.v1.UuidValues
+	(*IntValues)(nil),       // 9: weaviate.v1.IntValues
+	(*GeoCoordinate)(nil),   // 10: weaviate.v1.GeoCoordinate
+	(*PhoneNumber)(nil),     // 11: weaviate.v1.PhoneNumber
+	nil,                     // 12: weaviate.v1.Properties.FieldsEntry
+	(structpb.NullValue)(0), // 13: google.protobuf.NullValue
+}
 var file_v1_properties_proto_depIdxs = []int32{
 	12, // 0: weaviate.v1.Properties.fields:type_name -> weaviate.v1.Properties.FieldsEntry
 	0,  // 1: weaviate.v1.Value.object_value:type_name -> weaviate.v1.Properties

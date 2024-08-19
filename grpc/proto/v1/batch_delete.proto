@@ -6,7 +6,7 @@ import "v1/base.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
-option java_outer_classname = "WeaviateProtoBatch";
+option java_outer_classname = "WeaviateProtoBatchDelete";
 
 message BatchDeleteRequest {
   string collection = 1;

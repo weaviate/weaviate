@@ -16,6 +16,7 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type fakeNodesStatusGetter struct {
@@ -32,14 +33,16 @@ func (n *fakeNodesStatusGetter) LocalNodeStatus(ctx context.Context,
 	return nil
 }
 
-type fakeModulesProvider struct {
+type fakeSchemaManager struct {
 	mock.Mock
 }
 
-func (m *fakeModulesProvider) GetMeta() (map[string]interface{}, error) {
-	args := m.Called()
-	if args.Get(0) != nil {
-		return args.Get(0).(map[string]interface{}), nil
+func (f *fakeSchemaManager) GetSchemaSkipAuth() schema.Schema {
+	if len(f.ExpectedCalls) > 0 {
+		args := f.Called()
+		if args.Get(0) != nil {
+			return args.Get(0).(schema.Schema)
+		}
 	}
-	return nil, args.Error(1)
+	return schema.Schema{}
 }

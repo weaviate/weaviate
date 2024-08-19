@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -29,7 +30,7 @@ type fakeRClient struct {
 
 func (f *fakeRClient) FetchObject(ctx context.Context, host, index, shard string,
 	id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, numRetries int,
 ) (objects.Replica, error) {
 	args := f.Called(ctx, host, index, shard, id, props, additional)
 	return args.Get(0).(objects.Replica), args.Error(1)
@@ -50,10 +51,17 @@ func (f *fakeRClient) OverwriteObjects(ctx context.Context, host, index, shard s
 }
 
 func (f *fakeRClient) DigestObjects(ctx context.Context, host, index, shard string,
-	ids []strfmt.UUID,
+	ids []strfmt.UUID, numRetries int,
 ) ([]RepairResponse, error) {
 	args := f.Called(ctx, host, index, shard, ids)
 	return args.Get(0).([]RepairResponse), args.Error(1)
+}
+
+func (f *fakeRClient) FindUUIDs(ctx context.Context, host, index, shard string,
+	filters *filters.LocalFilter,
+) ([]strfmt.UUID, error) {
+	args := f.Called(ctx, host, index, shard, filters)
+	return args.Get(0).([]strfmt.UUID), args.Error(1)
 }
 
 type fakeClient struct {

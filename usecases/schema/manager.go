@@ -15,9 +15,11 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -43,7 +45,7 @@ type Manager struct {
 	// For more context, refer to the handler's definition.
 	Handler
 
-	metaReader
+	SchemaReader
 }
 
 type VectorConfigParser func(in interface{}, vectorIndexType string) (schemaConfig.VectorIndexConfig, error)
@@ -61,8 +63,8 @@ type SchemaGetter interface {
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
-	TenantsShards(class string, tenants ...string) (map[string]string, error)
-	OptimisticTenantStatus(class string, tenants string) (map[string]string, error)
+	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
+	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }
@@ -201,14 +203,15 @@ type clusterState interface {
 }
 
 type scaleOut interface {
-	SetSchemaManager(sm scaler.SchemaManager)
+	SetSchemaReader(sr scaler.SchemaReader)
 	Scale(ctx context.Context, className string,
 		updated shardingConfig.Config, prevReplFactor, newReplFactor int64) (*sharding.State, error)
 }
 
 // NewManager creates a new manager
 func NewManager(validator validator,
-	store metaWriter, metaReader metaReader,
+	schemaManager SchemaManager,
+	schemaReader SchemaReader,
 	repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
@@ -217,7 +220,9 @@ func NewManager(validator validator,
 	scaleoutManager scaleOut,
 ) (*Manager, error) {
 	handler, err := NewHandler(
-		store, metaReader, validator,
+		schemaReader,
+		schemaManager,
+		validator,
 		logger, authorizer,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager)
@@ -231,7 +236,7 @@ func NewManager(validator validator,
 		logger:       logger,
 		clusterState: clusterState,
 		Handler:      handler,
-		metaReader:   metaReader,
+		SchemaReader: schemaReader,
 		Authorizer:   authorizer,
 	}
 
@@ -343,15 +348,15 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 	return name2Addr, nil
 }
 
-func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
-	// TODO-RAFT: we always query the leader
-	// we need to make sure what is the side effect of
-	// if the leader says "tenant is HOT", but locally
-	// it's still COLD.
+func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	status, _, err := m.metaWriter.QueryTenantsShards(class, tenants...)
-	return status, err
+	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	if !m.AllowImplicitTenantActivation(class) || err != nil {
+		return status, err
+	}
+
+	return m.activateTenantIfInactive(ctx, class, status)
 }
 
 // OptimisticTenantStatus tries to query the local state first. It is
@@ -378,10 +383,10 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 // Overall, we keep the (very common) happy path, free from expensive
 // leader-lookups and only fall back to the leader if the local result implies
 // an unhappy path.
-func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string) (map[string]string, error) {
 	var foundTenant bool
 	var status string
-	err := m.metaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
+	err := m.schemaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
 		t, ok := ss.Physical[tenant]
 		if !ok {
 			return nil
@@ -398,7 +403,7 @@ func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[strin
 	if !foundTenant || status != models.TenantActivityStatusHOT {
 		// either no state at all or state does not imply happy path -> delegate to
 		// leader
-		return m.TenantsShards(class, tenant)
+		return m.TenantsShards(ctx, class, tenant)
 	}
 
 	return map[string]string{
@@ -406,8 +411,54 @@ func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[strin
 	}, nil
 }
 
+func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
+	status map[string]string,
+) (map[string]string, error) {
+	req := &api.UpdateTenantsRequest{
+		Tenants: make([]*api.Tenant, 0, len(status)),
+	}
+
+	for tenant, s := range status {
+		if s != models.TenantActivityStatusHOT {
+			req.Tenants = append(req.Tenants,
+				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
+		}
+	}
+
+	if len(req.Tenants) == 0 {
+		// nothing to do, all tenants are already HOT
+		return status, nil
+	}
+
+	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
+	if err != nil {
+		names := make([]string, len(req.Tenants))
+		for i, t := range req.Tenants {
+			names[i] = t.Name
+		}
+
+		return nil, fmt.Errorf("implicit activation of tenants %s: %w", strings.Join(names, ", "), err)
+	}
+
+	for _, t := range req.Tenants {
+		status[t.Name] = models.TenantActivityStatusHOT
+	}
+
+	return status, nil
+}
+
+func (m *Manager) AllowImplicitTenantActivation(class string) bool {
+	allow := false
+	m.schemaReader.Read(class, func(c *models.Class, _ *sharding.State) error {
+		allow = schema.AutoTenantActivationEnabled(c)
+		return nil
+	})
+
+	return allow
+}
+
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
-	owner, _, err := m.metaWriter.QueryShardOwner(class, shard)
+	owner, _, err := m.schemaManager.QueryShardOwner(class, shard)
 	if err != nil {
 		return "", err
 	}

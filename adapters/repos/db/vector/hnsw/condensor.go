@@ -100,9 +100,26 @@ func (c *MemoryCondensor) Do(fileName string) error {
 	}
 
 	for ts := range res.Tombstones {
+		// If the tombstone was later removed, consolidate the two operations into a noop
+		if _, ok := res.TombstonesDeleted[ts]; ok {
+			continue
+		}
+
 		if err := c.AddTombstone(ts); err != nil {
 			return errors.Wrapf(err,
 				"write tombstone for node %d to commit log", ts)
+		}
+	}
+
+	for rmts := range res.TombstonesDeleted {
+		// If the tombstone was added previously, consolidate the two operations into a noop
+		if _, ok := res.Tombstones[rmts]; ok {
+			continue
+		}
+
+		if err := c.RemoveTombstone(rmts); err != nil {
+			return errors.Wrapf(err,
+				"write removed tombstone for node %d to commit log", rmts)
 		}
 	}
 
@@ -233,6 +250,14 @@ func (c *MemoryCondensor) SetEntryPointWithMaxLayer(id uint64, level int) error 
 func (c *MemoryCondensor) AddTombstone(nodeid uint64) error {
 	ec := &errorcompounder.ErrorCompounder{}
 	ec.Add(c.writeCommitType(c.newLog, AddTombstone))
+	ec.Add(c.writeUint64(c.newLog, nodeid))
+
+	return ec.ToError()
+}
+
+func (c *MemoryCondensor) RemoveTombstone(nodeid uint64) error {
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(c.writeCommitType(c.newLog, RemoveTombstone))
 	ec.Add(c.writeUint64(c.newLog, nodeid))
 
 	return ec.ToError()

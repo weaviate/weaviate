@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -35,90 +35,187 @@ import (
 func TestTelemetry_BuildPayload(t *testing.T) {
 	t.Run("happy path", func(t *testing.T) {
 		t.Run("on init", func(t *testing.T) {
-			tel, sg, mp := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter()
 			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 100,
 					},
 				})
-			mp.On("GetMeta").Return(
-				map[string]interface{}{
-					"module-1": nil,
-					"module-2": nil,
+			sm.On("GetSchemaSkipAuth").Return(
+				schema.Schema{
+					Objects: &models.Schema{Classes: []*models.Class{
+						{
+							Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
+							ModuleConfig: map[string]interface{}{
+								"text2vec-palm": nil,
+							},
+						},
+						{
+							Class: "LegacyConfigration",
+							ModuleConfig: map[string]interface{}{
+								"text2vec-palm": map[string]interface{}{
+									"modelId":     "text-embedding-004",
+									"apiEndpoint": "generativelanguage.googleapis.com",
+								},
+								"generative-openai": map[string]interface{}{},
+							},
+						},
+						{
+							Class: "NamedVector",
+							VectorConfig: map[string]models.VectorConfig{
+								"description": {
+									Vectorizer: map[string]interface{}{
+										"text2vec-openai": map[string]interface{}{
+											"properties":         []interface{}{"description"},
+											"vectorizeClassName": false,
+										},
+									},
+									VectorIndexType: "flat",
+								},
+							},
+						},
+						{
+							Class: "NamedVectorWithNilVectorizer",
+							VectorConfig: map[string]models.VectorConfig{
+								"description": {
+									Vectorizer:      nil,
+									VectorIndexType: "flat",
+								},
+							},
+						},
+						{
+							Class: "BothNamedVectorAndLegacyConfiguration",
+							ModuleConfig: map[string]interface{}{
+								"generative-palm": map[string]interface{}{
+									"apiEndpoint": "generativelanguage.googleapis.com",
+								},
+							},
+							VectorConfig: map[string]models.VectorConfig{
+								"description_google": {
+									Vectorizer: map[string]interface{}{
+										"text2vec-palm": map[string]interface{}{
+											"properties":         []interface{}{"description"},
+											"vectorizeClassName": false,
+										},
+									},
+									VectorIndexType: "flat",
+								},
+								"description_aws": {
+									Vectorizer: map[string]interface{}{
+										"text2vec-aws": map[string]interface{}{
+											"properties":         []interface{}{"description"},
+											"vectorizeClassName": false,
+										},
+									},
+									VectorIndexType: "flat",
+								},
+								"description_openai": {
+									Vectorizer: map[string]interface{}{
+										"text2vec-openai": map[string]interface{}{},
+									},
+									VectorIndexType: "flat",
+								},
+							},
+						},
+					}},
 				})
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
 			assert.Nil(t, err)
 			assert.Equal(t, tel.machineID, payload.MachineID)
 			assert.Equal(t, PayloadType.Init, payload.Type)
 			assert.Equal(t, config.ServerVersion, payload.Version)
-			assert.Equal(t, "module-1,module-2", payload.Modules)
 			assert.Equal(t, int64(0), payload.NumObjects)
 			assert.Equal(t, runtime.GOOS, payload.OS)
 			assert.Equal(t, runtime.GOARCH, payload.Arch)
+			assert.NotEmpty(t, payload.UsedModules)
+			assert.Len(t, payload.UsedModules, 6)
+			assert.Contains(t, payload.UsedModules, "text2vec-aws")
+			assert.Contains(t, payload.UsedModules, "text2vec-openai")
+			assert.Contains(t, payload.UsedModules, "text2vec-google-vertex-ai")
+			assert.Contains(t, payload.UsedModules, "text2vec-google-ai-studio")
+			assert.Contains(t, payload.UsedModules, "generative-google-ai-studio")
+			assert.Contains(t, payload.UsedModules, "generative-openai")
 		})
 
 		t.Run("on update", func(t *testing.T) {
-			tel, sg, mp := newTestTelemeter()
+			tel, sg, sm := newTestTelemeter()
 			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 1000,
 					},
 				})
-			mp.On("GetMeta").Return(map[string]interface{}{}, nil)
+			sm.On("GetSchemaSkipAuth").Return(
+				schema.Schema{
+					Objects: &models.Schema{Classes: []*models.Class{
+						{
+							Class: "Class",
+							ModuleConfig: map[string]interface{}{
+								"generative-openai": map[string]interface{}{},
+							},
+							VectorConfig: map[string]models.VectorConfig{
+								"description_google": {
+									Vectorizer: map[string]interface{}{
+										"text2vec-google": map[string]interface{}{
+											"properties":         []interface{}{"description"},
+											"vectorizeClassName": false,
+										},
+									},
+									VectorIndexType: "flat",
+								},
+								"description_aws": {
+									Vectorizer: map[string]interface{}{
+										"text2vec-aws": map[string]interface{}{
+											"properties":         []interface{}{"description"},
+											"vectorizeClassName": false,
+										},
+									},
+									VectorIndexType: "flat",
+								},
+							},
+						},
+					}},
+				})
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
 			assert.Nil(t, err)
 			assert.Equal(t, tel.machineID, payload.MachineID)
 			assert.Equal(t, PayloadType.Update, payload.Type)
 			assert.Equal(t, config.ServerVersion, payload.Version)
-			assert.Equal(t, "", payload.Modules)
 			assert.Equal(t, int64(1000), payload.NumObjects)
 			assert.Equal(t, runtime.GOOS, payload.OS)
 			assert.Equal(t, runtime.GOARCH, payload.Arch)
+			assert.NotEmpty(t, payload.UsedModules)
+			assert.Len(t, payload.UsedModules, 3)
+			assert.Contains(t, payload.UsedModules, "text2vec-google-vertex-ai")
+			assert.Contains(t, payload.UsedModules, "text2vec-aws")
+			assert.Contains(t, payload.UsedModules, "generative-openai")
 		})
 
 		t.Run("on terminate", func(t *testing.T) {
-			tel, sg, mp := newTestTelemeter()
+			tel, sg, _ := newTestTelemeter()
 			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
 						ObjectCount: 300_000_000_000,
 					},
 				})
-			mp.On("GetMeta").Return(nil, nil)
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, err)
 			assert.Equal(t, tel.machineID, payload.MachineID)
 			assert.Equal(t, PayloadType.Terminate, payload.Type)
 			assert.Equal(t, config.ServerVersion, payload.Version)
-			assert.Equal(t, "", payload.Modules)
 			assert.Equal(t, int64(300_000_000_000), payload.NumObjects)
 			assert.Equal(t, runtime.GOOS, payload.OS)
 			assert.Equal(t, runtime.GOARCH, payload.Arch)
+			assert.Empty(t, payload.UsedModules)
 		})
 	})
 
 	t.Run("failure path", func(t *testing.T) {
-		t.Run("fail to get enabled modules", func(t *testing.T) {
-			tel, sg, mp := newTestTelemeter()
-			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
-				&models.NodeStatus{Stats: &models.NodeStats{ObjectCount: 10}})
-			mp.On("GetMeta").Return(nil, errors.New("FAILURE"))
-			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
-			assert.Nil(t, payload)
-			assert.NotNil(t, err)
-			assert.Contains(t, err.Error(), "get enabled modules")
-		})
-
 		t.Run("fail to get node status", func(t *testing.T) {
-			tel, sg, mp := newTestTelemeter()
+			tel, sg, _ := newTestTelemeter()
 			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(nil)
-			mp.On("GetMeta").Return(
-				map[string]interface{}{
-					"module-1": nil,
-					"module-2": nil,
-				})
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, payload)
 			assert.NotNil(t, err)
@@ -126,13 +223,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		})
 
 		t.Run("fail to get node status stats", func(t *testing.T) {
-			tel, sg, mp := newTestTelemeter()
+			tel, sg, _ := newTestTelemeter()
 			sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(&models.NodeStatus{})
-			mp.On("GetMeta").Return(
-				map[string]interface{}{
-					"module-1": nil,
-					"module-2": nil,
-				})
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
 			assert.Nil(t, payload)
 			assert.NotNil(t, err)
@@ -151,7 +243,7 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 		withConsumerURL(consumerURL),
 		withPushInterval(100 * time.Millisecond),
 	}
-	tel, sg, mp := newTestTelemeter(opts...)
+	tel, sg, sm := newTestTelemeter(opts...)
 
 	sg.On("LocalNodeStatus", context.Background(), "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -159,10 +251,38 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 				ObjectCount: 100,
 			},
 		})
-	mp.On("GetMeta").Return(
-		map[string]interface{}{
-			"module-1": nil,
-			"module-2": nil,
+
+	sm.On("GetSchemaSkipAuth").Return(
+		schema.Schema{
+			Objects: &models.Schema{Classes: []*models.Class{
+				{
+					Class: "Class",
+					ModuleConfig: map[string]interface{}{
+						"generative-openai": map[string]interface{}{},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"description_google": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-google": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
+									"apiEndpoint":        "generativelanguage.googleapis.com",
+								},
+							},
+							VectorIndexType: "flat",
+						},
+						"description_aws": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-aws": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "flat",
+						},
+					},
+				},
+			}},
 		})
 
 	err := tel.Start(context.Background())
@@ -199,16 +319,16 @@ func withPushInterval(interval time.Duration) telemetryOpt {
 }
 
 func newTestTelemeter(opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *fakeModulesProvider,
+) (*Telemeter, *fakeNodesStatusGetter, *fakeSchemaManager,
 ) {
 	sg := &fakeNodesStatusGetter{}
-	mp := &fakeModulesProvider{}
+	sm := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, mp, logger)
+	tel := New(sg, sm, logger)
 	for _, opt := range opts {
 		opt(tel)
 	}
-	return tel, sg, mp
+	return tel, sg, sm
 }
 
 type testConsumer struct {
@@ -233,7 +353,6 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		PayloadType.Terminate,
 	}, payload.Type)
 	assert.Equal(h.t, config.ServerVersion, payload.Version)
-	assert.NotEmpty(h.t, payload.Modules)
 	if payload.Type == PayloadType.Init {
 		assert.Zero(h.t, payload.NumObjects)
 	} else {
@@ -241,6 +360,11 @@ func (h *testConsumer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	assert.Equal(h.t, runtime.GOOS, payload.OS)
 	assert.Equal(h.t, runtime.GOARCH, payload.Arch)
+	assert.NotEmpty(h.t, payload.UsedModules)
+	assert.Len(h.t, payload.UsedModules, 3)
+	assert.Contains(h.t, payload.UsedModules, "text2vec-google-ai-studio")
+	assert.Contains(h.t, payload.UsedModules, "text2vec-aws")
+	assert.Contains(h.t, payload.UsedModules, "generative-openai")
 
 	h.t.Logf("request body: %s", string(b))
 	w.WriteHeader(http.StatusOK)

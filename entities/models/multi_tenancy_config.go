@@ -28,6 +28,9 @@ import (
 // swagger:model MultiTenancyConfig
 type MultiTenancyConfig struct {
 
+	// Existing tenants should (not) be turned HOT implicitly when they are accessed and in another activity status
+	AutoTenantActivation bool `json:"autoTenantActivation"`
+
 	// Nonexistent tenants should (not) be created implicitly
 	AutoTenantCreation bool `json:"autoTenantCreation"`
 

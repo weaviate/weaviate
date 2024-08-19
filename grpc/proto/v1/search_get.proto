@@ -116,8 +116,8 @@ message Hybrid {
   FusionType fusion_type = 5;
   bytes vector_bytes = 6;
   repeated string target_vectors = 7;
-  NearTextSearch near_text = 8;
-  NearVector near_vector = 9;
+  NearTextSearch near_text = 8;  // target_vector in msg is ignored and should not be set for hybrid
+  NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
 }
 
 message NearTextSearch {

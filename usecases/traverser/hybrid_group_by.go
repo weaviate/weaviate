@@ -25,7 +25,6 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 	groups := map[string][]search.Result{}
 
 	for _, result := range sr {
-
 		prop_i := result.Object().Properties
 		prop := prop_i.(map[string]interface{})
 		val, ok := prop[groupBy.Property].(string)

@@ -20,7 +20,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -34,15 +34,19 @@ func buildURL(location, projectID, model string) string {
 }
 
 type palm struct {
-	apiKey       string
-	httpClient   *http.Client
-	urlBuilderFn func(location, projectID, model string) string
-	logger       logrus.FieldLogger
+	apiKey        string
+	useGoogleAuth bool
+	googleApiKey  *apikey.GoogleApiKey
+	httpClient    *http.Client
+	urlBuilderFn  func(location, projectID, model string) string
+	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *palm {
+func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *palm {
 	return &palm{
-		apiKey: apiKey,
+		apiKey:        apiKey,
+		useGoogleAuth: useGoogleAuth,
+		googleApiKey:  apikey.NewGoogleApiKey(),
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -157,10 +161,13 @@ func (v *palm) getPayload(text, img, vid string, config ent.VectorizationConfig)
 			VideoSegmentConfig: videoSegmentConfig{IntervalSec: &config.VideoIntervalSeconds},
 		}
 	}
-	return embeddingsRequest{
-		Instances:  []instance{inst},
-		Parameters: parameters{Dimension: config.Dimensions},
+	req := embeddingsRequest{
+		Instances: []instance{inst},
 	}
+	if inst.Video == nil {
+		req.Parameters = parameters{Dimension: config.Dimensions}
+	}
+	return req
 }
 
 func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
@@ -175,31 +182,7 @@ func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
 }
 
 func (v *palm) getApiKey(ctx context.Context) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, "X-Google-Api-Key"); apiKeyValue != "" {
-		return apiKeyValue, nil
-	}
-	if apiKeyValue := v.getValueFromContext(ctx, "X-Palm-Api-Key"); apiKeyValue != "" {
-		return apiKeyValue, nil
-	}
-	if len(v.apiKey) > 0 {
-		return v.apiKey, nil
-	}
-	return "", errors.New("no api key found " +
-		"neither in request header: X-Palm-Api-Key or X-Google-Api-Key " +
-		"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
-}
-
-func (v *palm) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-	return ""
+	return v.googleApiKey.GetApiKey(ctx, v.apiKey, false, v.useGoogleAuth)
 }
 
 func (v *palm) getEmbeddingsFromResponse(statusCode int, resBody embeddingsResponse) (

@@ -105,11 +105,6 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	}
 	obj.LastUpdateTimeUnix = m.timeSource.Now()
 
-	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
-	if err != nil {
-		return &Error{"repo.putobject", StatusInternalServerError, err}
-	}
-
 	// Ensure that the local schema has caught up to the version we used to validate
 	if err := m.schemaManager.WaitForUpdate(ctx, schemaVersion); err != nil {
 		return &Error{
@@ -118,6 +113,12 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 			Err:  err,
 		}
 	}
+
+	err = m.vectorRepo.PutObject(ctx, obj, res.Vector, res.Vectors, repl, schemaVersion)
+	if err != nil {
+		return &Error{"repo.putobject", StatusInternalServerError, err}
+	}
+
 	if err := m.updateRefVector(ctx, principal, input.Class, input.ID, tenant, class, schemaVersion); err != nil {
 		return &Error{"update ref vector", StatusInternalServerError, err}
 	}

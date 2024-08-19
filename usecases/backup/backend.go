@@ -264,6 +264,12 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
+
+	u.log.WithFields(logrus.Fields{
+		"action":   "upload_class",
+		"duration": storeTimeout,
+	}).Debug("context.WithTimeout")
+
 	nShards := len(desc.Shards)
 	if nShards == 0 {
 		return nil

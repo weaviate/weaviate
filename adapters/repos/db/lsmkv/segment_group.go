@@ -62,7 +62,8 @@ type SegmentGroup struct {
 	calcCountNetAdditions   bool // see bucket for more datails
 	compactLeftOverSegments bool // see bucket for more datails
 
-	allocChecker memwatch.AllocChecker
+	allocChecker   memwatch.AllocChecker
+	maxSegmentSize int64
 }
 
 type sgConfig struct {
@@ -75,6 +76,7 @@ type sgConfig struct {
 	useBloomFilter        bool
 	calcCountNetAdditions bool
 	forceCompaction       bool
+	maxSegmentSize        int64
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -99,6 +101,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:          cfg.useBloomFilter,
 		calcCountNetAdditions:   cfg.calcCountNetAdditions,
 		compactLeftOverSegments: cfg.forceCompaction,
+		maxSegmentSize:          cfg.maxSegmentSize,
 		allocChecker:            allocChecker,
 	}
 
@@ -125,7 +128,11 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		jointSegmentsIDs := strings.Split(jointSegments, "_")
 
 		if len(jointSegmentsIDs) != 2 {
-			return nil, fmt.Errorf("invalid compacted segment file name %q", entry.Name())
+			logger.WithField("action", "lsm_segment_init").
+				WithField("path", filepath.Join(sg.dir, entry.Name())).
+				Warn("ignored (partially written) LSM compacted segment generated with a version older than v1.24.0")
+
+			continue
 		}
 
 		leftSegmentFilename := fmt.Sprintf("segment-%s.db", jointSegmentsIDs[0])
@@ -156,16 +163,28 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		if !leftSegmentFound && rightSegmentFound {
+			// segment is initialized just to be erased
+			// there is no need of bloom filters nor net addition counter re-calculation
 			rightSegment, err := newSegment(rightSegmentPath, logger,
 				metrics, sg.makeExistsOnLower(segmentIndex),
-				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, true)
+				sg.mmapContents, sg.useBloomFilter, sg.calcCountNetAdditions, false)
 			if err != nil {
-				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+
+			err = rightSegment.close()
+			if err != nil {
+				return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
 			err = rightSegment.drop()
 			if err != nil {
 				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
+			}
+
+			err = fsync(sg.dir)
+			if err != nil {
+				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}
 		}
 
@@ -217,7 +236,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			logger.WithField("action", "lsm_segment_init").
 				WithField("path", filepath.Join(sg.dir, entry.Name())).
 				WithField("wal_path", walFileName).
-				Info("Discarded (partially written) LSM segment, because an active WAL for " +
+				Info("discarded (partially written) LSM segment, because an active WAL for " +
 					"the same segment was found. A recovery from the WAL will follow.")
 
 			continue
@@ -314,7 +333,39 @@ func (sg *SegmentGroup) getWithUpperSegmentBoundary(key []byte, topMostSegment i
 	return nil, nil
 }
 
-func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
+func (sg *SegmentGroup) getErrDeleted(key []byte) ([]byte, error) {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	return sg.getWithUpperSegmentBoundaryErrDeleted(key, len(sg.segments)-1)
+}
+
+func (sg *SegmentGroup) getWithUpperSegmentBoundaryErrDeleted(key []byte, topMostSegment int) ([]byte, error) {
+	// assumes "replace" strategy
+
+	// start with latest and exit as soon as something is found, thus making sure
+	// the latest takes presence
+	for i := topMostSegment; i >= 0; i-- {
+		v, err := sg.segments[i].get(key)
+		if err != nil {
+			if errors.Is(err, lsmkv.NotFound) {
+				continue
+			}
+
+			if errors.Is(err, lsmkv.Deleted) {
+				return nil, err
+			}
+
+			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
+		}
+
+		return v, nil
+	}
+
+	return nil, nil
+}
+
+func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -323,23 +374,23 @@ func (sg *SegmentGroup) getBySecondaryIntoMemory(pos int, key []byte, buffer []b
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
 	for i := len(sg.segments) - 1; i >= 0; i-- {
-		v, err, allocatedBuff := sg.segments[i].getBySecondaryIntoMemory(pos, key, buffer)
+		k, v, allocatedBuff, err := sg.segments[i].getBySecondaryIntoMemory(pos, key, buffer)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
 
 			if errors.Is(err, lsmkv.Deleted) {
-				return nil, nil, nil
+				return nil, nil, nil, nil
 			}
 
 			panic(fmt.Sprintf("unsupported error in segmentGroup.get(): %v", err))
 		}
 
-		return v, allocatedBuff, nil
+		return k, v, allocatedBuff, nil
 	}
 
-	return nil, nil, nil
+	return nil, nil, nil, nil
 }
 
 func (sg *SegmentGroup) getCollection(key []byte) ([]value, error) {

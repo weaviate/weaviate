@@ -81,7 +81,7 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	}, rateLimit, reqError
 }
 
-func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{RemainingTokens: c.defaultTPM, RemainingRequests: c.defaultRPM, LimitTokens: c.defaultTPM, LimitRequests: c.defaultRPM, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 }
 

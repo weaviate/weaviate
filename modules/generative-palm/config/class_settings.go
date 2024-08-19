@@ -25,6 +25,7 @@ const (
 	apiEndpointProperty = "apiEndpoint"
 	projectIDProperty   = "projectId"
 	endpointIDProperty  = "endpointId"
+	regionProperty      = "region"
 	modelIDProperty     = "modelId"
 	temperatureProperty = "temperature"
 	tokenLimitProperty  = "tokenLimit"
@@ -33,14 +34,18 @@ const (
 )
 
 var (
-	DefaultPaLMApiEndpoint        = "us-central1-aiplatform.googleapis.com"
-	DefaultPaLMModel              = "chat-bison"
-	DefaultPaLMTemperature        = 0.2
-	DefaultTokenLimit             = 256
-	DefaultPaLMTopP               = 0.95
-	DefaultPaLMTopK               = 40
-	DefaulGenerativeAIApiEndpoint = "generativelanguage.googleapis.com"
-	DefaulGenerativeAIModelID     = "chat-bison-001"
+	DefaultPaLMApiEndpoint            = "us-central1-aiplatform.googleapis.com"
+	DefaultPaLMModel                  = "chat-bison"
+	DefaultPaLMRegion                 = "us-central1"
+	DefaultPaLMTemperature            = 1.0
+	DefaultTokenLimit                 = 1024
+	DefaultTokenLimitGemini1_0        = 2048
+	DefaultTokenLimitGemini1_0_Vision = 4096
+	DefaultTokenLimitGemini1_5        = 8192
+	DefaultPaLMTopP                   = 0.95
+	DefaultPaLMTopK                   = 40
+	DefaulGenerativeAIApiEndpoint     = "generativelanguage.googleapis.com"
+	DefaulGenerativeAIModelID         = "chat-bison-001"
 )
 
 var supportedVertexAIModels = []string{
@@ -49,13 +54,21 @@ var supportedVertexAIModels = []string{
 	"chat-bison@002",
 	"chat-bison-32k@002",
 	"chat-bison@001",
+	"gemini-1.5-pro-preview-0514",
+	"gemini-1.5-pro-preview-0409",
+	"gemini-1.5-flash-preview-0514",
+	"gemini-1.0-pro-002",
+	"gemini-1.0-pro-001",
+	"gemini-1.0-pro",
 }
 
 var supportedGenerativeAIModels = []string{
+	// chat-bison-001
 	DefaulGenerativeAIModelID,
 	"gemini-pro",
-	"gemini-pro-vision",
 	"gemini-ultra",
+	"gemini-1.5-flash-latest",
+	"gemini-1.5-pro-latest",
 }
 
 type ClassSettings interface {
@@ -65,13 +78,14 @@ type ClassSettings interface {
 	ProjectID() string
 	EndpointID() string
 	ModelID() string
+	Region() string
 
 	// parameters
 	// 0.0 - 1.0
 	Temperature() float64
-	// 1 - 1024
+	// 1 - 1024 / 2048 Gemini 1.0 / 8192 Gemini 1.5
 	TokenLimit() int
-	// 1 - 40
+	// 1 -
 	TopK() int
 	// 0.0 - 1.0
 	TopP() float64
@@ -104,12 +118,12 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be float value between 0 and 1", temperatureProperty))
 	}
 	tokenLimit := ic.TokenLimit()
-	if tokenLimit < 1 || tokenLimit > 1024 {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 1024", tokenLimitProperty))
+	if tokenLimit < 1 || tokenLimit > ic.getDefaultTokenLimit(ic.ModelID()) {
+		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and %v", tokenLimitProperty, ic.getDefaultTokenLimit(ic.ModelID())))
 	}
 	topK := ic.TopK()
-	if topK < 1 || topK > 40 {
-		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value between 1 and 40", topKProperty))
+	if topK < 1 {
+		errorMessages = append(errorMessages, fmt.Sprintf("%s has to be an integer value above or equal 1", topKProperty))
 	}
 	topP := ic.TopP()
 	if topP < 0 || topP > 1 {
@@ -150,6 +164,19 @@ func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
 	return DefaultPaLMModel
 }
 
+func (ic *classSettings) getDefaultTokenLimit(model string) int {
+	if strings.HasPrefix(model, "gemini-1.5") {
+		return DefaultTokenLimitGemini1_5
+	}
+	if strings.HasPrefix(model, "gemini-1.0") || strings.HasPrefix(model, "gemini-pro") {
+		if strings.Contains(model, "vision") {
+			return DefaultTokenLimitGemini1_0_Vision
+		}
+		return DefaultTokenLimitGemini1_0
+	}
+	return DefaultTokenLimit
+}
+
 // PaLM params
 func (ic *classSettings) ApiEndpoint() string {
 	return ic.getStringProperty(apiEndpointProperty, DefaultPaLMApiEndpoint)
@@ -167,6 +194,10 @@ func (ic *classSettings) ModelID() string {
 	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel(ic.ApiEndpoint()))
 }
 
+func (ic *classSettings) Region() string {
+	return ic.getStringProperty(regionProperty, DefaultPaLMRegion)
+}
+
 // parameters
 
 // 0.0 - 1.0
@@ -176,7 +207,7 @@ func (ic *classSettings) Temperature() float64 {
 
 // 1 - 1024
 func (ic *classSettings) TokenLimit() int {
-	return ic.getIntProperty(tokenLimitProperty, DefaultTokenLimit)
+	return ic.getIntProperty(tokenLimitProperty, ic.getDefaultTokenLimit(ic.ModelID()))
 }
 
 // 1 - 40

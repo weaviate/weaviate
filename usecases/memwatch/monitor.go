@@ -35,6 +35,11 @@ const (
 	TiB = 1 << (10 * iota) // 2^40
 )
 
+const (
+	MappingDelayInS = 2
+	mappingsEntries = 60 + MappingDelayInS
+)
+
 var (
 	ErrNotEnoughMemory   = fmt.Errorf("not enough memory")
 	ErrNotEnoughMappings = fmt.Errorf("not enough memory mappings")
@@ -59,10 +64,12 @@ type Monitor struct {
 
 // Refresh retrieves the current memory stats from the runtime and stores them
 // in the local cache
-func (m *Monitor) Refresh() {
+func (m *Monitor) Refresh(updateMappings bool) {
 	m.obtainCurrentUsage()
-	m.obtainCurrentMappings()
 	m.updateLimit()
+	if updateMappings {
+		m.obtainCurrentMappings()
+	}
 }
 
 // we have no intentions of ever modifying the limit, but SetMemoryLimit with a
@@ -82,10 +89,10 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 		limitSetter:            limitSetter,
 		maxRatio:               maxRatio,
 		maxMemoryMappings:      getMaxMemoryMappings(),
-		reservedMappingsBuffer: make([]int64, 60), // one entry per second
+		reservedMappingsBuffer: make([]int64, mappingsEntries), // one entry per second + buffer to handle delays
 		lastReservationsClear:  time.Now(),
 	}
-	m.Refresh()
+	m.Refresh(true)
 	return m
 }
 
@@ -104,6 +111,10 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// mappings are only updated every Xs, so we need to extend the reservation time
+	if reservationTimeInS > 0 {
+		reservationTimeInS += MappingDelayInS
+	}
 	if reservationTimeInS > len(m.reservedMappingsBuffer) {
 		reservationTimeInS = len(m.reservedMappingsBuffer)
 	}
@@ -117,7 +128,7 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 	}
 	if reservationTimeInS > 0 {
 		m.reservedMappings += numberMappings
-		m.reservedMappingsBuffer[(now.Second()+reservationTimeInS)%60] += numberMappings
+		m.reservedMappingsBuffer[(now.Second()+reservationTimeInS)%(mappingsEntries)] += numberMappings
 	}
 
 	m.lastReservationsClear = now
@@ -127,7 +138,7 @@ func (m *Monitor) CheckMappingAndReserve(numberMappings int64, reservationTimeIn
 
 func clearReservedMappings(lastClear time.Time, now time.Time, reservedMappingsBuffer []int64) int64 {
 	clearedMappings := int64(0)
-	if now.Sub(lastClear) >= time.Minute {
+	if now.Sub(lastClear) >= mappingsEntries*time.Second {
 		for i := 0; i < len(reservedMappingsBuffer); i++ {
 			clearedMappings += reservedMappingsBuffer[i]
 			reservedMappingsBuffer[i] = 0
@@ -142,7 +153,7 @@ func clearReservedMappings(lastClear time.Time, now time.Time, reservedMappingsB
 		}
 	} else {
 		// wrap around, the value of the last refresh was already cleared
-		for i := lastClear.Second() + 1; i < 60; i++ {
+		for i := lastClear.Second() + 1; i < len(reservedMappingsBuffer); i++ {
 			clearedMappings += reservedMappingsBuffer[i]
 			reservedMappingsBuffer[i] = 0
 		}
@@ -167,9 +178,10 @@ func (m *Monitor) obtainCurrentUsage() {
 }
 
 func (m *Monitor) obtainCurrentMappings() {
+	used := getCurrentMappings()
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.usedMappings = getCurrentMappings()
+	m.usedMappings = used
 }
 
 func getCurrentMappings() int64 {
@@ -271,10 +283,10 @@ func NewDummyMonitor() *Monitor {
 		limitSetter:            func(size int64) int64 { return TiB },
 		maxRatio:               1,
 		maxMemoryMappings:      10000000,
-		reservedMappingsBuffer: make([]int64, 60),
+		reservedMappingsBuffer: make([]int64, mappingsEntries),
 		lastReservationsClear:  time.Now(),
 	}
-	m.Refresh()
+	m.Refresh(true)
 	return m
 }
 
@@ -283,7 +295,7 @@ type metricsReader func() int64
 type AllocChecker interface {
 	CheckAlloc(sizeInBytes int64) error
 	CheckMappingAndReserve(numberMappings int64, reservationTimeInS int) error
-	Refresh()
+	Refresh(updateMappings bool)
 }
 
 func EstimateObjectMemory(object *models.Object) int64 {

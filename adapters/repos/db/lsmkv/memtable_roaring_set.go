@@ -118,6 +118,13 @@ func (m *Memtable) roaringSetAddRemoveBitmaps(key []byte, additions *sroar.Bitma
 	return nil
 }
 
+func (m *Memtable) roaringSetAddRemoveLists(key []byte, additions []uint64, deletions []uint64) error {
+	additionsBM := roaringset.NewBitmap(additions...)
+	deletionsBM := roaringset.NewBitmap(deletions...)
+
+	return m.roaringSetAddRemoveBitmaps(key, additionsBM, deletionsBM)
+}
+
 func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	if err := checkStrategyRoaringSet(m.strategy); err != nil {
 		return roaringset.BitmapLayer{}, err

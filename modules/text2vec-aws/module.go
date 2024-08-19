@@ -94,7 +94,8 @@ func (m *AwsModule) initVectorizer(ctx context.Context, timeout time.Duration,
 ) error {
 	awsAccessKey := m.getAWSAccessKey()
 	awsSecret := m.getAWSSecretAccessKey()
-	client := clients.New(awsAccessKey, awsSecret, timeout, logger)
+	awsSessionToken := os.Getenv("AWS_SESSION_TOKEN")
+	client := clients.New(awsAccessKey, awsSecret, awsSessionToken, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client

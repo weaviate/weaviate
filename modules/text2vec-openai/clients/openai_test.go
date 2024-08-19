@@ -232,8 +232,6 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
 
 		config := ent.VectorizationConfig{
@@ -255,26 +253,22 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("pass rate limit headers requests", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Ratelimit-RequestPM-Embedding", []string{"50"})
 
-		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		rl := c.GetVectorizerRateLimit(ctxWithValue, fakeClassConfig{})
 		assert.Equal(t, 50, rl.LimitRequests)
 		assert.Equal(t, 50, rl.RemainingRequests)
 	})
 
 	t.Run("pass rate limit headers tokens", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(), "X-Openai-Ratelimit-TokenPM-Embedding", []string{"60"})
 
-		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		rl := c.GetVectorizerRateLimit(ctxWithValue, fakeClassConfig{})
 		assert.Equal(t, 60, rl.LimitTokens)
 		assert.Equal(t, 60, rl.RemainingTokens)
 	})
@@ -409,7 +403,8 @@ func Test_getModelString(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				v := New("apiKey", "", "", 0, nullLogger())
-				if got := v.getModelString(tt.args.docType, tt.args.model, "document", tt.args.version); got != tt.want {
+				config := ent.VectorizationConfig{Type: tt.args.docType, Model: tt.args.model, ModelVersion: tt.args.version}
+				if got := v.getModelString(config, "document"); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
 			})
@@ -479,7 +474,9 @@ func Test_getModelString(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				v := New("apiKey", "", "", 0, nullLogger())
-				if got := v.getModelString(tt.args.docType, tt.args.model, "query", tt.args.version); got != tt.want {
+				config := ent.VectorizationConfig{Type: tt.args.docType, Model: tt.args.model, ModelVersion: tt.args.version}
+
+				if got := v.getModelString(config, "query"); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
 			})

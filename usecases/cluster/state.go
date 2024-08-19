@@ -41,6 +41,9 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
+	// FastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
+	// failures (down nodes) faster.
+	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
 }
@@ -87,6 +90,10 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 
 	if userConfig.AdvertisePort != 0 {
 		cfg.AdvertisePort = userConfig.AdvertisePort
+	}
+
+	if userConfig.FastFailureDetection {
+		cfg.SuspicionMult = 1
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {

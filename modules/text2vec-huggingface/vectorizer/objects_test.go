@@ -13,8 +13,10 @@ package vectorizer
 
 import (
 	"context"
-	"strings"
 	"testing"
+
+	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +37,7 @@ func TestVectorizingObjects(t *testing.T) {
 		passageModel             string
 		endpointURL              string
 	}
+	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
@@ -183,7 +186,7 @@ func TestVectorizingObjects(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := New(client)
+			v := New(client, logger)
 
 			ic := &fakeClassConfig{
 				excludedProperty:      test.excludedProperty,
@@ -193,15 +196,14 @@ func TestVectorizingObjects(t *testing.T) {
 				endpointURL:           test.endpointURL,
 				vectorizePropertyName: true,
 			}
-			vector, _, err := v.Object(context.Background(), test.input, ic)
+			vector, _, err := v.Object(context.Background(), test.input, ic, ent.NewClassSettings(ic))
 
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
-			expected := strings.Split(test.expectedClientCall, " ")
-			actual := strings.Split(client.lastInput, " ")
-			assert.Equal(t, expected, actual)
+			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
 			if test.expectedHuggingFaceModel != "" {
-				assert.Equal(t, test.expectedHuggingFaceModel, client.lastConfig.Model)
+				ic := ent.NewClassSettings(client.lastConfig)
+				assert.Equal(t, test.expectedHuggingFaceModel, ic.PassageModel())
 			}
 		})
 	}

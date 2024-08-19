@@ -21,7 +21,7 @@ import (
 
 const (
 	apiEndpointProperty = "apiEndpoint"
-	modelIDProperty     = "modelId"
+	modelProperty       = "model"
 )
 
 const (
@@ -29,7 +29,7 @@ const (
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 	DefaultApiEndpoint           = "http://localhost:11434"
-	DefaultModelID               = "nomic-embed-text"
+	DefaultModel                 = "nomic-embed-text"
 )
 
 type classSettings struct {
@@ -48,8 +48,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	if ic.ApiEndpoint() == "" {
 		return errors.New("apiEndpoint cannot be empty")
 	}
-	if ic.ModelID() == "" {
-		return errors.New("modelId cannot be empty")
+	if ic.Model() == "" {
+		return errors.New("model cannot be empty")
 	}
 	return nil
 }
@@ -58,14 +58,10 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 	return ic.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
-func (ic *classSettings) getDefaultModel() string {
-	return DefaultModelID
-}
-
 func (ic *classSettings) ApiEndpoint() string {
 	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
 }
 
-func (ic *classSettings) ModelID() string {
-	return ic.getStringProperty(modelIDProperty, ic.getDefaultModel())
+func (ic *classSettings) Model() string {
+	return ic.getStringProperty(modelProperty, DefaultModel)
 }
