@@ -185,7 +185,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Nil(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, version))
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastIndex()+1), types.ErrDeadlineExceeded)
+	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), types.ErrDeadlineExceeded)
 
 	// DeleteClass
 	_, err = srv.DeleteClass(ctx, "X")
