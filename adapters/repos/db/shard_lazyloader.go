@@ -415,6 +415,11 @@ func (l *LazyLoadShard) PreloadQueue(targetVector string) error {
 	return l.shard.PreloadQueue(targetVector)
 }
 
+func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RepairIndex(ctx, targetVector)
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
