@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	cuvs_index "github.com/weaviate/weaviate/adapters/repos/db/vector/cuvs"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -605,6 +606,9 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 		return flat.ValidateUserConfigUpdate(old, updated)
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
+
+	case vectorindex.VectorIndexTypeCUVS:
+		return cuvs_index.ValidateUserConfigUpdate(old, updated)
 	}
 	return fmt.Errorf("Invalid index type: %s", old.IndexType())
 }
