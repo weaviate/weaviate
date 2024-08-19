@@ -17,7 +17,7 @@ import (
 	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 type Config struct {
@@ -25,7 +25,6 @@ type Config struct {
 	TargetVector   string
 	Logger         logrus.FieldLogger
 	DistanceMetric cuvs.Distance
-	AllocChecker   memwatch.AllocChecker
 }
 
 func (c Config) Validate() error {
@@ -40,4 +39,18 @@ func (c Config) Validate() error {
 	// }
 
 	return ec.ToError()
+}
+
+func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) error {
+	// initialParsed, ok := initial.(flatent.UserConfig)
+	// if !ok {
+	// 	return errors.Errorf("initial is not UserConfig, but %T", initial)
+	// }
+
+	// updatedParsed, ok := updated.(flatent.UserConfig)
+	// if !ok {
+	// 	return errors.Errorf("updated is not UserConfig, but %T", updated)
+	// }
+
+	return nil
 }

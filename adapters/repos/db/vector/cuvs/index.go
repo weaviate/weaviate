@@ -28,6 +28,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
 )
 
 type VectorIndex interface {
@@ -80,7 +81,7 @@ type cuvs_index struct {
 	count uint64
 }
 
-func New(cfg Config, store *lsmkv.Store) (*cuvs_index, error) {
+func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "invalid config")
 	}

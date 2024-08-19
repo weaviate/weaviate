@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/entities/vectorindex/cuvs"
 	"github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -464,7 +465,8 @@ func (p *Provider) getVectorIndexConfig(class *models.Class, targetVector string
 	hnswConfig, okHnsw := vectorIndexConfig.(hnsw.UserConfig)
 	_, okFlat := vectorIndexConfig.(flat.UserConfig)
 	_, okDynamic := vectorIndexConfig.(dynamic.UserConfig)
-	if !(okHnsw || okFlat || okDynamic) {
+	_, okCuvs := vectorIndexConfig.(cuvs.UserConfig)
+	if !(okHnsw || okFlat || okDynamic || okCuvs) {
 		return hnsw.UserConfig{}, fmt.Errorf(errorVectorIndexType, vectorIndexConfig)
 	}
 	return hnswConfig, nil
