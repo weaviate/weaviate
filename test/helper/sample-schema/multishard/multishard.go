@@ -39,6 +39,7 @@ func class(vectorizer string) *models.Class {
 				"vectorizeClassName": false,
 			},
 		},
+		Vectorizer: vectorizer,
 		Properties: []*models.Property{
 			{
 				Name:         "name",

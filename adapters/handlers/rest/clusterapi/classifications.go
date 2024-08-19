@@ -16,5 +16,7 @@ type classifications struct {
 }
 
 func NewClassifications(manager txManager, auth auth) *classifications {
-	return &classifications{txHandler{manager: manager, auth: auth}}
+	return &classifications{
+		newTxHandler(manager, auth, classifyTX),
+	}
 }

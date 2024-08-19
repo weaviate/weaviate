@@ -18,10 +18,13 @@ RUN go mod download
 FROM build_base AS server_builder
 ARG TARGETARCH
 ARG GITHASH="unknown"
+ARG DOCKER_IMAGE_TAG="unknown"
 ARG EXTRA_BUILD_ARGS=""
 COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
-      -ldflags '-w -extldflags "-static" -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"'' \
+      -ldflags '-w -extldflags "-static" \
+      -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"' \
+      -X github.com/weaviate/weaviate/usecases/config.ImageTag='"$DOCKER_IMAGE_TAG"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################
@@ -32,11 +35,9 @@ ENTRYPOINT ["./tools/dev/telemetry_mock_api.sh"]
 
 ###############################################################################
 # This image gets grpc health check probe
-FROM build_base AS grpc_health_probe_builder
-ARG TARGETARCH
-RUN GRPC_HEALTH_PROBE_VERSION=v0.4.22 && \
-      wget -qO/bin/grpc_health_probe https://github.com/grpc-ecosystem/grpc-health-probe/releases/download/${GRPC_HEALTH_PROBE_VERSION}/grpc_health_probe-linux-${TARGETARCH} && \
-      chmod +x /bin/grpc_health_probe
+FROM golang:1.22-alpine AS grpc_health_probe_builder
+RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.29
+RUN GOBIN=/go/bin && chmod +x ${GOBIN}/grpc-health-probe && mv ${GOBIN}/grpc-health-probe /bin/grpc_health_probe
 
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)

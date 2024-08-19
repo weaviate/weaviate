@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
 func TestClient(t *testing.T) {
@@ -33,8 +34,9 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &palm{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
 			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				assert.Equal(t, "endpoint", apiEndoint)
 				assert.Equal(t, "project", projectID)
@@ -63,8 +65,9 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &palm{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
 			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
@@ -86,8 +89,9 @@ func TestClient(t *testing.T) {
 		})
 		defer server.Close()
 		c := &palm{
-			apiKey:     "apiKey",
-			httpClient: &http.Client{},
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
 			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
@@ -97,15 +101,16 @@ func TestClient(t *testing.T) {
 			ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
-		assert.EqualError(t, err, "connection to Google PaLM failed with status: 500 error: nope, not gonna happen")
+		assert.EqualError(t, err, "connection to Google failed with status: 500 error: nope, not gonna happen")
 	})
 
 	t.Run("when Palm key is passed using X-Palm-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &palm{
-			apiKey:     "",
-			httpClient: &http.Client{},
+			apiKey:       "",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
 			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
@@ -129,8 +134,9 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &palm{
-			apiKey:     "",
-			httpClient: &http.Client{},
+			apiKey:       "",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
 			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
 				return server.URL
 			},
@@ -142,9 +148,9 @@ func TestClient(t *testing.T) {
 		_, err := c.Vectorize(ctx, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+
-			"neither in request header: X-Palm-Api-Key "+
-			"nor in environment variable under PALM_APIKEY")
+		assert.Equal(t, err.Error(), "Google API Key: no api key found "+
+			"neither in request header: X-Palm-Api-Key or X-Google-Api-Key or X-Google-Vertex-Api-Key or X-Google-Studio-Api-Key "+
+			"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY")
 	})
 
 	t.Run("when X-Palm-Api-Key header is passed but empty", func(t *testing.T) {
@@ -152,6 +158,7 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 		c := &palm{
 			apiKey:       "",
+			googleApiKey: apikey.NewGoogleApiKey(),
 			httpClient:   &http.Client{},
 			urlBuilderFn: buildURL,
 			logger:       nullLogger(),
@@ -162,9 +169,9 @@ func TestClient(t *testing.T) {
 		_, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, ent.VectorizationConfig{}, "")
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "Palm API Key: no api key found "+
-			"neither in request header: X-Palm-Api-Key "+
-			"nor in environment variable under PALM_APIKEY")
+		assert.Equal(t, "Google API Key: no api key found "+
+			"neither in request header: X-Palm-Api-Key or X-Google-Api-Key or X-Google-Vertex-Api-Key or X-Google-Studio-Api-Key "+
+			"nor in environment variable under PALM_APIKEY or GOOGLE_APIKEY", err.Error())
 	})
 }
 

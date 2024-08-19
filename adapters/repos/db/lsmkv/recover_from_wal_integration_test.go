@@ -522,10 +522,10 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 				require.Nil(t, err)
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(context.Background(), rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Map, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(context.Background(), rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Map)
 		})
@@ -557,10 +557,10 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 				},
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(context.Background(), rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Updated, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(context.Background(), rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Unchanged)
 		})
@@ -589,10 +589,10 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 				},
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(context.Background(), rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, expectedRow1, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(context.Background(), rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, expectedRow2, res)
 		})
@@ -653,10 +653,10 @@ func TestMapStrategy_RecoverFromWAL(t *testing.T) {
 				},
 			}
 
-			res, err := bRec.MapList(rowKey1)
+			res, err := bRec.MapList(context.Background(), rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, expectedRow1, res)
-			res, err = bRec.MapList(rowKey2)
+			res, err = bRec.MapList(context.Background(), rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, expectedRow2, res)
 		})

@@ -227,7 +227,7 @@ func multiTenancyEnabled(t *testing.T) {
 
 	t.Run("delete an object", func(t *testing.T) {
 		t.Run("execute delete object on node 1", func(t *testing.T) {
-			deleteTenantObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], tenantID.String())
+			deleteTenantObject(t, compose.GetWeaviate().URI(), "Article", articleIDs[0], tenantID.String(), replica.All)
 		})
 
 		t.Run("stop node 1", func(t *testing.T) {
@@ -248,7 +248,7 @@ func multiTenancyEnabled(t *testing.T) {
 	t.Run("batch delete all objects", func(t *testing.T) {
 		t.Run("execute batch delete on node 2", func(t *testing.T) {
 			deleteTenantObjects(t, compose.GetWeaviateNode2().URI(),
-				"Article", []string{"title"}, "Article#*", tenantID.String())
+				"Article", []string{"title"}, "Article#*", tenantID.String(), replica.All)
 		})
 
 		t.Run("stop node 2", func(t *testing.T) {

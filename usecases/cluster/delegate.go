@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/hashicorp/memberlist"
 	"github.com/sirupsen/logrus"
 )
@@ -149,7 +151,7 @@ func (d *delegate) init(diskSpace func(path string) (DiskUsage, error)) error {
 	d.set(d.Name, NodeInfo{space, lastTime.UnixMilli()}) // cache
 
 	// delegate remains alive throughout the entire program.
-	go d.updater(_ProtoTTL, minUpdatePeriod, diskSpace)
+	enterrors.GoWrapper(func() { d.updater(_ProtoTTL, minUpdatePeriod, diskSpace) }, d.log)
 	return nil
 }
 

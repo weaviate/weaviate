@@ -32,7 +32,7 @@ func TestSchemaRepair(t *testing.T) {
 			name          string
 			originalLocal State
 			remote        State
-			tenants       map[string][]string
+			tenants       map[string][]models.Tenant
 		}
 	)
 
@@ -41,15 +41,16 @@ func TestSchemaRepair(t *testing.T) {
 		logger, _        = testlog.NewNullLogger()
 		clusterState     = &fakeClusterState{hosts: []string{"some.host"}}
 		txManager        = cluster.NewTxManager(&fakeBroadcaster{}, &fakeTxPersistence{}, logger)
-		newShardingState = func(id string, tenants ...string) *sharding.State {
+		newShardingState = func(id string, tenants ...models.Tenant) *sharding.State {
 			ss := &sharding.State{
 				IndexID: id,
 				Physical: func() map[string]sharding.Physical {
 					m := map[string]sharding.Physical{}
 					for _, tenant := range tenants {
-						m[tenant] = sharding.Physical{
-							Name:           tenant,
+						m[tenant.Name] = sharding.Physical{
+							Name:           tenant.Name,
 							BelongsToNodes: []string{clusterState.LocalName()},
+							Status:         tenant.ActivityStatus,
 						}
 					}
 					return m
@@ -119,24 +120,56 @@ func TestSchemaRepair(t *testing.T) {
 					newClass("Class1", properties{newProp("textProp", "text")}, true),
 				}},
 			},
-			tenants: map[string][]string{
-				"Class1": {"tenant1", "tenant2"},
+			tenants: map[string][]models.Tenant{
+				"Class1": {
+					{Name: "tenant1", ActivityStatus: "HOT"},
+					{Name: "tenant2", ActivityStatus: "COLD"},
+				},
+			},
+		},
+		{
+			name: "repair mismatched tenant activity status",
+			originalLocal: State{
+				ObjectSchema: &models.Schema{Classes: classes{
+					newClass("Class1", properties{newProp("textProp", "text")}, true),
+				}},
+				ShardingState: map[string]*sharding.State{
+					"Class1": newShardingState("Class1",
+						models.Tenant{Name: "tenant1", ActivityStatus: "COLD"},
+						models.Tenant{Name: "tenant2", ActivityStatus: "HOT"},
+					),
+				},
+			},
+			remote: State{
+				ObjectSchema: &models.Schema{Classes: classes{
+					newClass("Class1", properties{newProp("textProp", "text")}, true),
+				}},
+				ShardingState: map[string]*sharding.State{
+					"Class1": newShardingState("Class1",
+						models.Tenant{Name: "tenant1", ActivityStatus: "COLD"},
+						models.Tenant{Name: "tenant2", ActivityStatus: "COLD"},
+					),
+				},
 			},
 		},
 	}
 
 	t.Run("init testcase sharding states", func(t *testing.T) {
 		for i := range tests {
-			tests[i].originalLocal.ShardingState = map[string]*sharding.State{}
-			for _, class := range tests[i].originalLocal.ObjectSchema.Classes {
-				ss := newShardingState(class.Class)
-				tests[i].originalLocal.ShardingState[class.Class] = ss
+			if tests[i].originalLocal.ShardingState == nil {
+				tests[i].originalLocal.ShardingState = map[string]*sharding.State{}
+				for _, class := range tests[i].originalLocal.ObjectSchema.Classes {
+					ss := newShardingState(class.Class)
+					tests[i].originalLocal.ShardingState[class.Class] = ss
+				}
 			}
-			tests[i].remote.ShardingState = map[string]*sharding.State{}
-			for _, class := range tests[i].remote.ObjectSchema.Classes {
-				tenants := tests[i].tenants[class.Class]
-				ss := newShardingState(class.Class, tenants...)
-				tests[i].remote.ShardingState[class.Class] = ss
+			if tests[i].remote.ShardingState == nil {
+				tests[i].remote.ShardingState = map[string]*sharding.State{}
+				for _, class := range tests[i].remote.ObjectSchema.Classes {
+					tenants := tests[i].tenants[class.Class]
+					ss := newShardingState(class.Class, tenants...)
+					tests[i].remote.ShardingState[class.Class] = ss
+				}
 			}
 		}
 	})

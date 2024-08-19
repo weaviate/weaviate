@@ -17,8 +17,9 @@ import (
 	"os"
 	"path/filepath"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/backup"
-	"golang.org/x/sync/errgroup"
 )
 
 // BeginBackup stops compaction, and flushing memtable and commit log to begin with the backup
@@ -43,8 +44,16 @@ func (s *Shard) BeginBackup(ctx context.Context) (err error) {
 	if err = s.cycleCallbacks.geoPropsCombinedCallbacksCtrl.Deactivate(ctx); err != nil {
 		return fmt.Errorf("pause geo props maintenance: %w", err)
 	}
-	if err = s.VectorIndex().SwitchCommitLogs(ctx); err != nil {
-		return fmt.Errorf("switch commit logs: %w", err)
+	if s.hasTargetVectors() {
+		for targetVector, vectorIndex := range s.vectorIndexes {
+			if err = vectorIndex.SwitchCommitLogs(ctx); err != nil {
+				return fmt.Errorf("switch commit logs of vector %q: %w", targetVector, err)
+			}
+		}
+	} else {
+		if err = s.vectorIndex.SwitchCommitLogs(ctx); err != nil {
+			return fmt.Errorf("switch commit logs: %w", err)
+		}
 	}
 	return nil
 }
@@ -59,17 +68,28 @@ func (s *Shard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor
 	if ret.Files, err = s.store.ListFiles(ctx, s.index.Config.RootPath); err != nil {
 		return err
 	}
-	files, err := s.VectorIndex().ListFiles(ctx, s.index.Config.RootPath)
-	if err != nil {
-		return err
+
+	if s.hasTargetVectors() {
+		for targetVector, vectorIndex := range s.vectorIndexes {
+			files, err := vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+			if err != nil {
+				return fmt.Errorf("list files of vector %q: %w", targetVector, err)
+			}
+			ret.Files = append(ret.Files, files...)
+		}
+	} else {
+		files, err := s.vectorIndex.ListFiles(ctx, s.index.Config.RootPath)
+		if err != nil {
+			return err
+		}
+		ret.Files = append(ret.Files, files...)
 	}
 
-	ret.Files = append(ret.Files, files...)
 	return nil
 }
 
 func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
-	var g errgroup.Group
+	g := enterrors.NewErrorGroupWrapper(s.index.logger)
 
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)
@@ -90,7 +110,12 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 
 func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
-	d.Node = s.nodeName()
+
+	d.Node, err = s.nodeName()
+	if err != nil {
+		return fmt.Errorf("node name: %w", err)
+	}
+
 	fpath := s.counter.FileName()
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard doc-id-counter %s: %w", fpath, err)
@@ -118,8 +143,8 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	return nil
 }
 
-func (s *Shard) nodeName() string {
-	node, _ := s.index.getSchema.ShardOwner(
+func (s *Shard) nodeName() (string, error) {
+	node, err := s.index.getSchema.ShardOwner(
 		s.index.Config.ClassName.String(), s.name)
-	return node
+	return node, err
 }

@@ -25,7 +25,7 @@ import (
 
 func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 	t.Run("loading and deleting data works", func(t *testing.T) {
-		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t))
+		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), nil)
 		assert.Nil(t, err)
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		vec, err := compressor.DistanceBetweenCompressedVectorsFromIDs(context.Background(), 1, 2)
@@ -41,7 +41,7 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 	})
 
 	t.Run("distance are right when using BQ", func(t *testing.T) {
-		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t))
+		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), nil)
 		assert.Nil(t, err)
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
@@ -61,7 +61,7 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 	})
 
 	t.Run("distance are right when using BQDistancer", func(t *testing.T) {
-		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t))
+		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), nil)
 		assert.Nil(t, err)
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
@@ -69,44 +69,46 @@ func Test_NoRaceQuantizedVectorCompressor(t *testing.T) {
 		distancer, returnFn := compressor.NewDistancer([]float32{0.1, -0.2})
 		defer returnFn()
 
-		d, _, err := distancer.DistanceToNode(1)
+		d, err := distancer.DistanceToNode(1)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(2), d)
 
-		d, _, err = distancer.DistanceToNode(2)
+		d, err = distancer.DistanceToNode(2)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(1), d)
 
-		d, _, err = distancer.DistanceToNode(3)
+		d, err = distancer.DistanceToNode(3)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(1), d)
 
-		d, _, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
+		d, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
 		assert.Nil(t, err)
 		assert.Equal(t, float32(0.88), d)
 	})
 
 	t.Run("distance are right when using BQDistancer to compressed node", func(t *testing.T) {
-		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t))
+		compressor, err := compressionhelpers.NewBQCompressor(distancer.NewCosineDistanceProvider(), 1e12, nil, testinghelpers.NewDummyStore(t), nil)
 		assert.Nil(t, err)
 		compressor.Preload(1, []float32{-0.5, 0.5})
 		compressor.Preload(2, []float32{0.25, 0.7})
 		compressor.Preload(3, []float32{0.5, 0.5})
-		distancer := compressor.NewDistancerFromID(1)
+		distancer, err := compressor.NewDistancerFromID(1)
 
-		d, _, err := distancer.DistanceToNode(1)
+		assert.Nil(t, err)
+
+		d, err := distancer.DistanceToNode(1)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(0), d)
 
-		d, _, err = distancer.DistanceToNode(2)
+		d, err = distancer.DistanceToNode(2)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(1), d)
 
-		d, _, err = distancer.DistanceToNode(3)
+		d, err = distancer.DistanceToNode(3)
 		assert.Nil(t, err)
 		assert.Equal(t, float32(1), d)
 
-		d, _, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
+		d, err = distancer.DistanceToFloat([]float32{0.8, -0.2})
 		assert.Nil(t, err)
 		assert.Equal(t, float32(2), d)
 	})

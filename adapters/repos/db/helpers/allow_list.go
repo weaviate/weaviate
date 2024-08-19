@@ -20,6 +20,7 @@ type AllowList interface {
 	Insert(ids ...uint64)
 	Contains(id uint64) bool
 	DeepCopy() AllowList
+	WrapOnWrite() AllowList
 	Slice() []uint64
 
 	IsEmpty() bool
@@ -27,6 +28,7 @@ type AllowList interface {
 	Min() uint64
 	Max() uint64
 	Size() uint64
+	Truncate(uint64) AllowList
 
 	Iterator() AllowListIterator
 	LimitedIterator(limit int) AllowListIterator
@@ -65,6 +67,10 @@ func (al *bitmapAllowList) DeepCopy() AllowList {
 	return NewAllowListFromBitmapDeepCopy(al.bm)
 }
 
+func (al *bitmapAllowList) WrapOnWrite() AllowList {
+	return newWrappedAllowList(al)
+}
+
 func (al *bitmapAllowList) Slice() []uint64 {
 	return al.bm.ToArray()
 }
@@ -88,6 +94,14 @@ func (al *bitmapAllowList) Max() uint64 {
 func (al *bitmapAllowList) Size() uint64 {
 	// TODO provide better size estimation
 	return uint64(1.5 * float64(len(al.bm.ToBuffer())))
+}
+
+func (al *bitmapAllowList) Truncate(upTo uint64) AllowList {
+	card := al.bm.GetCardinality()
+	if upTo < uint64(card) {
+		al.bm.RemoveRange(upTo, uint64(al.bm.GetCardinality()+1))
+	}
+	return al
 }
 
 func (al *bitmapAllowList) Iterator() AllowListIterator {

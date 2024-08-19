@@ -16,12 +16,14 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"golang.org/x/sync/errgroup"
 )
 
 type propValuePair struct {
@@ -40,13 +42,14 @@ type propValuePair struct {
 	hasFilterableIndex bool
 	hasSearchableIndex bool
 	Class              *models.Class // The schema
+	logger             logrus.FieldLogger
 }
 
-func newPropValuePair(class *models.Class) (*propValuePair, error) {
+func newPropValuePair(class *models.Class, logger logrus.FieldLogger) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
-	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
+	return &propValuePair{logger: logger, docIDs: newDocBitmap(), Class: class}, nil
 }
 
 func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
@@ -94,7 +97,7 @@ func (pv *propValuePair) fetchDocIDs(s *Searcher, limit int) error {
 		}
 		pv.docIDs = dbm
 	} else {
-		eg := errgroup.Group{}
+		eg := enterrors.NewErrorGroupWrapper(pv.logger)
 		// prevent unbounded concurrency, see
 		// https://github.com/weaviate/weaviate/issues/3179 for details
 		eg.SetLimit(2 * _NUMCPU)

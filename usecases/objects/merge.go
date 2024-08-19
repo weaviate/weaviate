@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -22,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type MergeDocument struct {
@@ -51,12 +53,21 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	m.metrics.MergeObjectInc()
 	defer m.metrics.MergeObjectDec()
 
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process patch object")
+		return &Error{path, StatusInternalServerError, err}
+	}
+
 	obj, err := m.vectorRepo.Object(ctx, cls, id, nil, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		switch err.(type) {
 		case ErrMultiTenancy:
 			return &Error{"repo.object", StatusUnprocessableEntity, err}
 		default:
+			if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
+				m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
+				return &Error{"not found", StatusNotFound, err}
+			}
 			return &Error{"repo.object", StatusInternalServerError, err}
 		}
 	}
@@ -119,6 +130,10 @@ func (m *Manager) patchObject(ctx context.Context, principal *models.Principal,
 	}
 
 	if err := m.vectorRepo.Merge(ctx, mergeDoc, repl, tenant); err != nil {
+		if errors.As(err, &ErrDirtyReadOfDeletedObject{}) || errors.As(err, &ErrDirtyWriteOfDeletedObject{}) {
+			m.logger.WithError(err).Debugf("object %s/%s not found, possibly due to replication consistency races", cls, id)
+			return &Error{"not found", StatusNotFound, err}
+		}
 		return &Error{"repo.merge", StatusInternalServerError, err}
 	}
 
@@ -165,13 +180,6 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 			return nil, fmt.Errorf("expected previous schema to be map, but got %#v", prevPropsSch)
 		}
 
-		if vector == nil && class.Vectorizer == config.VectorizerModuleNone {
-			vector = prevVec
-		}
-		if len(vectors) == 0 && len(class.VectorConfig) > 0 {
-			vectors = prevVecs
-		}
-
 		mergedProps = map[string]interface{}{}
 		for propName, propValue := range prevProps {
 			mergedProps[propName] = propValue
@@ -190,6 +198,34 @@ func (m *Manager) mergeObjectSchemaAndVectorize(ctx context.Context, className s
 	obj := &models.Object{Class: className, Properties: mergedProps, Vector: vector, Vectors: vectors}
 	if err := m.modulesProvider.UpdateVector(ctx, obj, class, compFactory, m.findObject, m.logger); err != nil {
 		return nil, err
+	}
+
+	// If there is no vectorization module and no updated vector, use the previous vector(s)
+	if obj.Vector == nil && class.Vectorizer == config.VectorizerModuleNone {
+		obj.Vector = prevVec
+	}
+
+	if obj.Vectors == nil {
+		obj.Vectors = models.Vectors{}
+	}
+
+	// check for each named vector if the previous vector should be used. This should only happen if
+	// - the vectorizer is none
+	// - the vector is not set in the update
+	// - the vector was set in the previous object
+	for name, vectorConfig := range class.VectorConfig {
+		if _, ok := vectorConfig.Vectorizer.(map[string]interface{})[config.VectorizerModuleNone]; !ok {
+			continue
+		}
+
+		prevTargetVector, ok := prevVecs[name]
+		if !ok {
+			continue
+		}
+
+		if _, ok := obj.Vectors[name]; !ok {
+			obj.Vectors[name] = prevTargetVector
+		}
 	}
 
 	return obj, nil

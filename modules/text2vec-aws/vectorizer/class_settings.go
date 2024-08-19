@@ -46,6 +46,7 @@ var availableAWSServices = []string{
 
 var availableAWSBedrockModels = []string{
 	"amazon.titan-embed-text-v1",
+	"amazon.titan-embed-text-v2:0",
 	"cohere.embed-english-v3",
 	"cohere.embed-multilingual-v3",
 }
@@ -124,19 +125,7 @@ func (ic *classSettings) validatAvailableAWSSetting(value string, availableValue
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := ic.cfg.ClassByModuleName("text2vec-aws")[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return asString
-		}
-	}
-	return defaultValue
+	return ic.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
 func (cv *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {

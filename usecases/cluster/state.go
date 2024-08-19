@@ -35,6 +35,8 @@ type Config struct {
 	IgnoreStartupSchemaSync bool       `json:"ignoreStartupSchemaSync" yaml:"ignoreStartupSchemaSync"`
 	SkipSchemaSyncRepair    bool       `json:"skipSchemaSyncRepair" yaml:"skipSchemaSyncRepair"`
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
+	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
+	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
 }
 
 type AuthConfig struct {
@@ -71,6 +73,14 @@ func Init(userConfig Config, dataPath string, logger logrus.FieldLogger) (_ *Sta
 	cfg.Events = events{&state.delegate}
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
+	}
+
+	if userConfig.AdvertiseAddr != "" {
+		cfg.AdvertiseAddr = userConfig.AdvertiseAddr
+	}
+
+	if userConfig.AdvertisePort != 0 {
+		cfg.AdvertisePort = userConfig.AdvertisePort
 	}
 
 	if state.list, err = memberlist.Create(cfg); err != nil {

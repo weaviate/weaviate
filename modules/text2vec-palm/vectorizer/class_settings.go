@@ -37,7 +37,7 @@ const (
 	DefaultApiEndpoint            = "us-central1-aiplatform.googleapis.com"
 	DefaultModelID                = "textembedding-gecko@001"
 	DefaulGenerativeAIApiEndpoint = "generativelanguage.googleapis.com"
-	DefaulGenerativeAIModelID     = "embedding-gecko-001"
+	DefaulGenerativeAIModelID     = "embedding-001"
 )
 
 var availablePalmModels = []string{
@@ -48,10 +48,13 @@ var availablePalmModels = []string{
 	"textembedding-gecko@002",
 	"textembedding-gecko-multilingual@001",
 	"textembedding-gecko@001",
+	"text-embedding-preview-0409",
+	"text-multilingual-embedding-preview-0409",
 }
 
 var availableGenerativeAIModels = []string{
 	DefaulGenerativeAIModelID,
+	"text-embedding-004",
 }
 
 type classSettings struct {
@@ -113,19 +116,7 @@ func (ic *classSettings) validatePalmSetting(value string, availableValues []str
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := ic.cfg.ClassByModuleName("text2vec-palm")[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return asString
-		}
-	}
-	return defaultValue
+	return ic.BaseClassSettings.GetPropertyAsString(name, defaultValue)
 }
 
 func (cv *classSettings) validateIndexState(class *models.Class, settings ClassSettings) error {

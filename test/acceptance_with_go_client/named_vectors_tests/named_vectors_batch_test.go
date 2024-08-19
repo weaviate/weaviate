@@ -12,9 +12,10 @@
 package named_vectors_tests
 
 import (
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"testing"
+
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testBatchObject(t *testing.T, host string) func(t *testing.T) {
+func testBatchObject(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})

@@ -13,14 +13,17 @@ package hnsw
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (h *hnsw) findAndConnectNeighbors(node *vertex,
@@ -89,39 +92,56 @@ func (n *neighborFinderConnector) Do() error {
 
 func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	var dist float32
-	var ok bool
 	var err error
 
 	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
+		dist, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
 	} else {
-		dist, ok, err = n.distancer.DistanceToNode(id)
+		dist, err = n.distancer.DistanceToNode(id)
+	}
+
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID)
+		return math.MaxFloat32, nil
 	}
 	if err != nil {
-		// not an error we could recover from - fail!
-		return math.MaxFloat32, errors.Wrapf(err,
-			"calculate distance between insert node and entrypoint")
-	}
-	if !ok {
-		return math.MaxFloat32, nil
+		return math.MaxFloat32, fmt.Errorf(
+			"calculate distance between insert node and entrypoint: %w", err)
 	}
 	return dist, nil
 }
 
 func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+	if top <= 0 {
+		return nil
+	}
 	if err := n.ctx.Err(); err != nil {
 		return err
 	}
 
+	n.graph.RLock()
+	nodesLen := uint64(len(n.graph.nodes))
+	n.graph.RUnlock()
 	var pending []uint64
-	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
+	// lock the nodes slice
+	n.graph.shardedNodeLocks.RLock(from)
+	if nodesLen < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from)
+		n.graph.shardedNodeLocks.RUnlock(from)
 		return nil
 	}
+	// lock the node itself
 	n.graph.nodes[from].Lock()
+	if level >= len(n.graph.nodes[from].connections) {
+		n.graph.nodes[from].Unlock()
+		n.graph.shardedNodeLocks.RUnlock(from)
+		return nil
+	}
 	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
 	copy(connections, n.graph.nodes[from].connections[level])
 	n.graph.nodes[from].Unlock()
+	n.graph.shardedNodeLocks.RUnlock(from)
 	for _, id := range connections {
 		if visited.Visited(id) {
 			continue
@@ -134,7 +154,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 
 		dist, err := n.processNode(id)
 		if err != nil {
-			return err
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				// node was deleted in the meantime
+				continue
+			} else {
+				return err
+			}
 		}
 		if results.Len() >= top && dist < results.Top().Dist {
 			results.Pop()
@@ -147,6 +173,11 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		if results.Len() >= top {
 			dist, err := n.processNode(id)
 			if err != nil {
+				var e storobj.ErrNotFound
+				if errors.As(err, &e) {
+					// node was deleted in the meantime
+					continue
+				}
 				return err
 			}
 			if dist > results.Top().Dist {
@@ -167,6 +198,8 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	var results *priorityqueue.Queue[any]
 	var extraIDs []uint64 = nil
 	var total int = 0
+	var maxConnections int = n.graph.maximumConnections
+
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
@@ -195,15 +228,17 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
+				n.graph.pools.visitedListsLock.RLock()
+				n.graph.pools.visitedLists.Return(visited)
+				n.graph.pools.visitedListsLock.RUnlock()
 				return err
 			}
 		}
 		n.graph.pools.visitedListsLock.RLock()
 		n.graph.pools.visitedLists.Return(visited)
 		n.graph.pools.visitedListsLock.RUnlock()
-		if err := n.pickEntrypoint(); err != nil {
-			return errors.Wrap(err, "pick entrypoint at level beginning")
-		}
+		// use dynamic max connections only during tombstone cleanup
+		maxConnections = n.maximumConnections(level)
 	} else {
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
@@ -222,8 +257,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 		before = time.Now()
 	}
 
-	max := n.maximumConnections(level)
-	if err := n.graph.selectNeighborsHeuristic(results, max-total, n.denyList); err != nil {
+	if err := n.graph.selectNeighborsHeuristic(results, maxConnections-total, n.denyList); err != nil {
 		return errors.Wrap(err, "heuristic")
 	}
 
@@ -244,7 +278,9 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	// set all outgoing in one go
 	n.node.setConnectionsAtLevel(level, neighbors)
-	n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors)
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors); err != nil {
+		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
+	}
 
 	for _, neighborID := range neighbors {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
@@ -294,29 +330,31 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	} else {
 		// we need to run the heuristic
 
-		dist, ok, err := n.graph.distBetweenNodes(n.node.id, neighborID)
-		if err != nil {
-			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
-		}
-
-		if !ok {
+		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		var e storobj.ErrNotFound
+		if err != nil && errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID)
 			// it seems either the node or the neighbor were deleted in the meantime,
 			// there is nothing we can do now
 			return nil
+		}
+		if err != nil {
+			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
 		}
 
 		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
 		candidates.Insert(n.node.id, dist)
 
 		for _, existingConnection := range currentConnections {
-			dist, ok, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-			if err != nil {
-				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
-			}
-
-			if !ok {
+			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				n.graph.handleDeletedNode(e.DocID)
 				// was deleted in the meantime
 				continue
+			}
+			if err != nil {
+				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
 			}
 
 			candidates.Insert(existingConnection, dist)
@@ -381,8 +419,31 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	//
 	// 3. we need to be able to obtain a vector for it
 
-	localDeny := n.denyList.DeepCopy()
 	candidate := n.entryPointID
+
+	// for our search we will need a copy of the current deny list, however, the
+	// cost of that copy can be significant. Let's first verify if the global
+	// entrypoint candidate is usable. If yes, we can return early and skip the
+	// copy.
+	success, err := n.tryEpCandidate(candidate)
+	if err != nil {
+		var e storobj.ErrNotFound
+		if !errors.As(err, &e) {
+			return err
+		}
+
+		// node was deleted in the meantime
+		// ignore the error and move to the logic below which will try more candidates
+	}
+
+	if success {
+		// the global ep candidate is usable, let's skip the following logic (and
+		// therefore avoid the copy)
+		return nil
+	}
+
+	// The global candidate is not usable, we need to find a new one.
+	localDeny := n.denyList.WrapOnWrite()
 
 	// make sure the loop cannot block forever. In most cases, results should be
 	// found within micro to milliseconds, this is just a last resort to handle
@@ -390,6 +451,10 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 	// underlying object store and we cannot retrieve the vector in time, etc.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+	n.graph.logger.WithFields(logrus.Fields{
+		"action":   "pick_entrypoint",
+		"duration": 60 * time.Second,
+	}).Debug("context.WithTimeout")
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -398,7 +463,13 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 
 		success, err := n.tryEpCandidate(candidate)
 		if err != nil {
-			return err
+			var e storobj.ErrNotFound
+			if !errors.As(err, &e) {
+				return err
+			}
+
+			// node was deleted in the meantime
+			// ignore the error and try the next candidate
 		}
 
 		if success {
@@ -410,8 +481,11 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 		localDeny.Insert(candidate)
 		// now find a new one
 
-		alternative, _ := n.graph.findNewLocalEntrypoint(localDeny,
+		alternative, _, err := n.graph.findNewLocalEntrypoint(localDeny,
 			n.graph.currentMaximumLayer, candidate)
+		if err != nil {
+			return err
+		}
 		candidate = alternative
 	}
 }
@@ -427,20 +501,19 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	}
 
 	var dist float32
-	var ok bool
 	var err error
 	if n.distancer == nil {
-		dist, ok, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+		dist, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
 	} else {
-		dist, ok, err = n.distancer.DistanceToNode(candidate)
+		dist, err = n.distancer.DistanceToNode(candidate)
+	}
+	var e storobj.ErrNotFound
+	if errors.As(err, &e) {
+		n.graph.handleDeletedNode(e.DocID)
+		return false, nil
 	}
 	if err != nil {
-		// not an error we could recover from - fail!
-		return false, errors.Wrapf(err,
-			"calculate distance between insert node and entrypoint")
-	}
-	if !ok {
-		return false, nil
+		return false, fmt.Errorf("calculate distance between insert node and entrypoint: %w", err)
 	}
 
 	// we were able to calculate a distance, we're good

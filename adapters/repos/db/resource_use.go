@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -42,22 +44,26 @@ func (d diskUse) String() string {
 }
 
 func (d *DB) scanResourceUsage() {
-	go func() {
+	f := func() {
 		t := time.NewTicker(time.Millisecond * 500)
+		i := 0
 		defer t.Stop()
 		for {
 			select {
 			case <-d.shutdown:
 				return
 			case <-t.C:
+				updateMappings := i%(memwatch.MappingDelayInS*2) == 0
 				if !d.resourceScanState.isReadOnly {
 					du := d.getDiskUse(d.config.RootPath)
-					d.resourceUseWarn(d.memMonitor, du)
+					d.resourceUseWarn(d.memMonitor, du, updateMappings)
 					d.resourceUseReadonly(d.memMonitor, du)
 				}
+				i += 1
 			}
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, d.logger)
 }
 
 type resourceScanState struct {
@@ -74,8 +80,8 @@ func newResourceScanState() *resourceScanState {
 }
 
 // logs a warning if user-set threshold is surpassed
-func (db *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse) {
-	mon.Refresh()
+func (db *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
+	mon.Refresh(updateMappings)
 	db.diskUseWarn(du)
 	db.memUseWarn(mon)
 }

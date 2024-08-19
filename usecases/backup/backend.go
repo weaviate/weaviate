@@ -22,12 +22,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"golang.org/x/sync/errgroup"
 )
 
 // TODO adjust or make configurable
@@ -247,17 +248,27 @@ Loop:
 
 // class uploads one class
 func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor) (err error) {
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), desc.Name)
+	classLabel := desc.Name
+	if monitoring.GetMetrics().Group {
+		classLabel = "n/a"
+	}
+	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), classLabel)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
 	defer func() {
 		// backups need to be released anyway
-		go u.sourcer.ReleaseBackup(context.Background(), id, desc.Name)
+		enterrors.GoWrapper(func() { u.sourcer.ReleaseBackup(context.Background(), id, desc.Name) }, u.log)
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
+
+	u.log.WithFields(logrus.Fields{
+		"action":   "upload_class",
+		"duration": storeTimeout,
+	}).Debug("context.WithTimeout")
+
 	nShards := len(desc.Shards)
 	if nShards == 0 {
 		return nil
@@ -277,7 +288,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	// jobs produces work for the processor
 	jobs := func(xs []*backup.ShardDescriptor) <-chan *backup.ShardDescriptor {
 		sendCh := make(chan *backup.ShardDescriptor)
-		go func() {
+		f := func() {
 			defer close(sendCh)
 			defer hasJobs.Store(false)
 
@@ -291,16 +302,17 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 					return
 				}
 			}
-		}()
+		}
+		enterrors.GoWrapper(f, u.log)
 		return sendCh
 	}
 
 	// processor
 	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
-		eg, ctx := errgroup.WithContext(ctx)
+		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
 		recvCh := make(chan chuckShards, nWorker)
-		go func() {
+		f := func() {
 			defer close(recvCh)
 			for i := 0; i < nWorker; i++ {
 				eg.Go(func() error {
@@ -322,7 +334,8 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 				})
 			}
 			err = eg.Wait()
-		}()
+		}
+		enterrors.GoWrapper(f, u.log)
 		return recvCh
 	}
 
@@ -370,7 +383,7 @@ func (u *uploader) compress(ctx context.Context,
 	}
 
 	// consumer
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(u.log)
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, reader); err != nil {
 			return err
@@ -394,10 +407,12 @@ type fileWriter struct {
 	movedFiles []string // files successfully moved to destination folder
 	compressed bool
 	GoPoolSize int
+	migrator   func(classPath string) error
+	logger     logrus.FieldLogger
 }
 
 func newFileWriter(sourcer Sourcer, backend nodeStore,
-	backupID string, compressed bool,
+	compressed bool, logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()
 	return &fileWriter{
@@ -408,6 +423,7 @@ func newFileWriter(sourcer Sourcer, backend nodeStore,
 		movedFiles: make([]string, 0, 64),
 		compressed: compressed,
 		GoPoolSize: routinePoolSize(50),
+		logger:     logger,
 	}
 }
 
@@ -415,6 +431,8 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 	fw.GoPoolSize = routinePoolSize(p)
 	return fw
 }
+
+func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
 func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (rollback func() error, err error) {
@@ -424,7 +442,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 	defer func() {
 		if err != nil {
-			if rerr := fw.rollBack(classTempDir); rerr != nil {
+			if rerr := fw.rollBack(); rerr != nil {
 				err = fmt.Errorf("%w: %v", err, rerr)
 			}
 		}
@@ -434,10 +452,18 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 	if err := fw.writeTempFiles(ctx, classTempDir, desc); err != nil {
 		return nil, fmt.Errorf("get files: %w", err)
 	}
+
+	if fw.migrator != nil {
+		if err := fw.migrator(classTempDir); err != nil {
+			return nil, fmt.Errorf("migrate from pre 1.23: %w", err)
+		}
+	}
+
 	if err := fw.moveAll(classTempDir); err != nil {
 		return nil, fmt.Errorf("move files to destination: %w", err)
 	}
-	return func() error { return fw.rollBack(classTempDir) }, nil
+
+	return func() error { return fw.rollBack() }, nil
 }
 
 // writeTempFiles writes class files into a temporary directory
@@ -454,12 +480,12 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 	defer cancel()
 
 	// no compression processed as before
-	eg, ctx := errgroup.WithContext(ctx)
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(fw.logger, ctx)
 	if !fw.compressed {
 		eg.SetLimit(2 * _NUMCPU)
 		for _, shard := range desc.Shards {
 			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) })
+			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) }, shard.Name)
 		}
 		return eg.Wait()
 	}
@@ -471,9 +497,9 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 		chunk := chunkKey(desc.Name, k)
 		eg.Go(func() error {
 			uz, w := NewUnzip(classTempDir)
-			go func() {
+			enterrors.GoWrapper(func() {
 				fw.backend.Read(ctx, chunk, w)
-			}()
+			}, fw.logger)
 			_, err := uz.ReadChunk()
 			return err
 		})
@@ -527,7 +553,7 @@ func (fw *fileWriter) moveAll(classTempDir string) (err error) {
 }
 
 // rollBack successfully written files
-func (fw *fileWriter) rollBack(classTempDir string) (err error) {
+func (fw *fileWriter) rollBack() (err error) {
 	// rollback successfully moved files
 	for _, fpath := range fw.movedFiles {
 		if rerr := os.RemoveAll(fpath); rerr != nil && err == nil {

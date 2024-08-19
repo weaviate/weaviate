@@ -39,12 +39,20 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
     steps:
       - uses: actions/checkout@v4
-      - name: Scan for Vulnerabilities in Code
-        uses: Templum/govulncheck-action@v1.0.0
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-          package: ./...
-          fail-on-vuln: true
+          cache: true
+      - name: Run locally Docker build
+        run: docker build -t weaviate:${{ github.sha }} .
+      - name: Run Trivy vulnerability scanner for the built image
+        uses: aquasecurity/trivy-action@0.22.0
+        with:
+          image-ref: 'weaviate:${{ github.sha }}'
+          exit-code: '1'
+          format: 'table'
+          severity: 'HIGH,CRITICAL'
   Unit-Tests:
     name: unit-tests
     runs-on: ubuntu-latest
@@ -85,7 +93,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-backup-azure", "--only-module-backup-filesystem", "--only-module-backup-gcs", "--only-module-backup-s3", "--only-module-img2vec-neural", "--only-module-many-modules", "--only-module-multi2vec-clip", "--only-module-ref2vec-centroid", "--only-module-reranker-transformers", "--only-module-text2vec-contextionary", "--only-module-text2vec-transformers"]
+        test: [
+          "--only-module-backup-azure",
+          "--only-module-backup-filesystem",
+          "--only-module-backup-gcs",
+          "--only-module-backup-s3",
+          "--only-module-img2vec-neural",
+          "--only-module-many-modules",
+          "--only-module-ref2vec-centroid",
+          "--only-module-text2vec-contextionary",
+          "--only-module-text2vec-transformers"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -101,7 +119,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-qna-transformers", "--only-module-sum-transformers"]
+        test: [
+          "--only-module-qna-transformers",
+          "--only-module-sum-transformers",
+          "--only-module-multi2vec-clip",
+          "--only-module-reranker-transformers"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -111,13 +134,107 @@ jobs:
           cache: true
       - name: Acceptance tests Large (modules)
         run: ./test/run.sh ${{ matrix.test }}
+  Modules-Acceptance-Tests-gcp:
+    name: modules-acceptance-tests-gcp
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ["--only-module-multi2vec-palm", "--only-module-generative-palm", "--only-module-text2vec-palm"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+      - name: check
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
+          if [[ "$commit_message" == *"[gcp]"* || "$commit_message" == "prepare release"* ]]; then
+            echo "Run pipeline"
+            echo "run_pipeline=true" >> $GITHUB_ENV
+          else
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [gcp]"
+            echo "run_pipeline=false" >> $GITHUB_ENV
+          fi
+      - name: configure
+        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+        run: ./tools/ci/gcloud.sh
+      - name: Acceptance tests (modules)
+        env:
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        run: PALM_APIKEY=$(gcloud auth print-access-token) ./test/run.sh ${{ matrix.test }}
+  Modules-Acceptance-Tests-aws:
+    name: modules-acceptance-tests-aws
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    strategy:
+      fail-fast: false
+      matrix:
+        test: ["--only-module-text2vec-aws", "--only-module-generative-aws"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+      - name: check
+        env:
+          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
+          if [[ "$commit_message" == *"[aws]"* || "$commit_message" == "prepare release"* ]]; then
+            echo "Run pipeline"
+            echo "run_pipeline=true" >> $GITHUB_ENV
+          else
+            echo "Skip pipeline. In order to run the pipeline commit title must contain: [aws]"
+            echo "run_pipeline=false" >> $GITHUB_ENV
+          fi
+      - name: configure
+        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        id: creds
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          role-external-id: ${{ secrets.AWS_ROLE_EXTERNAL_ID }}
+          role-skip-session-tagging: true
+          output-credentials: true
+      - name: Acceptance tests (modules)
+        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ steps.creds.outputs.aws-access-key-id }}
+          AWS_SECRET_ACCESS_KEY: ${{ steps.creds.outputs.aws-secret-access-key }}
+          AWS_SESSION_TOKEN: ${{ steps.creds.outputs.aws-session-token }}
+        run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance-tests  
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        test: ["--acceptance-only-fast", "--acceptance-only-graphql", "--acceptance-only-replication"]
+        test: [
+          "--acceptance-only-fast",
+          "--acceptance-only-graphql",
+          "--acceptance-only-replication",
+          "--acceptance-only-python"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
@@ -224,10 +341,30 @@ jobs:
         run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
 
   Push-Docker:
+    if: ${{ !github.event.pull_request.head.repo.fork && !startsWith(github.head_ref, 'build') }} # no PRs from fork
     needs: [Acceptance-Tests, Modules-Acceptance-Tests, Modules-Acceptance-Tests-large, Unit-Tests, Integration-Tests, Vulnerability-Scanning, Run-Swagger]
     name: push-docker
     runs-on: ubuntu-latest-8-cores
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    steps:
+      - uses: actions/checkout@v4
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Push container
+        id: push-container
+        run: ./ci/push_docker.sh
+        env:
+          PR_TITLE: "${{ github.event.pull_request.title }}"
+      - name: Generate Report
+        env:
+          PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
+        run: ./ci/generate_docker_report.sh
+  Push-Docker-Fast:
+    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork    
+    name: push-docker-fast
+    runs-on: ubuntu-latest-8-cores    
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub

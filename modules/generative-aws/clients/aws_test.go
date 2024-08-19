@@ -41,7 +41,7 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "123",
@@ -72,7 +72,7 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "123",

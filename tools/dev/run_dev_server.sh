@@ -16,12 +16,14 @@ export ORIGIN=${ORIGIN:-"http://localhost:8080"}
 export QUERY_DEFAULTS_LIMIT=${QUERY_DEFAULTS_LIMIT:-"20"}
 export QUERY_MAXIMUM_RESULTS=${QUERY_MAXIMUM_RESULTS:-"10000"}
 export TRACK_VECTOR_DIMENSIONS=true
-export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"node1"}
+export CLUSTER_HOSTNAME=${CLUSTER_HOSTNAME:-"weaviate-0"}
 export DISABLE_TELEMETRY=true # disable telemetry for local development
 
 function go_run() {
   GIT_HASH=$(git rev-parse --short HEAD)
-  go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" "$@"
+   go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH \
+   -X github.com/weaviate/weaviate/usecases/config.IMAGE_TAG=localhost" \
+   "$@"
 }
 
 case $CONFIG in
@@ -57,9 +59,9 @@ case $CONFIG in
       GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      PERSISTENCE_DATA_PATH="./data-node2" \
-      BACKUP_FILESYSTEM_PATH="${PWD}/backups-node2" \
-      CLUSTER_HOSTNAME="node2" \
+      PERSISTENCE_DATA_PATH="./data-weaviate-1" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
+      CLUSTER_HOSTNAME="weaviate-1" \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
       CLUSTER_DATA_BIND_PORT="7103" \
       CLUSTER_JOIN="localhost:7100" \
@@ -78,8 +80,8 @@ case $CONFIG in
         GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-        PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-node3" \
-        CLUSTER_HOSTNAME="node3" \
+        PERSISTENCE_DATA_PATH="${PERSISTENCE_DATA_PATH}-weaviate-2" \
+        CLUSTER_HOSTNAME="weaviate-2" \
         CLUSTER_GOSSIP_BIND_PORT="7104" \
         CLUSTER_DATA_BIND_PORT="7105" \
         CLUSTER_JOIN="localhost:7100" \
@@ -383,6 +385,21 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
+  local-all-openai-voyageai-palm)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      QNA_INFERENCE_API="http://localhost:8001" \
+      CLUSTER_HOSTNAME="node1" \
+      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-palm,qna-openai,generative-openai,text2vec-openai,text2vec-voyageai,reranker-voyageai" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
   local-huggingface)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-huggingface \
@@ -537,6 +554,30 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-cohere \
       ENABLE_MODULES="text2vec-cohere,reranker-cohere,generative-cohere" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-voyageai)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-voyageai \
+      ENABLE_MODULES="text2vec-voyageai" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-all-voyageai)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-voyageai \
+      ENABLE_MODULES="text2vec-voyageai,reranker-voyageai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

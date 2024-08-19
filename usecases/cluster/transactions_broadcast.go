@@ -16,8 +16,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
-	"golang.org/x/sync/errgroup"
 )
 
 type TxBroadcaster struct {
@@ -25,6 +27,7 @@ type TxBroadcaster struct {
 	client      Client
 	consensusFn ConsensusFn
 	ideal       *IdealClusterState
+	logger      logrus.FieldLogger
 }
 
 // The Broadcaster is the link between the the current node and all other nodes
@@ -45,12 +48,13 @@ type MemberLister interface {
 	Hostnames() []string
 }
 
-func NewTxBroadcaster(state MemberLister, client Client) *TxBroadcaster {
-	ideal := NewIdealClusterState(state)
+func NewTxBroadcaster(state MemberLister, client Client, logger logrus.FieldLogger) *TxBroadcaster {
+	ideal := NewIdealClusterState(state, logger)
 	return &TxBroadcaster{
 		state:  state,
 		client: client,
 		ideal:  ideal,
+		logger: logger,
 	}
 }
 
@@ -67,7 +71,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 
 	hosts := t.state.Hostnames()
 	resTx := make([]*Transaction, len(hosts))
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(t.logger)
 	for i, host := range hosts {
 		i := i       // https://golang.org/doc/faq#closures_and_goroutines
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
@@ -79,6 +83,11 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 			ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
 			defer cancel()
 
+			t.logger.WithFields(logrus.Fields{
+				"action":   "broadcast_transaction",
+				"duration": 30 * time.Second,
+			}).Debug("context.WithTimeout")
+
 			// the client call can mutate the tx, so we need to work with copies to
 			// prevent a race and to be able to keep all individual results, so they
 			// can be passed to the consensus fn
@@ -88,7 +97,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 			}
 
 			return nil
-		})
+		}, host)
 	}
 
 	err := eg.Wait()
@@ -111,7 +120,7 @@ func (t *TxBroadcaster) BroadcastTransaction(rootCtx context.Context, tx *Transa
 }
 
 func (t *TxBroadcaster) BroadcastAbortTransaction(rootCtx context.Context, tx *Transaction) error {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(t.logger)
 	for _, host := range t.state.Hostnames() {
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
@@ -121,12 +130,17 @@ func (t *TxBroadcaster) BroadcastAbortTransaction(rootCtx context.Context, tx *T
 			ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
 			defer cancel()
 
+			t.logger.WithFields(logrus.Fields{
+				"action":   "broadcast_abort_transaction",
+				"duration": 30 * time.Second,
+			}).Debug("context.WithTimeout")
+
 			if err := t.client.AbortTransaction(ctx, host, tx); err != nil {
 				return errors.Wrapf(err, "host %q", host)
 			}
 
 			return nil
-		})
+		}, host)
 	}
 
 	return eg.Wait()
@@ -138,13 +152,19 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *
 			return fmt.Errorf("tx does not tolerate node failures: %w", err)
 		}
 	}
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(t.logger)
 	for _, host := range t.state.Hostnames() {
 		// make sure we don't block forever if the caller passes in an unlimited
 		// context. If another node does not respond within the timeout, consider
 		// the tx commit attempt failed.
 		ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
 		defer cancel()
+
+		t.logger.WithFields(logrus.Fields{
+			"action":   "broadcast_commit_transaction",
+			"duration": 30 * time.Second,
+		}).Debug("context.WithTimeout")
+
 		host := host // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
 			if err := t.client.CommitTransaction(ctx, host, tx); err != nil {
@@ -152,7 +172,7 @@ func (t *TxBroadcaster) BroadcastCommitTransaction(rootCtx context.Context, tx *
 			}
 
 			return nil
-		})
+		}, host)
 	}
 
 	return eg.Wait()

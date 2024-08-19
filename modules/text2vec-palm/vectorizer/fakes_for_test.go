@@ -62,19 +62,30 @@ type fakeClassConfig struct {
 func (f fakeClassConfig) Class() map[string]interface{} {
 	classSettings := map[string]interface{}{
 		"vectorizeClassName": f.vectorizeClassName,
-		"apiEndpoint":        f.apiEndpoint,
-		"projectID":          f.projectID,
-		"endpointID":         f.endpointID,
-		"modelID":            f.modelID,
+	}
+	if f.apiEndpoint != "" {
+		classSettings["apiEndpoint"] = f.apiEndpoint
+	}
+	if f.projectID != "" {
+		classSettings["projectID"] = f.projectID
+	}
+	if f.endpointID != "" {
+		classSettings["endpointID"] = f.endpointID
+	}
+	if f.modelID != "" {
+		classSettings["modelID"] = f.modelID
 	}
 	if f.properties != nil {
 		classSettings["properties"] = f.properties
+	}
+	for k, v := range f.classConfig {
+		classSettings[k] = v
 	}
 	return classSettings
 }
 
 func (f fakeClassConfig) ClassByModuleName(moduleName string) map[string]interface{} {
-	return f.classConfig
+	return f.Class()
 }
 
 func (f fakeClassConfig) Property(propName string) map[string]interface{} {

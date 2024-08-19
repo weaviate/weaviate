@@ -245,6 +245,51 @@ func TestSuccessfulDistributedWriteTransaction(t *testing.T) {
 	assert.Equal(t, "my-payload", remoteState)
 }
 
+// based on https://github.com/weaviate/weaviate/issues/4637
+func TestDistributedWriteTransactionWithRemoteCommitFailure(t *testing.T) {
+	ctx := context.Background()
+
+	var remoteState interface{}
+	remote := newTestTxManager()
+	remoteShoudError := true
+	remote.SetCommitFn(func(ctx context.Context, tx *Transaction) error {
+		if remoteShoudError {
+			return fmt.Errorf("could not commit")
+		}
+
+		remoteState = tx.Payload
+		return nil
+	})
+	local := NewTxManager(&wrapTxManagerAsBroadcaster{remote},
+		&fakeTxPersistence{}, remote.logger)
+	local.StartAcceptIncoming()
+
+	payload := "my-payload"
+	trType := TransactionType("my-type")
+
+	tx, err := local.BeginTransaction(ctx, trType, payload, 0)
+	require.Nil(t, err)
+
+	err = local.CommitWriteTransaction(ctx, tx)
+	// expected that the commit fails if a remote node can't commit
+	assert.NotNil(t, err)
+
+	remoteShoudError = false
+
+	// now try again and assert that everything works fine Prior to
+	// https://github.com/weaviate/weaviate/issues/4637 we would now get
+	// concurrent tx errors
+
+	payload = "my-updated-payload"
+	newTx, err := local.BeginTransaction(ctx, trType, payload, 0)
+	require.Nil(t, err)
+
+	err = local.CommitWriteTransaction(ctx, newTx)
+	require.Nil(t, err)
+
+	assert.Equal(t, "my-updated-payload", remoteState)
+}
+
 func TestConcurrentDistributedTransaction(t *testing.T) {
 	ctx := context.Background()
 

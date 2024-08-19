@@ -14,10 +14,11 @@ package db
 import (
 	"context"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/entities/models"
-	"golang.org/x/sync/errgroup"
 )
 
 func (s *Shard) initProperties(class *models.Class) error {
@@ -26,7 +27,7 @@ func (s *Shard) initProperties(class *models.Class) error {
 		return nil
 	}
 
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
 	for _, prop := range class.Properties {
 		s.createPropertyIndex(context.TODO(), prop, eg)
 	}

@@ -227,19 +227,22 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
-	if class.Vectorizer == "" {
-		class.Vectorizer = m.config.DefaultVectorizerModule
-	}
+	// set only when no target vectors configured
+	if !hasTargetVectors(class) {
+		if class.Vectorizer == "" {
+			class.Vectorizer = m.config.DefaultVectorizerModule
+		}
 
-	if class.VectorIndexType == "" {
-		class.VectorIndexType = "hnsw"
-	}
+		if class.VectorIndexType == "" {
+			class.VectorIndexType = "hnsw"
+		}
 
-	if m.config.DefaultVectorDistanceMetric != "" {
-		if class.VectorIndexConfig == nil {
-			class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
-		} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
-			class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+		if m.config.DefaultVectorDistanceMetric != "" {
+			if class.VectorIndexConfig == nil {
+				class.VectorIndexConfig = map[string]interface{}{"distance": m.config.DefaultVectorDistanceMetric}
+			} else if class.VectorIndexConfig.(map[string]interface{})["distance"] == nil {
+				class.VectorIndexConfig.(map[string]interface{})["distance"] = m.config.DefaultVectorDistanceMetric
+			}
 		}
 	}
 
@@ -444,13 +447,13 @@ func (m *Manager) validateCanAddClass(
 
 	existingPropertyNames := map[string]bool{}
 	for _, property := range class.Properties {
-		if err := m.validateProperty(property, class.Class, existingPropertyNames, relaxCrossRefValidation); err != nil {
+		if err := m.validateProperty(property, class, existingPropertyNames, relaxCrossRefValidation); err != nil {
 			return err
 		}
 		existingPropertyNames[strings.ToLower(property.Name)] = true
 	}
 
-	if err := m.validateVectorSettings(ctx, class); err != nil {
+	if err := m.validateVectorSettings(class); err != nil {
 		return err
 	}
 
@@ -467,7 +470,7 @@ func (m *Manager) validateCanAddClass(
 }
 
 func (m *Manager) validateProperty(
-	property *models.Property, className string,
+	property *models.Property, class *models.Class,
 	existingPropertyNames map[string]bool, relaxCrossRefValidation bool,
 ) error {
 	if _, err := schema.ValidatePropertyName(property.Name); err != nil {
@@ -479,14 +482,15 @@ func (m *Manager) validateProperty(
 	}
 
 	if existingPropertyNames[strings.ToLower(property.Name)] {
-		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times", property.Name, className)
+		return fmt.Errorf("class %q: conflict for property %q: already in use or provided multiple times",
+			class.Class, property.Name)
 	}
 
 	// Validate data type of property.
 	sch := m.getSchema()
 
 	propertyDataType, err := (&sch).FindPropertyDataTypeWithRefs(property.DataType,
-		relaxCrossRefValidation, schema.ClassName(className))
+		relaxCrossRefValidation, schema.ClassName(class.Class))
 	if err != nil {
 		return fmt.Errorf("property '%s': invalid dataType: %v", property.Name, err)
 	}
@@ -510,6 +514,10 @@ func (m *Manager) validateProperty(
 		return err
 	}
 
+	if err := m.validatePropModuleConfig(class, property); err != nil {
+		return err
+	}
+
 	// all is fine!
 	return nil
 }
@@ -517,11 +525,18 @@ func (m *Manager) validateProperty(
 func (m *Manager) parseVectorIndexConfig(ctx context.Context,
 	class *models.Class,
 ) error {
-	parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
-	if err != nil {
-		return err
+	if !hasTargetVectors(class) {
+		parsed, err := m.parseGivenVectorIndexConfig(class.VectorIndexType, class.VectorIndexConfig)
+		if err != nil {
+			return err
+		}
+		class.VectorIndexConfig = parsed
+		return nil
 	}
-	class.VectorIndexConfig = parsed
+
+	if class.VectorIndexConfig != nil {
+		return fmt.Errorf("class.vectorIndexConfig can not be set if class.vectorConfig is configured")
+	}
 
 	if err := m.parseTargetVectorsVectorIndexConfig(class); err != nil {
 		return err
@@ -620,4 +635,8 @@ func CreateClassPayload(class *models.Class,
 		}
 	}
 	return pl, nil
+}
+
+func hasTargetVectors(class *models.Class) bool {
+	return len(class.VectorConfig) > 0
 }

@@ -63,9 +63,7 @@ func (v *Vectorizer) object(ctx context.Context, className string,
 		return vector, nil
 	}
 	// vectorize text
-	res, err := v.client.VectorizeObject(ctx, text, ent.VectorizationConfig{
-		PoolingStrategy: NewClassSettings(cfg).PoolingStrategy(),
-	})
+	res, err := v.client.VectorizeObject(ctx, text, v.getVectorizationConfig(cfg))
 	if err != nil {
 		return nil, err
 	}

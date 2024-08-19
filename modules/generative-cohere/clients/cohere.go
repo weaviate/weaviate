@@ -99,6 +99,7 @@ func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 	req.Header.Add("Authorization", fmt.Sprintf("BEARER %s", apiKey))
 	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Request-Source", "unspecified:weaviate")
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {

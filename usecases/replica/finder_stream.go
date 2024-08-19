@@ -16,6 +16,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pkg/errors"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -51,7 +54,7 @@ func (f *finderStream) readOne(ctx context.Context,
 ) <-chan objResult {
 	// counters tracks the number of votes for each participant
 	resultCh := make(chan objResult, 1)
-	go func() {
+	g := func() {
 		defer close(resultCh)
 		var (
 			votes      = make([]objTuple, 0, st.Level)
@@ -92,7 +95,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			return
 		}
 
-		resultCh <- objResult{nil, errRepair}
+		resultCh <- objResult{nil, errors.Wrap(err, errRepair.Error())}
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
@@ -103,7 +106,8 @@ func (f *finderStream) readOne(ctx context.Context,
 		f.log.WithField("op", "repair_one").WithField("class", f.class).
 			WithField("shard", shard).WithField("uuid", id).
 			WithField("msg", sb.String()).Error(err)
-	}()
+	}
+	enterrors.GoWrapper(g, f.logger)
 	return resultCh
 }
 
@@ -128,7 +132,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 	st rState,
 ) <-chan _Result[bool] {
 	resultCh := make(chan _Result[bool], 1)
-	go func() {
+	g := func() {
 		defer close(resultCh)
 		var (
 			votes    = make([]boolTuple, 0, st.Level) // number of votes per replica
@@ -166,7 +170,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 			resultCh <- _Result[bool]{obj, nil}
 			return
 		}
-		resultCh <- _Result[bool]{false, errRepair}
+		resultCh <- _Result[bool]{false, errors.Wrap(err, errRepair.Error())}
 
 		var sb strings.Builder
 		for i, c := range votes {
@@ -178,7 +182,8 @@ func (f *finderStream) readExistence(ctx context.Context,
 		f.log.WithField("op", "repair_exist").WithField("class", f.class).
 			WithField("shard", shard).WithField("uuid", id).
 			WithField("msg", sb.String()).Error(err)
-	}()
+	}
+	enterrors.GoWrapper(g, f.logger)
 	return resultCh
 }
 
@@ -191,7 +196,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 ) <-chan batchResult {
 	resultCh := make(chan batchResult, 1)
 
-	go func() {
+	g := func() {
 		defer close(resultCh)
 		var (
 			N = len(ids) // number of requested objects
@@ -266,7 +271,8 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 
 		resultCh <- batchResult{res, nil}
-	}()
+	}
+	enterrors.GoWrapper(g, f.logger)
 
 	return resultCh
 }

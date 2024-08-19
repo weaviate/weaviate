@@ -32,6 +32,11 @@ func (s *Shard) GetStatus() storagestate.Status {
 	return s.status
 }
 
+// Same implem for for a regular shard, this only differ in lazy loaded shards
+func (s *Shard) GetStatusNoLoad() storagestate.Status {
+	return s.GetStatus()
+}
+
 func (s *Shard) isReadOnly() bool {
 	return s.GetStatus() == storagestate.StatusReadOnly
 }

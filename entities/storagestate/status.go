@@ -16,6 +16,7 @@ import "errors"
 const (
 	StatusReadOnly Status = "READONLY"
 	StatusIndexing Status = "INDEXING"
+	StatusLoading  Status = "LOADING"
 	StatusReady    Status = "READY"
 )
 

@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -55,6 +56,11 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 
 	m.metrics.AddObjectInc()
 	defer m.metrics.AddObjectDec()
+
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(object)); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process add object")
+		return nil, fmt.Errorf("cannot process add object: %w", err)
+	}
 
 	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl)
 }

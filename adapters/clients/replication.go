@@ -24,8 +24,10 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -46,19 +48,19 @@ func NewReplicationClient(httpClient *http.Client) replica.Client {
 // FetchObject fetches one object it exits
 func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	shard string, id strfmt.UUID, selectProps search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, numRetries int,
 ) (objects.Replica, error) {
 	resp := objects.Replica{}
 	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, resp.UnmarshalBinary)
+	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, resp.UnmarshalBinary, numRetries)
 	return resp, err
 }
 
 func (c *replicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID,
+	host, index, shard string, ids []strfmt.UUID, numRetries int,
 ) (result []replica.RepairResponse, err error) {
 	var resp []replica.RepairResponse
 	body, err := json.Marshal(ids)
@@ -71,7 +73,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp)
+	err = c.do(c.timeoutUnit*20, req, body, &resp, numRetries)
 	return resp, err
 }
 
@@ -89,7 +91,7 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -110,7 +112,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	}
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, resp.UnmarshalBinary)
+	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, resp.UnmarshalBinary, 9)
 	return resp, err
 }
 
@@ -129,7 +131,7 @@ func (c *replicationClient) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -142,7 +144,7 @@ func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.do(c.timeoutUnit*90, req, nil, &resp)
+	err = c.do(c.timeoutUnit*90, req, nil, &resp, 9)
 	return resp, err
 }
 
@@ -160,7 +162,7 @@ func (c *replicationClient) PutObjects(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.ObjectList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -180,7 +182,7 @@ func (c *replicationClient) MergeObject(ctx context.Context, host, index, shard,
 	}
 
 	clusterapi.IndicesPayloads.MergeDoc.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -199,7 +201,7 @@ func (c *replicationClient) AddReferences(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.ReferenceList.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -216,8 +218,56 @@ func (c *replicationClient) DeleteObjects(ctx context.Context, host, index, shar
 	}
 
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
-	err = c.do(c.timeoutUnit*90, req, body, &resp)
+	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
 	return resp, err
+}
+
+func (c *replicationClient) FindUUIDs(ctx context.Context, hostName, indexName,
+	shardName string, filters *filters.LocalFilter,
+) ([]strfmt.UUID, error) {
+	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters)
+	if err != nil {
+		return nil, errors.Wrap(err, "marshal request payload")
+	}
+
+	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName)
+	method := http.MethodPost
+	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	req, err := http.NewRequestWithContext(ctx, method, url.String(),
+		bytes.NewReader(paramsBytes))
+	if err != nil {
+		return nil, errors.Wrap(err, "open http request")
+	}
+
+	clusterapi.IndicesPayloads.FindUUIDsParams.SetContentTypeHeaderReq(req)
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "send http request")
+	}
+
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		return nil, errors.Errorf("unexpected status code %d (%s)", res.StatusCode,
+			body)
+	}
+
+	resBytes, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, errors.Wrap(err, "read body")
+	}
+
+	ct, ok := clusterapi.IndicesPayloads.FindUUIDsResults.CheckContentTypeHeader(res)
+	if !ok {
+		return nil, errors.Errorf("unexpected content type: %s", ct)
+	}
+
+	uuids, err := clusterapi.IndicesPayloads.FindUUIDsResults.Unmarshal(resBytes)
+	if err != nil {
+		return nil, errors.Wrap(err, "unmarshal body")
+	}
+	return uuids, nil
 }
 
 // Commit asks a host to commit and stores the response in the value pointed to by resp
@@ -227,7 +277,7 @@ func (c *replicationClient) Commit(ctx context.Context, host, index, shard strin
 		return fmt.Errorf("create http request: %w", err)
 	}
 
-	return c.do(c.timeoutUnit*90, req, nil, resp)
+	return c.do(c.timeoutUnit*90, req, nil, resp, 9)
 }
 
 func (c *replicationClient) Abort(ctx context.Context, host, index, shard, requestID string) (
@@ -238,7 +288,7 @@ func (c *replicationClient) Abort(ctx context.Context, host, index, shard, reque
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
 
-	err = c.do(c.timeoutUnit*5, req, nil, &resp)
+	err = c.do(c.timeoutUnit*5, req, nil, &resp, 9)
 	return resp, err
 }
 
@@ -267,7 +317,7 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 	return http.NewRequest(http.MethodPost, url.String(), body)
 }
 
-func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}) (err error) {
+func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	try := func(ctx context.Context) (bool, error) {
@@ -289,13 +339,13 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		}
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, numRetries, try)
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
-	req *http.Request, body []byte, decode func([]byte) error,
+	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
-	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode)
+	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode, numRetries)
 }
 
 // backOff return a new random duration in the interval [d, 3d].

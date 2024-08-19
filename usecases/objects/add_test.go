@@ -71,10 +71,11 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		}
 		authorizer := &fakeAuthorizer{}
 		logger, _ := test.NewNullLogger()
+
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vectorRepo, modulesProvider, metrics)
+			vectorRepo, modulesProvider, metrics, nil)
 	}
 
 	reset := func() {
@@ -269,7 +270,7 @@ func Test_Add_Object_WithExternalVectorizerModule(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 		manager = NewManager(locks, schemaManager, cfg, logger, authorizer,
-			vectorRepo, modulesProvider, metrics)
+			vectorRepo, modulesProvider, metrics, nil)
 	}
 
 	t.Run("without an id set", func(t *testing.T) {
@@ -382,7 +383,7 @@ func Test_Add_Object_OverrideVectorizer(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
-			authorizer, vectorRepo, modulesProvider, metrics)
+			authorizer, vectorRepo, modulesProvider, metrics, nil)
 	}
 
 	t.Run("overriding the vector by explicitly specifying it", func(t *testing.T) {
@@ -443,7 +444,7 @@ func Test_AddObjectEmptyProperties(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
-			authorizer, vectorRepo, modulesProvider, metrics)
+			authorizer, vectorRepo, modulesProvider, metrics, nil)
 	}
 	reset()
 	ctx := context.Background()
@@ -499,7 +500,7 @@ func Test_AddObjectWithUUIDProps(t *testing.T) {
 		modulesProvider = getFakeModulesProvider()
 		metrics := &fakeMetrics{}
 		manager = NewManager(locks, schemaManager, cfg, logger,
-			authorizer, vectorRepo, modulesProvider, metrics)
+			authorizer, vectorRepo, modulesProvider, metrics, nil)
 	}
 	reset()
 	ctx := context.Background()

@@ -49,7 +49,7 @@ func (v *vectorizer) checkReady(initCtx context.Context) error {
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet,
-		v.url("/.well-known/ready"), nil)
+		v.url("/.well-known/ready", ""), nil)
 	if err != nil {
 		return errors.Wrap(err, "create check ready request")
 	}

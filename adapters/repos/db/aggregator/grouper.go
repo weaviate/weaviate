@@ -139,7 +139,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList) ([]ui
 		HybridSearch: g.params.Hybrid,
 		Keyword:      nil,
 		Class:        g.params.ClassName.String(),
-	}, g.logger, sparseSearch, denseSearch, nil, nil)
+	}, g.logger, sparseSearch, denseSearch, nil, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}

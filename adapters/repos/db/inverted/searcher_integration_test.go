@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package inverted
 
@@ -97,7 +96,7 @@ func TestObjects(t *testing.T) {
 		}
 	})
 
-	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter))
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
 
 	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
 		fakeStopwordDetector{}, 2, func() bool { return false }, "",
@@ -145,6 +144,105 @@ func TestObjects(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestDocIDs(t *testing.T) {
+	var (
+		dirName      = t.TempDir()
+		logger, _    = test.NewNullLogger()
+		propName     = "inverted-with-frequency"
+		charSet      = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+		charRepeat   = 3
+		multiplier   = 100
+		numObjects   = len(charSet) * multiplier
+		docIDCounter = uint64(0)
+	)
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer func() { assert.Nil(t, err) }()
+
+	t.Run("create buckets", func(t *testing.T) {
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(), helpers.ObjectsBucketLSM,
+			lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithSecondaryIndices(1)))
+		require.NotNil(t, store.Bucket(helpers.ObjectsBucketLSM))
+
+		require.Nil(t, store.CreateOrLoadBucket(context.Background(),
+			helpers.BucketSearchableFromPropNameLSM(propName),
+			lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
+		require.NotNil(t, store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)))
+	})
+
+	t.Run("put objects", func(t *testing.T) {
+		for i := 0; i < numObjects; i++ {
+			targetChar := charSet[i%len(charSet)]
+			prop := repeatString(string(targetChar), charRepeat)
+			obj := storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:    strfmt.UUID(uuid.NewString()),
+					Class: className,
+					Properties: map[string]interface{}{
+						propName: prop,
+					},
+				},
+				DocID: docIDCounter,
+			}
+			docIDCounter++
+			putObject(t, store, &obj, propName, []byte(prop))
+		}
+	})
+
+	bitmapFactory := roaringset.NewBitmapFactory(newFakeMaxIDGetter(docIDCounter), logger)
+
+	searcher := NewSearcher(logger, store, createSchema(), nil, nil,
+		fakeStopwordDetector{}, 2, func() bool { return false }, "",
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
+
+	type testCase struct {
+		expectedMatches int
+		filter          filters.LocalFilter
+	}
+	tests := []testCase{
+		{
+			filter: filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNotEqual,
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: "[[[",
+						Type:  schema.DataTypeText,
+					},
+				},
+			},
+			expectedMatches: numObjects,
+		},
+		{
+			filter: filters.LocalFilter{
+				Root: &filters.Clause{
+					Operator: filters.OperatorNotEqual,
+					On: &filters.Path{
+						Class:    className,
+						Property: schema.PropertyName(propName),
+					},
+					Value: &filters.Value{
+						Value: "AAA",
+						Type:  schema.DataTypeText,
+					},
+				},
+			},
+			expectedMatches: len(charSet)*multiplier - 1,
+		},
+	}
+
+	for _, tc := range tests {
+		allow, err := searcher.DocIDs(context.Background(), &tc.filter, additional.Properties{}, className)
+		require.Nil(t, err)
+		assert.Equal(t, tc.expectedMatches, allow.Len())
+	}
 }
 
 // lifted from Shard::pairPropertyWithFrequency to emulate Bucket::MapSet functionality

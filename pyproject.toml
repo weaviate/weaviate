@@ -1,0 +1,3 @@
+[tool.black]
+line-length = 100
+include = 'test/acceptance_with_python/.*\\.py$'

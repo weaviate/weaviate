@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -30,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestNestedReferences(t *testing.T) {
@@ -123,10 +123,10 @@ func TestNestedReferences(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -509,7 +509,7 @@ func partiallyNestedSelectProperties() search.SelectProperties {
 	}
 }
 
-func GetDimensionsFromRepo(repo *DB, className string) int {
+func GetDimensionsFromRepo(ctx context.Context, repo *DB, className string) int {
 	if !repo.config.TrackVectorDimensions {
 		log.Printf("Vector dimensions tracking is disabled, returning 0")
 		return 0
@@ -517,13 +517,13 @@ func GetDimensionsFromRepo(repo *DB, className string) int {
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.Dimensions()
+		sum += shard.Dimensions(ctx)
 		return nil
 	})
 	return sum
 }
 
-func GetQuantizedDimensionsFromRepo(repo *DB, className string, segments int) int {
+func GetQuantizedDimensionsFromRepo(ctx context.Context, repo *DB, className string, segments int) int {
 	if !repo.config.TrackVectorDimensions {
 		log.Printf("Vector dimensions tracking is disabled, returning 0")
 		return 0
@@ -531,7 +531,7 @@ func GetQuantizedDimensionsFromRepo(repo *DB, className string, segments int) in
 	index := repo.GetIndex(schema.ClassName(className))
 	sum := 0
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		sum += shard.QuantizedDimensions(segments)
+		sum += shard.QuantizedDimensions(ctx, segments)
 		return nil
 	})
 	return sum
@@ -580,11 +580,11 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -636,8 +636,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 
 	t.Run("add reference between them", func(t *testing.T) {
 		// Get dimensions before adding reference
-		sourceShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
-		targetShardDimension := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
+		sourceShardDimension := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
+		targetShardDimension := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
 
 		source := crossref.NewSource("AddingReferencesTestSource", "toTarget", sourceID)
 		target := crossref.New("localhost", "", targetID)
@@ -646,8 +646,8 @@ func Test_AddingReferenceOneByOne(t *testing.T) {
 		assert.Nil(t, err)
 
 		// Check dimensions after adding reference
-		sourceDimensionAfter := GetDimensionsFromRepo(repo, "AddingReferencesTestSource")
-		targetDimensionAfter := GetDimensionsFromRepo(repo, "AddingReferencesTestTarget")
+		sourceDimensionAfter := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestSource")
+		targetDimensionAfter := GetDimensionsFromRepo(context.Background(), repo, "AddingReferencesTestTarget")
 
 		require.Equalf(t, sourceShardDimension, sourceDimensionAfter, "dimensions of source should not change")
 		require.Equalf(t, targetShardDimension, targetDimensionAfter, "dimensions of target should not change")

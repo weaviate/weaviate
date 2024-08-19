@@ -13,7 +13,6 @@ package backup
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -72,9 +71,6 @@ func TestCoordinatedBackup(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
 		t.Parallel()
 		fc := newFakeCoordinator(nodeResolver)
-		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
-		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-
 		fc.client.On("CanCommit", any, nodes[0], creq).Return(cresp, nil)
 		fc.client.On("CanCommit", any, nodes[1], creq).Return(cresp, nil)
 		fc.client.On("Commit", any, nodes[0], sReq).Return(nil)
@@ -125,7 +121,7 @@ func TestCoordinatedBackup(t *testing.T) {
 			Method:   OpCreate,
 			ID:       backupID,
 			Backend:  backendName,
-			Classes:  []string{classes[1]},
+			Classes:  classes[:],
 			Duration: _BookingPeriod,
 			Compression: Compression{
 				Level:         DefaultCompression,
@@ -161,30 +157,16 @@ func TestCoordinatedBackup(t *testing.T) {
 			ServerVersion: config.ServerVersion,
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodes[0]: {
-					Classes: []string{classes[1]},
+					Classes: classes[:],
 					Status:  backup.Success,
 				},
 				nodes[1]: {
-					Classes: []string{classes[1]},
+					Classes: classes[:],
 					Status:  backup.Success,
 				},
 			},
 		}
 		assert.Equal(t, want, got)
-	})
-
-	t.Run("FailOnShardWithNoNodes", func(t *testing.T) {
-		t.Parallel()
-
-		fc := newFakeCoordinator(nodeResolver)
-		fc.selector.On("Shards", ctx, classes[0]).Return([]string{}, fmt.Errorf("a shard has no nodes"))
-		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
-		coordinator := *fc.coordinator()
-		req := newReq(classes, backendName, backupID)
-		store := coordStore{objStore: objStore{fc.backend, req.ID}}
-		err := coordinator.Backup(ctx, store, &req)
-		assert.ErrorIs(t, err, errNoShardFound)
-		assert.Contains(t, err.Error(), classes[0])
 	})
 
 	t.Run("CanCommit", func(t *testing.T) {
@@ -555,6 +537,14 @@ func (r *fakeNodeResolver) NodeCount() int {
 		return len(r.hosts)
 	}
 	return 1
+}
+
+func (r *fakeNodeResolver) AllNames() []string {
+	xs := make([]string, 0, len(r.hosts))
+	for k := range r.hosts {
+		xs = append(xs, k)
+	}
+	return xs
 }
 
 func newFakeNodeResolver(nodes []string) *fakeNodeResolver {

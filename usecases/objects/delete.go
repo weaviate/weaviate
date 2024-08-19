@@ -13,11 +13,13 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // DeleteObject Class Instance from the connected DB
@@ -43,6 +45,11 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	}
 	defer unlock()
 
+	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectDeleteMemory()); err != nil {
+		m.logger.WithError(err).Errorf("memory pressure: cannot process delete object")
+		return fmt.Errorf("cannot process delete object: %w", err)
+	}
+
 	m.metrics.DeleteObjectInc()
 	defer m.metrics.DeleteObjectDec()
 
@@ -50,23 +57,19 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return m.deleteObjectFromRepo(ctx, id)
 	}
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
-	if err != nil {
-		switch err.(type) {
-		case ErrMultiTenancy:
-			return NewErrMultiTenancy(fmt.Errorf("check object existence: %w", err))
-		default:
-			return NewErrInternal("check object existence: %v", err)
-		}
-	}
-	if !ok {
-		return NewErrNotFound("object %v could not be found", path)
-	}
-
 	err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant)
 	if err != nil {
+		var e1 ErrMultiTenancy
+		if errors.As(err, &e1) {
+			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
+		}
+		var e2 ErrInvalidUserInput
+		if errors.As(err, &e2) {
+			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
+		}
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
+
 	return nil
 }
 

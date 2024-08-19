@@ -111,7 +111,7 @@ func extractFilters(filterIn *pb.Filters, scheme schema.Schema, className string
 		case *pb.Filters_ValueNumber:
 			val = filterIn.GetValueNumber()
 		case *pb.Filters_ValueIntArray:
-			// convert from int32 GRPC to go int
+			// convert from int32 GRPC to go-int
 			valInt32 := filterIn.GetValueIntArray().Values
 			valInt := make([]int, len(valInt32))
 			for i := 0; i < len(valInt32); i++ {

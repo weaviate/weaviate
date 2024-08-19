@@ -24,6 +24,9 @@ import (
 	"strings"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -33,8 +36,8 @@ import (
 )
 
 const (
-	defaultConsumer = "aHR0cHM6Ly91cy1jZW50cmFsMS1zZW1pLXByb2R1Y3Rpb24uY2x" +
-		"vdWRmdW5jdGlvbnMubmV0L3dlYXZpYXRlLXRlbGVtZXRyeQ=="
+	defaultConsumer = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
+		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
 	defaultPushInterval = 24 * time.Hour
 )
 
@@ -42,33 +45,33 @@ type nodesStatusGetter interface {
 	LocalNodeStatus(ctx context.Context, className, output string) *models.NodeStatus
 }
 
-type modulesProvider interface {
-	GetMeta() (map[string]interface{}, error)
+type schemaManager interface {
+	GetSchemaSkipAuth() schema.Schema
 }
 
 // Telemeter is responsible for managing the transmission of telemetry data
 type Telemeter struct {
 	machineID         strfmt.UUID
 	nodesStatusGetter nodesStatusGetter
-	modulesProvider   modulesProvider
+	schemaManager     schemaManager
 	logger            logrus.FieldLogger
 	shutdown          chan struct{}
 	failedToStart     bool
-	consumerURL       string
+	consumer          string
 	pushInterval      time.Duration
 }
 
 // New creates a new Telemeter instance
-func New(nodesStatusGetter nodesStatusGetter, modulesProvider modulesProvider,
+func New(nodesStatusGetter nodesStatusGetter, schemaManager schemaManager,
 	logger logrus.FieldLogger,
 ) *Telemeter {
 	tel := &Telemeter{
 		machineID:         strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter: nodesStatusGetter,
-		modulesProvider:   modulesProvider,
+		schemaManager:     schemaManager,
 		logger:            logger,
 		shutdown:          make(chan struct{}),
-		consumerURL:       defaultConsumer,
+		consumer:          defaultConsumer,
 		pushInterval:      defaultPushInterval,
 	}
 	return tel
@@ -81,7 +84,7 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 		tel.failedToStart = true
 		return fmt.Errorf("push: %w", err)
 	}
-	go func() {
+	f := func() {
 		t := time.NewTicker(tel.pushInterval)
 		defer t.Stop()
 		for {
@@ -104,7 +107,8 @@ func (tel *Telemeter) Start(ctx context.Context) error {
 					Info("telemetry update")
 			}
 		}
-	}()
+	}
+	enterrors.GoWrapper(f, tel.logger)
 
 	tel.logger.
 		WithField("action", "telemetry_push").
@@ -151,7 +155,7 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	url, err := base64.StdEncoding.DecodeString(tel.consumerURL)
+	url, err := base64.StdEncoding.DecodeString(tel.consumer)
 	if err != nil {
 		return nil, fmt.Errorf("decode url: %w", err)
 	}
@@ -169,39 +173,74 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 }
 
 func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Payload, error) {
-	mods, err := tel.getEnabledModules()
+	usedMods, err := tel.getUsedModules()
 	if err != nil {
-		return nil, fmt.Errorf("get enabled modules: %w", err)
+		return nil, fmt.Errorf("get used modules: %w", err)
 	}
-	objs, err := tel.getObjectCount(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("get object count: %w", err)
+
+	var objs int64
+	// The first payload should not include object count,
+	// because all the shards may not be loaded yet. We
+	// don't want to force load for telemetry alone
+	if payloadType != PayloadType.Init {
+		objs, err = tel.getObjectCount(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get object count: %w", err)
+		}
 	}
+
 	return &Payload{
-		MachineID:  tel.machineID,
-		Type:       payloadType,
-		Version:    config.ServerVersion,
-		Modules:    mods,
-		NumObjects: objs,
-		OS:         runtime.GOOS,
-		Arch:       runtime.GOARCH,
+		MachineID:   tel.machineID,
+		Type:        payloadType,
+		Version:     config.ServerVersion,
+		NumObjects:  objs,
+		OS:          runtime.GOOS,
+		Arch:        runtime.GOARCH,
+		UsedModules: usedMods,
 	}, nil
 }
 
-func (tel *Telemeter) getEnabledModules() (string, error) {
-	modMeta, err := tel.modulesProvider.GetMeta()
-	if err != nil {
-		return "", fmt.Errorf("meta from modules provider: %w", err)
+func (tel *Telemeter) getUsedModules() ([]string, error) {
+	sch := tel.schemaManager.GetSchemaSkipAuth()
+	usedModulesMap := map[string]struct{}{}
+
+	if sch.Objects != nil {
+		for _, class := range sch.Objects.Classes {
+			if modCfg, ok := class.ModuleConfig.(map[string]interface{}); ok {
+				for name, cfg := range modCfg {
+					usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
+				}
+			}
+			for _, vectorConfig := range class.VectorConfig {
+				if modCfg, ok := vectorConfig.Vectorizer.(map[string]interface{}); ok {
+					for name, cfg := range modCfg {
+						usedModulesMap[tel.determineModule(name, cfg)] = struct{}{}
+					}
+				}
+			}
+		}
 	}
-	if len(modMeta) == 0 {
-		return "", nil
+
+	var usedModules []string
+	for modName := range usedModulesMap {
+		usedModules = append(usedModules, modName)
 	}
-	mods, i := make([]string, len(modMeta)), 0
-	for name := range modMeta {
-		mods[i], i = name, i+1
+	sort.Strings(usedModules)
+	return usedModules, nil
+}
+
+func (tel *Telemeter) determineModule(name string, cfg interface{}) string {
+	if strings.Contains(name, "palm") || strings.Contains(name, "google") {
+		if settings, ok := cfg.(map[string]interface{}); ok {
+			if apiEndpoint, ok := settings["apiEndpoint"]; ok {
+				if apiEndpointStr, ok := apiEndpoint.(string); ok && apiEndpointStr == "generativelanguage.googleapis.com" {
+					return fmt.Sprintf("%s-ai-studio", strings.Replace(name, "palm", "google", 1))
+				}
+			}
+		}
+		return fmt.Sprintf("%s-vertex-ai", strings.Replace(name, "palm", "google", 1))
 	}
-	sort.Strings(mods)
-	return strings.Join(mods, ","), nil
+	return name
 }
 
 func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {

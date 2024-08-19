@@ -19,9 +19,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	uc "github.com/weaviate/weaviate/usecases/schema"
 )
 
 const DefaultLimit = 100
@@ -64,10 +66,14 @@ type modulesProvider interface {
 		className, input, targetVector string) ([]float32, error)
 }
 
+type targetVectorParamHelper interface {
+	GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error)
+}
+
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
 func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc,
-	denseSearch denseSearchFunc, postProc postProcFunc,
-	modules modulesProvider,
+	denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider,
+	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
 ) ([]*search.Result, error) {
 	var (
 		found   [][]*search.Result
@@ -90,7 +96,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		}
 
 		if alpha > 0 {
-			res, err := processDenseSearch(ctx, denseSearch, params, modules)
+			res, err := processDenseSearch(ctx, denseSearch, params, modules, schemaGetter, targetVectorParamHelper)
 			if err != nil {
 				return nil, err
 			}
@@ -101,7 +107,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		}
 	} else if params.Vector != nil {
 		// Perform a plain vector search, no keyword query provided
-		res, err := processDenseSearch(ctx, denseSearch, params, modules)
+		res, err := processDenseSearch(ctx, denseSearch, params, modules, schemaGetter, targetVectorParamHelper)
 		if err != nil {
 			return nil, err
 		}
@@ -114,13 +120,13 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		ss := params.SubSearches
 
 		// To catch error if ss is empty
-		_, err := decideSearchVector(ctx, params, modules)
+		_, err := decideSearchVector(ctx, params, modules, schemaGetter, targetVectorParamHelper)
 		if err != nil {
 			return nil, err
 		}
 
 		for _, subsearch := range ss.([]searchparams.WeightedSearchResult) {
-			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules)
+			res, name, weight, err := handleSubSearch(ctx, &subsearch, denseSearch, sparseSearch, params, modules, schemaGetter, targetVectorParamHelper)
 			if err != nil {
 				return nil, err
 			}
@@ -190,8 +196,11 @@ func processSparseSearch(results []*storobj.Object, scores []float32, err error)
 	return out, nil
 }
 
-func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, error) {
-	vector, err := decideSearchVector(ctx, params, modules)
+func processDenseSearch(ctx context.Context,
+	denseSearch denseSearchFunc, params *Params, modules modulesProvider,
+	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
+) ([]*search.Result, error) {
+	vector, err := decideSearchVector(ctx, params, modules, schemaGetter, targetVectorParamHelper)
 	if err != nil {
 		return nil, err
 	}
@@ -210,14 +219,18 @@ func processDenseSearch(ctx context.Context, denseSearch denseSearchFunc, params
 	return out, nil
 }
 
-func handleSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, string, float64, error) {
+func handleSubSearch(ctx context.Context,
+	subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, sparseSearch sparseSearchFunc,
+	params *Params, modules modulesProvider,
+	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
+) ([]*search.Result, string, float64, error) {
 	switch subsearch.Type {
 	case "bm25":
 		fallthrough
 	case "sparseSearch":
 		return sparseSubSearch(subsearch, params, sparseSearch)
 	case "nearText":
-		return nearTextSubSearch(ctx, subsearch, denseSearch, params, modules)
+		return nearTextSubSearch(ctx, subsearch, denseSearch, params, modules, schemaGetter, targetVectorParamHelper)
 	case "nearVector":
 		return nearVectorSubSearch(subsearch, denseSearch)
 	default:
@@ -244,13 +257,21 @@ func sparseSubSearch(subsearch *searchparams.WeightedSearchResult, params *Param
 	return out, "bm25f", subsearch.Weight, nil
 }
 
-func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc, params *Params, modules modulesProvider) ([]*search.Result, string, float64, error) {
+func nearTextSubSearch(ctx context.Context, subsearch *searchparams.WeightedSearchResult, denseSearch denseSearchFunc,
+	params *Params, modules modulesProvider,
+	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
+) ([]*search.Result, string, float64, error) {
 	sp := subsearch.SearchParams.(searchparams.NearTextParams)
-	if modules == nil {
+	if modules == nil || schemaGetter == nil || targetVectorParamHelper == nil {
 		return nil, "", 0, nil
 	}
 
 	targetVector := getTargetVector(params.TargetVectors)
+	targetVector, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
+		params.Class, targetVector)
+	if err != nil {
+		return nil, "", 0, err
+	}
 
 	vector, err := vectorFromModuleInput(ctx, params.Class, sp.Values[0], targetVector, modules)
 	if err != nil {
@@ -290,7 +311,10 @@ func nearVectorSubSearch(subsearch *searchparams.WeightedSearchResult, denseSear
 	return out, "vector,nearVector", subsearch.Weight, nil
 }
 
-func decideSearchVector(ctx context.Context, params *Params, modules modulesProvider) ([]float32, error) {
+func decideSearchVector(ctx context.Context,
+	params *Params, modules modulesProvider,
+	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
+) ([]float32, error) {
 	var (
 		vector []float32
 		err    error
@@ -299,8 +323,13 @@ func decideSearchVector(ctx context.Context, params *Params, modules modulesProv
 	if params.Vector != nil && len(params.Vector) != 0 {
 		vector = params.Vector
 	} else {
-		if modules != nil {
+		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
 			targetVector := getTargetVector(params.TargetVectors)
+			targetVector, err = targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
+				params.Class, targetVector)
+			if err != nil {
+				return nil, err
+			}
 			vector, err = vectorFromModuleInput(ctx, params.Class, params.Query, targetVector, modules)
 			if err != nil {
 				return nil, err
