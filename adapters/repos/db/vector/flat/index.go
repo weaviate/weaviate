@@ -902,12 +902,12 @@ func (index *flat) AlreadyIndexed() uint64 {
 	return atomic.LoadUint64(&index.count)
 }
 
+func (index *flat) Stats() (common.IndexStats, error) {
+	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
+}
+
 type FlatStats struct{}
 
 func (s *FlatStats) IndexType() common.IndexType {
 	return common.IndexTypeFlat
-}
-
-func (index *flat) Stats() (common.IndexStats, error) {
-	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
 }
