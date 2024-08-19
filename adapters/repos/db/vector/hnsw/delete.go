@@ -391,7 +391,11 @@ func tombstoneDeletionConcurrency() int {
 			return asInt
 		}
 	}
-	return runtime.GOMAXPROCS(0) / 2
+	concurrency := runtime.GOMAXPROCS(0) / 2
+	if concurrency == 0 {
+		return 1
+	}
+	return concurrency
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
