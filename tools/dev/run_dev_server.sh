@@ -71,6 +71,7 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
+      RAFT_FORCE_ONE_NODE_RECOVERY="true" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       go_run ./cmd/weaviate-server \
         --scheme http \
