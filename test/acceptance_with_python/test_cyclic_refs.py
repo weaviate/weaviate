@@ -1,6 +1,6 @@
 import weaviate.classes as wvc
 
-from conftest import CollectionFactory
+from .conftest import CollectionFactory
 
 
 def test_ref_with_cycle(collection_factory: CollectionFactory) -> None:

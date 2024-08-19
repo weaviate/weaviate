@@ -68,7 +68,7 @@ func (v *ollama) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 
 	ollamaUrl := v.getOllamaUrl(ctx, settings.ApiEndpoint())
 	input := generateInput{
-		Model:  settings.ModelID(),
+		Model:  settings.Model(),
 		Prompt: prompt,
 		Stream: false,
 	}

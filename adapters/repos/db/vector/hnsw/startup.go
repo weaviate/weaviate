@@ -229,6 +229,11 @@ func (h *hnsw) prefillCache() {
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Minute)
 		defer cancel()
 
+		h.logger.WithFields(logrus.Fields{
+			"action":   "prefill_cache",
+			"duration": 60 * time.Minute,
+		}).Debug("context.WithTimeout")
+
 		var err error
 		if h.compressed.Load() {
 			h.compressor.PrefillCache()
@@ -240,5 +245,18 @@ func (h *hnsw) prefillCache() {
 			h.logger.WithError(err).Error("prefill vector cache")
 		}
 	}
-	enterrors.GoWrapper(f, h.logger)
+
+	if h.waitForCachePrefill {
+		h.logger.WithFields(logrus.Fields{
+			"action":                 "hnsw_prefill_cache_sync",
+			"wait_for_cache_prefill": true,
+		}).Info("waiting for vector cache prefill to complete")
+		f()
+	} else {
+		h.logger.WithFields(logrus.Fields{
+			"action":                 "hnsw_prefill_cache_async",
+			"wait_for_cache_prefill": false,
+		}).Info("not waiting for vector cache prefill, running in background")
+		enterrors.GoWrapper(f, h.logger)
+	}
 }

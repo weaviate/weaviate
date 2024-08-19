@@ -30,7 +30,7 @@ var (
 	ErrAny   = errors.New("any error")
 )
 
-func newMockExecutor(m *fakeMigrator, s *fakeMetaHandler) *executor {
+func newMockExecutor(m *fakeMigrator, s *fakeSchemaManager) *executor {
 	logger, _ := test.NewNullLogger()
 	x := NewExecutor(m, s, logger, func(string) error { return nil })
 	x.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {})
@@ -39,10 +39,13 @@ func newMockExecutor(m *fakeMigrator, s *fakeMetaHandler) *executor {
 
 func TestExecutor(t *testing.T) {
 	ctx := context.Background()
-	store := &fakeMetaHandler{}
+	store := &fakeSchemaManager{}
 	cls := &models.Class{
 		Class:             "A",
 		VectorIndexConfig: flat.NewDefaultUserConfig(),
+		ReplicationConfig: &models.ReplicationConfig{
+			Factor: 1,
+		},
 	}
 	store.On("ReadOnlySchema").Return(models.Schema{})
 	store.On("ReadOnlyClass", "A", mock.Anything).Return(cls)
@@ -141,7 +144,7 @@ func TestExecutor(t *testing.T) {
 	})
 
 	t.Run("UpdateTenantsClassNotFound", func(t *testing.T) {
-		store := &fakeMetaHandler{}
+		store := &fakeSchemaManager{}
 		store.On("ReadOnlyClass", "A", mock.Anything).Return(nil)
 
 		req := &api.UpdateTenantsRequest{Tenants: tenants}
@@ -178,7 +181,7 @@ func TestExecutor(t *testing.T) {
 		assert.ErrorIs(t, x.AddTenants("A", req), ErrAny)
 	})
 	t.Run("AddTenantsClassNotFound", func(t *testing.T) {
-		store := &fakeMetaHandler{}
+		store := &fakeSchemaManager{}
 		store.On("ReadOnlyClass", "A", mock.Anything).Return(nil)
 		req := &api.AddTenantsRequest{Tenants: tenants}
 		x := newMockExecutor(&fakeMigrator{}, store)

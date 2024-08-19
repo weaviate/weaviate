@@ -368,12 +368,6 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) (*[]string
 	var targetVectors *[]string
 	if hs := req.HybridSearch; hs != nil {
 		targetVectors = &hs.TargetVectors
-		if hs.NearText != nil {
-			targetVectors = &hs.NearText.TargetVectors
-		}
-		if hs.NearVector != nil {
-			targetVectors = &hs.NearVector.TargetVectors
-		}
 	}
 	if na := req.NearAudio; na != nil {
 		targetVectors = &na.TargetVectors

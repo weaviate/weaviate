@@ -15,13 +15,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestAutoschemaCasingClass(t *testing.T) {
@@ -262,7 +260,7 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 			Properties: []interface{}{},
 		}
 
-		resp, err := c.Batch().ObjectsBatcher().WithObject(obj).Do(ctx)
+		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
 		require.Nil(t, err)
 		require.Len(t, resp, 1)
 		require.NotNil(t, resp[0].Result)
@@ -285,7 +283,7 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 				"stringProperty": "value",
 			},
 		}
-		resp, err := c.Batch().ObjectsBatcher().WithObject(obj).Do(ctx)
+		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
 		require.Nil(t, err)
 		require.Len(t, resp, 1)
 		require.NotNil(t, resp[0].Result)

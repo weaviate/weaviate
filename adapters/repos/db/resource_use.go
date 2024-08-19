@@ -46,17 +46,20 @@ func (d diskUse) String() string {
 func (d *DB) scanResourceUsage() {
 	f := func() {
 		t := time.NewTicker(time.Millisecond * 500)
+		i := 0
 		defer t.Stop()
 		for {
 			select {
 			case <-d.shutdown:
 				return
 			case <-t.C:
+				updateMappings := i%(memwatch.MappingDelayInS*2) == 0
 				if !d.resourceScanState.isReadOnly {
 					du := d.getDiskUse(d.config.RootPath)
-					d.resourceUseWarn(d.memMonitor, du)
+					d.resourceUseWarn(d.memMonitor, du, updateMappings)
 					d.resourceUseReadonly(d.memMonitor, du)
 				}
+				i += 1
 			}
 		}
 	}
@@ -77,8 +80,8 @@ func newResourceScanState() *resourceScanState {
 }
 
 // logs a warning if user-set threshold is surpassed
-func (db *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse) {
-	mon.Refresh()
+func (db *DB) resourceUseWarn(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
+	mon.Refresh(updateMappings)
 	db.diskUseWarn(du)
 	db.memUseWarn(mon)
 }

@@ -61,14 +61,43 @@ var (
 	DefaultCohereTopP        = 1.0
 )
 
+var (
+	DefaultMistralAIMaxTokens   = 200
+	DefaultMistralAITemperature = 0.5
+)
+
+var (
+	DefaultMetaMaxTokens   = 512
+	DefaultMetaTemperature = 0.5
+)
+
 var availableAWSServices = []string{
 	DefaultService,
 	"sagemaker",
 }
 
 var availableBedrockModels = []string{
+	"ai21.j2-ultra-v1",
+	"ai21.j2-mid-v1",
+	"amazon.titan-text-lite-v1",
+	"amazon.titan-text-express-v1",
+	"amazon.titan-text-premier-v1:0",
+	"anthropic.claude-v2",
+	"anthropic.claude-v2:1",
+	"anthropic.claude-instant-v1",
+	"anthropic.claude-3-sonnet-20240229-v1:0",
+	"anthropic.claude-3-haiku-20240307-v1:0",
 	"cohere.command-text-v14",
 	"cohere.command-light-text-v14",
+	"cohere.command-r-v1:0",
+	"cohere.command-r-plus-v1:0",
+	"meta.llama3-8b-instruct-v1:0",
+	"meta.llama3-70b-instruct-v1:0",
+	"meta.llama2-13b-chat-v1",
+	"meta.llama2-70b-chat-v1",
+	"mistral.mistral-7b-instruct-v0:2",
+	"mistral.mixtral-8x7b-instruct-v0:1",
+	"mistral.mistral-large-2402-v1:0",
 }
 
 type classSettings struct {
@@ -216,6 +245,12 @@ func (ic *classSettings) MaxTokenCount() *int {
 		if isCohereModel(ic.Model()) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultCohereMaxTokens)
 		}
+		if isMistralAIModel(ic.Model()) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultMistralAIMaxTokens)
+		}
+		if isMetaModel(ic.Model()) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultMetaMaxTokens)
+		}
 	}
 	return ic.getIntProperty(maxTokenCountProperty, nil)
 }
@@ -245,6 +280,12 @@ func (ic *classSettings) Temperature() *float64 {
 		}
 		if isAI21Model(ic.Model()) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultAI21Temperature)
+		}
+		if isMistralAIModel(ic.Model()) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultMistralAITemperature)
+		}
+		if isMetaModel(ic.Model()) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultMetaTemperature)
 		}
 	}
 	return ic.getFloatProperty(temperatureProperty, nil)
@@ -308,4 +349,12 @@ func isAnthropicModel(model string) bool {
 
 func isCohereModel(model string) bool {
 	return strings.HasPrefix(model, "cohere")
+}
+
+func isMistralAIModel(model string) bool {
+	return strings.HasPrefix(model, "mistral")
+}
+
+func isMetaModel(model string) bool {
+	return strings.HasPrefix(model, "meta")
 }

@@ -145,6 +145,13 @@ func (l *LazyLoadShard) NotifyReady() {
 	l.shard.NotifyReady()
 }
 
+func (l *LazyLoadShard) GetStatusNoLoad() storagestate.Status {
+	if l.loaded {
+		return l.shard.GetStatus()
+	}
+	return storagestate.StatusLoading
+}
+
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	l.mustLoad()
 	return l.shard.GetStatus()
@@ -182,7 +189,7 @@ func (l *LazyLoadShard) ObjectCountAsync() int {
 	return l.shard.ObjectCountAsync()
 }
 
-func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonPropertyLengthTracker {
+func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	l.mustLoad()
 	return l.shard.GetPropertyLengthTracker()
 }
@@ -206,6 +213,13 @@ func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props se
 		return nil, err
 	}
 	return l.shard.ObjectByID(ctx, id, props, additional)
+}
+
+func (l *LazyLoadShard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.ObjectByIDErrDeleted(ctx, id, props, additional)
 }
 
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
@@ -279,9 +293,9 @@ func (l *LazyLoadShard) drop() error {
 	// - remove entire shard directory
 	// use lock to prevent eventual concurrent droping and loading
 	l.mutex.Lock()
-	if !l.loaded {
-		defer l.mutex.Unlock()
+	defer l.mutex.Unlock()
 
+	if !l.loaded {
 		idx := l.shardOpts.index
 		className := idx.Config.ClassName.String()
 		shardName := l.shardOpts.name
@@ -310,35 +324,20 @@ func (l *LazyLoadShard) drop() error {
 
 		return nil
 	}
-	l.mutex.Unlock()
 
 	return l.shard.drop()
 }
 
-func (l *LazyLoadShard) addIDProperty(ctx context.Context) error {
+func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.addIDProperty(ctx)
+	return l.shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) addDimensionsProperty(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.addDimensionsProperty(ctx)
-}
-
-func (l *LazyLoadShard) addTimestampProperties(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.addTimestampProperties(ctx)
-}
-
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
 	l.mustLoad()
-	return l.shard.createPropertyIndex(ctx, eg, props...)
+	l.shard.initPropertyBuckets(ctx, eg, props...)
 }
 
 func (l *LazyLoadShard) BeginBackup(ctx context.Context) error {
@@ -372,19 +371,19 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) Dimensions() int {
+func (l *LazyLoadShard) Dimensions(ctx context.Context) int {
 	l.mustLoad()
-	return l.shard.Dimensions()
+	return l.shard.Dimensions(ctx)
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(segments int) int {
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, segments int) int {
 	l.mustLoad()
-	return l.shard.QuantizedDimensions(segments)
+	return l.shard.QuantizedDimensions(ctx, segments)
 }
 
-func (l *LazyLoadShard) publishDimensionMetrics() {
+func (l *LazyLoadShard) publishDimensionMetrics(ctx context.Context) {
 	l.mustLoad()
-	l.shard.publishDimensionMetrics()
+	l.shard.publishDimensionMetrics(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
@@ -411,10 +410,24 @@ func (l *LazyLoadShard) Queues() map[string]*IndexQueue {
 	return l.shard.Queues()
 }
 
+func (l *LazyLoadShard) PreloadQueue(targetVector string) error {
+	l.mustLoad()
+	return l.shard.PreloadQueue(targetVector)
+}
+
+func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RepairIndex(ctx, targetVector)
+}
+
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
-	if !l.isLoaded() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
 		return nil
 	}
+
 	return l.shard.Shutdown(ctx)
 }
 
@@ -502,13 +515,6 @@ func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string, m
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
 	l.mustLoad()
 	return l.shard.abortReplication(ctx, shardID)
-}
-
-func (l *LazyLoadShard) reinit(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return l.shard.reinit(ctx)
 }
 
 func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.WriteCloser, error) {

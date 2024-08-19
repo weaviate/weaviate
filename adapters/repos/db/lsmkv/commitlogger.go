@@ -63,6 +63,9 @@ const (
 	// only appends in a collection strategy
 	CommitTypeCollection
 	CommitTypeRoaringSet
+	// new version of roaringset that stores data as a list of uint64 values,
+	// instead of a roaring bitmap
+	CommitTypeRoaringSetList
 )
 
 func (ct CommitType) String() string {
@@ -73,6 +76,8 @@ func (ct CommitType) String() string {
 		return "collection"
 	case CommitTypeRoaringSet:
 		return "roaringset"
+	case CommitTypeRoaringSetList:
+		return "roaringsetlist"
 	default:
 		return "unknown"
 	}

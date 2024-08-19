@@ -188,7 +188,7 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassCon
 	return sha256.Sum256([]byte(key))
 }
 
-func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, "Voyageai", defaultRPM, defaultTPM)
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {
 		// refresh is after 60 seconds but leave a bit of room for errors. Otherwise, we only deduct the request that just happened

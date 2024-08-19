@@ -397,15 +397,6 @@ func TestDeleteObject(t *testing.T) {
 			t.Errorf("payload of an existing object cannot be empty")
 		}
 	}
-
-	{ // "delete object again from first class
-		params := objects.NewObjectsClassDeleteParams().WithClassName(classA).WithID(id)
-		_, err := helper.Client(t).Objects.ObjectsClassDelete(params, nil)
-		werr := &objects.ObjectsClassDeleteNotFound{}
-		if !errors.As(err, &werr) {
-			t.Errorf("Get deleted object error got: %v want %v", err, werr)
-		}
-	}
 }
 
 func TestPostReference(t *testing.T) {

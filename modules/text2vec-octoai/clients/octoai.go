@@ -67,15 +67,15 @@ func buildUrl(config ent.VectorizationConfig) (string, error) {
 }
 
 type vectorizer struct {
-	octoAIApiKey string
-	httpClient   *http.Client
-	buildUrlFn   func(config ent.VectorizationConfig) (string, error)
-	logger       logrus.FieldLogger
+	apiKey     string
+	httpClient *http.Client
+	buildUrlFn func(config ent.VectorizationConfig) (string, error)
+	logger     logrus.FieldLogger
 }
 
-func New(octoAIApiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
+func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
 	return &vectorizer{
-		octoAIApiKey: octoAIApiKey,
+		apiKey: apiKey,
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -182,22 +182,16 @@ func (v *vectorizer) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	var apiKey, envVar string
-
-	apiKey = "X-OctoAI-Api-Key"
-	envVar = "OCTOAI_APIKEY"
-	if len(v.octoAIApiKey) > 0 {
-		return v.octoAIApiKey, nil
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Octoai-Api-Key"); apiKey != "" {
+		return apiKey, nil
 	}
 
-	return v.getApiKeyFromContext(ctx, apiKey, envVar)
-}
-
-func (v *vectorizer) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
-	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
-		return apiKeyValue, nil
+	if v.apiKey != "" {
+		return v.apiKey, nil
 	}
-	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
+	return "", errors.New("no api key found " +
+		"neither in request header: X-OctoAI-Api-Key " +
+		"nor in environment variable under OCTOAI_APIKEY")
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
@@ -208,7 +202,7 @@ func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.Class
 	return sha256.Sum256([]byte(key))
 }
 
-func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (v *vectorizer) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	rpm, _ := modulecomponents.GetRateLimitFromContext(ctx, "OctoAI", DefaultRPM, 0)
 
 	execAfterRequestFunction := func(limits *modulecomponents.RateLimits, tokensUsed int, deductRequest bool) {

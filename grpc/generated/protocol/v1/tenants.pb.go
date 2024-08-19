@@ -81,7 +81,6 @@ type TenantsGetRequest struct {
 	// we might need to add a tenant-cursor api at some point, make this easily extendable
 	//
 	// Types that are assignable to Params:
-	//
 	//	*TenantsGetRequest_Names
 	Params isTenantsGetRequest_Params `protobuf_oneof:"params"`
 }
@@ -367,18 +366,15 @@ func file_v1_tenants_proto_rawDescGZIP() []byte {
 	return file_v1_tenants_proto_rawDescData
 }
 
-var (
-	file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-	file_v1_tenants_proto_msgTypes  = make([]protoimpl.MessageInfo, 4)
-	file_v1_tenants_proto_goTypes   = []interface{}{
-		(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
-		(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
-		(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
-		(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
-		(*Tenant)(nil),            // 4: weaviate.v1.Tenant
-	}
-)
-
+var file_v1_tenants_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_v1_tenants_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_v1_tenants_proto_goTypes = []interface{}{
+	(TenantActivityStatus)(0), // 0: weaviate.v1.TenantActivityStatus
+	(*TenantsGetRequest)(nil), // 1: weaviate.v1.TenantsGetRequest
+	(*TenantNames)(nil),       // 2: weaviate.v1.TenantNames
+	(*TenantsGetReply)(nil),   // 3: weaviate.v1.TenantsGetReply
+	(*Tenant)(nil),            // 4: weaviate.v1.Tenant
+}
 var file_v1_tenants_proto_depIdxs = []int32{
 	2, // 0: weaviate.v1.TenantsGetRequest.names:type_name -> weaviate.v1.TenantNames
 	4, // 1: weaviate.v1.TenantsGetReply.tenants:type_name -> weaviate.v1.Tenant

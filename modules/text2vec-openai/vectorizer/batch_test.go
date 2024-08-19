@@ -81,6 +81,13 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
 		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded or cancelled"), 5: fmt.Errorf("context deadline exceeded or cancelled")}},
+		{name: "azure limit without total Limit", objects: []*models.Object{
+			{Class: "Car", Properties: map[string]interface{}{"test": "azureTokens 15"}}, // set azure limit without total Limit
+			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "something"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "all works"}},
+		}, skip: []bool{false, false, false, true, false}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
