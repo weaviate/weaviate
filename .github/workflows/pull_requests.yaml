@@ -457,7 +457,7 @@ jobs:
         script: |
           github.rest.actions.createWorkflowDispatch({
           owner: '${{ github.repository_owner }}',
-          repo: '${{ github.repository_owner }}/weaviate-e2e-tests',
+          repo: 'weaviate-e2e-tests',
           workflow_id: 'matrix.yaml',
           ref: 'main',
           inputs: {
