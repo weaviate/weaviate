@@ -117,6 +117,10 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 		return nil, errors.Wrap(err, "unmarshal response body")
 	}
 
+	if res.StatusCode == 404 {
+		return nil, errors.Errorf("Wrong model name, you can check available FriendliAI models from https://docs.friendli.ai/guides/serverless_endpoints/openai_compatibility#model-supports")
+	}
+
 	if res.StatusCode != 200 || resBody.Error != nil {
 		if resBody.Error != nil {
 			return nil, errors.Errorf("connection to FriendliAI API failed with status: %d error: %v", res.StatusCode, resBody.Error.Message)

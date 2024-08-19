@@ -14,7 +14,6 @@ package config
 import (
 	"testing"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -56,14 +55,17 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
-			name: "unsupported model",
+			name: "newly supported model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model": "unsupported",
+					"model": "new-model-name",
 				},
 			},
-			wantErr: errors.Errorf("wrong FriendliAI model name, available model names are: " +
-				"[meta-llama-3-8b-instruct meta-llama-3-70b-instruct]"),
+			wantModel:       "new-model-name",
+			wantMaxTokens:   2048,
+			wantTemperature: 0,
+			wantBaseURL:     "https://inference.friendli.ai",
+			wantErr:         nil,
 		},
 	}
 	for _, tt := range tests {

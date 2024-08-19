@@ -25,12 +25,6 @@ const (
 	maxTokensProperty   = "maxTokens"
 )
 
-var availableFriendliAIModels = []string{
-	"mixtral-8x7b-instruct-v0-1",
-	"meta-llama-3-8b-instruct",
-	"meta-llama-3-70b-instruct",
-}
-
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
 	DefaultBaseURL                   = "https://inference.friendli.ai"
@@ -53,11 +47,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
-	model := ic.getStringProperty(modelProperty, DefaultFriendliAIModel)
-	if model == nil || !ic.validateModel(*model) {
-		return errors.Errorf("wrong FriendliAI model name, available model names are: %v", availableFriendliAIModels)
-	}
-
 	return nil
 }
 
@@ -78,10 +67,6 @@ func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) 
 
 func (ic *classSettings) GetMaxTokensForModel(model string) int {
 	return DefaultFriendliAIMaxTokens
-}
-
-func (ic *classSettings) validateModel(model string) bool {
-	return basesettings.ValidateSetting(model, availableFriendliAIModels)
 }
 
 func (ic *classSettings) BaseURL() string {
