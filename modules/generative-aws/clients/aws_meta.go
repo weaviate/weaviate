@@ -11,7 +11,7 @@
 
 package clients
 
-func (v *aws) MetaInfo() (map[string]interface{}, error) {
+func (v *awsClient) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Generative Search - AWS",
 		"documentationHref": "https://docs.aws.amazon.com/bedrock/latest/APIReference/welcome.html",

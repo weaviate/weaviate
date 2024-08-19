@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/willf/bloom"
 )
 
@@ -73,7 +74,16 @@ type diskIndex interface {
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, mmapContents bool,
 	useBloomFilter bool, calcCountNetAdditions bool, overwriteDerived bool,
-) (*segment, error) {
+) (_ *segment, err error) {
+	defer func() {
+		p := recover()
+		if p == nil {
+			return
+		}
+		entsentry.Recover(p)
+		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+	}()
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
@@ -257,7 +267,7 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
 	}
-	_, err = n.Read(b)
+	_, err = io.ReadFull(n, b)
 	return err
 }
 

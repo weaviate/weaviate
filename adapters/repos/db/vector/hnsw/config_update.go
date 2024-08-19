@@ -15,10 +15,12 @@ import (
 	"os"
 	"sync/atomic"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func ValidateUserConfigUpdate(initial, updated schema.VectorIndexConfig) error {
@@ -119,7 +121,7 @@ func (h *hnsw) UpdateUserConfig(updated schema.VectorIndexConfig, callback func(
 }
 
 func asyncEnabled() bool {
-	return config.Enabled(os.Getenv("ASYNC_INDEXING"))
+	return entcfg.Enabled(os.Getenv("ASYNC_INDEXING"))
 }
 
 func (h *hnsw) TurnOnCompression(callback func()) error {
@@ -131,7 +133,7 @@ func (h *hnsw) TurnOnCompression(callback func()) error {
 		return err
 	}
 
-	go h.compressThenCallback(callback)
+	enterrors.GoWrapper(func() { h.compressThenCallback(callback) }, h.logger)
 
 	return nil
 }

@@ -30,7 +30,10 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+const FlushAfterDirtyDefault = 60 * time.Second
 
 type Bucket struct {
 	dir      string
@@ -46,7 +49,7 @@ type Bucket struct {
 	haltedFlushTimer *interval.BackoffTimer
 
 	walThreshold      uint64
-	flushAfterIdle    time.Duration
+	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
@@ -104,6 +107,14 @@ type Bucket struct {
 	calcCountNetAdditions bool
 
 	forceCompaction bool
+
+	// optionally supplied to prevent starting memory-intensive
+	// processes when memory pressure is high
+	allocChecker memwatch.AllocChecker
+
+	// optional segment size limit. If set, a compaction will skip segments that
+	// sum to more than the specified value.
+	maxSegmentSize int64
 }
 
 // NewBucket initializes a new bucket. It either loads the state from disk if
@@ -119,7 +130,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
-	defaultFlushAfterIdle := 60 * time.Second
+	defaultFlushAfterDirty := FlushAfterDirtyDefault
 	defaultStrategy := StrategyReplace
 
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -131,7 +142,7 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 		rootDir:               rootDir,
 		memtableThreshold:     defaultMemTableThreshold,
 		walThreshold:          defaultWalThreshold,
-		flushAfterIdle:        defaultFlushAfterIdle,
+		flushDirtyAfter:       defaultFlushAfterDirty,
 		strategy:              defaultStrategy,
 		mmapContents:          true,
 		logger:                logger,
@@ -162,7 +173,8 @@ func NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogg
 			forceCompaction:       b.forceCompaction,
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
-		})
+			maxSegmentSize:        b.maxSegmentSize,
+		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
@@ -246,10 +258,6 @@ func (b *Bucket) GetWalThreshold() uint64 {
 	return b.walThreshold
 }
 
-func (b *Bucket) GetFlushAfterIdle() time.Duration {
-	return b.flushAfterIdle
-}
-
 func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 	return b.flushCallbackCtrl
 }
@@ -278,7 +286,7 @@ func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, [
 	cursor := b.MapCursor()
 	defer cursor.Close()
 
-	for kList, vList := cursor.First(); kList != nil; kList, vList = cursor.Next() {
+	for kList, vList := cursor.First(ctx); kList != nil; kList, vList = cursor.Next(ctx) {
 		for _, v := range vList {
 			if err := f(kList, v.Key, v.Value, v.Tombstone); err != nil {
 				return fmt.Errorf("callback on object '%v' failed: %w", v, err)
@@ -305,6 +313,10 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
+	return b.get(key)
+}
+
+func (b *Bucket) get(key []byte) ([]byte, error) {
 	v, err := b.active.get(key)
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
@@ -340,6 +352,47 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	}
 
 	return b.disk.get(key)
+}
+
+func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	v, err := b.active.get(key)
+	if err == nil {
+		// item found and no error, return and stop searching, since the strategy
+		// is replace
+		return v, nil
+	}
+	if errors.Is(err, lsmkv.Deleted) {
+		// deleted in the mem-table (which is always the latest) means we don't
+		// have to check the disk segments, return nil now
+		return nil, err
+	}
+
+	if err != lsmkv.NotFound {
+		panic(fmt.Sprintf("unsupported error in bucket.Get: %v\n", err))
+	}
+
+	if b.flushing != nil {
+		v, err := b.flushing.get(key)
+		if err == nil {
+			// item found and no error, return and stop searching, since the strategy
+			// is replace
+			return v, nil
+		}
+		if errors.Is(err, lsmkv.Deleted) {
+			// deleted in the now most recent memtable  means we don't have to check
+			// the disk segments, return nil now
+			return nil, err
+		}
+
+		if err != lsmkv.NotFound {
+			panic("unsupported error in bucket.Get")
+		}
+	}
+
+	return b.disk.getErrDeleted(key)
 }
 
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
@@ -418,7 +471,20 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		}
 	}
 
-	return b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	k, v, buffer, err := b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// additional validation to ensure the primary key has not been marked as deleted
+	pkv, err := b.get(k)
+	if err != nil {
+		return nil, nil, err
+	} else if pkv == nil {
+		return nil, buffer, nil
+	}
+
+	return v, buffer, nil
 }
 
 // SetList returns all Set entries for a given key.
@@ -432,29 +498,23 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 	var out []value
 
 	v, err := b.disk.getCollection(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	out = v
 
 	if b.flushing != nil {
 		v, err = b.flushing.getCollection(key)
-		if err != nil {
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
-			}
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
 		out = append(out, v...)
 
 	}
 
 	v, err = b.active.getCollection(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	if len(v) > 0 {
 		// skip the expensive append operation if there was no memtable
@@ -575,7 +635,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, error) {
 		}
 	}
 
-	_, err = b.disk.get(key)
+	_, err = b.disk.getErrDeleted(key)
 	switch err {
 	case nil, lsmkv.NotFound:
 		return false, nil
@@ -612,7 +672,7 @@ func MapListLegacySortingRequired() MapListOption {
 //
 // MapList is specific to the Map strategy, for Sets use [Bucket.SetList], for
 // Replace use [Bucket.Get].
-func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
@@ -624,13 +684,15 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	segments := [][]MapPair{}
 	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 
 	for i := range disk {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
 			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
@@ -651,10 +713,8 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
-		if err != nil {
-			if err != nil && !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
-			}
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
 		}
 
 		segments = append(segments, v)
@@ -662,10 +722,8 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 
 	// before = time.Now()
 	v, err := b.active.getMap(key)
-	if err != nil {
-		if err != nil && !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
 	}
 	segments = append(segments, v)
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
@@ -684,7 +742,7 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		}
 	}
 
-	return newSortedMapMerger().do(segments)
+	return newSortedMapMerger().do(ctx, segments)
 }
 
 // MapSet writes one [MapPair] into the map for the given row key. It is
@@ -893,9 +951,8 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
-	dirtyButIdle := (b.active.Size() > 0 || commitLogSize > 0) &&
-		b.active.IdleDuration() >= b.flushAfterIdle
-	shouldSwitch := memtableTooLarge || walTooLarge || dirtyButIdle
+	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
+	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
@@ -990,6 +1047,11 @@ func (b *Bucket) FlushAndSwitch() error {
 func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
+
+	if b.flushing.Size() == 0 {
+		b.flushing = nil
+		return nil
+	}
 
 	path := b.flushing.path
 	if err := b.disk.add(path + ".db"); err != nil {

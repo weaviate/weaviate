@@ -12,6 +12,7 @@
 package journey
 
 import (
+	"strconv"
 	"testing"
 	"time"
 
@@ -22,11 +23,17 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string) {
+func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, namedVectors bool) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
-	booksClass := books.ClassContextionaryVectorizer()
+
+	var booksClass *models.Class
+	if namedVectors {
+		booksClass = books.ClassNamedContextionaryVectorizer()
+	} else {
+		booksClass = books.ClassContextionaryVectorizer()
+	}
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 
@@ -39,7 +46,21 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 		require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
 	}
 
-	backupID := "backup-1"
+	vectorsForDune := func() map[string][]float32 {
+		vectors := map[string][]float32{}
+		duneBook := helper.AssertGetObject(t, booksClass.Class, books.Dune)
+
+		if namedVectors {
+			for name := range booksClass.VectorConfig {
+				vectors[name] = duneBook.Vectors[name]
+			}
+		} else {
+			vectors["vector"] = duneBook.Vector
+		}
+		return vectors
+	}
+
+	backupID := "backup-1_named_vectors" + strconv.FormatBool(namedVectors)
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
 			helper.CreateObject(t, book)
@@ -50,6 +71,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 	t.Run("verify that Books objects exist", func(t *testing.T) {
 		verifyThatAllBooksExist(t)
 	})
+	initialVectors := vectorsForDune()
 
 	t.Run("verify invalid compression config", func(t *testing.T) {
 		// unknown compression level
@@ -191,5 +213,10 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string)
 
 	t.Run("verify that Books objects exist after restore", func(t *testing.T) {
 		verifyThatAllBooksExist(t)
+	})
+
+	t.Run("verify that vectors are the same after restore", func(t *testing.T) {
+		restoredVectors := vectorsForDune()
+		require.Equal(t, initialVectors, restoredVectors)
 	})
 }

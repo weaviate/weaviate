@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type BucketOption func(b *Bucket) error
@@ -47,9 +48,9 @@ func WithWalThreshold(threshold uint64) BucketOption {
 	}
 }
 
-func WithIdleThreshold(threshold time.Duration) BucketOption {
+func WithDirtyThreshold(threshold time.Duration) BucketOption {
 	return func(b *Bucket) error {
-		b.flushAfterIdle = threshold
+		b.flushDirtyAfter = threshold
 		return nil
 	}
 }
@@ -88,6 +89,13 @@ func WithDynamicMemtableSizing(
 			maxDuration: time.Duration(maxActiveSeconds) * time.Second,
 		}
 		b.memtableResizer = newMemtableSizeAdvisor(cfg)
+		return nil
+	}
+}
+
+func WithAllocChecker(mm memwatch.AllocChecker) BucketOption {
+	return func(b *Bucket) error {
+		b.allocChecker = mm
 		return nil
 	}
 }
@@ -136,6 +144,13 @@ func WithUseBloomFilter(useBloomFilter bool) BucketOption {
 func WithCalcCountNetAdditions(calcCountNetAdditions bool) BucketOption {
 	return func(b *Bucket) error {
 		b.calcCountNetAdditions = calcCountNetAdditions
+		return nil
+	}
+}
+
+func WithMaxSegmentSize(maxSegmentSize int64) BucketOption {
+	return func(b *Bucket) error {
+		b.maxSegmentSize = maxSegmentSize
 		return nil
 	}
 }

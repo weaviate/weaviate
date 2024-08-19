@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
@@ -130,7 +131,7 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 ) (*storobj.Object, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
@@ -141,7 +142,7 @@ func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 ) (bool, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return false, errors.Errorf("local index %q not found", indexName)
+		return false, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingExists(ctx, shardName, id)
@@ -174,7 +175,7 @@ func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 ) ([]*storobj.Object, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingMultiGetObjects(ctx, shardName, ids)
@@ -187,7 +188,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 ) ([]*storobj.Object, []float32, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, nil, errors.Errorf("local index %q not found", indexName)
+		return nil, nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingSearch(
@@ -199,7 +200,7 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 ) (*aggregation.Result, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingAggregate(ctx, shardName, params)
@@ -210,7 +211,7 @@ func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardN
 ) ([]strfmt.UUID, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, errors.Errorf("local index %q not found", indexName)
+		return nil, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingFindUUIDs(ctx, shardName, filters)
@@ -233,7 +234,7 @@ func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
 ) (int64, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return 0, errors.Errorf("local index %q not found", indexName)
+		return 0, enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingGetShardQueueSize(ctx, shardName)
@@ -244,7 +245,7 @@ func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
 ) (string, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return "", errors.Errorf("local index %q not found", indexName)
+		return "", enterrors.NewErrUnprocessable(errors.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingGetShardStatus(ctx, shardName)
@@ -310,7 +311,7 @@ func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 ) ([]replica.RepairResponse, error) {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
-		return nil, fmt.Errorf("local index %q not found", indexName)
+		return nil, enterrors.NewErrUnprocessable(fmt.Errorf("local index %q not found", indexName))
 	}
 
 	return index.IncomingDigestObjects(ctx, shardName, ids)

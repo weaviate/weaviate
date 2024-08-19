@@ -16,6 +16,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -62,7 +64,7 @@ func TestRowReaderRoaringSet(t *testing.T) {
 					bm := sroar.NewBitmap()
 					bm.SetMany([]uint64{111, 222, 333})
 					return roaringset.NewInvertedBitmap(
-						bm, maxDocID+roaringset.DefaultBufferIncrement).ToArray()
+						bm, maxDocID+roaringset.DefaultBufferIncrement, logrus.New()).ToArray()
 				}()},
 			},
 		},
@@ -293,6 +295,6 @@ func createRowReaderRoaringSet(value []byte, operator filters.Operator, data []k
 			return nil, entlsmkv.NotFound
 		},
 		bitmapFactory: roaringset.NewBitmapFactory(
-			func() uint64 { return maxDocID }),
+			func() uint64 { return maxDocID }, logrus.New()),
 	}
 }

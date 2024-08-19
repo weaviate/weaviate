@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"runtime"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -25,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
-	"golang.org/x/sync/errgroup"
 )
 
 var _NUMCPU = runtime.NumCPU()
@@ -122,19 +123,18 @@ func (p *Provider) vectorizeMultiple(ctx context.Context, object *models.Object,
 	compFactory moduletools.PropsComparatorFactory, findObjectFn modulecapabilities.FindObjectFn,
 	modConfigs map[string]map[string]interface{}, logger logrus.FieldLogger,
 ) error {
-	eg := &errgroup.Group{}
+	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
 
 	for targetVector, modConfig := range modConfigs {
 		targetVector := targetVector // https://golang.org/doc/faq#closures_and_goroutines
 		modConfig := modConfig       // https://golang.org/doc/faq#closures_and_goroutines
 		eg.Go(func() error {
-			err := p.vectorizeOne(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger)
-			if err != nil {
+			if err := p.vectorizeOne(ctx, object, class, compFactory, findObjectFn, targetVector, modConfig, logger); err != nil {
 				return err
 			}
 			return nil
-		})
+		}, targetVector)
 	}
 	if err := eg.Wait(); err != nil {
 		return err
@@ -232,7 +232,13 @@ func (p *Provider) shouldVectorizeObject(object *models.Object, cfg moduletools.
 	if cfg.TargetVector() == "" {
 		return object.Vector == nil
 	}
-	return true
+
+	targetVectorExists := false
+	p.lockGuard(func() {
+		vec, ok := object.Vectors[cfg.TargetVector()]
+		targetVectorExists = ok && len(vec) > 0
+	})
+	return !targetVectorExists
 }
 
 func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
@@ -250,7 +256,6 @@ func (p *Provider) shouldVectorize(object *models.Object, class *models.Class,
 			logger.WithField("className", class.Class).
 				Warningf(warningSkipVectorProvided)
 		}
-
 		return false, nil
 	}
 
@@ -277,6 +282,8 @@ func (p *Provider) getVectorizer(class *models.Class, targetVector string) strin
 }
 
 func (p *Provider) getVector(object *models.Object, targetVector string) []float32 {
+	p.vectorsLock.Lock()
+	defer p.vectorsLock.Unlock()
 	if targetVector != "" {
 		if len(object.Vectors) == 0 {
 			return nil

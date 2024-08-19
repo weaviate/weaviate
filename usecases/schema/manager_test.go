@@ -85,11 +85,27 @@ func (n *NilMigrator) DropProperty(ctx context.Context, className string, propNa
 	return nil
 }
 
-func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context, old, updated schema.VectorIndexConfig) error {
+func (n *NilMigrator) ValidateVectorIndexConfigUpdate(ctx context.Context,
+	old, updated schema.VectorIndexConfig,
+) error {
 	return nil
 }
 
-func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schema.VectorIndexConfig) error {
+func (n *NilMigrator) UpdateVectorIndexConfig(ctx context.Context, className string,
+	updated schema.VectorIndexConfig,
+) error {
+	return nil
+}
+
+func (n *NilMigrator) ValidateVectorIndexConfigsUpdate(ctx context.Context,
+	old, updated map[string]schema.VectorIndexConfig,
+) error {
+	return nil
+}
+
+func (n *NilMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
+	updated map[string]schema.VectorIndexConfig,
+) error {
 	return nil
 }
 

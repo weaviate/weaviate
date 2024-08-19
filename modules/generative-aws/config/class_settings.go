@@ -12,13 +12,13 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
 const (
@@ -61,22 +61,52 @@ var (
 	DefaultCohereTopP        = 1.0
 )
 
+var (
+	DefaultMistralAIMaxTokens   = 200
+	DefaultMistralAITemperature = 0.5
+)
+
+var (
+	DefaultMetaMaxTokens   = 512
+	DefaultMetaTemperature = 0.5
+)
+
 var availableAWSServices = []string{
 	DefaultService,
 	"sagemaker",
 }
 
 var availableBedrockModels = []string{
+	"ai21.j2-ultra-v1",
+	"ai21.j2-mid-v1",
+	"amazon.titan-text-lite-v1",
+	"amazon.titan-text-express-v1",
+	"amazon.titan-text-premier-v1:0",
+	"anthropic.claude-v2",
+	"anthropic.claude-v2:1",
+	"anthropic.claude-instant-v1",
+	"anthropic.claude-3-sonnet-20240229-v1:0",
+	"anthropic.claude-3-haiku-20240307-v1:0",
 	"cohere.command-text-v14",
 	"cohere.command-light-text-v14",
+	"cohere.command-r-v1:0",
+	"cohere.command-r-plus-v1:0",
+	"meta.llama3-8b-instruct-v1:0",
+	"meta.llama3-70b-instruct-v1:0",
+	"meta.llama2-13b-chat-v1",
+	"meta.llama2-70b-chat-v1",
+	"mistral.mistral-7b-instruct-v0:2",
+	"mistral.mixtral-8x7b-instruct-v0:1",
+	"mistral.mistral-large-2402-v1:0",
 }
 
 type classSettings struct {
-	cfg moduletools.ClassConfig
+	cfg                  moduletools.ClassConfig
+	propertyValuesHelper basesettings.PropertyValuesHelper
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg}
+	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-aws")}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -158,79 +188,16 @@ func (ic *classSettings) validateAWSSetting(value string, availableValues []stri
 }
 
 func (ic *classSettings) getStringProperty(name, defaultValue string) string {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	value, ok := ic.cfg.ClassByModuleName("generative-aws")[name]
-	if ok {
-		asString, ok := value.(string)
-		if ok {
-			return asString
-		}
-	}
-	return defaultValue
+	return ic.propertyValuesHelper.GetPropertyAsString(ic.cfg, name, defaultValue)
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-aws")[name]
-	if ok {
-		asFloat, ok := val.(float64)
-		if ok {
-			return &asFloat
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			return &asFloat
-		}
-		asInt, ok := val.(int)
-		if ok {
-			asFloat := float64(asInt)
-			return &asFloat
-		}
-	}
-
-	return defaultValue
+	return ic.propertyValuesHelper.GetPropertyAsFloat64(ic.cfg, name, defaultValue)
 }
 
 func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
-	if ic.cfg == nil {
-		// we would receive a nil-config on cross-class requests, such as Explore{}
-		return defaultValue
-	}
-
-	val, ok := ic.cfg.ClassByModuleName("generative-cohere")[name]
-	if ok {
-		asInt, ok := val.(int)
-		if ok {
-			return &asInt
-		}
-		asFloat, ok := val.(float64)
-		if ok {
-			asInt := int(asFloat)
-			return &asInt
-		}
-		asNumber, ok := val.(json.Number)
-		if ok {
-			asFloat, _ := asNumber.Float64()
-			asInt := int(asFloat)
-			return &asInt
-		}
-		wrongVal := -1
-		return &wrongVal
-	}
-
-	if defaultValue != nil {
-		return defaultValue
-	}
-	return nil
+	var wrongVal int = -1
+	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
 func (ic *classSettings) getListOfStringsProperty(name string, defaultValue []string) *[]string {
@@ -278,6 +245,12 @@ func (ic *classSettings) MaxTokenCount() *int {
 		if isCohereModel(ic.Model()) {
 			return ic.getIntProperty(maxTokenCountProperty, &DefaultCohereMaxTokens)
 		}
+		if isMistralAIModel(ic.Model()) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultMistralAIMaxTokens)
+		}
+		if isMetaModel(ic.Model()) {
+			return ic.getIntProperty(maxTokenCountProperty, &DefaultMetaMaxTokens)
+		}
 	}
 	return ic.getIntProperty(maxTokenCountProperty, nil)
 }
@@ -307,6 +280,12 @@ func (ic *classSettings) Temperature() *float64 {
 		}
 		if isAI21Model(ic.Model()) {
 			return ic.getFloatProperty(temperatureProperty, &DefaultAI21Temperature)
+		}
+		if isMistralAIModel(ic.Model()) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultMistralAITemperature)
+		}
+		if isMetaModel(ic.Model()) {
+			return ic.getFloatProperty(temperatureProperty, &DefaultMetaTemperature)
 		}
 	}
 	return ic.getFloatProperty(temperatureProperty, nil)
@@ -370,4 +349,12 @@ func isAnthropicModel(model string) bool {
 
 func isCohereModel(model string) bool {
 	return strings.HasPrefix(model, "cohere")
+}
+
+func isMistralAIModel(model string) bool {
+	return strings.HasPrefix(model, "mistral")
+}
+
+func isMetaModel(model string) bool {
+	return strings.HasPrefix(model, "meta")
 }

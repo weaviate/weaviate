@@ -14,6 +14,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"time"
@@ -24,8 +25,10 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"gopkg.in/yaml.v2"
 )
 
@@ -36,8 +39,12 @@ import (
 // spec only needs to be parsed once.
 var ServerVersion string
 
-// GitHash keeps the current git hash commit information
-var GitHash = "unknown"
+var (
+	// GitHash keeps the current git hash commit information, value injected by the compiler using ldflags -X at build time.
+	GitHash = "unknown"
+	// ImageTag keeps the docker tag the weaviate binary was built in, value injected by the compiler using ldflags -X at build time.
+	ImageTag = "localhost"
+)
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -88,7 +95,7 @@ type Config struct {
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
 	Cluster                             cluster.Config           `json:"cluster" yaml:"cluster"`
 	Replication                         replication.GlobalConfig `json:"replication" yaml:"replication"`
-	Monitoring                          Monitoring               `json:"monitoring" yaml:"monitoring"`
+	Monitoring                          monitoring.Config        `json:"monitoring" yaml:"monitoring"`
 	GRPC                                GRPC                     `json:"grpc" yaml:"grpc"`
 	Profiling                           Profiling                `json:"profiling" yaml:"profiling"`
 	ResourceUsage                       ResourceUsage            `json:"resource_usage" yaml:"resource_usage"`
@@ -97,6 +104,7 @@ type Config struct {
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
+	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
@@ -104,6 +112,8 @@ type Config struct {
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
+	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 }
 
 type moduleProvider interface {
@@ -177,13 +187,6 @@ type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
 }
 
-type Monitoring struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
-	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port"`
-	Group   bool   `json:"group_classes" yaml:"group_classes"`
-}
-
 // Support independent TLS credentials for gRPC
 type GRPC struct {
 	Port     int    `json:"port" yaml:"port"`
@@ -198,14 +201,23 @@ type Profiling struct {
 
 type Persistence struct {
 	DataPath                          string `json:"dataPath" yaml:"dataPath"`
-	FlushIdleMemtablesAfter           int    `json:"flushIdleMemtablesAfter" yaml:"flushIdleMemtablesAfter"`
+	MemtablesFlushDirtyAfter          int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
 	MemtablesMaxSizeMB                int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
+	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
 const DefaultPersistenceDataPath string = "./data"
+
+// DefaultPersistenceLSMMaxSegmentSize is effectively unlimited for backward
+// compatibility. TODO: consider changing this in a future release and make
+// some noise about it. This is technically a breaking change.
+const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
+
+const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -263,7 +275,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

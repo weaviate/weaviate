@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -166,7 +168,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	go c.run(params, filters)
+	enterrors.GoWrapper(func() { c.run(params, filters) }, c.logger)
 
 	return &params, nil
 }

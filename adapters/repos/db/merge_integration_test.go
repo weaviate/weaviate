@@ -44,11 +44,11 @@ func Test_MergingObjects(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -153,7 +153,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, []float32{0.5}, nil, nil)
 		require.Nil(t, err)
 
-		targetDimensionsBefore := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsBefore := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 
 		targets := []strfmt.UUID{target1, target2, target3, target4}
 
@@ -168,7 +168,7 @@ func Test_MergingObjects(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		targetDimensionsAfter := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsAfter := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 		require.Equal(t, targetDimensionsBefore+4, targetDimensionsAfter)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -182,7 +182,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, nil, nil, nil)
 		require.Nil(t, err)
 
-		targetDimensionsAfterNoVec := GetDimensionsFromRepo(repo, "MergeTestTarget")
+		targetDimensionsAfterNoVec := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 		require.Equal(t, targetDimensionsAfter, targetDimensionsAfterNoVec)
 	})
 
@@ -412,12 +412,12 @@ func Test_Merge_UntouchedPropsCorrectlyIndexed(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		QueryMaximumResults:       10000,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -686,12 +686,12 @@ func Test_MergeDocIdPreserved_PropsCorrectlyIndexed(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
 		QueryMaximumResults:       10000,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

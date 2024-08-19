@@ -63,7 +63,7 @@ func (s *Shard) initCycleCallbacks() {
 	vectorTombstoneCleanupCallbacksCtrl := s.index.cycleCallbacks.vectorTombstoneCleanupCallbacks.Register(
 		vectorTombstoneCleanupId, vectorTombstoneCleanupCallbacks.CycleCallback)
 
-	vectorCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2,
+	vectorCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
 		vectorCommitLoggerCallbacksCtrl, vectorTombstoneCleanupCallbacksCtrl)
 
 	geoPropsCommitLoggerId := id("geo_props", "commit_logger")
@@ -78,7 +78,7 @@ func (s *Shard) initCycleCallbacks() {
 	geoPropsTombstoneCleanupCallbacksCtrl := s.index.cycleCallbacks.geoPropsTombstoneCleanupCallbacks.Register(
 		geoPropsTombstoneCleanupId, geoPropsTombstoneCleanupCallbacks.CycleCallback)
 
-	geoPropsCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2,
+	geoPropsCombinedCallbacksCtrl := cyclemanager.NewCombinedCallbackCtrl(2, s.index.logger,
 		geoPropsCommitLoggerCallbacksCtrl, geoPropsTombstoneCleanupCallbacksCtrl)
 
 	s.cycleCallbacks = &shardCycleCallbacks{

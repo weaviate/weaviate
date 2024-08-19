@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -24,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
-	"golang.org/x/sync/errgroup"
 )
 
 // AddObjects Class Instances in batch to the connected DB
@@ -95,7 +96,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 	//
 	// see https://github.com/weaviate/weaviate/issues/3179 for details of how the
 	// unbounded concurrency caused a production outage
-	eg := new(errgroup.Group)
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(2 * runtime.GOMAXPROCS(0))
 
 	// Generate a goroutine for each separate request
@@ -105,7 +106,7 @@ func (b *BatchManager) validateObjectsConcurrently(ctx context.Context, principa
 		eg.Go(func() error {
 			b.validateObject(ctx, principal, object, i, &c, fieldsToKeep, repl)
 			return nil
-		})
+		}, object.ID)
 	}
 
 	eg.Wait()

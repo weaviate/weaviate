@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
@@ -46,6 +47,7 @@ type Manager struct {
 	modulesProvider   ModulesProvider
 	autoSchemaManager *autoSchemaManager
 	metrics           objectsMetrics
+	allocChecker      *memwatch.Monitor
 }
 
 type objectsMetrics interface {
@@ -127,8 +129,12 @@ type ModulesProvider interface {
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorizer, vectorRepo VectorRepo,
-	modulesProvider ModulesProvider, metrics objectsMetrics,
+	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
 ) *Manager {
+	if allocChecker == nil {
+		allocChecker = memwatch.NewDummyMonitor()
+	}
+
 	return &Manager{
 		config:            config,
 		locks:             locks,
@@ -140,6 +146,7 @@ func NewManager(locks locks, schemaManager schemaManager,
 		modulesProvider:   modulesProvider,
 		autoSchemaManager: newAutoSchemaManager(schemaManager, vectorRepo, config, logger),
 		metrics:           metrics,
+		allocChecker:      allocChecker,
 	}
 }
 

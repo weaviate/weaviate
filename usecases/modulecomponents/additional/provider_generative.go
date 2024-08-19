@@ -14,6 +14,8 @@ package additional
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	generativegenerate "github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
@@ -30,8 +32,8 @@ type GraphQLAdditionalGenerativeProvider struct {
 	generative AdditionalProperty
 }
 
-func NewGenerativeProvider(client generativeClient) *GraphQLAdditionalGenerativeProvider {
-	return &GraphQLAdditionalGenerativeProvider{generativegenerate.New(client)}
+func NewGenerativeProvider(client generativeClient, logger logrus.FieldLogger) *GraphQLAdditionalGenerativeProvider {
+	return &GraphQLAdditionalGenerativeProvider{generativegenerate.New(client, logger)}
 }
 
 func (p *GraphQLAdditionalGenerativeProvider) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

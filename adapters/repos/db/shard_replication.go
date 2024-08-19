@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -103,8 +104,14 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.merge(ctx, uuid, *doc); err != nil {
+			var code replica.StatusCode
+			if errors.Is(err, errObjectNotFound) {
+				code = replica.StatusObjectNotFound
+			} else {
+				code = replica.StatusConflict
+			}
 			resp.Errors = []replica.Error{
-				{Code: replica.StatusConflict, Msg: err.Error()},
+				{Code: code, Msg: err.Error()},
 			}
 		}
 		return resp

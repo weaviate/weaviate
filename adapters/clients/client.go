@@ -26,7 +26,7 @@ type retryClient struct {
 }
 
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
-	req *http.Request, body []byte, decode func([]byte) error,
+	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
@@ -55,7 +55,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 
 		return false, nil
 	}
-	return c.retry(ctx, 9, try)
+	return c.retry(ctx, numRetries, try)
 }
 
 type retryer struct {
@@ -72,6 +72,7 @@ func newRetryer() *retryer {
 	}
 }
 
+// n is the number of retries, work will always be called at least once.
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
 	delay := r.minBackOff
 	for {

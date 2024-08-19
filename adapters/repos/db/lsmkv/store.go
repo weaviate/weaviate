@@ -17,8 +17,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -41,6 +45,7 @@ type Store struct {
 	// Prevent concurrent manipulations to the bucketsByNameMap, most notably
 	// when initializing buckets in parallel
 	bucketAccessLock sync.RWMutex
+	bucketByNameLock map[string]*sync.Mutex
 }
 
 // New initializes a new [Store] based on the root dir. If state is present on
@@ -50,11 +55,12 @@ func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
 	shardCompactionCallbacks, shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
 	s := &Store{
-		dir:           dir,
-		rootDir:       rootDir,
-		bucketsByName: map[string]*Bucket{},
-		logger:        logger,
-		metrics:       metrics,
+		dir:              dir,
+		rootDir:          rootDir,
+		bucketsByName:    map[string]*Bucket{},
+		bucketByNameLock: make(map[string]*sync.Mutex),
+		logger:           logger,
+		metrics:          metrics,
 	}
 	s.initCycleCallbacks(shardCompactionCallbacks, shardFlushCallbacks)
 
@@ -114,18 +120,64 @@ func (s *Store) bucketDir(bucketName string) string {
 //	b := store.Bucket("my_bucket_name")
 func (s *Store) CreateOrLoadBucket(ctx context.Context, bucketName string,
 	opts ...BucketOption,
-) error {
+) (err error) {
+	defer func() {
+		p := recover()
+		if p == nil {
+			// happy path
+			return
+		}
+
+		entsentry.Recover(p)
+
+		err = fmt.Errorf("unexpected error loading bucket %q at path %q: %v",
+			bucketName, s.rootDir, p)
+		// logger is already annotated to identify the store (e.g. collection +
+		// shard), we only need to annotate it with the exact path of this
+		// bucket.
+		s.logger.
+			WithFields(logrus.Fields{
+				"action":   "lsm_create_or_load_bucket",
+				"root_dir": s.rootDir,
+				"dir":      s.dir,
+				"bucket":   bucketName,
+			}).
+			WithError(err).Errorf("unexpected error loading shard")
+		debug.PrintStack()
+	}()
+
+	var bucketLock *sync.Mutex
+
+	s.bucketAccessLock.Lock()
+
+	_, ok := s.bucketByNameLock[bucketName]
+	if !ok {
+		s.bucketByNameLock[bucketName] = &sync.Mutex{}
+	}
+	bucketLock = s.bucketByNameLock[bucketName]
+
+	s.bucketAccessLock.Unlock()
+
+	bucketLock.Lock()
+	defer bucketLock.Unlock()
+
 	if b := s.Bucket(bucketName); b != nil {
 		return nil
 	}
 
+	// bucket can be concurrently loaded with another buckets but
+	// the same bucket will be loaded only once
 	b, err := NewBucket(ctx, s.bucketDir(bucketName), s.rootDir, s.logger, s.metrics,
 		s.cycleCallbacks.compactionCallbacks, s.cycleCallbacks.flushCallbacks, opts...)
 	if err != nil {
+		s.bucketAccessLock.Lock()
+		delete(s.bucketByNameLock, bucketName)
+		s.bucketAccessLock.Unlock()
 		return err
 	}
 
 	s.setBucket(bucketName, b)
+
 	return nil
 }
 
@@ -218,14 +270,15 @@ func (s *Store) runJobOnBuckets(ctx context.Context,
 	for _, bucket := range s.bucketsByName {
 		wg.Add(1)
 		b := bucket
-		go func() {
+		f := func() {
 			status.Lock()
 			defer status.Unlock()
 			res, err := jobFunc(ctx, b)
 			resultQueue <- res
 			status.buckets[b] = err
 			wg.Done()
-		}()
+		}
+		enterrors.GoWrapper(f, s.logger)
 	}
 
 	wg.Wait()

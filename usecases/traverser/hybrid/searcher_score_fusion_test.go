@@ -83,7 +83,7 @@ func TestScoreFusionSearchWithoutModuleProvider(t *testing.T) {
 		return inputs[0].documents, inputs[0].inputScores[1], nil
 	}
 
-	res, err := Search(ctx, params, logger, sparse, dense, nil, nil)
+	res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 	require.Nil(t, err)
 	fmt.Printf("res: %v\n", res)
 }
@@ -105,7 +105,9 @@ func TestScoreFusionSearchWithModuleProvider(t *testing.T) {
 	sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 	dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 	provider := &fakeModuleProvider{}
-	_, err := Search(ctx, params, logger, sparse, dense, nil, provider)
+	schemaGetter := newFakeSchemaManager()
+	targetVectorParamHelper := newFakeTargetVectorParamHelper()
+	_, err := Search(ctx, params, logger, sparse, dense, nil, provider, schemaGetter, targetVectorParamHelper)
 	require.Nil(t, err)
 }
 
@@ -138,7 +140,7 @@ func TestScoreFusionSearchWithSparseSearchOnly(t *testing.T) {
 		}, []float32{0.008}, nil
 	}
 	dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-	res, err := Search(ctx, params, logger, sparse, dense, nil, nil)
+	res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
@@ -180,7 +182,7 @@ func TestScoreFusionSearchWithDenseSearchOnly(t *testing.T) {
 		}, []float32{0.008}, nil
 	}
 
-	res, err := Search(ctx, params, logger, sparse, dense, nil, nil)
+	res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
@@ -235,7 +237,7 @@ func TestScoreFusionCombinedHybridSearch(t *testing.T) {
 			},
 		}, []float32{0.008}, nil
 	}
-	res, err := Search(ctx, params, logger, sparse, dense, nil, nil)
+	res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 	require.Nil(t, err)
 	assert.Len(t, res, 2)
 	assert.NotNil(t, res[0])
@@ -288,7 +290,7 @@ func TestScoreFusionWithSparseSubsearchFilter(t *testing.T) {
 		}, []float32{0.008}, nil
 	}
 	dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-	res, err := Search(ctx, params, logger, sparse, dense, nil, nil)
+	res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
@@ -335,7 +337,9 @@ func TestScoreFusionWithNearTextSubsearchFilter(t *testing.T) {
 		}, []float32{0.008}, nil
 	}
 	provider := &fakeModuleProvider{}
-	res, err := Search(ctx, params, logger, sparse, dense, nil, provider)
+	schemaGetter := newFakeSchemaManager()
+	targetVectorParamHelper := newFakeTargetVectorParamHelper()
+	res, err := Search(ctx, params, logger, sparse, dense, nil, provider, schemaGetter, targetVectorParamHelper)
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
@@ -382,8 +386,9 @@ func TestScoreFusionWithNearVectorSubsearchFilter(t *testing.T) {
 		}, []float32{0.008}, nil
 	}
 	provider := &fakeModuleProvider{}
-
-	res, err := Search(ctx, params, logger, sparse, dense, nil, provider)
+	schemaGetter := newFakeSchemaManager()
+	targetVectorParamHelper := newFakeTargetVectorParamHelper()
+	res, err := Search(ctx, params, logger, sparse, dense, nil, provider, schemaGetter, targetVectorParamHelper)
 	require.Nil(t, err)
 	assert.Len(t, res, 1)
 	assert.NotNil(t, res[0])
@@ -461,7 +466,9 @@ func TestScoreFusionWithAllSubsearchFilters(t *testing.T) {
 		}, []float32{0.008}, nil
 	}
 	provider := &fakeModuleProvider{}
-	res, err := Search(ctx, params, logger, sparse, dense, nil, provider)
+	schemaGetter := newFakeSchemaManager()
+	targetVectorParamHelper := newFakeTargetVectorParamHelper()
+	res, err := Search(ctx, params, logger, sparse, dense, nil, provider, schemaGetter, targetVectorParamHelper)
 	require.Nil(t, err)
 	assert.Len(t, res, 2)
 	assert.NotNil(t, res[0])

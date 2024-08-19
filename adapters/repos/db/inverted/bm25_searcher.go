@@ -16,11 +16,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -35,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"golang.org/x/sync/errgroup"
 )
 
 type BM25Searcher struct {
@@ -92,8 +92,8 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 	return objs, scores, nil
 }
 
-func (b *BM25Searcher) GetPropertyLengthTracker() *JsonPropertyLengthTracker {
-	return b.propLenTracker.(*JsonPropertyLengthTracker)
+func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
+	return b.propLenTracker.(*JsonShardMetaData)
 }
 
 func (b *BM25Searcher) wand(
@@ -176,7 +176,7 @@ func (b *BM25Searcher) wand(
 	results := make(terms, 0, 100)
 	indices := make([]map[uint64]int, 0, 100)
 
-	var eg errgroup.Group
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
 	var resultsLock sync.Mutex
@@ -196,20 +196,7 @@ func (b *BM25Searcher) wand(
 				j := i
 
 				eg.Go(func() (err error) {
-					defer func() {
-						p := recover()
-						if p != nil {
-							b.logger.
-								WithField("query_term", queryTerms[j]).
-								WithField("prop_names", propNames).
-								WithField("has_filter", filterDocIds != nil).
-								Errorf("panic: %v", p)
-							debug.PrintStack()
-							err = fmt.Errorf("an internal error occurred during BM25 search")
-						}
-					}()
-
-					termResult, docIndices, termErr := b.createTerm(N, filterDocIds, queryTerms[j], propNames,
+					termResult, docIndices, termErr := b.createTerm(ctx, N, filterDocIds, queryTerms[j], propNames,
 						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
 					if termErr != nil {
 						err = termErr
@@ -220,7 +207,7 @@ func (b *BM25Searcher) wand(
 					indices = append(indices, docIndices)
 					resultsLock.Unlock()
 					return
-				})
+				}, "query_term", queryTerms[j], "prop_names", propNames, "has_filter", filterDocIds != nil)
 			}
 		}
 	}
@@ -357,7 +344,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 	}
 }
 
-func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string,
+func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds helpers.AllowList, query string,
 	propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int,
 	additionalExplanations bool,
 ) (term, map[uint64]int, error) {
@@ -371,7 +358,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if bucket == nil {
 			return termResult, nil, fmt.Errorf("could not find bucket for property %v", propName)
 		}
-		preM, err := bucket.MapList([]byte(query))
+		preM, err := bucket.MapList(ctx, []byte(query))
 		if err != nil {
 			return termResult, nil, err
 		}

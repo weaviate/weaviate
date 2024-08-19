@@ -73,7 +73,7 @@ func Test_UpdateAction(t *testing.T) {
 		metrics := &fakeMetrics{}
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
 		manager = NewManager(locks, schemaManager, cfg,
-			logger, authorizer, db, modulesProvider, metrics)
+			logger, authorizer, db, modulesProvider, metrics, nil)
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {

@@ -51,7 +51,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	parentCommitLoggerCallbacks := cyclemanager.NewCallbackGroup("parentCommitLogger", logger, 1)
 	parentCommitLoggerCycle := cyclemanager.NewManager(
 		cyclemanager.HnswCommitLoggerCycleTicker(),
-		parentCommitLoggerCallbacks.CycleCallback)
+		parentCommitLoggerCallbacks.CycleCallback, logger)
 	parentCommitLoggerCycle.Start()
 	defer parentCommitLoggerCycle.StopAndWait(ctx)
 	commitLoggerCallbacks := cyclemanager.NewCallbackGroup("childCommitLogger", logger, 1)
@@ -60,7 +60,7 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 	parentTombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("parentTombstoneCleanup", logger, 1)
 	parentTombstoneCleanupCycle := cyclemanager.NewManager(
 		cyclemanager.NewFixedTicker(1),
-		parentTombstoneCleanupCallbacks.CycleCallback)
+		parentTombstoneCleanupCallbacks.CycleCallback, logger)
 	parentTombstoneCleanupCycle.Start()
 	defer parentTombstoneCleanupCycle.StopAndWait(ctx)
 	tombstoneCleanupCallbacks := cyclemanager.NewCallbackGroup("childTombstoneCleanup", logger, 1)

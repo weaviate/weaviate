@@ -29,3 +29,17 @@ func GetValueFromGRPC(ctx context.Context, key string) []string {
 	}
 	return nil
 }
+
+func GetValueFromContext(ctx context.Context, key string) string {
+	if value := ctx.Value(key); value != nil {
+		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
+			return keyHeader[0]
+		}
+	}
+	// try getting header from GRPC if not successful
+	if value := GetValueFromGRPC(ctx, key); len(value) > 0 && len(value[0]) > 0 {
+		return value[0]
+	}
+
+	return ""
+}

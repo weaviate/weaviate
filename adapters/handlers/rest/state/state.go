@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/locks"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -67,6 +68,7 @@ type State struct {
 	BatchManager       *objects.BatchManager
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelFunc
+	MemWatch           *memwatch.Monitor
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

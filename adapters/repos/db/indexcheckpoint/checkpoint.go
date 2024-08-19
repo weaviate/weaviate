@@ -27,18 +27,21 @@ var checkpointBucket = []byte("checkpoint")
 // Checkpoints keeps track of the last indexed vector id for each shard.
 // It stores the ids in a BoltDB file.
 type Checkpoints struct {
-	db *bolt.DB
+	db   *bolt.DB
+	path string
 }
 
 func New(dir string, logger logrus.FieldLogger) (*Checkpoints, error) {
 	path := filepath.Join(dir, "index.db")
+
 	db, err := bolt.Open(path, 0o600, nil)
 	if err != nil {
 		return nil, errors.Wrapf(err, "open %q", path)
 	}
 
 	ic := Checkpoints{
-		db: db,
+		db:   db,
+		path: path,
 	}
 
 	err = ic.initDB()
@@ -70,9 +73,8 @@ func (c *Checkpoints) getID(shardID, targetVector string) string {
 	return shardID
 }
 
-func (c *Checkpoints) Get(shardID, targetVector string) (uint64, error) {
-	var count uint64
-	err := c.db.View(func(tx *bolt.Tx) error {
+func (c *Checkpoints) Get(shardID, targetVector string) (count uint64, exists bool, err error) {
+	err = c.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
 		v := b.Get([]byte(c.getID(shardID, targetVector)))
 		if v == nil {
@@ -80,14 +82,14 @@ func (c *Checkpoints) Get(shardID, targetVector string) (uint64, error) {
 		}
 
 		count = binary.LittleEndian.Uint64(v)
-
+		exists = true
 		return nil
 	})
 	if err != nil {
-		return 0, errors.Wrap(err, "get checkpoint")
+		return 0, false, errors.Wrap(err, "get checkpoint")
 	}
 
-	return count, nil
+	return
 }
 
 func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {
@@ -96,7 +98,34 @@ func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {
 
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		return b.Put([]byte(c.getID(shardID, targetVector)), buf)
+		key := []byte(c.getID(shardID, targetVector))
+		return b.Put(key, buf)
+	})
+	if err != nil {
+		return errors.Wrap(err, "update checkpoint")
+	}
+
+	return nil
+}
+
+func (c *Checkpoints) UpdateIfNewer(shardID, targetVector string, id uint64) error {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, id)
+
+	err := c.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(checkpointBucket)
+		key := []byte(c.getID(shardID, targetVector))
+
+		// do not update if the current checkpoint is newer
+		old := b.Get(key)
+		if old != nil {
+			oldID := binary.LittleEndian.Uint64(old)
+			if oldID > id {
+				return errors.Errorf("current checkpoint %d is newer than %d", oldID, id)
+			}
+		}
+
+		return b.Put(key, buf)
 	})
 	if err != nil {
 		return errors.Wrap(err, "update checkpoint")
@@ -123,5 +152,5 @@ func (c *Checkpoints) Drop() error {
 }
 
 func (c *Checkpoints) Filename() string {
-	return c.db.Path()
+	return c.path
 }

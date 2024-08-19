@@ -97,10 +97,10 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 				require.Nil(t, err)
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Map, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Map)
 		})
@@ -132,14 +132,14 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 				},
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			// NOTE: We are accepting that the order is changed here. Given the name
 			// "MapCollection" there should be no expectations regarding the order,
 			// but we have yet to validate if this fits with all of the intended use
 			// cases.
 			assert.ElementsMatch(t, row1Updated, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Unchanged)
 		})
@@ -187,10 +187,10 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 				require.Nil(t, err)
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Map, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Map)
 		})
@@ -226,14 +226,14 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 				},
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			// NOTE: We are accepting that the order is changed here. Given the name
 			// "MapCollection" there should be no expectations regarding the order,
 			// but we have yet to validate if this fits with all of the intended use
 			// cases.
 			assert.ElementsMatch(t, row1Updated, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Unchanged)
 		})
@@ -281,10 +281,10 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 				require.Nil(t, err)
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Map, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Map)
 		})
@@ -323,14 +323,14 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 				},
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			// NOTE: We are accepting that the order is changed here. Given the name
 			// "MapCollection" there should be no expectations regarding the order,
 			// but we have yet to validate if this fits with all of the intended use
 			// cases.
 			assert.ElementsMatch(t, row1Updated, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Unchanged)
 		})
@@ -378,10 +378,10 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 				require.Nil(t, err)
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Map, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Map)
 		})
@@ -423,14 +423,14 @@ func mapInsertAndAppend(ctx context.Context, t *testing.T, opts []BucketOption) 
 				},
 			}
 
-			res, err := b2.MapList(rowKey1)
+			res, err := b2.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			// NOTE: We are accepting that the order is changed here. Given the name
 			// "MapCollection" there should be no expectations regarding the order,
 			// but we have yet to validate if this fits with all of the intended use
 			// cases.
 			assert.ElementsMatch(t, row1Updated, res)
-			res, err = b2.MapList(rowKey2)
+			res, err = b2.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Unchanged)
 		})
@@ -482,10 +482,10 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 				require.Nil(t, err)
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Map, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Map)
 		})
@@ -525,10 +525,10 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 			// "MapCollection" there should be no expectations regarding the order,
 			// but we have yet to validate if this fits with all of the intended use
 			// cases.
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.ElementsMatch(t, row1Updated, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.ElementsMatch(t, row2Updated, res)
 		})
@@ -576,10 +576,10 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 				require.Nil(t, err)
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Map, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Map)
 		})
@@ -627,10 +627,10 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 			// "MapCollection" there should be no expectations regarding the order,
 			// but we have yet to validate if this fits with all of the intended use
 			// cases.
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.ElementsMatch(t, row1Updated, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.ElementsMatch(t, row2Updated, res)
 		})
@@ -678,10 +678,10 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 				require.Nil(t, err)
 			}
 
-			res, err := b.MapList(rowKey1)
+			res, err := b.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.Equal(t, row1Map, res)
-			res, err = b.MapList(rowKey2)
+			res, err = b.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.Equal(t, res, row2Map)
 		})
@@ -729,10 +729,10 @@ func mapInsertAndDelete(ctx context.Context, t *testing.T, opts []BucketOption) 
 			// "MapCollection" there should be no expectations regarding the order,
 			// but we have yet to validate if this fits with all of the intended use
 			// cases.
-			res, err := b2.MapList(rowKey1)
+			res, err := b2.MapList(ctx, rowKey1)
 			require.Nil(t, err)
 			assert.ElementsMatch(t, row1Updated, res)
-			res, err = b2.MapList(rowKey2)
+			res, err = b2.MapList(ctx, rowKey2)
 			require.Nil(t, err)
 			assert.ElementsMatch(t, row2Updated, res)
 		})
@@ -817,7 +817,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
 			defer c.Close()
-			for k, v := c.Seek([]byte("row-016")); k != nil; k, v = c.Next() {
+			for k, v := c.Seek(ctx, []byte("row-016")); k != nil; k, v = c.Next(ctx) {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
 			}
@@ -859,7 +859,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			c := b.MapCursor()
 			defer c.Close()
 			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
+			for k, v := c.First(ctx); k != nil && retrieved < 3; k, v = c.Next(ctx) {
 				retrieved++
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -911,7 +911,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			c := b.MapCursor()
 			defer c.Close()
 			retrieved := 0
-			for k, v := c.Seek([]byte("row-001")); k != nil && retrieved < 2; k, v = c.Next() {
+			for k, v := c.Seek(ctx, []byte("row-001")); k != nil && retrieved < 2; k, v = c.Next(ctx) {
 				retrieved++
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -1095,7 +1095,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			var retrievedValues [][]MapPair
 			c := b.MapCursor()
 			defer c.Close()
-			for k, v := c.Seek([]byte("row-016")); k != nil; k, v = c.Next() {
+			for k, v := c.Seek(ctx, []byte("row-016")); k != nil; k, v = c.Next(ctx) {
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
 			}
@@ -1137,7 +1137,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			c := b.MapCursor()
 			defer c.Close()
 			retrieved := 0
-			for k, v := c.First(); k != nil && retrieved < 3; k, v = c.Next() {
+			for k, v := c.First(ctx); k != nil && retrieved < 3; k, v = c.Next(ctx) {
 				retrieved++
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -1189,7 +1189,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			c := b.MapCursor()
 			defer c.Close()
 			retrieved := 0
-			for k, v := c.Seek([]byte("row-001")); k != nil && retrieved < 2; k, v = c.Next() {
+			for k, v := c.Seek(ctx, []byte("row-001")); k != nil && retrieved < 2; k, v = c.Next(ctx) {
 				retrieved++
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)
@@ -1230,7 +1230,7 @@ func mapCursors(ctx context.Context, t *testing.T, opts []BucketOption) {
 			c := b.MapCursor()
 			defer c.Close()
 			retrieved := 0
-			for k, v := c.Seek([]byte("row-001")); k != nil && retrieved < 2; k, v = c.Next() {
+			for k, v := c.Seek(ctx, []byte("row-001")); k != nil && retrieved < 2; k, v = c.Next(ctx) {
 				retrieved++
 				retrievedKeys = append(retrievedKeys, k)
 				retrievedValues = append(retrievedValues, v)

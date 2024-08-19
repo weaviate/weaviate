@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -99,8 +100,13 @@ func (m *PalmModule) InitExtension(modules []modulecapabilities.Module) error {
 func (m *PalmModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("PALM_APIKEY")
-	client := clients.New(apiKey, timeout, logger)
+	apiKey := os.Getenv("GOOGLE_APIKEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("PALM_APIKEY")
+	}
+
+	useGoogleAuth := entcfg.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
+	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client)
 	m.metaProvider = client

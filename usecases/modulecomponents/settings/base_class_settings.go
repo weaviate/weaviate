@@ -25,11 +25,12 @@ const (
 )
 
 type BaseClassSettings struct {
-	cfg moduletools.ClassConfig
+	cfg            moduletools.ClassConfig
+	propertyHelper *classPropertyValuesHelper
 }
 
 func NewBaseClassSettings(cfg moduletools.ClassConfig) *BaseClassSettings {
-	return &BaseClassSettings{cfg: cfg}
+	return &BaseClassSettings{cfg: cfg, propertyHelper: &classPropertyValuesHelper{}}
 }
 
 func (s *BaseClassSettings) PropertyIndexed(propName string) bool {
@@ -151,4 +152,20 @@ func (s *BaseClassSettings) isPropertyIndexed(propName string) bool {
 		}
 	}
 	return false
+}
+
+func (s *BaseClassSettings) GetPropertyAsInt64(name string, defaultValue *int64) *int64 {
+	return s.propertyHelper.GetPropertyAsInt64(s.cfg, name, defaultValue)
+}
+
+func (s *BaseClassSettings) GetPropertyAsString(name, defaultValue string) string {
+	return s.propertyHelper.GetPropertyAsString(s.cfg, name, defaultValue)
+}
+
+func (s *BaseClassSettings) GetPropertyAsBool(name string, defaultValue bool) bool {
+	return s.propertyHelper.GetPropertyAsBool(s.cfg, name, defaultValue)
+}
+
+func (s *BaseClassSettings) GetNumber(in interface{}) (float32, error) {
+	return s.propertyHelper.GetNumber(in)
 }

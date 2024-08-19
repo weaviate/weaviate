@@ -27,13 +27,16 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
+	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
+	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
+	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 )
 
 const (
@@ -88,6 +91,7 @@ type Compose struct {
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
+	withPaLMApiKey                string
 	withBind                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
@@ -178,6 +182,12 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2VecPaLM(apiKey string) *Compose {
+	d.withPaLMApiKey = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecpalm.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecBind() *Compose {
 	d.withBind = true
 	d.enableModules = append(d.enableModules, Multi2VecBind)
@@ -206,12 +216,21 @@ func (d *Compose) WithText2VecCohere() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecPaLM() *Compose {
+func (d *Compose) WithText2VecVoyageAI() *Compose {
+	d.enableModules = append(d.enableModules, modvoyageai.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecPaLM(apiKey string) *Compose {
+	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modpalm.Name)
 	return d
 }
 
-func (d *Compose) WithText2VecAWS() *Compose {
+func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Compose {
+	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
+	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
+	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
 	d.enableModules = append(d.enableModules, modaws.Name)
 	return d
 }
@@ -226,7 +245,10 @@ func (d *Compose) WithGenerativeOpenAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativeAWS() *Compose {
+func (d *Compose) WithGenerativeAWS(accessKey, secretKey, sessionToken string) *Compose {
+	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
+	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
+	d.weaviateEnvs["AWS_SESSION_TOKEN"] = sessionToken
 	d.enableModules = append(d.enableModules, modgenerativeaws.Name)
 	return d
 }
@@ -236,7 +258,8 @@ func (d *Compose) WithGenerativeCohere() *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativePaLM() *Compose {
+func (d *Compose) WithGenerativePaLM(apiKey string) *Compose {
+	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
 	return d
 }
@@ -253,6 +276,11 @@ func (d *Compose) WithQnAOpenAI() *Compose {
 
 func (d *Compose) WithRerankerCohere() *Compose {
 	d.enableModules = append(d.enableModules, modrerankercohere.Name)
+	return d
+}
+
+func (d *Compose) WithRerankerVoyageAI() *Compose {
+	d.enableModules = append(d.enableModules, modrerankervoyageai.Name)
 	return d
 }
 
@@ -420,6 +448,9 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			envSettings[k] = v
 		}
 		containers = append(containers, container)
+	}
+	if d.withPaLMApiKey != "" {
+		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
 	}
 	if d.withBind {
 		image := os.Getenv(envTestMulti2VecBindImage)

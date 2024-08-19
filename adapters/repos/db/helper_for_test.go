@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package db
 
@@ -31,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func parkingGaragesSchema() schema.Schema {
@@ -221,11 +221,11 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	maxResults := int64(10_000)
 
 	repo, err := New(logger, Config{
-		MemtablesFlushIdleAfter:   60,
+		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 
 	shardState := singleShardState()
@@ -264,6 +264,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		centralJobQueue:       repo.jobQueueCh,
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
+		allocChecker:          memwatch.NewDummyMonitor(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -290,7 +291,7 @@ func testObject(className string) *storobj.Object {
 	}
 }
 
-func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.Object {
+func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim int) []*storobj.Object {
 	obj := make([]*storobj.Object, numObj)
 
 	for i := 0; i < numObj; i++ {
@@ -300,7 +301,11 @@ func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.
 				ID:    strfmt.UUID(uuid.NewString()),
 				Class: className,
 			},
-			Vector: []float32{r.Float32(), r.Float32(), r.Float32(), r.Float32()},
+			Vector: make([]float32, vectorDim),
+		}
+
+		for d := 0; d < vectorDim; d++ {
+			obj[i].Vector[d] = r.Float32()
 		}
 	}
 	return obj

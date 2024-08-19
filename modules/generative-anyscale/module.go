@@ -71,7 +71,7 @@ func (m *GenerativeAnyscaleModule) initAdditional(ctx context.Context, timeout t
 
 	m.generative = client
 
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative)
+	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative, logger)
 
 	return nil
 }
