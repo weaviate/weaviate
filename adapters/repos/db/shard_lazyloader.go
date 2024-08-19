@@ -354,9 +354,9 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 	return l.shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
 	l.mustLoad()
-	return l.shard.createPropertyIndex(ctx, eg, props...)
+	l.shard.initPropertyBuckets(ctx, eg, props...)
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context) error {

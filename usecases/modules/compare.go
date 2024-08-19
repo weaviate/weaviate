@@ -123,9 +123,13 @@ func reVectorize(ctx context.Context, cfg moduletools.ClassConfig, mod modulecap
 		}
 
 		if propStruct.IsArray {
-			// empty strings do not have type information saved with them
+			// empty strings do not have type information saved with them - the new value can also come from disk if
+			// an update happens
 			if _, ok := valOld.([]interface{}); ok && len(valOld.([]interface{})) == 0 {
 				valOld = []string{}
+			}
+			if _, ok := valNew.([]interface{}); ok && len(valNew.([]interface{})) == 0 {
+				valNew = []string{}
 			}
 
 			if len(valOld.([]string)) != len(valNew.([]string)) {
