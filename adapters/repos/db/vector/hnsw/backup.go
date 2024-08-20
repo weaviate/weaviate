@@ -80,6 +80,10 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 	}
 	delete(found, path)
 
+	// remove its associated checksum file
+	checksumPath := commitLogChecksumFileName(path)
+	delete(found, checksumPath)
+
 	files, i := make([]string, len(found)), 0
 	for file := range found {
 		files[i] = file

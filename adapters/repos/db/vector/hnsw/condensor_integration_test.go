@@ -24,7 +24,9 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -647,7 +649,11 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 
 		bufr := bufio.NewReader(fd)
-		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+
+		reader := commitlog.NewNoopReaderHasher(bufr)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		res, _, _, err := NewDeserializer(logger).Do(reader, checksumReader, &initialState, false)
 		require.Nil(t, err)
 
 		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
@@ -722,7 +728,11 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		require.Nil(t, err)
 
 		bufr := bufio.NewReader(fd)
-		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+
+		reader := commitlog.NewNoopReaderHasher(bufr)
+		checksumReader := commitlog.NewNoopChecksumReader()
+
+		res, _, _, err := NewDeserializer(logger).Do(reader, checksumReader, &initialState, false)
 		require.Nil(t, err)
 
 		assert.True(t, res.Compressed)
@@ -758,7 +768,17 @@ func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
 
 		bufr := bufio.NewReader(fd)
 		logger, _ := test.NewNullLogger()
-		res, _, err = NewDeserializer(logger).Do(bufr, res, false)
+
+		reader := rwhasher.NewCRC32Reader(bufr)
+
+		checksumFile, err := os.Open(commitLogChecksumFileName(fileName))
+		require.NoError(t, err)
+
+		defer checksumFile.Close()
+
+		checksumReader := commitlog.NewCRC32ChecksumReader(bufio.NewReader(checksumFile))
+
+		res, _, _, err = NewDeserializer(logger).Do(reader, checksumReader, res, false)
 		require.Nil(t, err)
 	}
 
