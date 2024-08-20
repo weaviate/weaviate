@@ -372,8 +372,7 @@ func TestIndexQueue(t *testing.T) {
 			pushVector(t, ctx, q, i, []float32{1, 2, 3})
 		}
 
-		err = q.Delete(5, 10, 15)
-		require.NoError(t, err)
+		q.Delete(5, 10, 15)
 
 		wait := waitForUpdate(q)
 		<-indexingDone
@@ -390,8 +389,7 @@ func TestIndexQueue(t *testing.T) {
 		q.queue.deleted.Unlock()
 
 		// now delete something that's already indexed
-		err = q.Delete(0, 4, 8)
-		require.NoError(t, err)
+		q.Delete(0, 4, 8)
 
 		// the "deleted" mask should still be empty
 		q.queue.deleted.Lock()
@@ -402,8 +400,7 @@ func TestIndexQueue(t *testing.T) {
 		require.Equal(t, []uint64{1, 2, 3, 6, 7, 9, 11, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
 
 		// delete something that's not indexed yet
-		err = q.Delete(20, 21, 22)
-		require.NoError(t, err)
+		q.Delete(20, 21, 22)
 
 		// the "deleted" mask should contain the deleted ids
 		q.queue.deleted.Lock()
@@ -768,8 +765,7 @@ func TestIndexQueue(t *testing.T) {
 		pushVector(t, ctx, q, 0, []float32{1, 2, 3})
 		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
 
-		err = q.Delete(0, 1)
-		require.NoError(t, err)
+		q.Delete(0, 1)
 
 		q.pushToWorkers(-1, true)
 		select {
