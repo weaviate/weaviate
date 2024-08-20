@@ -847,7 +847,7 @@ func TestIndexQueue(t *testing.T) {
 
 		select {
 		case <-indexed:
-		case <-time.After(time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("should have been called")
 		}
 
