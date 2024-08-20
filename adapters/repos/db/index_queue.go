@@ -349,9 +349,6 @@ func (q *IndexQueue) Delete(ids ...uint64) {
 		return
 	}
 
-	start := time.Now()
-	defer q.metrics.Delete(start, len(ids))
-
 	q.indexLock.RLock()
 	defer q.indexLock.RUnlock()
 
