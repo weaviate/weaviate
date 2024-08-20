@@ -341,10 +341,14 @@ func (q *IndexQueue) Size() int64 {
 
 // Delete marks the given vectors as deleted.
 // This method can be called even if the async indexing is disabled.
-func (q *IndexQueue) Delete(ids ...uint64) error {
-	if !asyncEnabled() {
-		return q.index.Delete(ids...)
+func (q *IndexQueue) Delete(ids ...uint64) {
+	if len(ids) == 0 {
+		return
 	}
+	if !asyncEnabled() {
+		return
+	}
+
 	start := time.Now()
 	defer q.metrics.Delete(start, len(ids))
 
@@ -371,12 +375,12 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 
 	err := q.index.Delete(indexed...)
 	if err != nil {
-		return errors.Wrap(err, "delete node from index")
+		// return errors.Wrap(err, "delete node from index")
 	}
 
 	q.queue.Delete(remaining)
 
-	return nil
+	// return nil
 }
 
 // Drop removes all persisted data related to the queue.
