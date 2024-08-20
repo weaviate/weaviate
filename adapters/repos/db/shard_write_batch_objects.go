@@ -228,12 +228,10 @@ func (ob *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UU
 
 func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 	var docIDsToDelete []uint64
-	var positions []int
-	for pos, object := range ob.objects {
+	for _, object := range ob.objects {
 		status := ob.statuses[object.ID()]
 		if status.docIDChanged {
 			docIDsToDelete = append(docIDsToDelete, status.oldDocID)
-			positions = append(positions, pos)
 		}
 	}
 
