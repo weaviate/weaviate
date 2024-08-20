@@ -18,7 +18,7 @@ require (
 	github.com/go-openapi/validate v0.21.0
 	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/google/uuid v1.6.0
-	github.com/hashicorp/memberlist v0.5.0
+	github.com/hashicorp/memberlist v0.5.1
 	github.com/jessevdk/go-flags v1.4.0
 	github.com/minio/minio-go/v7 v7.0.71
 	github.com/nyaruka/phonenumbers v1.0.54
@@ -127,7 +127,7 @@ require (
 	github.com/googleapis/enterprise-certificate-proxy v0.3.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-immutable-radix v1.0.0 // indirect
-	github.com/hashicorp/go-msgpack v0.5.5 // indirect
+	github.com/hashicorp/go-msgpack/v2 v2.1.1 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
