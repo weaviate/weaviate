@@ -64,8 +64,8 @@ type SchemaGetter interface {
 
 	CopyShardingState(class string) *sharding.State
 	ShardOwner(class, shard string) (string, error)
-	TenantsShards(class string, tenants ...string) (map[string]string, error)
-	OptimisticTenantStatus(class string, tenants string) (map[string]string, error)
+	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
+	OptimisticTenantStatus(ctx context.Context, class string, tenants string) (map[string]string, error)
 	ShardFromUUID(class string, uuid []byte) string
 	ShardReplicas(class, shard string) ([]string, error)
 }
@@ -333,7 +333,7 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 	return name2Addr, nil
 }
 
-func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
 	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
@@ -341,7 +341,7 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 		return status, err
 	}
 
-	return m.activateTenantIfInactive(class, status)
+	return m.activateTenantIfInactive(ctx, class, status)
 }
 
 // OptimisticTenantStatus tries to query the local state first. It is
@@ -368,7 +368,7 @@ func (m *Manager) TenantsShards(class string, tenants ...string) (map[string]str
 // Overall, we keep the (very common) happy path, free from expensive
 // leader-lookups and only fall back to the leader if the local result implies
 // an unhappy path.
-func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tenant string) (map[string]string, error) {
 	var foundTenant bool
 	var status string
 	err := m.schemaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
@@ -388,7 +388,7 @@ func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[strin
 	if !foundTenant || status != models.TenantActivityStatusHOT {
 		// either no state at all or state does not imply happy path -> delegate to
 		// leader
-		return m.TenantsShards(class, tenant)
+		return m.TenantsShards(ctx, class, tenant)
 	}
 
 	return map[string]string{
@@ -396,7 +396,7 @@ func (m *Manager) OptimisticTenantStatus(class string, tenant string) (map[strin
 	}, nil
 }
 
-func (m *Manager) activateTenantIfInactive(class string,
+func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
@@ -416,7 +416,7 @@ func (m *Manager) activateTenantIfInactive(class string,
 		return status, nil
 	}
 
-	_, err := m.schemaManager.UpdateTenants(class, req)
+	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {

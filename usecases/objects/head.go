@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -47,6 +48,9 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 		case ErrMultiTenancy:
 			return false, &Error{"repo.exists", StatusUnprocessableEntity, err}
 		default:
+			if (errors.As(err, &ErrDirtyReadOfDeletedObject{})) {
+				return false, nil
+			}
 			return false, &Error{"repo.exists", StatusInternalServerError, err}
 		}
 	}

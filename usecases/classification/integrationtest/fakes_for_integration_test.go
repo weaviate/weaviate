@@ -79,7 +79,7 @@ func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) 
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT
@@ -87,7 +87,7 @@ func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[s
 	return res, nil
 }
 
-func (f *fakeSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -581,7 +581,7 @@ func (c *fakeReplicationClient) Exists(ctx context.Context, host, index,
 
 func (f *fakeReplicationClient) FetchObject(_ context.Context, host, index,
 	shard string, id strfmt.UUID, props search.SelectProperties,
-	additional additional.Properties,
+	additional additional.Properties, numRetries int,
 ) (objects.Replica, error) {
 	return objects.Replica{}, nil
 }
@@ -593,7 +593,7 @@ func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
 }
 
 func (c *fakeReplicationClient) DigestObjects(ctx context.Context,
-	host, index, shard string, ids []strfmt.UUID,
+	host, index, shard string, ids []strfmt.UUID, numRetries int,
 ) (result []replica.RepairResponse, err error) {
 	return nil, nil
 }
