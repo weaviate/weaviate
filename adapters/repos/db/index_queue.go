@@ -355,32 +355,7 @@ func (q *IndexQueue) Delete(ids ...uint64) {
 	q.indexLock.RLock()
 	defer q.indexLock.RUnlock()
 
-	remaining := make([]uint64, 0, len(ids))
-	indexed := make([]uint64, 0, len(ids))
-
-	for _, id := range ids {
-		if q.index.ContainsNode(id) {
-			indexed = append(indexed, id)
-
-			// is it already marked as deleted in the queue?
-			if q.queue.IsDeleted(id) {
-				q.queue.ResetDeleted(id)
-			}
-
-			continue
-		}
-
-		remaining = append(remaining, id)
-	}
-
-	err := q.index.Delete(indexed...)
-	if err != nil {
-		// return errors.Wrap(err, "delete node from index")
-	}
-
-	q.queue.Delete(remaining)
-
-	// return nil
+	q.queue.Delete(ids...)
 }
 
 // Drop removes all persisted data related to the queue.
