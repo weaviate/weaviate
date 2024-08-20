@@ -113,10 +113,11 @@ type Compose struct {
 	withOctoAIGenerative          bool
 	withOctoAIApiKey              string
 	weaviateEnvs                  map[string]string
+	removeEnvs                    map[string]struct{}
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), withBackendS3Buckets: make(map[string]string)}
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), removeEnvs: make(map[string]struct{}), withBackendS3Buckets: make(map[string]string)}
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -412,6 +413,14 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
+	for _, name := range names {
+		d.removeEnvs[name] = struct{}{}
+	}
+
+	return d
+}
+
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
 	network, err := tescontainersnetwork.New(
@@ -654,6 +663,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	for k, v := range d.weaviateEnvs {
 		settings[k] = v
+	}
+
+	for k := range d.removeEnvs {
+		delete(settings, k)
 	}
 
 	raft_join := "node1,node2,node3"
