@@ -149,11 +149,8 @@ func (c *SegmentCursorPread) getNodeBuf(size int) []byte {
 	if cap(c.nodeBufs[pos]) < size {
 		newSize := c.nodeBufMinSize
 		if newSize < size {
-			// fmt.Printf("  ==> newSize [%d] < size [%d]\n", newSize, size)
 			newSize = size
 		}
-
-		// fmt.Printf("  ==> extending data buf from [%d] to [%d]\n", cap(c.nodeBufs[pos]), newSize)
 		c.nodeBufs[pos] = make([]byte, newSize)
 	}
 	return c.nodeBufs[pos][:size]
@@ -164,7 +161,6 @@ func (c *SegmentCursorPread) getNodeBuf(size int) []byte {
 // existing buffer will fit data of following nodes
 func (c *SegmentCursorPread) updateNodeBufMinSize(size int) {
 	if c.nodeBufMinSize < size {
-		// fmt.Printf("  ==> setting min size [%d]]\n", size)
 		c.nodeBufMinSize = size
 	}
 }
