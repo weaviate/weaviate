@@ -242,19 +242,11 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 	}
 
 	if ob.shard.hasTargetVectors() {
-		for targetVector, queue := range ob.shard.Queues() {
-			if err := queue.Delete(docIDsToDelete...); err != nil {
-				for _, pos := range positions {
-					ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
-				}
-			}
+		for _, queue := range ob.shard.Queues() {
+			queue.Delete(docIDsToDelete...)
 		}
 	} else {
-		if err := ob.shard.Queue().Delete(docIDsToDelete...); err != nil {
-			for _, pos := range positions {
-				ob.setErrorAtIndex(err, pos)
-			}
-		}
+		ob.shard.Queue().Delete(docIDsToDelete...)
 	}
 }
 
