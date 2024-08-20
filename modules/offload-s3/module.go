@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -52,7 +53,7 @@ var (
 type Module struct {
 	Endpoint     string
 	Bucket       string
-	BucketExists bool
+	BucketExists atomic.Bool
 	Concurrency  int
 	DataPath     string
 	logger       logrus.FieldLogger
@@ -215,7 +216,7 @@ func (m *Module) RootHandler() http.Handler {
 }
 
 func (m *Module) VerifyBucket(ctx context.Context) error {
-	if m.BucketExists {
+	if m.BucketExists.Load() {
 		return nil
 	}
 
@@ -229,7 +230,7 @@ func (m *Module) VerifyBucket(ctx context.Context) error {
 	if err := m.app.RunContext(ctx, cmd); err != nil {
 		return err
 	}
-	m.BucketExists = true
+	m.BucketExists.Store(true)
 	return nil
 }
 
