@@ -14,7 +14,6 @@ package db
 import (
 	"container/list"
 	"context"
-	"encoding/binary"
 	"math"
 	"os"
 	"runtime"
@@ -32,9 +31,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 // IndexQueue is an in-memory queue of vectors to index.
@@ -42,8 +41,7 @@ import (
 // It is safe to use concurrently.
 type IndexQueue struct {
 	Shard        shardStatusUpdater
-	Index        batchIndexer
-	className    string
+	index        batchIndexer
 	shardID      string
 	targetVector string
 
@@ -69,10 +67,14 @@ type IndexQueue struct {
 
 	paused atomic.Bool
 
+	// prevents replacing the index while
+	// the queue is dequeuing vectors
+	indexLock sync.RWMutex
+
 	metrics *IndexQueueMetrics
 
 	// tracks the jobs that are currently being processed
-	jobWg sync.WaitGroup
+	processingJobs *common.SharedGauge
 
 	// tracks the last time vectors were added to the queue
 	lastPushed atomic.Pointer[time.Time]
@@ -173,7 +175,10 @@ func NewIndexQueue(
 	}
 
 	if opts.StaleTimeout == 0 {
-		opts.StaleTimeout = 30 * time.Second
+		opts.StaleTimeout = 5 * time.Second
+	}
+	if v, _ := time.ParseDuration(os.Getenv("ASYNC_STALE_TIMEOUT")); v > 0 {
+		opts.StaleTimeout = v
 	}
 
 	if opts.MaxChunksPerTick == 0 {
@@ -187,16 +192,16 @@ func NewIndexQueue(
 	}
 
 	q := IndexQueue{
-		className:         className,
 		shardID:           shardID,
 		targetVector:      targetVector,
 		IndexQueueOptions: opts,
 		Shard:             shard,
-		Index:             index,
+		index:             index,
 		indexCh:           centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
 		Checkpoints:       checkpoints,
 		metrics:           NewIndexQueueMetrics(opts.Logger, promMetrics, className, shard.Name(), targetVector),
+		processingJobs:    common.NewSharedGauge(),
 	}
 
 	q.queue = newVectorQueue(&q)
@@ -238,7 +243,7 @@ func (q *IndexQueue) Close() error {
 	q.wg.Wait()
 
 	// wait for the workers to finish their current tasks
-	q.jobWg.Wait()
+	q.processingJobs.Wait()
 
 	q.Logger.Debug("index queue closed")
 
@@ -249,12 +254,14 @@ func (q *IndexQueue) Close() error {
 // - discard any pending vectors
 // - reset the checkpoint to 0
 // Requires the queue to be paused.
+// It does not resume the queue.
 func (q *IndexQueue) ResetWith(v batchIndexer) error {
-	if !q.paused.Load() {
-		return errors.New("index queue must be paused to reset")
-	}
+	q.indexLock.Lock()
+	defer q.indexLock.Unlock()
 
-	q.Index = v
+	q.PauseIndexing()
+
+	q.index = v
 	err := q.Checkpoints.Update(q.shardID, q.targetVector, 0)
 	if err != nil {
 		return errors.Wrap(err, "update checkpoint")
@@ -274,6 +281,8 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	if q.ctx.Err() != nil {
 		return errors.New("index queue closed")
 	}
+	q.indexLock.RLock()
+	defer q.indexLock.RUnlock()
 
 	now := time.Now()
 	defer q.metrics.Push(now, len(vectors))
@@ -287,7 +296,7 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 		}
 
 		// delegate the validation to the index
-		err := q.Index.ValidateBeforeInsert(vectors[i].vector)
+		err := q.index.ValidateBeforeInsert(vectors[i].vector)
 		if err != nil {
 			return errors.WithStack(err)
 		}
@@ -334,16 +343,19 @@ func (q *IndexQueue) Size() int64 {
 // This method can be called even if the async indexing is disabled.
 func (q *IndexQueue) Delete(ids ...uint64) error {
 	if !asyncEnabled() {
-		return q.Index.Delete(ids...)
+		return q.index.Delete(ids...)
 	}
 	start := time.Now()
 	defer q.metrics.Delete(start, len(ids))
+
+	q.indexLock.RLock()
+	defer q.indexLock.RUnlock()
 
 	remaining := make([]uint64, 0, len(ids))
 	indexed := make([]uint64, 0, len(ids))
 
 	for _, id := range ids {
-		if q.Index.ContainsNode(id) {
+		if q.index.ContainsNode(id) {
 			indexed = append(indexed, id)
 
 			// is it already marked as deleted in the queue?
@@ -357,110 +369,12 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 		remaining = append(remaining, id)
 	}
 
-	err := q.Index.Delete(indexed...)
+	err := q.index.Delete(indexed...)
 	if err != nil {
 		return errors.Wrap(err, "delete node from index")
 	}
 
 	q.queue.Delete(remaining)
-
-	return nil
-}
-
-// PreloadShard goes through the LSM store from the last checkpoint
-// and enqueues any unindexed vector.
-func (q *IndexQueue) PreloadShard(shard ShardLike) error {
-	if !asyncEnabled() {
-		return nil
-	}
-
-	// load non-indexed vectors and add them to the queue
-	checkpoint, exists, err := q.Checkpoints.Get(q.shardID, q.targetVector)
-	if err != nil {
-		return errors.Wrap(err, "get last indexed id")
-	}
-	if !exists {
-		return nil
-	}
-
-	start := time.Now()
-
-	maxDocID := shard.Counter().Get()
-
-	var counter int
-
-	defer func() {
-		q.metrics.Preload(start, counter)
-	}()
-
-	ctx := context.Background()
-
-	buf := make([]byte, 8)
-	for i := checkpoint; i < maxDocID; i++ {
-		binary.LittleEndian.PutUint64(buf, i)
-
-		v, err := shard.Store().Bucket(helpers.ObjectsBucketLSM).GetBySecondary(0, buf)
-		if err != nil {
-			return errors.Wrap(err, "get last indexed object")
-		}
-		if v == nil {
-			continue
-		}
-		obj, err := storobj.FromBinary(v)
-		if err != nil {
-			return errors.Wrap(err, "unmarshal last indexed object")
-		}
-		id := obj.DocID
-		if q.targetVector == "" {
-			if shard.VectorIndex().ContainsNode(id) {
-				continue
-			}
-			if len(obj.Vector) == 0 {
-				continue
-			}
-		} else {
-			if shard.VectorIndexes() == nil {
-				return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
-			}
-			vectorIndex, ok := shard.VectorIndexes()[q.targetVector]
-			if !ok {
-				return errors.Errorf("vector index doesn't exist for target vector %s", q.targetVector)
-			}
-			if vectorIndex.ContainsNode(id) {
-				continue
-			}
-			if len(obj.Vectors) == 0 {
-				continue
-			}
-		}
-		counter++
-
-		var vector []float32
-		if q.targetVector == "" {
-			vector = obj.Vector
-		} else {
-			if len(obj.Vectors) > 0 {
-				vector = obj.Vectors[q.targetVector]
-			}
-		}
-		desc := vectorDescriptor{
-			id:     id,
-			vector: vector,
-		}
-		err = q.Push(ctx, desc)
-		if err != nil {
-			return err
-		}
-	}
-
-	q.Logger.
-		WithField("checkpoint", checkpoint).
-		WithField("last_stored_id", maxDocID).
-		WithField("count", counter).
-		WithField("took", time.Since(start)).
-		WithField("shard_id", q.shardID).
-		WithField("target_vector", q.targetVector).
-		Info("enqueued vectors from last indexed checkpoint")
 
 	return nil
 }
@@ -493,18 +407,22 @@ func (q *IndexQueue) indexer() {
 				continue
 			}
 
+			q.indexLock.RLock()
 			if q.checkCompressionSettings() {
+				q.indexLock.RUnlock()
 				continue
 			}
 
 			if q.Size() == 0 {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+				q.indexLock.RUnlock()
 				continue
 			}
 
 			status, err := q.Shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
 			if status != storagestate.StatusIndexing || err != nil {
 				q.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in " + q.IndexInterval.String())
+				q.indexLock.RUnlock()
 				continue
 			}
 
@@ -521,6 +439,7 @@ func (q *IndexQueue) indexer() {
 			}
 
 			q.logStats(vectorsSent)
+			q.indexLock.RUnlock()
 		case <-q.ctx.Done():
 			// stop the ticker
 			t.Stop()
@@ -557,34 +476,35 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 			}
 		}
 
+		q.queue.ResetDeleted(deleted...)
+
 		if len(ids) == 0 {
 			q.Logger.Debug("all vectors in the chunk are deleted. skipping")
 			continue
 		}
 
-		q.jobWg.Add(1)
+		q.processingJobs.Incr()
 
 		count += int64(len(ids))
 
 		select {
 		case <-q.ctx.Done():
-			q.jobWg.Done()
+			q.processingJobs.Decr()
 			return count
 		case q.indexCh <- job{
-			indexer: q.Index,
+			indexer: q.index,
 			ctx:     q.ctx,
 			ids:     ids,
 			vectors: vectors,
-			done:    q.jobWg.Done,
+			done:    q.processingJobs.Decr,
 		}:
-			q.queue.ResetDeleted(deleted...)
 		}
 	}
 
 	q.queue.persistCheckpoint(minID)
 
 	if wait {
-		q.jobWg.Wait()
+		q.processingJobs.Wait()
 	}
 
 	return count
@@ -616,13 +536,16 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 	start := time.Now()
 	defer q.metrics.Search(start)
 
+	q.indexLock.RLock()
+	defer q.indexLock.RUnlock()
+
 	var indexedResults []uint64
 	var distances []float32
 	var err error
 	if dist == -1 {
-		indexedResults, distances, err = q.Index.SearchByVector(vector, maxLimit, allowList)
+		indexedResults, distances, err = q.index.SearchByVector(vector, maxLimit, allowList)
 	} else {
-		indexedResults, distances, err = q.Index.SearchByVectorDistance(vector, dist, int64(maxLimit), allowList)
+		indexedResults, distances, err = q.index.SearchByVectorDistance(vector, dist, int64(maxLimit), allowList)
 	}
 	if err != nil {
 		return nil, nil, err
@@ -632,7 +555,7 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 		return indexedResults, distances, nil
 	}
 
-	if q.Index.DistancerProvider().Type() == "cosine-dot" {
+	if q.index.DistancerProvider().Type() == "cosine-dot" {
 		// cosine-dot requires normalized vectors, as the dot product and cosine
 		// similarity are only identical if the vector is normalized
 		vector = distancer.Normalize(vector)
@@ -678,7 +601,7 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 }
 
 func (q *IndexQueue) checkCompressionSettings() bool {
-	ci, ok := q.Index.(upgradableIndexer)
+	ci, ok := q.index.(upgradableIndexer)
 	if !ok {
 		return false
 	}
@@ -688,7 +611,7 @@ func (q *IndexQueue) checkCompressionSettings() bool {
 		return false
 	}
 
-	if q.Index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+	if q.index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		q.PauseIndexing()
 		err := ci.Upgrade(q.ResumeIndexing)
 		if err != nil {
@@ -709,9 +632,17 @@ func (q *IndexQueue) PauseIndexing() {
 		return
 	}
 	q.Logger.Debug("pausing indexing, waiting for the current tasks to finish")
-	q.jobWg.Wait()
+	q.processingJobs.Wait()
 	q.Logger.Debug("indexing paused")
 	q.metrics.Paused()
+}
+
+// Waits for the workers to finish their current indexing tasks.
+// It does not pause the queue.
+// This method can potentially block for a long time
+// if the queue is receiving vectors.
+func (q *IndexQueue) Wait() {
+	q.processingJobs.Wait()
 }
 
 // resume indexing
@@ -740,13 +671,13 @@ func (q *IndexQueue) bruteForce(vector []float32, snapshot []vectorDescriptor, k
 		}
 
 		v := snapshot[i].vector
-		if q.Index.DistancerProvider().Type() == "cosine-dot" {
+		if q.index.DistancerProvider().Type() == "cosine-dot" {
 			// cosine-dot requires normalized vectors, as the dot product and cosine
 			// similarity are only identical if the vector is normalized
 			v = distancer.Normalize(v)
 		}
 
-		dist, err := q.Index.DistanceBetweenVectors(vector, v)
+		dist, err := q.index.DistanceBetweenVectors(vector, v)
 		if err != nil {
 			return err
 		}
@@ -947,9 +878,9 @@ func (q *vectorQueue) persistCheckpoint(minID uint64) {
 		checkpoint = 0
 	}
 
-	err := q.IndexQueue.Checkpoints.Update(q.IndexQueue.shardID, q.IndexQueue.targetVector, checkpoint)
+	err := q.IndexQueue.Checkpoints.UpdateIfNewer(q.IndexQueue.shardID, q.IndexQueue.targetVector, checkpoint)
 	if err != nil {
-		q.IndexQueue.Logger.WithError(err).Error("update checkpoint")
+		q.IndexQueue.Logger.WithError(err).Warn("checkpoint not updated")
 	}
 }
 
