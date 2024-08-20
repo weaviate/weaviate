@@ -24,6 +24,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -353,11 +354,20 @@ func TestIndexQueue(t *testing.T) {
 		var idx mockBatchIndexer
 		var count int32
 		indexingDone := make(chan struct{})
-		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
-			if atomic.AddInt32(&count, 1) == 5 {
+		idx.addBatchFn = func(ids []uint64, vector [][]float32) error {
+			if atomic.AddInt32(&count, int32(len(ids))) == 17 {
 				close(indexingDone)
 			}
 
+			return nil
+		}
+
+		var deletedCount int32
+		deletedDone := make(chan struct{})
+		idx.deleteFn = func(ids ...uint64) error {
+			if atomic.AddInt32(&deletedCount, int32(len(ids))) == 3 {
+				close(deletedDone)
+			}
 			return nil
 		}
 
@@ -374,26 +384,24 @@ func TestIndexQueue(t *testing.T) {
 
 		q.Delete(5, 10, 15)
 
-		wait := waitForUpdate(q)
 		<-indexingDone
-
-		// wait for the checkpoint file to be written to disk
-		wait()
 
 		// check what has been indexed
 		require.Equal(t, []uint64{0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
 
 		// the "deleted" mask should be empty
 		q.queue.deleted.Lock()
-		require.Empty(t, q.queue.deleted.m)
+		assert.Empty(t, q.queue.deleted.m)
 		q.queue.deleted.Unlock()
 
 		// now delete something that's already indexed
 		q.Delete(0, 4, 8)
 
-		// the "deleted" mask should still be empty
+		<-deletedDone
+
+		// the "deleted" mask should now be empty again
 		q.queue.deleted.Lock()
-		require.Empty(t, q.queue.deleted.m)
+		assert.Empty(t, q.queue.deleted.m)
 		q.queue.deleted.Unlock()
 
 		// check what's in the index
@@ -1112,18 +1120,18 @@ func (m *mockBatchIndexer) ContainsNode(id uint64) bool {
 	return ok
 }
 
-func (m *mockBatchIndexer) Delete(ids ...uint64) error {
+func (m *mockBatchIndexer) Delete(ids ...uint64) (err error) {
 	m.Lock()
 	defer m.Unlock()
 	if m.deleteFn != nil {
-		return m.deleteFn(ids...)
+		err = m.deleteFn(ids...)
 	}
 
 	for _, id := range ids {
 		delete(m.vectors, id)
 	}
 
-	return nil
+	return err
 }
 
 func (m *mockBatchIndexer) IDs() []uint64 {
