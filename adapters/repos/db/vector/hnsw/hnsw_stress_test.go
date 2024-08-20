@@ -20,6 +20,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"runtime/pprof"
 	"sync"
 	"testing"
 	"time"
@@ -71,6 +72,59 @@ func int32FromBytes(bytes []byte) int {
 	return int(binary.LittleEndian.Uint32(bytes))
 }
 
+func BenchmarkConcurrentSearch(b *testing.B) {
+	siftFile := "datasets/ann-benchmarks/sift/sift_base.fvecs"
+	siftFileQuery := "datasets/ann-benchmarks/sift/sift_query.fvecs"
+
+	_, err2 := os.Stat(siftFileQuery)
+	if _, err := os.Stat(siftFile); err != nil || err2 != nil {
+		b.Skip(`Sift data needs to be present.`)
+	}
+
+	vectors := readSiftFloat(siftFile, 1000000)
+	vectorsQuery := readSiftFloat(siftFileQuery, 10000)
+
+	index := createEmptyHnswIndexForTests(b, idVector)
+	// add elements
+	for k, vec := range vectors {
+		err := index.Add(uint64(k), vec)
+		require.Nil(b, err)
+	}
+
+	// Start profiling
+	f, err := os.Create("cpu.out")
+	if err != nil {
+		b.Fatal(err)
+	}
+	if err := pprof.StartCPUProfile(f); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+
+		vectorsPerGoroutineSearch := len(vectorsQuery) / parallelSearchGoroutines
+		wg := sync.WaitGroup{}
+
+		for k := 0; k < parallelSearchGoroutines; k++ {
+			wg.Add(1)
+			k := k
+			go func() {
+				goroutineIndex := k * vectorsPerGoroutineSearch
+				for j := 0; j < vectorsPerGoroutineSearch; j++ {
+					_, _, err := index.SearchByVector(vectors[goroutineIndex+j], 0, nil)
+					require.Nil(b, err)
+
+				}
+				wg.Done()
+			}()
+		}
+		wg.Wait()
+	}
+	// Stop profiling
+	pprof.StopCPUProfile()
+}
+
 func TestHnswStress(t *testing.T) {
 	siftFile := "datasets/ann-benchmarks/siftsmall/siftsmall_base.fvecs"
 	siftFileQuery := "datasets/ann-benchmarks/siftsmall/sift_query.fvecs"
@@ -85,7 +139,7 @@ Ex: go test -v -run TestHnswStress . -download
 		downloadDatasetFile(t, siftFile)
 	}
 	vectors := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
-	vectorsQuery := readSiftFloat(siftFile, parallelGoroutines*vectorsPerGoroutine)
+	vectorsQuery := readSiftFloat(siftFileQuery, parallelGoroutines*vectorsPerGoroutine)
 
 	t.Run("Insert and search and maybe delete", func(t *testing.T) {
 		for n := 0; n < 1; n++ { // increase if you don't want to reread SIFT for every run
