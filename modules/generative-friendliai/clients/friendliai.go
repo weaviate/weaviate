@@ -71,14 +71,14 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	friendliAIUrl := v.getFriendliAIUrl(ctx, settings.BaseURL())
-	friendliAIPrompt := []map[string]string{
+	friendliUrl := v.getFriendliUrl(ctx, settings.BaseURL())
+	friendliPrompt := []map[string]string{
 		{"role": "system", "content": "You are a helpful assistant."},
 		{"role": "user", "content": prompt},
 	}
 
 	input := generateInput{
-		Messages:    friendliAIPrompt,
+		Messages:    friendliPrompt,
 		Model:       params.Model,
 		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,
@@ -89,7 +89,7 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 		return nil, errors.Wrap(err, "marshal body")
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", friendliAIUrl,
+	req, err := http.NewRequestWithContext(ctx, "POST", friendliUrl,
 		bytes.NewReader(body))
 	if err != nil {
 		return nil, errors.Wrap(err, "create POST request")
@@ -174,9 +174,9 @@ func (v *friendliai) getResponseParams(usage *usage) map[string]interface{} {
 	return nil
 }
 
-func (v *friendliai) getFriendliAIUrl(ctx context.Context, baseURL string) string {
+func (v *friendliai) getFriendliUrl(ctx context.Context, baseURL string) string {
 	passedBaseURL := baseURL
-	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-FriendliAI-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Friendli-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	return fmt.Sprintf("%s/v1/chat/completions", passedBaseURL)
@@ -207,15 +207,15 @@ func (v *friendliai) generateForPrompt(textProperties map[string]string, prompt 
 }
 
 func (v *friendliai) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Friendliai-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Friendli-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-FriendliAI-Api-Key " +
-		"nor in environment variable under FRIENDLIAI_APIKEY")
+		"neither in request header: X-Friendli-Api-Key " +
+		"nor in environment variable under FRIENDLI_APIKEY")
 }
 
 type generateInput struct {
@@ -241,7 +241,7 @@ type generateResponse struct {
 	Usage   *usage `json:"usage,omitempty"`
 	Created int64 `json:"created"`
 
-	Error *friendliaiApiError `json:"error,omitempty"`
+	Error *friendliApiError `json:"error,omitempty"`
 }
 
 type usage struct {
@@ -250,6 +250,6 @@ type usage struct {
 	TotalTokens      *int `json:"total_tokens,omitempty"`
 }
 
-type friendliaiApiError struct {
+type friendliApiError struct {
 	Message string `json:"message"`
 }

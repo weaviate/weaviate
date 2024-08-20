@@ -57,14 +57,14 @@ func TestGetAnswer(t *testing.T) {
 		{
 			name: "when the server has an error",
 			answer: generateResponse{
-				Error: &friendliaiApiError{
+				Error: &friendliApiError{
 					Message: "some error from the server",
 				},
 			},
 		},
 		{
 			name:    "when the server does not respond in time",
-			answer:  generateResponse{Error: &friendliaiApiError{Message: "context deadline exceeded"}},
+			answer:  generateResponse{Error: &friendliApiError{Message: "context deadline exceeded"}},
 			timeout: time.Second,
 		},
 	}
@@ -90,10 +90,10 @@ func TestGetAnswer(t *testing.T) {
 			}
 		})
 	}
-	t.Run("when X-FriendliAI-Baseurl header is passed", func(t *testing.T) {
+	t.Run("when X-Friendli-Baseurl header is passed", func(t *testing.T) {
 		c := New("apiKey", 5*time.Second, nullLogger())
 		baseUrl := "https://inference.friendli.ai"
-		buildURL := c.getFriendliAIUrl(context.Background(), baseUrl)
+		buildURL := c.getFriendliUrl(context.Background(), baseUrl)
 		assert.Equal(t, "https://inference.friendli.ai/v1/chat/completions", buildURL)
 	})
 }

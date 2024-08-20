@@ -28,9 +28,9 @@ const (
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
 	DefaultBaseURL                   = "https://inference.friendli.ai"
-	DefaultFriendliAIModel               = "meta-llama-3-8b-instruct"
-	DefaultFriendliAITemperature float64 = 0
-	DefaultFriendliAIMaxTokens           = 2048
+	DefaultFriendliModel               = "meta-llama-3-8b-instruct"
+	DefaultFriendliTemperature float64 = 0
+	DefaultFriendliMaxTokens           = 2048
 )
 
 type classSettings struct {
@@ -66,7 +66,7 @@ func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) 
 }
 
 func (ic *classSettings) GetMaxTokensForModel(model string) int {
-	return DefaultFriendliAIMaxTokens
+	return DefaultFriendliMaxTokens
 }
 
 func (ic *classSettings) BaseURL() string {
@@ -74,13 +74,13 @@ func (ic *classSettings) BaseURL() string {
 }
 
 func (ic *classSettings) Model() string {
-	return *ic.getStringProperty(modelProperty, DefaultFriendliAIModel)
+	return *ic.getStringProperty(modelProperty, DefaultFriendliModel)
 }
 
 func (ic *classSettings) MaxTokens() int {
-	return *ic.getIntProperty(maxTokensProperty, &DefaultFriendliAIMaxTokens)
+	return *ic.getIntProperty(maxTokensProperty, &DefaultFriendliMaxTokens)
 }
 
 func (ic *classSettings) Temperature() float64 {
-	return *ic.getFloat64Property(temperatureProperty, &DefaultFriendliAITemperature)
+	return *ic.getFloat64Property(temperatureProperty, &DefaultFriendliTemperature)
 }

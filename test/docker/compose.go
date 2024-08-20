@@ -304,7 +304,7 @@ func (d *Compose) WithGenerativeCohere(apiKey string) *Compose {
 }
 
 func (d *Compose) WithGenerativeFriendliAI(apiKey string) *Compose {
-	d.weaviateEnvs["FRIENDLIAI_APIKEY"] = apiKey
+	d.weaviateEnvs["FRIENDLI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativefriendliai.Name)
 	return d
 }

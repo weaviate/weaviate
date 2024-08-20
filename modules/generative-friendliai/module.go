@@ -62,7 +62,7 @@ func (m *GenerativeFriendliAIModule) Init(ctx context.Context,
 func (m *GenerativeFriendliAIModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("FRIENDLIAI_APIKEY")
+	apiKey := os.Getenv("FRIENDLI_APIKEY")
 
 	client := clients.New(apiKey, timeout, logger)
 	m.generative = client
