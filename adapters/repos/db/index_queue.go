@@ -345,12 +345,9 @@ func (q *IndexQueue) Delete(ids ...uint64) {
 	if len(ids) == 0 {
 		return
 	}
-	if !asyncEnabled() {
-		return
-	}
 
-	q.indexLock.RLock()
-	defer q.indexLock.RUnlock()
+	q.indexLock.Lock()
+	defer q.indexLock.Unlock()
 
 	q.queue.Delete(ids...)
 }
@@ -387,6 +384,12 @@ func (q *IndexQueue) indexer() {
 			if q.checkCompressionSettings() {
 				q.indexLock.RUnlock()
 				continue
+			}
+
+			// cleanup deleted vectors from the index
+			err := q.cleanupDeleted()
+			if err != nil {
+				q.Logger.WithError(err).Error("cleanup deleted vectors")
 			}
 
 			if q.Size() == 0 {
@@ -484,6 +487,24 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 	}
 
 	return count
+}
+
+func (q *IndexQueue) cleanupDeleted() error {
+	q.queue.deleted.Lock()
+	defer q.queue.deleted.Unlock()
+
+	for id := range q.queue.deleted.m {
+		if q.index.ContainsNode(id) {
+			err := q.index.Delete(id)
+			if err != nil {
+				return errors.Wrapf(err, "delete vector %d from index", id)
+			}
+
+			delete(q.queue.deleted.m, id)
+		}
+	}
+
+	return nil
 }
 
 func (q *IndexQueue) logStats(vectorsSent int64) {
