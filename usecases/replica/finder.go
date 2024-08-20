@@ -145,6 +145,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 
 	for r := range replyCh {
 		if r.Err != nil {
+			f.logger.WithField("op", "finder.find_uuids").WithError(r.Err).Debug("error in reply channel")
 			continue
 		}
 
