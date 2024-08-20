@@ -32,6 +32,7 @@ require (
 	github.com/stretchr/testify v1.9.0
 	github.com/testcontainers/testcontainers-go v0.30.0
 	github.com/weaviate/contextionary v1.2.1
+	github.com/weaviate/hdf5 v0.0.0-20230911114900-3cd888ffadcd
 	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.9
 	go.opentelemetry.io/otel v1.24.0 // indirect

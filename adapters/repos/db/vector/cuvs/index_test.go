@@ -18,9 +18,11 @@ import (
 
 	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
+	"golang.org/x/exp/rand"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -34,76 +36,71 @@ func distanceWrapper(provider distancer.Provider) func(x, y []float32) float32 {
 	}
 }
 
-// func run(dirName string, logger *logrus.Logger, compression string, vectorCache bool,
-// 	vectors [][]float32, queries [][]float32, k int, truths [][]uint64,
-// 	extraVectorsForDelete [][]float32, allowIds []uint64,
-// 	distancer distancer.Provider,
-// ) (float32, float32, error) {
-// 	vectors_size := len(vectors)
-// 	queries_size := len(queries)
-// 	runId := uuid.New().String()
+func TestCagra(t *testing.T) {
 
-// 	store, err := lsmkv.New(dirName, dirName, logger, nil,
-// 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
-// 	if err != nil {
-// 		return 0, 0, err
-// 	}
+	// rand.Seed(time.Now().UnixNano())
 
-// 	defer store.Shutdown(context.Background())
+	NDataPoints := 256
+	NFeatures := 16
 
-// 	pq := flatent.CompressionUserConfig{
-// 		Enabled: false,
-// 	}
-// 	bq := flatent.CompressionUserConfig{
-// 		Enabled: false,
-// 	}
+	TestDataset := make([][]float32, NDataPoints)
+	for i := range TestDataset {
+		TestDataset[i] = make([]float32, NFeatures)
+		for j := range TestDataset[i] {
+			TestDataset[i][j] = rand.Float32()
+		}
+	}
 
-// 	index, err := New(Config{
-// 		ID:               runId,
-// 		DistanceProvider: distancer,
-// 	}, flatent.UserConfig{
-// 		PQ: pq,
-// 		BQ: bq,
-// 	}, store)
-// 	if err != nil {
-// 		return 0, 0, err
-// 	}
+	logger, _ := test.NewNullLogger()
 
-// 	compressionhelpers.ConcurrentlyWithError(logger, uint64(vectors_size), func(id uint64) error {
-// 		return index.Add(id, vectors[id])
-// 	})
+	index, err := New(Config{"a", "vector", logger, cuvs.DistanceL2}, cuvsEnt.UserConfig{}, nil)
+	println("here")
+	if err != nil {
+		panic(err)
+	}
 
-// 	var relevant uint64
-// 	var retrieved int
-// 	var querying time.Duration = 0
-// 	mutex := new(sync.Mutex)
+	for i := range TestDataset {
+		err := index.Add(uint64(i), TestDataset[i])
+		if err != nil {
+			panic(err)
+		}
+		println("adding")
+	}
 
-// 	var allowList helpers.AllowList = nil
-// 	if allowIds != nil {
-// 		allowList = helpers.NewAllowList(allowIds...)
-// 	}
-// 	err = nil
-// 	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
-// 		before := time.Now()
-// 		results, _, _ := index.SearchByVector(queries[i], k, allowList)
+	// use the first 4 points from the dataset as queries : will test that we get them back
+	// as their own nearest neighbor
 
-// 		since := time.Since(before)
-// 		len := len(results)
-// 		matches := testinghelpers.MatchesInLists(truths[i], results)
+	// NQueries := 4
+	K := 1
 
-// 		if hasDuplicates(results) {
-// 			err = errors.New("results have duplicates")
-// 		}
+	// NeighborsDataset := make([][]uint32, NQueries)
+	// for i := range NeighborsDataset {
+	// 	NeighborsDataset[i] = make([]uint32, K)
+	// }
+	// DistancesDataset := make([][]float32, NQueries)
+	// for i := range DistancesDataset {
+	// 	DistancesDataset[i] = make([]float32, K)
+	// }
 
-// 		mutex.Lock()
-// 		querying += since
-// 		retrieved += len
-// 		relevant += matches
-// 		mutex.Unlock()
-// 	})
+	ids, dists, err := index.SearchByVector([][]float32{TestDataset[1]}, K, nil)
 
-// 	return float32(relevant) / float32(retrieved), float32(querying.Microseconds()) / float32(queries_size), err
-// }
+	if err != nil {
+		panic(err)
+	}
+
+	for i := range ids {
+		println(ids[i])
+		println(dists[i])
+	}
+
+	// arr_dist, _ := distances.GetArray()
+	// for i := range arr_dist {
+	// 	if arr_dist[i][0] >= float32(0.001) || arr_dist[i][0] <= float32(-0.001) {
+	// 		t.Error("wrong distance, expected", float32(i), "got", arr_dist[i][0])
+	// 	}
+	// }
+
+}
 
 func hasDuplicates(results []uint64) bool {
 	for i := 0; i < len(results)-1; i++ {

@@ -18,6 +18,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"strconv"
 
 	"io"
 	"sync"
@@ -184,6 +185,10 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vector [][]f
 	defer index.Unlock()
 
 	index.logger.Debug("adding batch, batch size: ", len(id))
+	index.logger.Debug("adding batch, batch dimension: ", len(vector[0]))
+	// if len(vector[0]) != 128 {
+	// 	panic("length not 128")
+	// }
 
 	if err := ctx.Err(); err != nil {
 		return err
@@ -218,6 +223,7 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vector [][]f
 		}
 		index.dlpackTensor = &tensor
 	} else {
+		println("getShape:" + strconv.FormatInt(index.dlpackTensor.GetShape()[1], 10))
 		_, err := index.dlpackTensor.Expand(index.cuvsResource, vector)
 		if err != nil {
 			return err
@@ -238,11 +244,11 @@ func (index *cuvs_index) Delete(ids ...uint64) error {
 	return nil
 }
 
-func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *cuvs_index) SearchByVector(vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	index.Lock()
 	defer index.Unlock()
 
-	tensor, err := cuvs.NewTensor(false, [][]float32{vector})
+	tensor, err := cuvs.NewTensor(false, vector)
 
 	if err != nil {
 		return nil, nil, err
@@ -254,7 +260,7 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 		return nil, nil, err
 	}
 
-	queries, err := cuvs.NewTensor(true, [][]float32{vector})
+	queries, err := cuvs.NewTensor(true, vector)
 
 	if err != nil {
 		return nil, nil, err
