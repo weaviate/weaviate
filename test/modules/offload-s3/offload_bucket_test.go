@@ -65,7 +65,6 @@ func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 			WithOffloadS3(bucketname, "us-west-1").
 			WithText2VecContextionary().
 			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
-			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
 			With3NodeCluster().
 			Start(ctx)
 		require.Nil(t, err)

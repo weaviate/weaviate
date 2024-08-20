@@ -53,7 +53,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		return 0, err
 	}
 
-	if err = h.validateActivityStatuses(validated, true, false); err != nil {
+	if err = h.validateActivityStatuses(ctx, validated, true, false); err != nil {
 		return 0, err
 	}
 
@@ -105,7 +105,7 @@ func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated
 	return
 }
 
-func (h *Handler) validateActivityStatuses(tenants []*models.Tenant,
+func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*models.Tenant,
 	allowEmpty, allowFrozen bool,
 ) error {
 	msgs := make([]string, 0, len(tenants))
@@ -116,10 +116,16 @@ func (h *Handler) validateActivityStatuses(tenants []*models.Tenant,
 		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
 			continue
 		case models.TenantActivityStatusFROZEN:
-			if mod := h.moduleConfig.GetByName(modsloads3.Name); mod == nil {
+			mod := h.moduleConfig.GetByName(modsloads3.Name)
+			if mod == nil {
 				return fmt.Errorf(
 					"can't offload tenants, because offload-s3 module is not enabled")
 			}
+
+			if err := h.cloud.VerifyBucket(ctx); err != nil {
+				return err
+			}
+
 			if allowFrozen {
 				continue
 			}
@@ -157,7 +163,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	if err := h.validateActivityStatuses(validated, false, true); err != nil {
+	if err := h.validateActivityStatuses(ctx, validated, false, true); err != nil {
 		return nil, err
 	}
 

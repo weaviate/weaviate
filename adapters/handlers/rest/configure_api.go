@@ -394,6 +394,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, backup.RestoreClassDir(dataPath),
 	)
+
+	offloadmod, _ := appState.Modules.OffloadBackend("offload-s3")
 	schemaManager, err := schemaUC.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
@@ -401,6 +403,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger, appState.Authorizer, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
 		appState.Modules, appState.Cluster, scaler,
+		offloadmod,
 	)
 	if err != nil {
 		appState.Logger.
