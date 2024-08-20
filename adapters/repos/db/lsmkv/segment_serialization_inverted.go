@@ -82,6 +82,9 @@ func (s segmentInvertedNode) KeyIndexAndWriteToLegacy(w io.Writer) (segmentindex
 	written += 8
 
 	for i, v := range s.values {
+		if v.tombstone {
+			continue
+		}
 		n1, err := w.Write(v.value[2:10])
 		if err != nil {
 			return out, errors.Wrapf(err, "write value %d", i)

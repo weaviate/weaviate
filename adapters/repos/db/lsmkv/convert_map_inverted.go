@@ -264,10 +264,6 @@ func (c *converterMapInverted) writeHeader(level, version, secondaryIndices uint
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
 func (c *converterMapInverted) cleanupValues(values []value) (vals []value, skip bool) {
-	if !c.cleanupTombstones {
-		return values, false
-	}
-
 	// Reuse input slice not to allocate new memory
 	// Rearrange slice in a way that tombstoned values are moved to the end
 	// and reduce slice's length.

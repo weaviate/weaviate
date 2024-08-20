@@ -76,7 +76,7 @@ func TestConvert(t *testing.T) {
 	// get value from env
 	dir := os.Getenv("SEGMENT_DIR_TO_CONVERT")
 	if dir == "" {
-		t.Skip("no SEGMENT_DIR_TO_CONVERT env var set")
+		t.Fatal("SEGMENT_DIR_TO_CONVERT env variable not set")
 	}
 	convertSearchableDirToInverted(dir)
 }
