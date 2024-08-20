@@ -23,7 +23,6 @@ type IndexQueueMetrics struct {
 	logger          *logrus.Entry
 	monitoring      bool
 	pushDuration    prometheus.Observer
-	deleteDuration  prometheus.Observer
 	preloadDuration prometheus.Observer
 	preloadCount    prometheus.Gauge
 	searchDuration  prometheus.Observer
@@ -60,11 +59,6 @@ func NewIndexQueueMetrics(
 	m.monitoring = true
 
 	m.pushDuration = prom.IndexQueuePushDuration.With(prometheus.Labels{
-		"class_name":    className,
-		"shard_name":    shardName,
-		"target_vector": targetVector,
-	})
-	m.deleteDuration = prom.IndexQueueDeleteDuration.With(prometheus.Labels{
 		"class_name":    className,
 		"shard_name":    shardName,
 		"target_vector": targetVector,
@@ -134,20 +128,6 @@ func (m *IndexQueueMetrics) Push(start time.Time, size int) {
 	}
 
 	m.pushDuration.Observe(float64(took / time.Millisecond))
-}
-
-func (m *IndexQueueMetrics) Delete(start time.Time, count int) {
-	took := time.Since(start)
-	m.logger.WithField("action", "delete").
-		WithField("took", took).
-		WithField("count", count).
-		Tracef("deleting vectors took %s", took)
-
-	if !m.monitoring {
-		return
-	}
-
-	m.deleteDuration.Observe(float64(took / time.Millisecond))
 }
 
 func (m *IndexQueueMetrics) Preload(start time.Time, count int) {
