@@ -273,7 +273,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 
 					timer := time.NewTimer(nextBackOff)
 					select {
-					case <-ctx.Done():
+					case <-workerCtx.Done():
 						timer.Stop()
 						replyCh <- _Result[T]{resp, err}
 						return
