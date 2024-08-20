@@ -349,7 +349,7 @@ func (q *IndexQueue) Delete(ids ...uint64) {
 	q.indexLock.Lock()
 	defer q.indexLock.Unlock()
 
-	q.queue.Delete(ids...)
+	q.queue.Delete(ids)
 }
 
 // Drop removes all persisted data related to the queue.
