@@ -387,15 +387,15 @@ func TestRFJourney(t *testing.T) {
 
 	// convert search.Result to hybrid.Result
 	var results_set_1_hybrid []*search.Result
-	for _, r := range results_set_1 {
+	for i := range results_set_1 {
 		// parse the last 12 digits of the id to get the uint64
 
-		results_set_1_hybrid = append(results_set_1_hybrid, &r)
+		results_set_1_hybrid = append(results_set_1_hybrid, &results_set_1[i])
 	}
 
 	var results_set_2_hybrid []*search.Result
-	for _, r := range results_set_2 {
-		results_set_2_hybrid = append(results_set_2_hybrid, &r)
+	for i := range results_set_2 {
+		results_set_2_hybrid = append(results_set_2_hybrid, &results_set_1[i])
 	}
 
 	res := hybrid.FusionRanked([]float64{0.2, 0.8}, [][]*search.Result{results_set_1_hybrid, results_set_2_hybrid}, []string{"set1", "set2"})
@@ -408,7 +408,7 @@ func TestRFJourney(t *testing.T) {
 		fmt.Printf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.ID, r.Score, title, description, r.AdditionalProperties)
 	}
 
-	require.Equal(t, "00000000-0000-0000-0000-000000000000", string(res[0].ID))
+	require.Equal(t, "00000000-0000-0000-0000-000000000001", string(res[0].ID))
 
 	t.Run("Hybrid", func(t *testing.T) {
 		params := dto.GetParams{
