@@ -153,8 +153,8 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 	t.Run("corrupt the commit log on purpose", func(t *testing.T) {
 		res, err := os.ReadDir(indexDir)
 		require.Nil(t, err)
-		require.Len(t, res, 1)
-		fName := filepath.Join(indexDir, res[0].Name())
+		require.Len(t, res, 2)
+		fName := filepath.Join(indexDir, res[1].Name())
 		newFName := filepath.Join(indexDir, fmt.Sprintf("%d", time.Now().Unix()))
 
 		orig, err := os.Open(fName)
@@ -180,7 +180,7 @@ func TestHnswPersistence_CorruptWAL(t *testing.T) {
 		// double check that we only have one file left (the corrupted one)
 		res, err = os.ReadDir(indexDir)
 		require.Nil(t, err)
-		require.Len(t, res, 1)
+		require.Len(t, res, 2)
 	})
 
 	// build a new index from the (uncondensed, corrupted) commit log

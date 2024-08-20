@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -164,12 +164,12 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		leftSegmentPath := filepath.Join(sg.dir, leftSegmentFilename)
 		rightSegmentPath := filepath.Join(sg.dir, rightSegmentFilename)
 
-		leftSegmentFound, err := fileExists(leftSegmentPath)
+		leftSegmentFound, err := diskio.FileExists(leftSegmentPath)
 		if err != nil {
 			return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
 		}
 
-		rightSegmentFound, err := fileExists(rightSegmentPath)
+		rightSegmentFound, err := diskio.FileExists(rightSegmentPath)
 		if err != nil {
 			return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
 		}
@@ -273,7 +273,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		// If yes, we must assume that the flush never finished, as otherwise the
 		// WAL would have been lsmkv.Deleted. Thus we must remove it.
 		walFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
-		ok, err := fileExists(filepath.Join(sg.dir, walFileName))
+		ok, err := diskio.FileExists(filepath.Join(sg.dir, walFileName))
 		if err != nil {
 			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
 				entry.Name(), err)
@@ -599,19 +599,6 @@ func (sg *SegmentGroup) isReadyOnly() bool {
 	defer sg.statusLock.Unlock()
 
 	return sg.status == storagestate.StatusReadOnly
-}
-
-func fileExists(path string) (bool, error) {
-	_, err := os.Stat(path)
-	if err == nil {
-		return true, nil
-	}
-
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-
-	return false, err
 }
 
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
