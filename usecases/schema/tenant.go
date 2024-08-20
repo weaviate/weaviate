@@ -116,19 +116,21 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 		case models.TenantActivityStatusHOT, models.TenantActivityStatusCOLD:
 			continue
 		case models.TenantActivityStatusFROZEN:
-			mod := h.moduleConfig.GetByName(modsloads3.Name)
-			if mod == nil {
+			if mod := h.moduleConfig.GetByName(modsloads3.Name); mod == nil {
 				return fmt.Errorf(
 					"can't offload tenants, because offload-s3 module is not enabled")
 			}
 
-			if err := h.cloud.VerifyBucket(ctx); err != nil {
-				return err
+			if allowFrozen && h.cloud != nil {
+				if err := h.cloud.VerifyBucket(ctx); err != nil {
+					return err
+				}
 			}
 
 			if allowFrozen {
 				continue
 			}
+
 		default:
 			if status == "" && allowEmpty {
 				continue
