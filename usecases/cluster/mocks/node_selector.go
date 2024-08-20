@@ -28,7 +28,7 @@ func (m memberlist) NonStorageNodes() []string {
 }
 
 func (m memberlist) SortCandidates(nodes []string) []string {
-	sort.Strings(m.nodes)
+	sort.Strings(nodes)
 	return nodes
 }
 
