@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -250,11 +249,6 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 	result := all
 	entriesCh := make(chan *cursorEntry)
 
-	t_total := time.Now()
-	t_next := time.Now()
-	var t_and, t_or time.Time
-	var d_next, d_and, d_or, d_next_total, d_and_total, d_or_total time.Duration
-
 	errors.GoWrapper(func() {
 		defer close(entriesCh)
 		for bit, layer, ok := r.cursor.Next(); ok; bit, layer, ok = r.cursor.Next() {
@@ -266,37 +260,20 @@ func (r *SegmentReader) mergeGreaterThanEqual(ctx context.Context, value uint64,
 	}, nil)
 
 	for entry := range entriesCh {
-		d_next = time.Since(t_next)
-		d_next_total += d_next
-
 		bit := entry.bit
 		layer := entry.layer
 
 		if value&(1<<(bit-1)) != 0 {
 			ANDed = true
-			t_and = time.Now()
 			result.AndToSuperset(layer.Additions, r.sroarBuf)
-			d_and = time.Since(t_and)
-			d_and_total += d_and
 		} else if ANDed {
-			t_or = time.Now()
 			result.OrToSuperset(layer.Additions, r.sroarBuf)
-			d_or = time.Since(t_or)
-			d_or_total += d_or
 		}
-
-		t_next = time.Now()
 	}
 
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
-
-	d_total := time.Since(t_total)
-	fmt.Printf("  ==> total time [%s]\n", d_total)
-	fmt.Printf("  ==> cursor time [%s]\n", d_next_total)
-	fmt.Printf("  ==> or time [%s]\n", d_or_total)
-	fmt.Printf("  ==> and time [%s]\n", d_and_total)
 
 	return result, nil
 }

@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"time"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -32,11 +31,6 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 		return s.docBitmapGeo(ctx, pv)
 	}
 
-	start := time.Now()
-	defer func() {
-		fmt.Printf("  ==> strategy [%s] took [%s]\n\n", b.Strategy(), time.Since(start))
-	}()
-
 	// all other operators perform operations on the inverted index which we
 	// can serve directly
 	switch b.Strategy() {
@@ -45,15 +39,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	case lsmkv.StrategyRoaringSet:
 		return s.docBitmapInvertedRoaringSet(ctx, b, limit, pv)
 	case lsmkv.StrategyRoaringSetRange:
-		fmt.Printf("  ==> value [%v]\n", binary.BigEndian.Uint64(pv.value))
-		t_reader := time.Now()
-		dbm_reader, err_reader := s.docBitmapInvertedRoaringSetRange(ctx, b, pv)
-		if err_reader == nil {
-			fmt.Printf("  ==> search reader took [%s] op [%s] card [%d] size [%d]\n",
-				time.Since(t_reader).String(), pv.operator.Name(),
-				dbm_reader.docIDs.GetCardinality(), len(dbm_reader.docIDs.ToBuffer()))
-		}
-		return dbm_reader, err_reader
+		return s.docBitmapInvertedRoaringSetRange(ctx, b, pv)
 	case lsmkv.StrategyMapCollection:
 		return s.docBitmapInvertedMap(ctx, b, limit, pv)
 	default:

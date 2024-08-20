@@ -13,8 +13,6 @@ package roaringsetrange
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -76,29 +74,17 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		for i := 1; i < count; i++ {
 			i := i
 			eg.Go(func() error {
-				s := time.Now()
-				fmt.Printf(" ==> [%d] started reading\n", i)
-
 				layer, err := r.readers[i].Read(gctx, value, operator)
 				responseChans[i-1] <- &readerResponse{layer, err}
-
-				fmt.Printf(" ==> [%d] finished reading, took [%s]\n", i, time.Since(s))
-
 				return err
 			})
 		}
 	}, r.logger)
 
-	s := time.Now()
-	fmt.Printf(" ==> [%d] started reading\n", 0)
-
 	layer, err := r.readers[0].Read(ctx, value, operator)
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf(" ==> [%d] finished reading, took [%s]\n", 0, time.Since(s))
-	var d_merge, d_merge_total time.Duration
 
 	for i := 1; i < count; i++ {
 		response := <-responseChans[i-1]
@@ -106,18 +92,9 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 			return nil, response.err
 		}
 
-		s := time.Now()
-		fmt.Printf(" ==> [%d/%d] started merging\n", i-1, i)
-
 		layer.Additions.AndNot(response.layer.Deletions)
 		layer.Additions.Or(response.layer.Additions)
-
-		d_merge = time.Since(s)
-		d_merge_total += d_merge
-		fmt.Printf(" ==> [%d/%d] finished merging, took [%s]\n", i-1, i, d_merge)
 	}
-
-	fmt.Printf(" ==> MERGING segments took [%s]\n", d_merge_total)
 
 	return roaringset.Condense(layer.Additions), nil
 }
