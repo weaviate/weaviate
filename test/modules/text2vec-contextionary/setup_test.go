@@ -36,8 +36,8 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Setenv(weaviateNode1Endpoint, compose.GetWeaviate().URI())
-	os.Setenv(weaviateNode2Endpoint, compose.GetWeaviateNode(2).URI())
-	os.Setenv(weaviateNode3Endpoint, compose.GetWeaviateNode(3).URI())
+	os.Setenv(weaviateNode2Endpoint, compose.GetWeaviateNode2().URI())
+	os.Setenv(weaviateNode3Endpoint, compose.GetWeaviateNode3().URI())
 	code := m.Run()
 
 	if err := compose.Terminate(ctx); err != nil {
