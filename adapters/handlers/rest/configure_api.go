@@ -89,6 +89,7 @@ import (
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
 	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
@@ -1140,6 +1141,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modvoyageai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modmistral.Name]; ok {
+		appState.Modules.Register(modmistral.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmistral.Name).
 			Debug("enabled module")
 	}
 
