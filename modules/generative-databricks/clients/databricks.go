@@ -309,13 +309,6 @@ func (v *openai) getValueFromContext(ctx context.Context, key string) string {
 	return ""
 }
 
-func (v *openai) getOpenAIOrganization(ctx context.Context) string {
-	if value := v.getValueFromContext(ctx, "X-Openai-Organization"); value != "" {
-		return value
-	}
-	return v.openAIOrganization
-}
-
 type generateInput struct {
 	Prompt      string    `json:"prompt,omitempty"`
 	Messages    []message `json:"messages,omitempty"`
