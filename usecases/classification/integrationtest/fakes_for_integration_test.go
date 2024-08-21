@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -126,7 +127,7 @@ func singleShardState() *sharding.State {
 	}
 
 	s, err := sharding.InitState("test-index", config,
-		fakeNodes{[]string{"node1"}}, 1, false)
+		mocks.NewMockNodeSelector("node1"), 1, false)
 	if err != nil {
 		panic(err)
 	}
@@ -373,18 +374,6 @@ func testSchemaForZeroShot() schema.Schema {
 			},
 		},
 	}
-}
-
-type fakeNodes struct {
-	nodes []string
-}
-
-func (f fakeNodes) Candidates() []string {
-	return f.nodes
-}
-
-func (f fakeNodes) LocalName() string {
-	return f.nodes[0]
 }
 
 type fakeRemoteClient struct{}

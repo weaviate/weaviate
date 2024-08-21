@@ -80,8 +80,7 @@ func startWeaviate(ctx context.Context,
 		"QUERY_DEFAULTS_LIMIT":      "20",
 		"PERSISTENCE_DATA_PATH":     "./data",
 		"DEFAULT_VECTORIZER_MODULE": "none",
-		// TODO : FAST_FAILURE_DETECTION shall be switched to true once that bug resolved see https://github.com/weaviate/weaviate/issues/5565
-		"FAST_FAILURE_DETECTION": "false",
+		"FAST_FAILURE_DETECTION":    "true",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
