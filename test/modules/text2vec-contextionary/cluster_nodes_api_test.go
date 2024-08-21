@@ -71,7 +71,8 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 					assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 					assert.Equal(t, fmt.Sprintf("node%d", i+1), nodeStatus.Name)
 					assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-					assert.Len(t, nodeStatus.Shards, 2)
+					// 2 shards for multishard class and 1 for book class
+					assert.True(t, len(nodeStatus.Shards) == 1 || len(nodeStatus.Shards) == 2, fmt.Sprintf("shard count should be either 1 or 2, got %v", len(nodeStatus.Shards)))
 					var objectCount int64
 					var shardCount int64
 					for _, shard := range nodeStatus.Shards {
