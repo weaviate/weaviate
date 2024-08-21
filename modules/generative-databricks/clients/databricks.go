@@ -169,11 +169,11 @@ func (v *databricks) getParameters(cfg moduletools.ClassConfig, options interfac
 		topP := settings.TopP()
 		params.TopP = &topP
 	}
-
 	if params.MaxTokens == nil {
 		maxTokens := int(settings.MaxTokens())
 		params.MaxTokens = &maxTokens
 	}
+
 	return params
 }
 
