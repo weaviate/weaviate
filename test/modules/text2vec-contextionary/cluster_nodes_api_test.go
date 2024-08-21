@@ -59,7 +59,7 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 
 				nodes := nodeStatusResp.Nodes
 				require.NotNil(t, nodes)
-				require.Len(t, nodes, 2)
+				require.Len(t, nodes, 3)
 
 				assert.Equal(t, "node1", nodes[0].Name)
 				assert.Equal(t, "node2", nodes[1].Name)
