@@ -314,7 +314,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher,
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version())
-		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
+		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -366,6 +366,9 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 			return nil, fmt.Errorf("index queue for target vector: %s doesn't exist", targetVector)
 		}
 		return queue, nil
+	}
+	if targetVector != "" {
+		return nil, fmt.Errorf("index queue: target vector not found: %q", targetVector)
 	}
 	return s.queue, nil
 }
@@ -426,7 +429,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 					// This should normally not fail. A failure here could indicate that more
 					// attention is required, for example because data is corrupted. That's
 					// why this error is explicitly pushed to sentry.
-					err = fmt.Errorf("vector search for target vector %s by distance: %w", targetVector, err)
+					err = fmt.Errorf("vector search by distance: %w", err)
 					entsentry.CaptureException(err)
 					return err
 				}
@@ -436,8 +439,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 					// This should normally not fail. A failure here could indicate that more
 					// attention is required, for example because data is corrupted. That's
 					// why this error is explicitly pushed to sentry.
-					err = fmt.Errorf("vector search for target vector %s: %w", targetVector, err)
-					entsentry.CaptureException(err)
+					err = fmt.Errorf("vector search: %w", err)
+					// annotate for sentry so we know which collection/shard this happened on
+					entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
+						s.index.Config.ClassName, s.name, err))
 					return err
 				}
 			}
@@ -596,16 +601,19 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	}
 
 	keyBuf := bytes.NewBuffer(nil)
-	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
+	if err != nil {
+		return "", fmt.Errorf("write doc id to buffer: %w", err)
+	}
 	docIDBytes := keyBuf.Bytes()
 	res, err := bucket.GetBySecondary(0, docIDBytes)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("get object by doc id: %w", err)
 	}
 
 	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("parse and extract property: %w", err)
 	}
 
 	return strfmt.UUID(prop[0]), nil

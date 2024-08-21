@@ -21,6 +21,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -37,15 +38,15 @@ var ErrNotFound = errors.New("not found")
 // For local schema lookup where eventual consistency is acceptable, see [SchemaReader].
 type SchemaManager interface {
 	// Schema writes operation.
-	AddClass(cls *models.Class, ss *sharding.State) (uint64, error)
-	RestoreClass(cls *models.Class, ss *sharding.State) (uint64, error)
-	UpdateClass(cls *models.Class, ss *sharding.State) (uint64, error)
-	DeleteClass(name string) (uint64, error)
-	AddProperty(class string, p ...*models.Property) (uint64, error)
-	UpdateShardStatus(class, shard, status string) (uint64, error)
-	AddTenants(class string, req *command.AddTenantsRequest) (uint64, error)
-	UpdateTenants(class string, req *command.UpdateTenantsRequest) (uint64, error)
-	DeleteTenants(class string, req *command.DeleteTenantsRequest) (uint64, error)
+	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	DeleteClass(ctx context.Context, name string) (uint64, error)
+	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
+	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
+	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
+	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)
+	DeleteTenants(ctx context.Context, class string, req *command.DeleteTenantsRequest) (uint64, error)
 
 	// Cluster related operations
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
@@ -111,6 +112,8 @@ type Handler struct {
 	schemaManager SchemaManager
 	schemaReader  SchemaReader
 
+	cloud modulecapabilities.OffloadCloud
+
 	validator validator
 
 	logger                  logrus.FieldLogger
@@ -135,6 +138,7 @@ func NewHandler(
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
+	cloud modulecapabilities.OffloadCloud,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -150,6 +154,7 @@ func NewHandler(
 		moduleConfig:            moduleConfig,
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
+		cloud:                   cloud,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)
@@ -215,7 +220,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 		return 0, err
 	}
 
-	return h.schemaManager.UpdateShardStatus(class, shard, status)
+	return h.schemaManager.UpdateShardStatus(ctx, class, shard, status)
 }
 
 func (h *Handler) ShardsStatus(ctx context.Context,

@@ -15,10 +15,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswconf "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -110,6 +110,8 @@ func (i *Index) ContainsNode(id uint64) bool {
 	return false
 }
 
+func (i *Index) Iterate(fn func(id uint64) bool) {}
+
 func (i *Index) DistancerProvider() distancer.Provider {
 	return nil
 }
@@ -136,4 +138,14 @@ func (i *Index) TurnOnCompression(callback func()) error {
 
 func (i *Index) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	return common.QueryVectorDistancer{}
+}
+
+func (i *Index) Stats() (common.IndexStats, error) {
+	return &NoopStats{}, errors.New("Stats() is not implemented for noop index")
+}
+
+type NoopStats struct{}
+
+func (s *NoopStats) IndexType() common.IndexType {
+	return common.IndexTypeNoop
 }

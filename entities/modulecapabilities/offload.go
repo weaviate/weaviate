@@ -16,6 +16,8 @@ import (
 )
 
 type OffloadCloud interface {
+	// VerifyBucket verify if the offload bucket is created
+	VerifyBucket(ctx context.Context) error
 	// Upload uploads the content of a shard assigned to specific node to
 	// cloud provider (S3, Azure Blob storage, Google cloud storage)
 	// {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
