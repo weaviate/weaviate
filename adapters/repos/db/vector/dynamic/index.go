@@ -473,5 +473,11 @@ func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
 }
 
 func (dynamic *dynamic) Stats() (common.IndexStats, error) {
-	return dynamic.index.Stats()
+	return &DynamicStats{}, errors.New("Stats() is not implemented for dynamic index")
+}
+
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
 }
