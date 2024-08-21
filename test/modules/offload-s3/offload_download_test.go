@@ -37,7 +37,6 @@ func Test_DownloadS3Journey(t *testing.T) {
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
-			With3NodeCluster().
 			WithWeaviateClusterWithGRPC().
 			Start(ctx)
 		require.Nil(t, err)
