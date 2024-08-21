@@ -341,15 +341,3 @@ func (f *fakeMigrator) UpdateIndex(ctx context.Context, class *models.Class, sha
 	args := f.Called(class, shardingState)
 	return args.Error(0)
 }
-
-type fakeNodes struct {
-	nodes []string
-}
-
-func (f fakeNodes) Candidates() []string {
-	return f.nodes
-}
-
-func (f fakeNodes) LocalName() string {
-	return f.nodes[0]
-}
