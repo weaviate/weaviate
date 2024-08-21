@@ -9,17 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package common
+package ent
 
-type IndexType string
-
-const (
-	IndexTypeHNSW    = "hnsw"
-	IndexTypeFlat    = "flat"
-	IndexTypeNoop    = "noop"
-	IndexTypeDynamic = "dynamic"
-)
-
-type IndexStats interface {
-	IndexType() IndexType
+type VectorizationConfig struct {
+	Model   string
+	BaseURL string
 }

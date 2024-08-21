@@ -932,7 +932,6 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
 			}
 		}
-
 	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
