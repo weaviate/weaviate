@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 
 	"github.com/weaviate/weaviate/entities/backup"
 )
@@ -45,11 +46,11 @@ type client interface {
 // rsync synchronizes shards with remote nodes
 type rsync struct {
 	client          client
-	cluster         cluster
+	cluster         cluster.NodeSelector
 	persistenceRoot string
 }
 
-func newRSync(c client, cl cluster, rootPath string) *rsync {
+func newRSync(c client, cl cluster.NodeSelector, rootPath string) *rsync {
 	return &rsync{client: c, cluster: cl, persistenceRoot: rootPath}
 }
 
