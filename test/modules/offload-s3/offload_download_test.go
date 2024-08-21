@@ -38,7 +38,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
-			WithWeaviateGRPC().
+			WithWeaviateClusterWithGRPC().
 			Start(ctx)
 		require.Nil(t, err)
 
@@ -206,8 +206,7 @@ func Test_DownloadS3Journey(t *testing.T) {
 		compose, err := docker.New().
 			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
-			With3NodeCluster().
-			WithWeaviateGRPC().
+			WithWeaviateClusterWithGRPC().
 			Start(ctx)
 		require.Nil(t, err)
 

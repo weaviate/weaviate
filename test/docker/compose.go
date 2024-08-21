@@ -374,12 +374,6 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
-func (d *Compose) WithSecondWeaviate() *Compose {
-	d.With1NodeCluster()
-	d.withSecondWeaviate = true // TODO: create a second 1 node cluster
-	return d
-}
-
 func (d *Compose) WithWeaviateCluster(size int) *Compose {
 	if size%2 == 0 {
 		panic("it's essential for the cluster size to be an odd number to ensure a majority can be achieved for quorum decisions, even if some nodes become unavailable")
@@ -390,11 +384,7 @@ func (d *Compose) WithWeaviateCluster(size int) *Compose {
 }
 
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
-	d.With2NodeCluster()
-	return d
-}
-
-func (d *Compose) WithWeaviateGRPC() *Compose {
+	d.With3NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
@@ -645,12 +635,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 func (d *Compose) With1NodeCluster() *Compose {
 	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = 1
-	return d
-}
-
-func (d *Compose) With2NodeCluster() *Compose {
-	d.withWeaviateCluster = true
-	d.withWeaviateClusterSize = 2
 	return d
 }
 
