@@ -27,8 +27,8 @@ func convertSearchableSegmentToInverted(segmentPath string) error {
 	if err != nil {
 		return err
 	}
-
-	f, err := os.OpenFile(segmentPath+".tmp.inverted", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
+	segmentPathNoExt := strings.TrimSuffix(segmentPath, ".db")
+	f, err := os.OpenFile(segmentPathNoExt+".inverted", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}
