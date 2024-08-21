@@ -57,9 +57,9 @@ func (f *testMetaHandler) metaInfo() string {
 	return `{
   "hostname": "http://127.0.0.1:8080",
   "modules": {
-    "generative-openai": {
-      "documentationHref": "https://platform.openai.com/docs/api-reference/completions",
-      "name": "OpenAI Generative Module"
+    "generative-databricks": {
+      "documentationHref": "https://docs.databricks.com/en/machine-learning/foundation-models/api-reference.html#completion-task",
+      "name": "Generative Search - Databricks"
     }
   },
   "version": "1.16.0"
