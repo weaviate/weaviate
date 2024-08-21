@@ -171,7 +171,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 
 	req := api.UpdateTenantsRequest{
 		Tenants:      make([]*api.Tenant, len(tenants)),
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 	}
 	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
