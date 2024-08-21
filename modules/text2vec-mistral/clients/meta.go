@@ -9,17 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package common
+package clients
 
-type IndexType string
-
-const (
-	IndexTypeHNSW    = "hnsw"
-	IndexTypeFlat    = "flat"
-	IndexTypeNoop    = "noop"
-	IndexTypeDynamic = "dynamic"
-)
-
-type IndexStats interface {
-	IndexType() IndexType
+func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "Mistral Module",
+		"documentationHref": "https://docs.mistral.ai/api/#operation/createEmbedding",
+	}, nil
 }
