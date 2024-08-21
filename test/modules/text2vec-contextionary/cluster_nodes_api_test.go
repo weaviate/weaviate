@@ -47,7 +47,7 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 	})
 
 	t.Run("check nodes api", func(t *testing.T) {
-		for _, endpoint := range []string{weaviateNode1Endpoint, weaviateNode2Endpoint} {
+		for _, endpoint := range []string{weaviateNode1Endpoint, weaviateNode2Endpoint, weaviateNode3Endpoint} {
 			t.Run(endpoint, func(t *testing.T) {
 				helper.SetupClient(os.Getenv(endpoint))
 				verbose := verbosity.OutputVerbose
@@ -72,7 +72,7 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 					assert.Equal(t, fmt.Sprintf("node%d", i+1), nodeStatus.Name)
 					assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
 					// 2 shards for multishard class and 1 for book class
-					assert.True(t, len(nodeStatus.Shards) == 1 || len(nodeStatus.Shards) == 2, fmt.Sprintf("shard count should be either 1 or 2, got %v", len(nodeStatus.Shards)))
+					assert.True(t, len(nodeStatus.Shards) == 1 || len(nodeStatus.Shards) == 2, fmt.Sprintf("shard count should be either 1 or 2, got %d", len(nodeStatus.Shards)))
 					var objectCount int64
 					var shardCount int64
 					for _, shard := range nodeStatus.Shards {
