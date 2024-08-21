@@ -30,6 +30,19 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 	helper.SetupClient(os.Getenv(weaviateNode1Endpoint))
 	booksClass := books.ClassContextionaryVectorizer()
 	multiShardClass := multishard.ClassContextionaryVectorizer()
+	// we override multishard.ShardingConfig to make sure it matches nodes count
+	// and exists in every node
+	multiShardClass.ShardingConfig = map[string]interface{}{
+		"actualCount":         float64(3),
+		"actualVirtualCount":  float64(128),
+		"desiredCount":        float64(3),
+		"desiredVirtualCount": float64(128),
+		"function":            "murmur3",
+		"key":                 "_id",
+		"strategy":            "hash",
+		"virtualPerPhysical":  float64(128),
+	}
+
 	helper.CreateClass(t, booksClass)
 	helper.CreateClass(t, multiShardClass)
 	defer helper.DeleteClass(t, booksClass.Class)
@@ -71,8 +84,7 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 					assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
 					assert.Equal(t, fmt.Sprintf("node%d", i+1), nodeStatus.Name)
 					assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
-					// 2 shards for multishard class and 1 for book class
-					assert.True(t, len(nodeStatus.Shards) == 1 || len(nodeStatus.Shards) == 2, fmt.Sprintf("shard count should be either 1 or 2, got %d", len(nodeStatus.Shards)))
+					assert.Len(t, nodeStatus.Shards, 2)
 					var objectCount int64
 					var shardCount int64
 					for _, shard := range nodeStatus.Shards {
