@@ -12,6 +12,8 @@
 package config
 
 import (
+	"math"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -23,63 +25,21 @@ const (
 	maxTokensProperty   = "maxTokens"
 
 	topPProperty = "topP"
+	topKProperty = "topK"
 )
-
-var availableOpenAILegacyModels = []string{
-	"text-davinci-002",
-	"text-davinci-003",
-}
-
-var availableOpenAIModels = []string{
-	"gpt-3.5-turbo",
-	"gpt-3.5-turbo-16k",
-	"gpt-3.5-turbo-1106",
-	"gpt-4",
-	"gpt-4-32k",
-	"gpt-4-1106-preview",
-}
 
 var (
-	DefaultOpenAIModel            = "gpt-3.5-turbo"
-	DefaultOpenAITemperature      = 0.0
-	DefaultOpenAIMaxTokens        = defaultMaxTokens[DefaultOpenAIModel]
-	DefaultOpenAIFrequencyPenalty = 0.0
-	DefaultOpenAIPresencePenalty  = 0.0
-	DefaultOpenAITopP             = 1.0
-	DefaultOpenAIBaseURL          = "https://api.openai.com"
-	DefaultApiVersion             = "2024-02-01"
+	DefaultDatabricksTemperature = 1.0
+	DefaultDatabricksTopP        = 1.0
+	DefaultDatabricksMaxTokens   = 1e9
+	DefaultDatabricksTopK        = math.MaxInt64
 )
-
-// todo Need to parse the tokenLimits in a smarter way, as the prompt defines the max length
-var defaultMaxTokens = map[string]float64{
-	"text-davinci-002":   4097,
-	"text-davinci-003":   4097,
-	"gpt-3.5-turbo":      4097,
-	"gpt-3.5-turbo-16k":  16384,
-	"gpt-3.5-turbo-1106": 16385,
-	"gpt-4":              8192,
-	"gpt-4-32k":          32768,
-	"gpt-4-1106-preview": 128000,
-}
-
-var availableApiVersions = []string{
-	"2022-12-01",
-	"2023-03-15-preview",
-	"2023-05-15",
-	"2023-06-01-preview",
-	"2023-07-01-preview",
-	"2023-08-01-preview",
-	"2023-09-01-preview",
-	"2023-12-01-preview",
-	"2024-02-15-preview",
-	"2024-03-01-preview",
-	"2024-02-01",
-}
 
 type ClassSettings interface {
 	MaxTokens() float64
 	Temperature() float64
 	TopP() float64
+	TopK() int
 	Validate(class *models.Class) error
 	ServingURL() string
 }
@@ -99,19 +59,24 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.New("empty config")
 	}
 
-	temperature := ic.getFloatProperty(temperatureProperty, &DefaultOpenAITemperature)
+	temperature := ic.getFloatProperty(temperatureProperty, &DefaultDatabricksTemperature)
 	if temperature == nil || (*temperature < 0 || *temperature > 1) {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0")
 	}
 
-	maxTokens := ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
+	maxTokens := ic.getFloatProperty(maxTokensProperty, &DefaultDatabricksMaxTokens)
 	if maxTokens != nil && *maxTokens <= 0 {
 		return errors.Errorf("Wrong maxTokens configuration, values should be greater than zero or nil")
 	}
 
-	topP := ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
+	topP := ic.getFloatProperty(topPProperty, &DefaultDatabricksTopP)
 	if topP == nil || (*topP < 0 || *topP > 5) {
 		return errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5")
+	}
+
+	topK := ic.getIntProperty(topKProperty, &DefaultDatabricksTopK)
+	if topK != nil && (*topK <= 0) {
+		return errors.Errorf("Wrong topK configuration, values should be greater than zero or nil")
 	}
 
 	servingURL := ic.ServingURL()
@@ -133,24 +98,25 @@ func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *f
 	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
-func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableOpenAIModels, model) || contains(availableOpenAILegacyModels, model)
-}
-
-func (ic *classSettings) validateApiVersion(apiVersion string) bool {
-	return contains(availableApiVersions, apiVersion)
+func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
+	var wrongVal int = -1
+	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
 func (ic *classSettings) MaxTokens() float64 {
-	return *ic.getFloatProperty(maxTokensProperty, &DefaultOpenAIMaxTokens)
+	return *ic.getFloatProperty(maxTokensProperty, &DefaultDatabricksMaxTokens)
 }
 
 func (ic *classSettings) Temperature() float64 {
-	return *ic.getFloatProperty(temperatureProperty, &DefaultOpenAITemperature)
+	return *ic.getFloatProperty(temperatureProperty, &DefaultDatabricksTemperature)
 }
 
 func (ic *classSettings) TopP() float64 {
-	return *ic.getFloatProperty(topPProperty, &DefaultOpenAITopP)
+	return *ic.getFloatProperty(topPProperty, &DefaultDatabricksTopP)
+}
+
+func (ic *classSettings) TopK() int {
+	return *ic.getIntProperty(topKProperty, &DefaultDatabricksTopK)
 }
 
 func (ic *classSettings) ServingURL() string {

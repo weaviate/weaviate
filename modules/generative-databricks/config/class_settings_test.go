@@ -12,8 +12,10 @@
 package config
 
 import (
+	"math"
 	"testing"
 
+	// "github.com/pkg/errors"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -26,6 +28,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantMaxTokens   float64
 		wantTemperature float64
 		wantTopP        float64
+		wantTopK        int
 
 		wantErr error
 	}{
@@ -36,9 +39,10 @@ func Test_classSettings_Validate(t *testing.T) {
 					"servingUrl": "https://foo.bar.com",
 				},
 			},
-			wantMaxTokens:   4097,
-			wantTemperature: 0.0,
+			wantMaxTokens:   1e9,
+			wantTemperature: 1.0,
 			wantTopP:        1,
+			wantTopK:        math.MaxInt64,
 
 			wantErr: nil,
 		},
@@ -46,18 +50,17 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl":       "https://foo.bar.com",
-					"model":            "gpt-3.5-turbo",
-					"maxTokens":        4097,
-					"temperature":      0.5,
-					"topP":             3,
-					"frequencyPenalty": 0.1,
-					"presencePenalty":  0.9,
+					"servingUrl":  "https://foo.bar.com",
+					"maxTokens":   42,
+					"temperature": 0.5,
+					"topP":        3,
+					"topK":        1,
 				},
 			},
-			wantMaxTokens:   4097,
+			wantMaxTokens:   42,
 			wantTemperature: 0.5,
 			wantTopP:        3,
+			wantTopK:        1,
 
 			wantErr: nil,
 		},
@@ -92,6 +95,16 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
 		},
 		{
+			name: "Wrong topK configured",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"servingUrl": "https://foo.bar.com",
+					"topK":       true,
+				},
+			},
+			wantErr: errors.Errorf("Wrong topK configuration, values should be greater than zero or nil"),
+		},
+		{
 			name: "Empty servingURL",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -110,6 +123,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
 				assert.Equal(t, tt.wantTopP, ic.TopP())
+				assert.Equal(t, tt.wantTopK, ic.TopK())
 
 			}
 		})

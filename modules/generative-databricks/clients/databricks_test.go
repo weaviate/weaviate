@@ -70,9 +70,7 @@ func TestGetAnswer(t *testing.T) {
 	})
 
 	t.Run("when X-Databricks-Servingurl header is passed", func(t *testing.T) {
-		settings := &fakeClassSettings{
-			baseURL: "http://default-url.com",
-		}
+		settings := &fakeClassSettings{}
 		c := New("databricksToken", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
@@ -177,27 +175,11 @@ func ptString(in string) *string {
 }
 
 type fakeClassSettings struct {
-	isLegacy         bool
-	model            string
-	maxTokens        float64
-	temperature      float64
-	frequencyPenalty float64
-	presencePenalty  float64
-	topP             float64
-	resourceName     string
-	deploymentID     string
-	isAzure          bool
-	baseURL          string
-	apiVersion       string
-	servingUrl       string
-}
-
-func (s *fakeClassSettings) IsLegacy() bool {
-	return s.isLegacy
-}
-
-func (s *fakeClassSettings) Model() string {
-	return s.model
+	maxTokens   float64
+	temperature float64
+	topP        float64
+	topK        int
+	servingUrl  string
 }
 
 func (s *fakeClassSettings) MaxTokens() float64 {
@@ -208,28 +190,12 @@ func (s *fakeClassSettings) Temperature() float64 {
 	return s.temperature
 }
 
-func (s *fakeClassSettings) FrequencyPenalty() float64 {
-	return s.frequencyPenalty
-}
-
-func (s *fakeClassSettings) PresencePenalty() float64 {
-	return s.presencePenalty
-}
-
 func (s *fakeClassSettings) TopP() float64 {
 	return s.topP
 }
 
-func (s *fakeClassSettings) ResourceName() string {
-	return s.resourceName
-}
-
-func (s *fakeClassSettings) DeploymentID() string {
-	return s.deploymentID
-}
-
-func (s *fakeClassSettings) IsAzure() bool {
-	return s.isAzure
+func (s *fakeClassSettings) TopK() int {
+	return s.topK
 }
 
 func (s *fakeClassSettings) GetMaxTokensForModel(model string) float64 {
@@ -238,14 +204,6 @@ func (s *fakeClassSettings) GetMaxTokensForModel(model string) float64 {
 
 func (s *fakeClassSettings) Validate(class *models.Class) error {
 	return nil
-}
-
-func (s *fakeClassSettings) BaseURL() string {
-	return s.baseURL
-}
-
-func (s *fakeClassSettings) ApiVersion() string {
-	return s.apiVersion
 }
 
 func (s *fakeClassSettings) ServingURL() string {
