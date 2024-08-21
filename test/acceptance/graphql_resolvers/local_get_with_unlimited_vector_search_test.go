@@ -22,7 +22,7 @@ import (
 )
 
 func gettingObjectsWithNearFields(t *testing.T) {
-	defaultLimit := 100
+	defaultLimit := 50
 
 	// nearVector
 
