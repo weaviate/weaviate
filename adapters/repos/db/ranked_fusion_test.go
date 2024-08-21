@@ -409,24 +409,32 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Check basic search with one property", func(t *testing.T) {
 		// Check basic search with one property
-		results_set_1, err := repo.VectorSearch(context.TODO(), dto.GetParams{
-			ClassName:    "MyClass",
-			SearchVector: PeanutsVector(),
-			Pagination: &filters.Pagination{
-				Offset: 0,
-				Limit:  6,
+		results_set_1, err := repo.VectorSearch(
+			context.TODO(),
+			dto.GetParams{
+				ClassName: "MyClass",
+				Pagination: &filters.Pagination{
+					Offset: 0,
+					Limit:  6,
+				},
 			},
-		})
+			[]string{""},
+			[][]float32{PeanutsVector()},
+		)
 
 		require.Nil(t, err)
-		results_set_2, err := repo.VectorSearch(context.TODO(), dto.GetParams{
-			ClassName:    "MyClass",
-			SearchVector: JourneyVector(),
-			Pagination: &filters.Pagination{
-				Offset: 0,
-				Limit:  6,
+		results_set_2, err := repo.VectorSearch(
+			context.TODO(),
+			dto.GetParams{
+				ClassName: "MyClass",
+				Pagination: &filters.Pagination{
+					Offset: 0,
+					Limit:  6,
+				},
 			},
-		})
+			[]string{""},
+			[][]float32{JourneyVector()},
+		)
 		require.Nil(t, err)
 
 		// convert search.Result to hybrid.Result
