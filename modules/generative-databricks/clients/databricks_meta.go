@@ -11,7 +11,7 @@
 
 package clients
 
-func (v *openai) MetaInfo() (map[string]interface{}, error) {
+func (v *databricks) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Generative Search - Databricks",
 		"documentationHref": "https://docs.databricks.com/en/machine-learning/foundation-models/api-reference.html#completion-task",

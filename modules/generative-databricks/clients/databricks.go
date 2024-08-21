@@ -39,18 +39,15 @@ func buildServingUrlFn(servingUrl string) (string, error) {
 	return servingUrl, nil
 }
 
-type openai struct {
-	openAIApiKey       string
-	openAIOrganization string
-	azureApiKey        string
-	databricksToken    string
-	buildServingUrl    func(servingUrl string) (string, error)
-	httpClient         *http.Client
-	logger             logrus.FieldLogger
+type databricks struct {
+	databricksToken string
+	buildServingUrl func(servingUrl string) (string, error)
+	httpClient      *http.Client
+	logger          logrus.FieldLogger
 }
 
-func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *openai {
-	return &openai{
+func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogger) *databricks {
+	return &databricks{
 		databricksToken: databricksToken,
 		httpClient: &http.Client{
 			Timeout: timeout,
@@ -60,7 +57,7 @@ func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogge
 	}
 }
 
-func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+func (v *databricks) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
@@ -68,7 +65,7 @@ func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[st
 	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+func (v *databricks) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
@@ -76,7 +73,7 @@ func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[st
 	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
+func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
@@ -156,7 +153,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}, nil
 }
 
-func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{}) openaiparams.Params {
+func (v *databricks) getParameters(cfg moduletools.ClassConfig, options interface{}) openaiparams.Params {
 	settings := config.NewClassSettings(cfg)
 
 	var params openaiparams.Params
@@ -180,7 +177,7 @@ func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{})
 	return params
 }
 
-func (v *openai) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+func (v *databricks) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
 	if debug {
 		return &modulecapabilities.GenerateDebugInformation{
 			Prompt: prompt,
@@ -189,14 +186,14 @@ func (v *openai) getDebugInformation(debug bool, prompt string) *modulecapabilit
 	return nil
 }
 
-func (v *openai) getResponseParams(usage *usage) map[string]interface{} {
+func (v *databricks) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
 		return map[string]interface{}{"openai": map[string]interface{}{"usage": usage}}
 	}
 	return nil
 }
 
-func (v *openai) buildDatabricksServingUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
+func (v *databricks) buildDatabricksServingUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
 	servingURL, _ := v.buildServingUrl(settings.ServingURL())
 	if headerServingURL := v.getValueFromContext(ctx, "X-Databricks-Servingurl"); headerServingURL != "" {
 		servingURL = headerServingURL
@@ -204,7 +201,7 @@ func (v *openai) buildDatabricksServingUrl(ctx context.Context, settings config.
 	return servingURL, nil
 }
 
-func (v *openai) generateInput(prompt string, params openaiparams.Params, settings config.ClassSettings) (generateInput, error) {
+func (v *databricks) generateInput(prompt string, params openaiparams.Params, settings config.ClassSettings) (generateInput, error) {
 	var input generateInput
 	messages := []message{{
 		Role:    "user",
@@ -226,7 +223,7 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params, settin
 	return input, nil
 }
 
-func (v *openai) getError(statusCode int, resBodyError *openAIApiError) error {
+func (v *databricks) getError(statusCode int, resBodyError *openAIApiError) error {
 	endpoint := "Databricks Foundation Model API"
 	if resBodyError != nil {
 		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
@@ -234,7 +231,7 @@ func (v *openai) getError(statusCode int, resBodyError *openAIApiError) error {
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (int, error) {
+func (v *databricks) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (int, error) {
 	tokenMessagesCount, err := getTokensCount(model, messages)
 	if err != nil {
 		return 0, err
@@ -247,11 +244,11 @@ func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, mod
 	return messageTokens, nil
 }
 
-func (v *openai) getApiKeyHeaderAndValue(apiKey string) (string, string) {
+func (v *databricks) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
-func (v *openai) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
+func (v *databricks) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
 	marshal, err := json.Marshal(textProperties)
 	if err != nil {
 		return "", err
@@ -260,7 +257,7 @@ func (v *openai) generatePromptForTask(textProperties []map[string]string, task 
 %v`, task, string(marshal)), nil
 }
 
-func (v *openai) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
+func (v *databricks) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
 	all := compile.FindAll([]byte(prompt), -1)
 	for _, match := range all {
 		originalProperty := string(match)
@@ -275,7 +272,7 @@ func (v *openai) generateForPrompt(textProperties map[string]string, prompt stri
 	return prompt, nil
 }
 
-func (v *openai) getApiKey(ctx context.Context) (string, error) {
+func (v *databricks) getApiKey(ctx context.Context) (string, error) {
 	var apiKey, envVarValue, envVar string
 
 	apiKey = "X-Databricks-Token"
@@ -285,7 +282,7 @@ func (v *openai) getApiKey(ctx context.Context) (string, error) {
 	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
 }
 
-func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
+func (v *databricks) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
 	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
@@ -295,7 +292,7 @@ func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
 
-func (v *openai) getValueFromContext(ctx context.Context, key string) string {
+func (v *databricks) getValueFromContext(ctx context.Context, key string) string {
 	if value := ctx.Value(key); value != nil {
 		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
 			return keyHeader[0]
