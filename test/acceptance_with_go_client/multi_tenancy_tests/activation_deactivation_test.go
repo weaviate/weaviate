@@ -211,7 +211,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			cleanupFn func(t *testing.T, ctx context.Context),
 			restartFn func(t *testing.T, ctx context.Context) *wvt.Client,
 		) {
-			compose, err := docker.New().WithWeaviateCluster(2).Start(ctx)
+			compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
 			require.Nil(t, err)
 
 			client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
@@ -224,16 +224,16 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
 				eg := errgroup.Group{}
-				require.Nil(t, compose.StopAt(ctx, 0, nil))
+				require.Nil(t, compose.StopAt(ctx, 1, nil))
 				eg.Go(func() error {
-					require.Nil(t, compose.StartAt(ctx, 0))
+					require.Nil(t, compose.StartAt(ctx, 1))
 					return nil
 				})
 
-				require.Nil(t, compose.StopAt(ctx, 1, nil))
+				require.Nil(t, compose.StopAt(ctx, 2, nil))
 				eg.Go(func() error {
 					time.Sleep(4 * time.Second) // wait for member list initialization
-					require.Nil(t, compose.StartAt(ctx, 1))
+					require.Nil(t, compose.StartAt(ctx, 2))
 					return nil
 				})
 
