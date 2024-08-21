@@ -381,6 +381,9 @@ func (d *Compose) WithSecondWeaviate() *Compose {
 }
 
 func (d *Compose) WithWeaviateCluster(size int) *Compose {
+	if size%2 == 0 {
+		panic("it's essential for the cluster size to be an odd number to ensure a majority can be achieved for quorum decisions, even if some nodes become unavailable")
+	}
 	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = size
 	return d
