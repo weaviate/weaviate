@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -170,15 +171,13 @@ type ClassPayload struct {
 }
 
 type clusterState interface {
+	cluster.NodeSelector
 	// Hostnames initializes a broadcast
 	Hostnames() []string
 
 	// AllNames initializes shard distribution across nodes
 	AllNames() []string
-	Candidates() []string
-	LocalName() string
 	NodeCount() int
-	NodeHostname(nodeName string) (string, bool)
 
 	// ClusterHealthScore gets the whole cluster health, the lower number the better
 	ClusterHealthScore() int
