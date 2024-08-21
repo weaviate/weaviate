@@ -12,8 +12,6 @@
 package config
 
 import (
-	"fmt"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -157,13 +155,6 @@ func (ic *classSettings) TopP() float64 {
 
 func (ic *classSettings) ServingURL() string {
 	return *ic.getStringProperty("servingUrl", "")
-}
-
-func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
-	if (resourceName == "" && deploymentId != "") || (resourceName != "" && deploymentId == "") {
-		return fmt.Errorf("both resourceName and deploymentId must be provided")
-	}
-	return nil
 }
 
 func (cs *classSettings) ValidateServingURL(servingUrl string) error {

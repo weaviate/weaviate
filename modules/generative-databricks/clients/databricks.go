@@ -231,19 +231,6 @@ func (v *databricks) getError(statusCode int, resBodyError *openAIApiError) erro
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *databricks) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (int, error) {
-	tokenMessagesCount, err := getTokensCount(model, messages)
-	if err != nil {
-		return 0, err
-	}
-	messageTokens := tokenMessagesCount
-	if messageTokens+classSetting >= int(maxTokensSetting) {
-		// max token limit must be in range: [1, maxTokensSetting) that's why -1 is added
-		return int(maxTokensSetting) - messageTokens - 1, nil
-	}
-	return messageTokens, nil
-}
-
 func (v *databricks) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
