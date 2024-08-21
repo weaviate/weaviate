@@ -45,7 +45,10 @@ datasets:
     corpus:
       indexed_properties:
         - text
+        - title
       unindexed_properties:
-        - _id 
+        - __id
     queries:
-      property: text
+      property: query
+      matching_results: matchingIDs
+      property_with_id: __id
