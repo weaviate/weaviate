@@ -116,6 +116,10 @@ func (f *fakeSchemaManager) ClassInfo(class string) (ci clusterSchema.ClassInfo)
 	return args.Get(0).(clusterSchema.ClassInfo)
 }
 
+func (f *fakeSchemaManager) StorageCandidates() []string {
+	return []string{}
+}
+
 func (f *fakeSchemaManager) ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error) {
 	args := f.Called(ctx, class, version)
 	return args.Get(0).(clusterSchema.ClassInfo), args.Error(1)
