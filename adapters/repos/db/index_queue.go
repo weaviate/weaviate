@@ -339,17 +339,33 @@ func (q *IndexQueue) Size() int64 {
 	return count
 }
 
-// Delete marks the given vectors as deleted.
-// This method can be called even if the async indexing is disabled.
-func (q *IndexQueue) Delete(ids ...uint64) {
+// Delete deletes the vectors from the index synchronously
+// if they are already indexed, otherwise it then as deleted.
+// If async indexing is disabled, it will delete the vectors from the index.
+func (q *IndexQueue) Delete(ids ...uint64) error {
 	if len(ids) == 0 {
-		return
+		return nil
+	}
+
+	if !asyncEnabled() {
+		return q.index.Delete(ids...)
 	}
 
 	q.indexLock.Lock()
 	defer q.indexLock.Unlock()
 
-	q.queue.Delete(ids)
+	for i := range ids {
+		if q.index.ContainsNode(ids[i]) {
+			err := q.index.Delete(ids[i])
+			if err != nil {
+				q.Logger.WithError(err).Error("delete vector from index")
+			}
+		} else {
+			q.queue.Delete(ids[i])
+		}
+	}
+
+	return nil
 }
 
 // Drop removes all persisted data related to the queue.
@@ -987,7 +1003,7 @@ func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vec
 	return nil
 }
 
-func (q *vectorQueue) Delete(ids []uint64) {
+func (q *vectorQueue) Delete(ids ...uint64) {
 	q.deleted.Lock()
 	for _, id := range ids {
 		q.deleted.m[id] = struct{}{}

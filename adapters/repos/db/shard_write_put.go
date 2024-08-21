@@ -164,7 +164,16 @@ func (s *Shard) updateVectorInVectorIndex(vector []float32,
 	// exists. otherwise, the associated doc id is left dangling,
 	// resulting in failed attempts to merge an object on restarts.
 	if status.docIDChanged {
-		queue.Delete(status.oldDocID)
+		if vectorIndex.ContainsNode(status.oldDocID) {
+			err := vectorIndex.Delete(status.oldDocID)
+			if err != nil {
+				return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
+			}
+		} else {
+			if err := queue.Delete(status.oldDocID); err != nil {
+				return errors.Wrapf(err, "delete doc id %d from vector index", status.oldDocID)
+			}
+		}
 	}
 
 	// vector was not changed, object was updated without changing docID
