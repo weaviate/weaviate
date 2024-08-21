@@ -228,10 +228,12 @@ func (ob *objectsBatcher) setStatusForID(status objectInsertStatus, id strfmt.UU
 
 func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 	var docIDsToDelete []uint64
-	for _, object := range ob.objects {
+	var positions []int
+	for pos, object := range ob.objects {
 		status := ob.statuses[object.ID()]
 		if status.docIDChanged {
 			docIDsToDelete = append(docIDsToDelete, status.oldDocID)
+			positions = append(positions, pos)
 		}
 	}
 
@@ -240,11 +242,19 @@ func (ob *objectsBatcher) markDeletedInVectorStorage(ctx context.Context) {
 	}
 
 	if ob.shard.hasTargetVectors() {
-		for _, queue := range ob.shard.Queues() {
-			queue.Delete(docIDsToDelete...)
+		for targetVector, queue := range ob.shard.Queues() {
+			if err := queue.Delete(docIDsToDelete...); err != nil {
+				for _, pos := range positions {
+					ob.setErrorAtIndex(fmt.Errorf("target vector %s: %w", targetVector, err), pos)
+				}
+			}
 		}
 	} else {
-		ob.shard.Queue().Delete(docIDsToDelete...)
+		if err := ob.shard.Queue().Delete(docIDsToDelete...); err != nil {
+			for _, pos := range positions {
+				ob.setErrorAtIndex(err, pos)
+			}
+		}
 	}
 }
 

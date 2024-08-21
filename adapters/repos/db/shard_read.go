@@ -530,11 +530,15 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 	}
 
 	if s.hasTargetVectors() {
-		for _, queue := range s.queues {
-			queue.Delete(docID)
+		for targetVector, queue := range s.queues {
+			if err = queue.Delete(docID); err != nil {
+				return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
+			}
 		}
 	} else {
-		s.queue.Delete(docID)
+		if err = s.queue.Delete(docID); err != nil {
+			return errors.Wrap(err, "delete from vector index queue")
+		}
 	}
 
 	return nil
