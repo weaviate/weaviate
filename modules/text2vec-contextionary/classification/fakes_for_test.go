@@ -138,7 +138,7 @@ type fakeVectorRepoKNN struct {
 }
 
 func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
-	class string, properties []string,
+	class string, properties []string, propsToReturn []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
 	f.Lock()
@@ -267,7 +267,7 @@ func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Object, bool) {
 }
 
 func (f *fakeVectorRepoContextual) GetUnclassified(ctx context.Context,
-	class string, properties []string,
+	class string, properties []string, propsToReturn []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
 	return f.unclassified, nil
