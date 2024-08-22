@@ -374,6 +374,8 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247"},
 			map[string]interface{}{"beacon": "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248"},
 		},
+		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": float64(3), "innerStr": "avc"}},
+		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
 	}
 	properties := map[string]interface{}{
 		"numberArray":  []float64{1.1, 2.1},
@@ -390,13 +392,15 @@ func TestExtractionOfSingleProperties(t *testing.T) {
 			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168247", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a80"},
 			{Beacon: "weaviate://localhost/SomeClass/3453/73f4eb5f-5abf-447a-81ca-74b1dd168248", Class: "OtherClass", Href: "/v1/f81bfe5e-16ba-4615-a516-46c2ae2e5a81"},
 		},
+		"nested":      map[string]interface{}{"test": map[string]interface{}{"innerInt": 3, "innerStr": "avc"}},
+		"nestedArray": []interface{}{map[string]interface{}{"test": map[string]interface{}{"innerArray": float64(3), "innerStr": "avc"}}},
 	}
 	before := FromObject(
 		&models.Object{
 			Class:              "MyFavoriteClass",
 			CreationTimeUnix:   123456,
 			LastUpdateTimeUnix: 56789,
-			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			ID:                 "73f2eb5f-5abf-447a-81ca-74b1dd168247",
 			Properties:         properties,
 		},
 		[]float32{1, 2, 0.7},
