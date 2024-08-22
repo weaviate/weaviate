@@ -33,7 +33,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantModel:       "meta-llama-3-8b-instruct",
+			wantModel:       "meta-llama-3.1-70b-instruct",
 			wantMaxTokens:   2048,
 			wantTemperature: 0,
 			wantBaseURL:     "https://inference.friendli.ai",
@@ -43,12 +43,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model":       "meta-llama-3-8b-instruct",
+					"model":       "meta-llama-3.1-8b-instruct",
 					"maxTokens":   1024,
 					"temperature": 1,
 				},
 			},
-			wantModel:       "meta-llama-3-8b-instruct",
+			wantModel:       "meta-llama-3.1-8b-instruct",
 			wantMaxTokens:   1024,
 			wantTemperature: 1,
 			wantBaseURL:     "https://inference.friendli.ai",

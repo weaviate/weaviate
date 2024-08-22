@@ -48,12 +48,12 @@ func testGenerativeFriendliAI(host string) func(t *testing.T) {
 				generativeModel: "mixtral-8x7b-instruct-v0-1",
 			},
 			{
-				name:            "meta-llama-3-8b-instruct",
-				generativeModel: "meta-llama-3-8b-instruct",
+				name:            "meta-llama-3.1-8b-instruct",
+				generativeModel: "meta-llama-3.1-8b-instruct",
 			},
 			{
-				name:            "meta-llama-3-70b-instruct",
-				generativeModel: "meta-llama-3-70b-instruct",
+				name:            "meta-llama-3.1-70b-instruct",
+				generativeModel: "meta-llama-3.1-70b-instruct",
 			},
 		}
 		for _, tt := range tests {

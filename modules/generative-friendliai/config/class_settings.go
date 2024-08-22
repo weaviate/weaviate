@@ -27,8 +27,8 @@ const (
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultBaseURL                   = "https://inference.friendli.ai"
-	DefaultFriendliModel               = "meta-llama-3-8b-instruct"
+	DefaultBaseURL                     = "https://inference.friendli.ai"
+	DefaultFriendliModel               = "meta-llama-3.1-70b-instruct"
 	DefaultFriendliTemperature float64 = 0
 	DefaultFriendliMaxTokens           = 2048
 )
