@@ -512,6 +512,8 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
+
 	return cfg, nil
 }
 
@@ -758,6 +760,8 @@ func parseClusterConfig() (cluster.Config, error) {
 			Password: basicAuthPassword,
 		},
 	}
+
+	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
 
 	return cfg, nil
 }

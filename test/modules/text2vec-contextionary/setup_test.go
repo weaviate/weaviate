@@ -23,19 +23,21 @@ import (
 const (
 	weaviateNode1Endpoint = "WEAVIATE1_ENDPOINT"
 	weaviateNode2Endpoint = "WEAVIATE2_ENDPOINT"
+	weaviateNode3Endpoint = "WEAVIATE3_ENDPOINT"
 )
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviateCluster(2).WithText2VecContextionary().
+		WithWeaviateCluster(3).WithText2VecContextionary().
 		Start(ctx)
 	if err != nil {
 		panic(errors.Wrapf(err, "cannot start"))
 	}
 
 	os.Setenv(weaviateNode1Endpoint, compose.GetWeaviate().URI())
-	os.Setenv(weaviateNode2Endpoint, compose.GetWeaviateNode(2).URI())
+	os.Setenv(weaviateNode2Endpoint, compose.GetWeaviateNode2().URI())
+	os.Setenv(weaviateNode3Endpoint, compose.GetWeaviateNode3().URI())
 	code := m.Run()
 
 	if err := compose.Terminate(ctx); err != nil {

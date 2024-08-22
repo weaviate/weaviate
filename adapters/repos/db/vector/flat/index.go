@@ -49,7 +49,6 @@ const (
 )
 
 type flat struct {
-	sync.Mutex
 	id                  string
 	targetVector        string
 	dims                int32
@@ -711,8 +710,6 @@ func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
 	}
-	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
-	defer cursor.Close()
 
 	// The idea here is to first read everything from disk in one go, then grow
 	// the cache just once before inserting all vectors. A previous iteration
@@ -804,6 +801,33 @@ func (index *flat) ContainsNode(id uint64) bool {
 	}
 
 	return true
+}
+
+func (index *flat) Iterate(fn func(id uint64) bool) {
+	var bucketName string
+
+	// logic modeled after SearchByVector which indicates that the PQ bucket is
+	// the same as the uncompressed bucket "for now"
+	switch index.compression {
+	case compressionBQ:
+		bucketName = index.getCompressedBucketName()
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		bucketName = index.getBucketName()
+	}
+
+	bucket := index.store.Bucket(bucketName)
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
+		id := binary.BigEndian.Uint64(key)
+		if !fn(id) {
+			break
+		}
+	}
 }
 
 func (index *flat) DistancerProvider() distancer.Provider {
@@ -908,7 +932,6 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
 			}
 		}
-
 	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
@@ -926,4 +949,14 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		}
 	}
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}
+
+func (index *flat) Stats() (common.IndexStats, error) {
+	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
+}
+
+type FlatStats struct{}
+
+func (s *FlatStats) IndexType() common.IndexType {
+	return common.IndexTypeFlat
 }
