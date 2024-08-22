@@ -339,20 +339,20 @@ func (q *IndexQueue) Size() int64 {
 	return count
 }
 
-// Delete deletes the vectors from the index synchronously
-// if they are already indexed, otherwise it then as deleted.
-// If async indexing is disabled, it will delete the vectors from the index.
+// Deletes the vectors from the index synchronously
+// if they are already indexed, otherwise it marks them as deleted in the queue.
+// If async indexing is disabled, it calls the index delete method directly.
 func (q *IndexQueue) Delete(ids ...uint64) error {
 	if len(ids) == 0 {
 		return nil
 	}
 
+	start := time.Now()
+	defer q.metrics.Delete(start, len(ids))
+
 	if !asyncEnabled() {
 		return q.index.Delete(ids...)
 	}
-
-	start := time.Now()
-	defer q.metrics.Delete(start, len(ids))
 
 	q.indexLock.RLock()
 	defer q.indexLock.RUnlock()
@@ -361,14 +361,12 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 		if q.index.ContainsNode(ids[i]) {
 			err := q.index.Delete(ids[i])
 			if err != nil {
-				q.Logger.WithError(err).Error("delete vector from index")
+				q.Logger.WithError(err).Error("failed to delete vector from index")
 			}
+		} else {
+			q.queue.Delete(ids[i])
 		}
 	}
-
-	// mark all vectors as deleted in the queue
-	// to avoid race conditions
-	q.queue.Delete(ids...)
 
 	return nil
 }
