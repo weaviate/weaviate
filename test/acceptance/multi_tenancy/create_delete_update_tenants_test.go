@@ -92,14 +92,16 @@ func TestCreateTenants(t *testing.T) {
 		assert.ElementsMatch(t, expectedTenants, foundTenants)
 	})
 
-	t.Run("Create duplicate tenant once", func(Z *testing.T) {
+	t.Run("Create duplicate tenant once", func(t *testing.T) {
 		defer func() {
 			helper.DeleteClass(t, testClass.Class)
 		}()
 		helper.CreateClass(t, &testClass)
 		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}, {Name: "DoubleTenant"}})
-		require.Nil(t, err)
+		require.NotNil(t, err)
 
+		err = helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}})
+		require.Nil(t, err)
 		// only added once
 		respGet, errGet := helper.GetTenants(t, testClass.Class)
 		require.Nil(t, errGet)
@@ -138,7 +140,7 @@ func TestCreateTenants(t *testing.T) {
 		}
 	})
 
-	t.Run("Create more than 100 tenant", func(Z *testing.T) {
+	t.Run("Create and update more than 100 tenant", func(Z *testing.T) {
 		expectedTenants := make([]string, 101)
 
 		for idx := 0; idx < 101; idx++ {
@@ -161,10 +163,12 @@ func TestCreateTenants(t *testing.T) {
 		}
 
 		err := helper.CreateTenantsReturnError(t, testClass.Class, tenants)
+		require.Nil(t, err)
+
+		err = helper.UpdateTenantsReturnError(t, testClass.Class, tenants)
 		require.NotNil(t, err)
-		ee := &eschema.TenantsCreateUnprocessableEntity{}
-		as := errors.As(err, &ee)
-		require.True(t, as)
+		ee := &eschema.TenantsUpdateUnprocessableEntity{}
+		require.True(t, errors.As(err, &ee))
 		require.Equal(t, uschema.ErrMsgMaxAllowedTenants, ee.Payload.Error[0].Message)
 	})
 

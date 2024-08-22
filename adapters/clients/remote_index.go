@@ -113,7 +113,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode); err != nil {
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
 		return duplicateErr(err, len(objs))
 	}
 
@@ -427,7 +427,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
 	return resp.Objects, resp.Distributions, err
 }
 
@@ -472,7 +472,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
 	return resp.Result, err
 }
 

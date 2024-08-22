@@ -117,7 +117,9 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	i := 0
 	for _, v := range classes {
 		migrateRangeIndexPropIfNeeded(&v.Class)
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		// an immutable copy of the sharding state has to be used to avoid conflicts
+		shardingState, _ := v.CopyShardingState()
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
 		i++
 	}
 
@@ -180,6 +182,14 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 			triggerSchemaCallback: true,
 		},
 	)
+}
+
+// ReplaceStatesNodeName it update the node name inside sharding states.
+// WARNING: this shall be used in one node cluster environments only.
+// because it will replace the shard node name if the node name got updated
+// only if the replication factor is 1, otherwise it's no-op
+func (s *SchemaManager) ReplaceStatesNodeName(new string) {
+	s.schema.replaceStatesNodeName(new)
 }
 
 // UpdateClass modifies the vectors and inverted indexes associated with a class
