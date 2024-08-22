@@ -363,10 +363,12 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 			if err != nil {
 				q.Logger.WithError(err).Error("delete vector from index")
 			}
-		} else {
-			q.queue.Delete(ids[i])
 		}
 	}
+
+	// mark all vectors as deleted in the queue
+	// to avoid race conditions
+	q.queue.Delete(ids...)
 
 	return nil
 }
