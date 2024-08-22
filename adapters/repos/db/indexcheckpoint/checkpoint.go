@@ -98,7 +98,34 @@ func (c *Checkpoints) Update(shardID, targetVector string, id uint64) error {
 
 	err := c.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(checkpointBucket)
-		return b.Put([]byte(c.getID(shardID, targetVector)), buf)
+		key := []byte(c.getID(shardID, targetVector))
+		return b.Put(key, buf)
+	})
+	if err != nil {
+		return errors.Wrap(err, "update checkpoint")
+	}
+
+	return nil
+}
+
+func (c *Checkpoints) UpdateIfNewer(shardID, targetVector string, id uint64) error {
+	buf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, id)
+
+	err := c.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(checkpointBucket)
+		key := []byte(c.getID(shardID, targetVector))
+
+		// do not update if the current checkpoint is newer
+		old := b.Get(key)
+		if old != nil {
+			oldID := binary.LittleEndian.Uint64(old)
+			if oldID > id {
+				return errors.Errorf("current checkpoint %d is newer than %d", oldID, id)
+			}
+		}
+
+		return b.Put(key, buf)
 	})
 	if err != nil {
 		return errors.Wrap(err, "update checkpoint")

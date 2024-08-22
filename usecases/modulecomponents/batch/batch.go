@@ -139,9 +139,8 @@ func (b *Batch) batchWorker() {
 		if !ok {
 			rateLimit = b.client.GetVectorizerRateLimit(job.ctx, job.cfg)
 			rateLimitPerApiKey[job.apiKeyHash] = rateLimit
-		} else {
-			rateLimit.CheckForReset()
 		}
+		rateLimit.CheckForReset()
 
 		objCounter := 0
 
