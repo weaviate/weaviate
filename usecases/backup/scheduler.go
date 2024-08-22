@@ -215,6 +215,27 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	return st, nil
 }
 
+func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, backupID string,
+) error {
+	defer func(begin time.Time) {
+		var err error
+		logOperation(s.logger, "cancel_backup", backupID, backend, begin, err)
+	}(time.Now())
+
+	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
+	if err := s.authorizer.Authorize(principal, "delete", path); err != nil {
+		return err
+	}
+
+	_, err := coordBackend(s.backends, backend, backupID)
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+		return backup.NewErrUnprocessable(err)
+	}
+
+	return fmt.Errorf("not implemented")
+}
+
 func coordBackend(provider BackupBackendProvider, backend, id string) (coordStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
