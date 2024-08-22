@@ -15,11 +15,12 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/binary"
 	"fmt"
-	"github.com/weaviate/weaviate/usecases/byteops"
 	"math/rand"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
