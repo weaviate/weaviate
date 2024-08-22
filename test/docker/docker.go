@@ -86,7 +86,7 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 
 func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
 	if nodeIndex >= len(d.containers) {
-		return nil
+		return fmt.Errorf("requested container doesn't exists at %d", nodeIndex)
 	}
 	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
 		return err
