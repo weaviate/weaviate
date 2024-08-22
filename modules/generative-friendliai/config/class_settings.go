@@ -20,6 +20,7 @@ import (
 
 const (
 	baseURLProperty     = "baseURL"
+	headerURLProperty   = "X-Friendli-Baseurl"
 	modelProperty       = "model"
 	temperatureProperty = "temperature"
 	maxTokensProperty   = "maxTokens"
@@ -70,7 +71,11 @@ func (ic *classSettings) GetMaxTokensForModel(model string) int {
 }
 
 func (ic *classSettings) BaseURL() string {
-	return *ic.getStringProperty(baseURLProperty, DefaultBaseURL)
+	baseURL := *ic.getStringProperty(baseURLProperty, DefaultBaseURL)
+	if headerURL := *ic.getStringProperty(headerURLProperty, ""); headerURL != "" {
+		baseURL = headerURL
+	}
+	return baseURL
 }
 
 func (ic *classSettings) Model() string {

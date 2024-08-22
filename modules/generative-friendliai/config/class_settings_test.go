@@ -55,16 +55,30 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
-			name: "newly supported model",
+			name: "newly supported serverless model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model": "new-model-name",
+					"model": "new-serverless-model",
 				},
 			},
-			wantModel:       "new-model-name",
+			wantModel:       "new-serverless-model",
 			wantMaxTokens:   2048,
 			wantTemperature: 0,
 			wantBaseURL:     "https://inference.friendli.ai",
+			wantErr:         nil,
+		},
+		{
+			name: "custom dedicated model",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model": "my-dedicated-model",
+					"X-Friendli-Baseurl": "https://inference.friendli.ai/dedicated",
+				},
+			},
+			wantModel:       "my-dedicated-model",
+			wantMaxTokens:   2048,
+			wantTemperature: 0,
+			wantBaseURL:     "https://inference.friendli.ai/dedicated",
 			wantErr:         nil,
 		},
 	}
@@ -77,6 +91,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantModel, ic.Model())
 				assert.Equal(t, tt.wantMaxTokens, ic.MaxTokens())
 				assert.Equal(t, tt.wantTemperature, ic.Temperature())
+				assert.Equal(t, tt.wantBaseURL, ic.BaseURL())
 			}
 		})
 	}

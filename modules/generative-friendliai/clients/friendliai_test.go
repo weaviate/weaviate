@@ -93,7 +93,13 @@ func TestGetAnswer(t *testing.T) {
 	t.Run("when X-Friendli-Baseurl header is passed", func(t *testing.T) {
 		c := New("apiKey", 5*time.Second, nullLogger())
 		baseUrl := "https://inference.friendli.ai"
-		buildURL := c.getFriendliUrl(context.Background(), baseUrl)
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Friendli-Baseurl", []string{"https://inference.friendli.ai/dedicated"})
+		buildURL := c.getFriendliUrl(ctxWithValue, baseUrl)
+		assert.Equal(t, "https://inference.friendli.ai/dedicated/v1/chat/completions", buildURL)
+
+		buildURL = c.getFriendliUrl(context.Background(), baseUrl)
 		assert.Equal(t, "https://inference.friendli.ai/v1/chat/completions", buildURL)
 	})
 }

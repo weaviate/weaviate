@@ -42,6 +42,7 @@ func testGenerativeFriendliAI(host string) func(t *testing.T) {
 		tests := []struct {
 			name            string
 			generativeModel string
+			headerURL       string
 		}{
 			{
 				name:            "mixtral-8x7b-instruct-v0-1",
@@ -61,6 +62,7 @@ func testGenerativeFriendliAI(host string) func(t *testing.T) {
 				class.ModuleConfig = map[string]interface{}{
 					"generative-friendliai": map[string]interface{}{
 						"model": tt.generativeModel,
+						"X-Friendli-Baseurl": tt.headerURL,
 					},
 				}
 				// create schema

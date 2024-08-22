@@ -73,7 +73,6 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 
 	friendliUrl := v.getFriendliUrl(ctx, settings.BaseURL())
 	friendliPrompt := []map[string]string{
-		{"role": "system", "content": "You are a helpful assistant."},
 		{"role": "user", "content": prompt},
 	}
 
