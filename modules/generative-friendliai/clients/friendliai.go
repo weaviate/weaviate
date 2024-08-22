@@ -132,6 +132,7 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
 		Debug:  debugInformation,
+		Params: v.getResponseParams(resBody.Usage),
 	}, nil
 }
 
