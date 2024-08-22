@@ -125,6 +125,11 @@ type Config struct {
 	// SentryEnabled configures the sentry integration to add internal middlewares to rpc client/server to set spans &
 	// capture traces
 	SentryEnabled bool
+
+	// ForceOneNodeRecovery will force the single node recovery routine to run. This is useful if the cluster has
+	// committed wrong peer configuration entry that makes it unable to obtain a quorum to start.
+	// WARNING: This should be run on *actual* one node cluster only.
+	ForceOneNodeRecovery bool
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -167,9 +172,9 @@ type Store struct {
 	// schemaManager is responsible for applying changes committed by RAFT to the schema representation & querying the
 	// schema
 	schemaManager *schema.SchemaManager
-	// lastAppliedIndexOnStart represents the index of the last applied command when the store is opened.
-	lastAppliedIndexOnStart atomic.Uint64
-	// lastAppliedIndex index of latest update to the store
+	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
+	lastAppliedIndexToDB atomic.Uint64
+	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 }
 
@@ -193,6 +198,22 @@ func NewFSM(cfg Config) Store {
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
 func (st *Store) ID() string    { return st.cfg.NodeID }
 
+// lastIndex returns the last index in stable storage,
+// either from the last log or from the last snapshot.
+// this method work as a protection from applying anything was applied to the db
+// by checking either raft or max(snapshot, log store) instead the db will catchup
+func (st *Store) lastIndex() uint64 {
+	if st.raft != nil {
+		return st.raft.AppliedIndex()
+	}
+
+	l, err := st.LastAppliedCommand()
+	if err != nil {
+		panic(fmt.Sprintf("read log last command: %s", err.Error()))
+	}
+	return max(lastSnapshotIndex(st.snapshotStore), l)
+}
+
 // Open opens this store and marked as such.
 // It constructs a new Raft node using the provided configuration.
 // If there is any old state, such as snapshots, logs, peers, etc., all of those will be restored.
@@ -206,11 +227,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
 
-	l, err := st.LastAppliedCommand()
-	if err != nil {
-		return fmt.Errorf("read log last command: %w", err)
-	}
-	st.lastAppliedIndexOnStart.Store(l)
+	st.lastAppliedIndexToDB.Store(st.lastIndex())
 
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
@@ -224,8 +241,14 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
+	if st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2) {
+		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
+			return err
+		}
+	}
+
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
-	if st.lastAppliedIndexOnStart.Load() == 0 && snapIndex == 0 {
+	if st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
 		// if empty node report ready
 		st.dbLoaded.Store(true)
 	}
@@ -235,8 +258,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.log.WithFields(logrus.Fields{
 		"raft_applied_index":                st.raft.AppliedIndex(),
 		"raft_last_index":                   st.raft.LastIndex(),
-		"last_store_applied_index_on_start": st.lastAppliedIndexOnStart.Load(),
-		"last_store_raft_applied_index":     st.lastAppliedIndex.Load(),
+		"last_store_applied_index_on_start": st.lastAppliedIndexToDB.Load(),
 		"last_snapshot_index":               snapIndex,
 	}).Info("raft node constructed")
 
@@ -504,8 +526,8 @@ func (st *Store) Stats() map[string]any {
 	stats["open"] = st.open.Load()
 	stats["bootstrapped"] = st.bootstrapped.Load()
 	stats["candidates"] = st.candidates
-	stats["last_store_log_applied_index"] = st.lastAppliedIndexOnStart.Load()
-	stats["last_applied_index"] = st.lastAppliedIndex.Load()
+	stats["last_store_log_applied_index"] = st.lastAppliedIndexToDB.Load()
+	stats["last_applied_index"] = st.lastIndex()
 	stats["db_loaded"] = st.dbLoaded.Load()
 
 	// If the raft stats exist, add them as a nested map
@@ -597,32 +619,10 @@ func (st *Store) openDatabase(ctx context.Context) {
 	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
 }
 
-// reloadDBFromSnapshot reloads the node's local db. If the db is already loaded, it will be reloaded.
-// If a snapshot exists and its is up to date with the log, it will be loaded.
-// Otherwise, the database will be loaded when the node synchronizes its state with the leader.
-//
-// In specific scenarios where the follower's state is too far behind the leader's log,
-// the leader may decide to send a snapshot. Consequently, the follower must update its state accordingly.
-func (st *Store) reloadDBFromSnapshot() (success bool) {
-	defer func() {
-		if success && !st.cfg.MetadataOnlyVoters {
-			st.reloadDBFromSchema()
-		}
-	}()
-
-	if !st.dbLoaded.CompareAndSwap(true, false) {
-		// the snapshot already includes the state from the raft log
-		snapIndex := lastSnapshotIndex(st.snapshotStore)
-		st.log.WithFields(logrus.Fields{
-			"last_applied_index":           st.lastAppliedIndex.Load(),
-			"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
-			"last_snapshot_index":          snapIndex,
-		}).Info("load local db from snapshot")
-		return st.lastAppliedIndexOnStart.Load() <= snapIndex
-	}
-	return true
-}
-
+// reloadDBFromSchema() it will be called from two places Restore(), Apply()
+// on constructing raft.NewRaft(..) the raft lib. will
+// call Restore() first to restore from snapshots if there is any and
+// then later will call Apply() on any new committed log
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
 		st.schemaManager.ReloadDBFromSchema()
@@ -630,7 +630,20 @@ func (st *Store) reloadDBFromSchema() {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
 	st.dbLoaded.Store(true)
-	st.lastAppliedIndexOnStart.Store(0)
+
+	// in this path it means it was called from Apply()
+	// or forced Restore()
+	if st.raft != nil {
+		// we don't update lastAppliedIndexToDB if not a restore
+		return
+	}
+
+	// restore requests from snapshots before init new RAFT node
+	lastLogApplied, err := st.LastAppliedCommand()
+	if err != nil {
+		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
+	}
+	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
 }
 
 type Response struct {
@@ -646,4 +659,87 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 		return 0
 	}
 	return ls[0].Index
+}
+
+// recoverSingleNode is used to manually force a new configuration in order to
+// recover from a loss of quorum where the current configuration cannot be
+// WARNING! This operation implicitly commits all entries in the Raft log, so
+// in general this is an extremely unsafe operation and that's why it's made to be
+// used in a single cluster node.
+// for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
+func (st *Store) recoverSingleNode(force bool) error {
+	if !force && (st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1) {
+		return fmt.Errorf("bootstrap expect %v, candidates %v, "+
+			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
+	}
+	servers := st.raft.GetConfiguration().Configuration().Servers
+	// nothing to do here, wasn't a single node
+	if !force && len(servers) != 1 {
+		st.log.WithFields(logrus.Fields{
+			"servers_from_previous_configuration": servers,
+			"candidates":                          st.candidates,
+		}).Warn("didn't perform cluster recovery")
+		return nil
+	}
+
+	exNode := servers[0]
+	newNode := raft.Server{
+		ID:       raft.ServerID(st.cfg.NodeID),
+		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
+		Suffrage: raft.Voter,
+	}
+
+	// same node nothing to do here
+	if !force && (exNode.ID == newNode.ID && exNode.Address == newNode.Address) {
+		return nil
+	}
+
+	st.log.WithFields(logrus.Fields{
+		"action":                      "raft_cluster_recovery",
+		"existed_single_cluster_node": exNode,
+		"new_single_cluster_node":     newNode,
+	}).Info("perform cluster recovery")
+
+	fut := st.raft.Shutdown()
+	if err := fut.Error(); err != nil {
+		return err
+	}
+
+	if err := raft.RecoverCluster(st.raftConfig(), &Store{
+		cfg:           st.cfg,
+		log:           st.log,
+		raftResolver:  st.raftResolver,
+		raftTransport: st.raftTransport,
+		applyTimeout:  st.applyTimeout,
+		snapshotStore: st.snapshotStore,
+		schemaManager: st.schemaManager,
+		logStore:      st.logStore,
+		logCache:      st.logCache,
+	}, st.logCache,
+		st.logStore,
+		st.snapshotStore,
+		st.raftTransport,
+		raft.Configuration{Servers: []raft.Server{newNode}}); err != nil {
+		return err
+	}
+
+	var err error
+	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	if err != nil {
+		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
+	}
+
+	if exNode.ID == newNode.ID {
+		// no node name change needed in the state
+		return nil
+	}
+
+	st.log.WithFields(logrus.Fields{
+		"action":                       "replace_states_node_name",
+		"old_single_cluster_node_name": exNode.ID,
+		"new_single_cluster_node_name": newNode.ID,
+	}).Info("perform cluster recovery")
+	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
+
+	return nil
 }

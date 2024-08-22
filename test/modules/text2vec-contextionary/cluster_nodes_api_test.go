@@ -12,6 +12,7 @@
 package test
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -29,6 +30,19 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 	helper.SetupClient(os.Getenv(weaviateNode1Endpoint))
 	booksClass := books.ClassContextionaryVectorizer()
 	multiShardClass := multishard.ClassContextionaryVectorizer()
+	// we override multishard.ShardingConfig to make sure it matches nodes count
+	// and exists in every node
+	multiShardClass.ShardingConfig = map[string]interface{}{
+		"actualCount":         float64(3),
+		"actualVirtualCount":  float64(128),
+		"desiredCount":        float64(3),
+		"desiredVirtualCount": float64(128),
+		"function":            "murmur3",
+		"key":                 "_id",
+		"strategy":            "hash",
+		"virtualPerPhysical":  float64(128),
+	}
+
 	helper.CreateClass(t, booksClass)
 	helper.CreateClass(t, multiShardClass)
 	defer helper.DeleteClass(t, booksClass.Class)
@@ -46,7 +60,7 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 	})
 
 	t.Run("check nodes api", func(t *testing.T) {
-		for _, endpoint := range []string{weaviateNode1Endpoint, weaviateNode2Endpoint} {
+		for _, endpoint := range []string{weaviateNode1Endpoint, weaviateNode2Endpoint, weaviateNode3Endpoint} {
 			t.Run(endpoint, func(t *testing.T) {
 				helper.SetupClient(os.Getenv(endpoint))
 				verbose := verbosity.OutputVerbose
@@ -59,19 +73,16 @@ func Test_WeaviateCluster_NodesAPI(t *testing.T) {
 
 				nodes := nodeStatusResp.Nodes
 				require.NotNil(t, nodes)
-				require.Len(t, nodes, 2)
+				require.Len(t, nodes, 3)
 
 				assert.Equal(t, "node1", nodes[0].Name)
 				assert.Equal(t, "node2", nodes[1].Name)
+				assert.Equal(t, "node3", nodes[2].Name)
 
 				for i, nodeStatus := range nodes {
 					require.NotNil(t, nodeStatus)
 					assert.Equal(t, models.NodeStatusStatusHEALTHY, *nodeStatus.Status)
-					if i == 0 {
-						assert.Equal(t, "node1", nodeStatus.Name)
-					} else {
-						assert.Equal(t, "node2", nodeStatus.Name)
-					}
+					assert.Equal(t, fmt.Sprintf("node%d", i+1), nodeStatus.Name)
 					assert.True(t, nodeStatus.GitHash != "" && nodeStatus.GitHash != "unknown")
 					assert.Len(t, nodeStatus.Shards, 2)
 					var objectCount int64

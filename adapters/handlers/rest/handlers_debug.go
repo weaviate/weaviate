@@ -13,6 +13,7 @@ package rest
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strings"
@@ -20,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -37,6 +37,93 @@ func setupDebugHandlers(appState *state.State) {
 		parts := strings.Split(path, "/")
 		if len(parts) < 3 || len(parts) > 5 || parts[1] != "shards" {
 			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		colName, shardName := parts[0], parts[2]
+		targetVector := ""
+		if len(parts) == 4 {
+			targetVector = parts[3]
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.DebugResetVectorIndex(context.Background(), shardName, targetVector)
+		if err != nil {
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to reset vector index")
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+			}
+
+			http.Error(w, "failed to reset vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.WithField("shard", shardName).Info("reindexing started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/index/repair/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !config.Enabled(os.Getenv("ASYNC_INDEXING")) {
+			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.DebugRepairIndex(context.Background(), shardName, targetVector)
+		if err != nil {
+			logger.
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				WithError(err).
+				Error("failed to repair vector index")
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+			}
+
+			http.Error(w, "failed to repair vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Info("repair started")
+
+		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	http.HandleFunc("/debug/stats/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/debug/stats/collection/"))
+		parts := strings.Split(path, "/")
+		if len(parts) < 3 || len(parts) > 5 || parts[1] != "shards" {
+			logger.WithField("parts", parts).Info("invalid path")
+			http.Error(w, "invalid path", http.StatusNotFound)
 			return
 		}
 
@@ -74,38 +161,23 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		// Reset the queue
-		var q *db.IndexQueue
-		if vecIdxID == "main" {
-			q = shard.Queue()
-		} else {
-			q = shard.Queues()[vecIdxID]
-		}
-		if q == nil {
-			logger.WithField("shard", shardName).Error("index queue not found")
-			http.Error(w, "index queue not found", http.StatusNotFound)
-			return
-		}
-
-		// Reset the vector index
-		err := shard.DebugResetVectorIndex(context.Background(), vecIdxID)
+		stats, err := vidx.Stats()
 		if err != nil {
-			logger.WithField("shard", shardName).WithError(err).Error("failed to reset vector index")
-			http.Error(w, "failed to reset vector index", http.StatusInternalServerError)
+			logger.Error(err)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 
-		// Reindex in the background
-		errors.GoWrapper(func() {
-			err = q.PreloadShard(shard)
-			if err != nil {
-				logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
-				return
-			}
-		}, logger)
+		jsonBytes, err := json.Marshal(stats)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
-		logger.WithField("shard", shardName).Info("reindexing started")
+		logger.Info("Stats on HNSW started")
 
-		w.WriteHeader(http.StatusAccepted)
+		w.WriteHeader(http.StatusOK)
+		w.Write(jsonBytes)
 	}))
 }

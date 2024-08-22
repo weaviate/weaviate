@@ -42,8 +42,7 @@ func TestGRPC_Batch(t *testing.T) {
 func TestGRPC_Batch_Cluster(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
-		WithWeaviateCluster(2).
-		WithWeaviateGRPC().
+		WithWeaviateClusterWithGRPC().
 		WithText2VecContextionary().
 		Start(ctx)
 	require.NoError(t, err)

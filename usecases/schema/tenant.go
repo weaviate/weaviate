@@ -53,12 +53,12 @@ func (h *Handler) AddTenants(ctx context.Context,
 		return 0, err
 	}
 
-	if err = h.validateActivityStatuses(validated, true, false); err != nil {
+	if err = h.validateActivityStatuses(ctx, validated, true, false); err != nil {
 		return 0, err
 	}
 
 	request := api.AddTenantsRequest{
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
 	for i, tenant := range validated {
@@ -68,7 +68,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 		})
 	}
 
-	return h.schemaManager.AddTenants(class, &request)
+	return h.schemaManager.AddTenants(ctx, class, &request)
 }
 
 func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated []*models.Tenant, err error) {
@@ -105,7 +105,7 @@ func validateTenants(tenants []*models.Tenant, allowOverHundred bool) (validated
 	return
 }
 
-func (h *Handler) validateActivityStatuses(tenants []*models.Tenant,
+func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*models.Tenant,
 	allowEmpty, allowFrozen bool,
 ) error {
 	msgs := make([]string, 0, len(tenants))
@@ -120,9 +120,17 @@ func (h *Handler) validateActivityStatuses(tenants []*models.Tenant,
 				return fmt.Errorf(
 					"can't offload tenants, because offload-s3 module is not enabled")
 			}
+
+			if allowFrozen && h.cloud != nil {
+				if err := h.cloud.VerifyBucket(ctx); err != nil {
+					return err
+				}
+			}
+
 			if allowFrozen {
 				continue
 			}
+
 		default:
 			if status == "" && allowEmpty {
 				continue
@@ -157,13 +165,13 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	if err := h.validateActivityStatuses(validated, false, true); err != nil {
+	if err := h.validateActivityStatuses(ctx, validated, false, true); err != nil {
 		return nil, err
 	}
 
 	req := api.UpdateTenantsRequest{
 		Tenants:      make([]*api.Tenant, len(tenants)),
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 	}
 	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
@@ -171,7 +179,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		req.Tenants[i] = &api.Tenant{Name: tenant.Name, Status: tenant.ActivityStatus}
 	}
 
-	if _, err = h.schemaManager.UpdateTenants(class, &req); err != nil {
+	if _, err = h.schemaManager.UpdateTenants(ctx, class, &req); err != nil {
 		return nil, err
 	}
 
@@ -201,7 +209,7 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	_, err := h.schemaManager.DeleteTenants(class, &req)
+	_, err := h.schemaManager.DeleteTenants(ctx, class, &req)
 	return err
 }
 

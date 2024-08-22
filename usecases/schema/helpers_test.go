@@ -45,7 +45,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	handler, err := NewHandler(
 		schemaManager, schemaManager, &fakeValidator{}, logger, &fakeAuthorizer{nil},
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
+		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
 	require.Nil(t, err)
 	return &handler, schemaManager
 }
@@ -62,7 +62,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	handler, err := NewHandler(
 		metaHandler, metaHandler, &fakeValidator{}, logger, authorizer,
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{})
+		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -349,16 +349,4 @@ func (f *fakeMigrator) Shutdown(ctx context.Context) error {
 func (f *fakeMigrator) UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
 	args := f.Called(class, shardingState)
 	return args.Error(0)
-}
-
-type fakeNodes struct {
-	nodes []string
-}
-
-func (f fakeNodes) Candidates() []string {
-	return f.nodes
-}
-
-func (f fakeNodes) LocalName() string {
-	return f.nodes[0]
 }
