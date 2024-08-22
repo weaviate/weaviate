@@ -55,6 +55,7 @@ type PrometheusMetrics struct {
 	BackupStoreDataTransferred        *prometheus.CounterVec
 
 	IndexQueuePushDuration    *prometheus.SummaryVec
+	IndexQueueDeleteDuration  *prometheus.SummaryVec
 	IndexQueuePreloadDuration *prometheus.SummaryVec
 	IndexQueuePreloadCount    *prometheus.GaugeVec
 	IndexQueueSearchDuration  *prometheus.SummaryVec
@@ -128,6 +129,7 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.LSMSegmentSize.DeletePartialMatch(labels)
 	pm.LSMSegmentCountByLevel.DeletePartialMatch(labels)
 	pm.IndexQueuePushDuration.DeletePartialMatch(labels)
+	pm.IndexQueueDeleteDuration.DeletePartialMatch(labels)
 	pm.IndexQueuePreloadDuration.DeletePartialMatch(labels)
 	pm.IndexQueuePreloadCount.DeletePartialMatch(labels)
 	pm.IndexQueueSearchDuration.DeletePartialMatch(labels)
@@ -277,6 +279,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		IndexQueuePushDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "index_queue_push_duration_ms",
 			Help: "Duration of pushing one or more vectors to the index queue",
+		}, []string{"class_name", "shard_name", "target_vector"}),
+		IndexQueueDeleteDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "index_queue_delete_duration_ms",
+			Help: "Duration of deleting one or more vectors from the index queue and the underlying index",
 		}, []string{"class_name", "shard_name", "target_vector"}),
 		IndexQueuePreloadDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "index_queue_preload_duration_ms",

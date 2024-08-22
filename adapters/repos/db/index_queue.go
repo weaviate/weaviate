@@ -351,8 +351,11 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 		return q.index.Delete(ids...)
 	}
 
-	q.indexLock.Lock()
-	defer q.indexLock.Unlock()
+	start := time.Now()
+	defer q.metrics.Delete(start, len(ids))
+
+	q.indexLock.RLock()
+	defer q.indexLock.RUnlock()
 
 	for i := range ids {
 		if q.index.ContainsNode(ids[i]) {
