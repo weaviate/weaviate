@@ -61,7 +61,7 @@ func testGenerativeFriendliAI(host string) func(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				class.ModuleConfig = map[string]interface{}{
 					"generative-friendliai": map[string]interface{}{
-						"model": tt.generativeModel,
+						"model":              tt.generativeModel,
 						"X-Friendli-Baseurl": tt.headerURL,
 					},
 				}

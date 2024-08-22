@@ -82,7 +82,7 @@ func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,
 	}
-	
+
 	body, err := json.Marshal(input)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
@@ -238,7 +238,7 @@ type Choice struct {
 type generateResponse struct {
 	Choices []Choice
 	Usage   *usage `json:"usage,omitempty"`
-	Created int64 `json:"created"`
+	Created int64  `json:"created"`
 
 	Error *friendliApiError `json:"error,omitempty"`
 }

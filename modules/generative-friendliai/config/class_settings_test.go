@@ -71,7 +71,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "custom dedicated model",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"model": "my-dedicated-model",
+					"model":              "my-dedicated-model",
 					"X-Friendli-Baseurl": "https://inference.friendli.ai/dedicated",
 				},
 			},
