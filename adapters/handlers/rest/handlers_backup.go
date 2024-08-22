@@ -241,6 +241,31 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	return backups.NewBackupsCancelNoContent()
 }
 
+func (s *backupHandlers) list(params backups.BackupsListParams,
+	principal *models.Principal,
+) middleware.Responder {
+	payload, err := s.manager.List(
+		params.HTTPRequest.Context(), principal, params.Backend)
+	if err != nil {
+		s.metricRequestsTotal.logError("", err)
+		switch err.(type) {
+		case errors.Forbidden:
+			return backups.NewBackupsRestoreForbidden().
+				WithPayload(errPayloadFromSingleErr(err))
+
+		case backup.ErrUnprocessable:
+			return backups.NewBackupsRestoreUnprocessableEntity().
+				WithPayload(errPayloadFromSingleErr(err))
+		default:
+			return backups.NewBackupsRestoreInternalServerError().
+				WithPayload(errPayloadFromSingleErr(err))
+		}
+	}
+
+	s.metricRequestsTotal.logOk("")
+	return backups.NewBackupsListOK().WithPayload(*payload)
+}
+
 func setupBackupHandlers(api *operations.WeaviateAPI,
 	scheduler *ubak.Scheduler, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
@@ -254,6 +279,7 @@ func setupBackupHandlers(api *operations.WeaviateAPI,
 	api.BackupsBackupsRestoreStatusHandler = backups.
 		BackupsRestoreStatusHandlerFunc(h.restoreBackupStatus)
 	api.BackupsBackupsCancelHandler = backups.BackupsCancelHandlerFunc(h.cancel)
+	api.BackupsBackupsListHandler = backups.BackupsListHandlerFunc(h.list)
 }
 
 type backupRequestsTotal struct {

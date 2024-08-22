@@ -236,6 +236,24 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	return fmt.Errorf("not implemented")
 }
 
+func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string) (*models.BackupListResponse, error) {
+	var err error
+	defer func(begin time.Time) {
+		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
+	}(time.Now())
+	path := fmt.Sprintf("backups/%s", backend)
+	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+		return nil, err
+	}
+	_, err = coordBackend(s.backends, backend, "")
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	return nil, fmt.Errorf("not implemented")
+}
+
 func coordBackend(provider BackupBackendProvider, backend, id string) (coordStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
