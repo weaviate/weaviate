@@ -37,7 +37,7 @@ type raftPeers interface {
 }
 
 type raftFSM interface {
-	Execute(cmd *cmd.ApplyRequest) (uint64, error)
+	Execute(ctx context.Context, cmd *cmd.ApplyRequest) (uint64, error)
 	Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 }
 
@@ -96,8 +96,8 @@ func (s *Server) NotifyPeer(_ context.Context, req *cmd.NotifyPeerRequest) (*cmd
 // Apply will update the RAFT FSM representation to apply req.
 // Returns the FSM version of that change.
 // Returns an error and the current raft leader if applying fails.
-func (s *Server) Apply(_ context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
-	v, err := s.raftFSM.Execute(req)
+func (s *Server) Apply(ctx context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
+	v, err := s.raftFSM.Execute(ctx, req)
 	if err != nil {
 		return &cmd.ApplyResponse{Leader: s.raftPeers.Leader()}, toRPCError(err)
 	}
