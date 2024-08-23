@@ -72,7 +72,7 @@ func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) 
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateCluster(2).
+		WithWeaviateCluster(3).
 		Start(ctx)
 	return
 }
