@@ -19,9 +19,9 @@ import (
 
 func input(prefix string) *graphql.InputObjectFieldConfig {
 	return &graphql.InputObjectFieldConfig{
-		Description: fmt.Sprintf("%s settings", name),
+		Description: fmt.Sprintf("%s settings", Name),
 		Type: graphql.NewInputObject(graphql.InputObjectConfig{
-			Name: fmt.Sprintf("%s%sInputObject", prefix, name),
+			Name: fmt.Sprintf("%s%sInputObject", prefix, Name),
 			Fields: graphql.InputObjectConfigFieldMap{
 				"model": &graphql.InputObjectFieldConfig{
 					Description: "model",
@@ -63,10 +63,10 @@ func input(prefix string) *graphql.InputObjectFieldConfig {
 
 func output(prefix string) *graphql.Field {
 	return &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-		Name: fmt.Sprintf("%s%sFields", prefix, name),
+		Name: fmt.Sprintf("%s%sFields", prefix, Name),
 		Fields: graphql.Fields{
 			"usageMetadata": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%s%sUsageMetadataFields", prefix, name),
+				Name: fmt.Sprintf("%s%sUsageMetadataFields", prefix, Name),
 				Fields: graphql.Fields{
 					"promptTokenCount":     &graphql.Field{Type: graphql.Int},
 					"candidatesTokenCount": &graphql.Field{Type: graphql.Int},
@@ -74,20 +74,20 @@ func output(prefix string) *graphql.Field {
 				},
 			})},
 			"metadata": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-				Name: fmt.Sprintf("%s%sMetadataFields", prefix, name),
+				Name: fmt.Sprintf("%s%sMetadataFields", prefix, Name),
 				Fields: graphql.Fields{
 					"tokenMetadata": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-						Name: fmt.Sprintf("%s%sTokenMetadataFields", prefix, name),
+						Name: fmt.Sprintf("%s%sTokenMetadataFields", prefix, Name),
 						Fields: graphql.Fields{
 							"inputTokenCount": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-								Name: fmt.Sprintf("%s%sMetadataInputTokenCountFields", prefix, name),
+								Name: fmt.Sprintf("%s%sMetadataInputTokenCountFields", prefix, Name),
 								Fields: graphql.Fields{
 									"totalBillableCharacters": &graphql.Field{Type: graphql.Int},
 									"totalTokens":             &graphql.Field{Type: graphql.Int},
 								},
 							})},
 							"outputTokenCount": &graphql.Field{Type: graphql.NewObject(graphql.ObjectConfig{
-								Name: fmt.Sprintf("%s%sMetadataOutputTokenCountFields", prefix, name),
+								Name: fmt.Sprintf("%s%sMetadataOutputTokenCountFields", prefix, Name),
 								Fields: graphql.Fields{
 									"totalBillableCharacters": &graphql.Field{Type: graphql.Int},
 									"totalTokens":             &graphql.Field{Type: graphql.Int},

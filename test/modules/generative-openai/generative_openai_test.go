@@ -17,13 +17,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeOpenAI(host string) func(t *testing.T) {
+func testGenerativeOpenAI(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		data := planets.Planets
 		// Define class
@@ -84,6 +87,25 @@ func testGenerativeOpenAI(host string) func(t *testing.T) {
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "openai:{temperature:0.1}"
 					planets.CreateTweetTestWithParams(t, class.Class, params)
+				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					params := &pb.GenerativeProvider_Openai{
+						Openai: &pb.GenerativeOpenAI{
+							MaxTokens:        grpchelper.ToPtr(int64(90)),
+							Model:            tt.generativeModel,
+							Temperature:      grpchelper.ToPtr(0.9),
+							N:                grpchelper.ToPtr(int64(90)),
+							TopP:             grpchelper.ToPtr(0.9),
+							TopLogProbs:      grpchelper.ToPtr(int64(90)),
+							LogProbs:         grpchelper.ToPtr(true),
+							FrequencyPenalty: grpchelper.ToPtr(0.9),
+							PresencePenalty:  grpchelper.ToPtr(0.9),
+						},
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
 				})
 			})
 		}

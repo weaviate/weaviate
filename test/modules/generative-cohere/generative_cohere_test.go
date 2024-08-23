@@ -13,17 +13,21 @@ package tests
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeCohere(host string) func(t *testing.T) {
+func testGenerativeCohere(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		data := planets.Planets
 		// Define class
@@ -52,7 +56,7 @@ func testGenerativeCohere(host string) func(t *testing.T) {
 				generativeModel: "command-r",
 			},
 		}
-		for _, tt := range tests {
+		for idx, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				class.ModuleConfig = map[string]interface{}{
 					"generative-cohere": map[string]interface{}{
@@ -85,7 +89,27 @@ func testGenerativeCohere(host string) func(t *testing.T) {
 					params := "cohere:{temperature:0.9 k:400}"
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					params := &pb.GenerativeProvider_Cohere{
+						Cohere: &pb.GenerativeCohere{
+							MaxTokens:        grpchelper.ToPtr(int64(90)),
+							Model:            grpchelper.ToPtr(tt.generativeModel),
+							Temperature:      grpchelper.ToPtr(0.9),
+							K:                grpchelper.ToPtr(int64(90)),
+							P:                grpchelper.ToPtr(0.9),
+							StopSequences:    &pb.TextArray{Values: []string{"stop"}},
+							FrequencyPenalty: grpchelper.ToPtr(0.9),
+						},
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
+				})
 			})
+			if idx+1 < len(tests) {
+				time.Sleep(60 * time.Second) // sleep to avoid rate limit on cohere api
+			}
 		}
 	}
 }

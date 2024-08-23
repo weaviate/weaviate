@@ -41,7 +41,13 @@ func SetupClient(uri string) {
 }
 
 func SetupGRPCClient(t *testing.T, uri string) {
-	grpcClient = ClientGRPC(t, uri)
+	host, port := "", ""
+	res := strings.Split(uri, ":")
+	if len(res) == 2 {
+		host, port = res[0], res[1]
+	}
+	ServerGRPCHost = host
+	ServerGRPCPort = port
 }
 
 func CreateClass(t *testing.T, class *models.Class) {

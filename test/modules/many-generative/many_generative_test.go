@@ -85,8 +85,8 @@ func testGenerativeManyModules(host, ollamaApiEndpoint, region, gcpProject strin
 				params: `aws:{temperature:0.9 model:"ai21.j2-mid-v1"}`,
 			},
 			{
-				name:   "google",
-				params: `google:{topP:0.8 topK:30 model:"chat-bison"}`,
+				name:   "palm",
+				params: `palm:{topP:0.8 topK:30 model:"chat-bison"}`,
 			},
 		}
 		for _, tt := range tests {

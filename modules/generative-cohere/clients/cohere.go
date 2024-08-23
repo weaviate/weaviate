@@ -179,7 +179,16 @@ func (v *cohere) getDebugInformation(debug bool, prompt string) *modulecapabilit
 
 func (v *cohere) getResponseParams(meta *meta) map[string]interface{} {
 	if meta != nil {
-		return map[string]interface{}{"cohere": map[string]interface{}{"meta": meta}}
+		return map[string]interface{}{cohereparams.Name: map[string]interface{}{"meta": meta}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[cohereparams.Name].(map[string]interface{}); ok {
+		if meta, ok := params["meta"].(*meta); ok {
+			return &responseParams{Meta: meta}
+		}
 	}
 	return nil
 }
@@ -277,4 +286,8 @@ type billedUnits struct {
 type tokens struct {
 	InputTokens  *float64 `json:"input_tokens,omitempty"`
 	OutputTokens *float64 `json:"output_tokens,omitempty"`
+}
+
+type responseParams struct {
+	Meta *meta `json:"meta,omitempty"`
 }

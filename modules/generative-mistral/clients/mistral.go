@@ -141,7 +141,16 @@ func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, pro
 
 func (v *mistral) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"mistral": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{mistralparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[mistralparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
@@ -264,4 +273,8 @@ type usage struct {
 	PromptTokens     *int `json:"prompt_tokens,omitempty"`
 	CompletionTokens *int `json:"completion_tokens,omitempty"`
 	TotalTokens      *int `json:"total_tokens,omitempty"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

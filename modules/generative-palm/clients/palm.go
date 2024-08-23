@@ -344,7 +344,21 @@ func (v *palm) parseResponse(statusCode int, bodyBytes []byte, debug *modulecapa
 }
 
 func (v *palm) getResponseParams(params map[string]interface{}) map[string]interface{} {
-	return map[string]interface{}{"google": params}
+	return map[string]interface{}{googleparams.Name: params}
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[googleparams.Name].(map[string]interface{}); ok {
+		responseParams := &responseParams{}
+		if metadata, ok := params["metadata"].(*metadata); ok {
+			responseParams.Metadata = metadata
+		}
+		if usageMetadata, ok := params["usageMetadata"].(*usageMetadata); ok {
+			responseParams.UsageMetadata = usageMetadata
+		}
+		return responseParams
+	}
+	return nil
 }
 
 func (v *palm) getGenerateResponse(content string, params map[string]interface{}, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
@@ -707,4 +721,9 @@ type usageMetadata struct {
 	PromptTokenCount     int `json:"promptTokenCount"`
 	CandidatesTokenCount int `json:"candidatesTokenCount"`
 	TotalTokenCount      int `json:"totalTokenCount"`
+}
+
+type responseParams struct {
+	Metadata      *metadata      `json:"metadata,omitempty"`
+	UsageMetadata *usageMetadata `json:"usageMetadata,omitempty"`
 }
