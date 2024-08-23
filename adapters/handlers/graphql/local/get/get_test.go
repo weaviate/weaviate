@@ -1901,7 +1901,7 @@ func TestHybridWithSort(t *testing.T) {
 func TestHybridWithVectorDistance(t *testing.T) {
 	t.Parallel()
 	resolver := newMockResolverWithNoModules()
-	query := `{Get{SomeAction(hybrid:{query:"apple", vectorDistanceCutOff: 0.5}){intField}}}`
+	query := `{Get{SomeAction(hybrid:{query:"apple", maxVectorDistance: 0.5}){intField}}}`
 
 	var emptySubsearches []searchparams.WeightedSearchResult
 	expectedParams := dto.GetParams{
