@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -1419,7 +1420,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		shardingConfig, err := shardingConfig.ParseConfig(nil, 1)
 		require.Nil(t, err)
 
-		nodes := fakeNodes{[]string{"node1", "node2"}}
+		nodes := mocks.NewMockNodeSelector("node1", "node2")
 		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 1, false)
 		require.Nil(t, err)
 
@@ -1449,7 +1450,7 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		shardingConfig, err := shardingConfig.ParseConfig(nil, 2)
 		require.Nil(t, err)
 
-		nodes := fakeNodes{[]string{"node1", "node2"}}
+		nodes := mocks.NewMockNodeSelector("node1", "node2")
 		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 2, false)
 		require.Nil(t, err)
 
