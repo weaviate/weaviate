@@ -55,7 +55,7 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Search weight",
 			Type:        graphql.Float,
 		},
-		"vectorDistanceCutOff": &graphql.InputObjectFieldConfig{
+		"maxVectorDistance": &graphql.InputObjectFieldConfig{
 			Description: "Removes all results that have a vector distance larger than the given value",
 			Type:        graphql.Float,
 		},
