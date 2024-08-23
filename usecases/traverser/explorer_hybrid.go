@@ -14,6 +14,7 @@ package traverser
 import (
 	"context"
 	"fmt"
+
 	"github.com/go-openapi/strfmt"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
