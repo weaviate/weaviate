@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-databricks/config"
-	openaiparams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
+	databricksparams "github.com/weaviate/weaviate/modules/generative-databricks/parameters"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -100,7 +100,7 @@ func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrapf(err, "OpenAI API Key")
+		return nil, errors.Wrapf(err, "Databricks Token")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey))
 	req.Header.Add("Content-Type", "application/json")
@@ -153,11 +153,11 @@ func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	}, nil
 }
 
-func (v *databricks) getParameters(cfg moduletools.ClassConfig, options interface{}) openaiparams.Params {
+func (v *databricks) getParameters(cfg moduletools.ClassConfig, options interface{}) databricksparams.Params {
 	settings := config.NewClassSettings(cfg)
 
-	var params openaiparams.Params
-	if p, ok := options.(openaiparams.Params); ok {
+	var params databricksparams.Params
+	if p, ok := options.(databricksparams.Params); ok {
 		params = p
 	}
 
@@ -188,7 +188,7 @@ func (v *databricks) getDebugInformation(debug bool, prompt string) *modulecapab
 
 func (v *databricks) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"openai": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{"databricks": map[string]interface{}{"usage": usage}}
 	}
 	return nil
 }
@@ -201,7 +201,7 @@ func (v *databricks) buildDatabricksServingUrl(ctx context.Context, settings con
 	return servingURL, nil
 }
 
-func (v *databricks) generateInput(prompt string, params openaiparams.Params, settings config.ClassSettings) (generateInput, error) {
+func (v *databricks) generateInput(prompt string, params databricksparams.Params, settings config.ClassSettings) (generateInput, error) {
 	var input generateInput
 	messages := []message{{
 		Role:    "user",
@@ -223,7 +223,7 @@ func (v *databricks) generateInput(prompt string, params openaiparams.Params, se
 	return input, nil
 }
 
-func (v *databricks) getError(statusCode int, resBodyError *openAIApiError) error {
+func (v *databricks) getError(statusCode int, resBodyError *databricksApiError) error {
 	endpoint := "Databricks Foundation Model API"
 	if resBodyError != nil {
 		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
@@ -315,8 +315,8 @@ type message struct {
 
 type generateResponse struct {
 	Choices []choice
-	Usage   *usage          `json:"usage,omitempty"`
-	Error   *openAIApiError `json:"error,omitempty"`
+	Usage   *usage              `json:"usage,omitempty"`
+	Error   *databricksApiError `json:"error,omitempty"`
 }
 
 type choice struct {
@@ -327,11 +327,9 @@ type choice struct {
 	Message      *message `json:"message,omitempty"`
 }
 
-type openAIApiError struct {
-	Message string     `json:"message"`
-	Type    string     `json:"type"`
-	Param   string     `json:"param"`
-	Code    openAICode `json:"code"`
+type databricksApiError struct {
+	Message   string         `json:"message"`
+	ErrorCode databricksCode `json:"error_code"`
 }
 
 type usage struct {
@@ -340,19 +338,19 @@ type usage struct {
 	TotalTokens      *int `json:"total_tokens,omitempty"`
 }
 
-type openAICode string
+type databricksCode string
 
-func (c *openAICode) String() string {
+func (c *databricksCode) String() string {
 	if c == nil {
 		return ""
 	}
 	return string(*c)
 }
 
-func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
+func (c *databricksCode) UnmarshalJSON(data []byte) (err error) {
 	if number, err := strconv.Atoi(string(data)); err == nil {
 		str := strconv.Itoa(number)
-		*c = openAICode(str)
+		*c = databricksCode(str)
 		return nil
 	}
 	var str string
@@ -360,6 +358,6 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 	if err != nil {
 		return err
 	}
-	*c = openAICode(str)
+	*c = databricksCode(str)
 	return nil
 }
