@@ -58,7 +58,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	}
 
 	request := api.AddTenantsRequest{
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 		Tenants:      make([]*api.Tenant, 0, len(validated)),
 	}
 	for i, tenant := range validated {
@@ -171,7 +171,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 
 	req := api.UpdateTenantsRequest{
 		Tenants:      make([]*api.Tenant, len(tenants)),
-		ClusterNodes: h.clusterState.Candidates(),
+		ClusterNodes: h.schemaManager.StorageCandidates(),
 	}
 	tNames := make([]string, len(tenants))
 	for i, tenant := range tenants {
