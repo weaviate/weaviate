@@ -195,7 +195,16 @@ func (v *octoai) getDebugInformation(debug bool, prompt string) *modulecapabilit
 
 func (v *octoai) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"octoai": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{octoparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[octoparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
@@ -305,4 +314,8 @@ type usage struct {
 
 type octoaiApiError struct {
 	Message string `json:"message"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

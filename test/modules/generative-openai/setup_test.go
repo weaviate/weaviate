@@ -35,15 +35,16 @@ func TestGenerativeOpenAI_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	endpointREST := compose.GetWeaviate().URI()
+	endpointGRPC := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testGenerativeOpenAI(endpoint))
+	t.Run("tests", testGenerativeOpenAI(endpointREST, endpointGRPC))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, apiKey, organization string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(apiKey, organization).
-		WithWeaviate().
+		WithWeaviateWithGRPC().
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return

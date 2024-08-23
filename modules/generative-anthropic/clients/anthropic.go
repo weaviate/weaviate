@@ -186,7 +186,16 @@ func (a *anthropic) getDebugInformation(debug bool, prompt string) *modulecapabi
 
 func (a *anthropic) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"anthropic": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{anthropicparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[anthropicparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
@@ -292,4 +301,8 @@ type usage struct {
 type errorMessage struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

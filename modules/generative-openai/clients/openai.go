@@ -220,7 +220,16 @@ func (v *openai) getDebugInformation(debug bool, prompt string) *modulecapabilit
 
 func (v *openai) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"openai": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{openaiparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[openaiparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
@@ -452,4 +461,8 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 	}
 	*c = openAICode(str)
 	return nil
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

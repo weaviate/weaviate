@@ -17,13 +17,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
+func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		data := planets.Planets
 		// Define class
@@ -121,8 +124,25 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 					planets.CreateTweetTest(t, class.Class)
 				})
 				t.Run("create a tweet with params", func(t *testing.T) {
-					params := "google:{topP:0.1 topK:40}"
+					params := "palm:{topP:0.1 topK:40}"
 					planets.CreateTweetTestWithParams(t, class.Class, params)
+				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					params := &pb.GenerativeProvider_Palm{
+						Palm: &pb.GenerativePaLM{
+							MaxTokens:        grpchelper.ToPtr(int64(90)),
+							Model:            grpchelper.ToPtr(tt.generativeModel),
+							Temperature:      grpchelper.ToPtr(0.9),
+							TopK:             grpchelper.ToPtr(int64(90)),
+							TopP:             grpchelper.ToPtr(0.9),
+							FrequencyPenalty: grpchelper.ToPtr(0.9),
+							PresencePenalty:  grpchelper.ToPtr(0.9),
+						},
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
 				})
 			})
 		}
