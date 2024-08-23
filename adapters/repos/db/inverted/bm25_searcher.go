@@ -224,6 +224,9 @@ func (b *BM25Searcher) wand(
 					}
 					resultsLock.Lock()
 					for _, term := range termResult {
+						if term == nil {
+							continue
+						}
 						if _, exists := results[term.property]; !exists {
 							results[term.property] = make(terms, 0, len(uniqueTerms))
 						}
@@ -263,6 +266,10 @@ func (b *BM25Searcher) wand(
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
+	}
+
+	if len(topKResults) == 0 {
+		return nil, nil, nil
 	}
 
 	// combine results
@@ -429,7 +436,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 					idPointer:  m[0].Id(),
 					queryTerm:  query,
 					property:   propName,
-					exhausted:  len(m) == 0,
+					exhausted:  false,
 					data:       m,
 					idf:        idf,
 					boost:      propertyBoosts[propName],
