@@ -345,3 +345,9 @@ func GetMeta(t *testing.T) *models.Meta {
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
 }
+
+func ObjectContentsProp(contents string) map[string]interface{} {
+	props := map[string]interface{}{}
+	props["contents"] = contents
+	return props
+}
