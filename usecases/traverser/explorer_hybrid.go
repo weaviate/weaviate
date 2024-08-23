@@ -294,8 +294,9 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 							minFound = i
 						}
 					}
-
-					// sorted by distance, so just remove everything after the first entry we found
+				}
+				// sorted by distance, so just remove everything after the first entry we found
+				if minFound >= 0 {
 					res = res[:minFound]
 				}
 			}
