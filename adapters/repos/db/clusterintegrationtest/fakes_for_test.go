@@ -35,6 +35,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -56,9 +58,14 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
 
+	var names []string
+	for _, node := range *allNodes {
+		names = append(names, node.name)
+	}
 	nodeResolver := &nodeResolver{
-		nodes: allNodes,
-		local: n.name,
+		NodeSelector: mocks.NewMockNodeSelector(names...),
+		nodes:        allNodes,
+		local:        n.name,
 	}
 
 	shardState, err := sharding.StateFromJSON(shardStateRaw, nodeResolver)
@@ -119,18 +126,6 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.hostname = u.Host
 }
 
-type fakeNodes struct {
-	nodes []string
-}
-
-func (f fakeNodes) Candidates() []string {
-	return f.nodes
-}
-
-func (f fakeNodes) LocalName() string {
-	return f.nodes[0]
-}
-
 type fakeSchemaManager struct {
 	schema       schema.Schema
 	shardState   *sharding.State
@@ -179,7 +174,7 @@ func (f *fakeSchemaManager) ShardReplicas(class, shard string) ([]string, error)
 	return x.BelongsToNodes, nil
 }
 
-func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT
@@ -187,7 +182,7 @@ func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[
 	return res, nil
 }
 
-func (f *fakeSchemaManager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -219,7 +214,12 @@ func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 	return nil, nil
 }
 
+func (f *fakeSchemaManager) StorageCandidates() []string {
+	return []string{}
+}
+
 type nodeResolver struct {
+	cluster.NodeSelector
 	nodes *[]*node
 	local string
 }
@@ -236,18 +236,16 @@ func (r nodeResolver) AllNames() []string {
 	return xs
 }
 
-func (r nodeResolver) Candidates() []string {
-	return nil
-}
-
-func (r nodeResolver) LocalName() string {
-	return r.local
-}
-
 func (r nodeResolver) NodeCount() int {
 	return len(*r.nodes)
 }
 
+// LocalName keep it to override the common mock of cluster.NodeSelector
+func (r nodeResolver) LocalName() string {
+	return r.local
+}
+
+// NodeHostname keep it to override the common mock of cluster.NodeSelector
 func (r nodeResolver) NodeHostname(nodeName string) (string, bool) {
 	for _, node := range *r.nodes {
 		if node.name == nodeName {

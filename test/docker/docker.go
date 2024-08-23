@@ -88,7 +88,15 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 	if nodeIndex >= len(d.containers) {
 		return nil
 	}
-	return d.containers[nodeIndex].container.Stop(ctx, timeout)
+	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
+		return err
+	}
+
+	// sleep to make sure that the off node is detected by memberlist and marked failed
+	// it shall be used with combination of "FAST_FAILURE_DETECTION" env flag
+	time.Sleep(3 * time.Second)
+
+	return nil
 }
 
 func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {

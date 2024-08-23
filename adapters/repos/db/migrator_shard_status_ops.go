@@ -192,7 +192,7 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 	}
 
 	enterrors.GoWrapper(func() {
-		if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
+		if _, err := m.cluster.UpdateTenantsProcess(ctx, class, &cmd); err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"action":  "update_tenants_process",
 				"error":   err,
@@ -295,7 +295,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 	}
 
 	enterrors.GoWrapper(func() {
-		if _, err := m.cluster.UpdateTenantsProcess(class, &cmd); err != nil {
+		if _, err := m.cluster.UpdateTenantsProcess(ctx, class, &cmd); err != nil {
 			m.logger.WithFields(logrus.Fields{
 				"action":  "update_tenants_process",
 				"error":   err,

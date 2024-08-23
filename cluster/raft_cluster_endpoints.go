@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"slices"
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -23,6 +24,43 @@ import (
 func (s *Raft) LeaderWithID() (string, string) {
 	addr, id := s.store.LeaderWithID()
 	return string(addr), string(id)
+}
+
+// StorageCandidates return the nodes in the raft configuration or memberlist storage nodes
+// based on the current configuration of the cluster if it does have  MetadataVoterOnly nodes.
+func (s *Raft) StorageCandidates() []string {
+	if s.store.raft == nil {
+		// get candidates from memberlist
+		return s.nodeSelector.StorageCandidates()
+	}
+
+	var (
+		existedRaftCandidates []string
+		raftStorageCandidates []string
+		memStorageCandidates  = s.nodeSelector.StorageCandidates()
+		nonStorageCandidates  = s.nodeSelector.NonStorageNodes()
+	)
+
+	for _, server := range s.store.raft.GetConfiguration().Configuration().Servers {
+		existedRaftCandidates = append(existedRaftCandidates, string(server.ID))
+	}
+
+	// filter non storage candidates
+	for _, c := range existedRaftCandidates {
+		if slices.Contains(nonStorageCandidates, c) {
+			continue
+		}
+		raftStorageCandidates = append(raftStorageCandidates, c)
+	}
+
+	if len(memStorageCandidates) > len(raftStorageCandidates) {
+		// if memberlist has more nodes then use it instead
+		// this case could happen if we have MetaVoterOnly Nodes
+		// in the RAFT config
+		return memStorageCandidates
+	}
+
+	return s.nodeSelector.SortCandidates(raftStorageCandidates)
 }
 
 func (s *Raft) Join(ctx context.Context, id, addr string, voter bool) error {

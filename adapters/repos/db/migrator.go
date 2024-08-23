@@ -47,7 +47,8 @@ type provider interface {
 }
 
 type processor interface {
-	UpdateTenantsProcess(class string, req *command.TenantProcessRequest) (uint64, error)
+	UpdateTenantsProcess(ctx context.Context,
+		class string, req *command.TenantProcessRequest) (uint64, error)
 }
 
 type Migrator struct {
