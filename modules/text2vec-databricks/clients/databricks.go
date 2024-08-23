@@ -131,10 +131,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 	for i := range resBody.Data {
 		texts[i] = resBody.Data[i].Object
 		embeddings[i] = resBody.Data[i].Embedding
-		// TODO: Check how Databricks Api reports errors in individual embeddings are reported in the response
-		// if resBody.Data[i].Error != nil {
-		// 	openAIerror[i] = v.getError(res.StatusCode, resBody.Data[i].Error, config.IsAzure)
-		// }
+
 	}
 
 	return &modulecomponents.VectorizationResult{
