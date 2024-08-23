@@ -58,16 +58,6 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "third object second batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "fourth object second batch"}},
 		}, skip: []bool{false, true, false, false, false, true, false, false}, wantErrors: map[int]error{3: fmt.Errorf("something")}},
-		{name: "token too long", objects: []*models.Object{
-			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 5"}}, // set limit
-			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
-		}, skip: []bool{false, false, false}, wantErrors: map[int]error{1: fmt.Errorf("text too long for vectorization")}},
-		{name: "token too long, last item in batch", objects: []*models.Object{
-			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 5"}}, // set limit
-			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
-		}, skip: []bool{false, false, false}, wantErrors: map[int]error{2: fmt.Errorf("text too long for vectorization")}},
 		{name: "skip last item", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "fir test object"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "first object first batch"}},
@@ -81,13 +71,6 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
 		}, skip: []bool{false, false, false, false, true, false}, wantErrors: map[int]error{3: fmt.Errorf("context deadline exceeded or cancelled"), 5: fmt.Errorf("context deadline exceeded or cancelled")}},
-		{name: "azure limit without total Limit", objects: []*models.Object{
-			{Class: "Car", Properties: map[string]interface{}{"test": "azureTokens 15"}}, // set azure limit without total Limit
-			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "something"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "all works"}},
-		}, skip: []bool{false, false, false, true, false}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

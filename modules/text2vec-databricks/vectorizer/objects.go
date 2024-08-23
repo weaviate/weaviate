@@ -15,10 +15,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/weaviate/tiktoken-go"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-databricks/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-databricks/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
@@ -41,12 +39,6 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 		tokenCounts := make([]int, len(objects))
 		icheck := ent.NewClassSettings(cfg)
 
-		// TODO: Check how Databricks embeddings model tokenize the text
-		tke, err := tiktoken.EncodingForModel(icheck.Model())
-		if err != nil { // fail all objects as they all have the same model
-			tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
-		}
-
 		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
 		skipAll := true
 		for i := range texts {
@@ -56,7 +48,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 			skipAll = false
 			text := objectVectorizer.Texts(ctx, objects[i], icheck)
 			texts[i] = text
-			tokenCounts[i] = clients.GetTokensCount(icheck.Model(), text, tke)
+			tokenCounts[i] = 0
 		}
 		return texts, tokenCounts, skipAll, nil
 	}
