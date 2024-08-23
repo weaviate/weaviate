@@ -258,8 +258,10 @@ func (b *BM25Searcher) wand(
 			if err != nil {
 				return err
 			}
+			resultsLock.Lock()
 			topKResults[propName] = res
 			topKScores[propName] = sco
+			resultsLock.Unlock()
 			return nil
 		}, "prop_name", propName)
 	}
