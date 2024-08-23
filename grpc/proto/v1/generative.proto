@@ -76,7 +76,8 @@ message GenerativeCohere{
   optional double temperature = 8;
 }
 
-message GenerativeDummy{}
+message GenerativeDummy{
+}
 
 message GenerativeMistral{
   optional int64 max_tokens = 1;
@@ -124,15 +125,17 @@ message GenerativePaLM{
 
 message GenerativeAnthropicMetadata {
   message Usage {
-    int64 inputTokens = 1;
-    int64 outputTokens = 2;
+    int64 input_tokens = 1;
+    int64 output_tokens = 2;
   }
   Usage usage = 1;
 }
 
-message GenerativeAnyscaleMetadata {}
+message GenerativeAnyscaleMetadata {
+}
 
-message GenerativeAWSMetadata {}
+message GenerativeAWSMetadata {
+}
 
 message GenerativeCohereMetadata {
   message ApiVersion {
@@ -156,7 +159,8 @@ message GenerativeCohereMetadata {
   optional TextArray warnings = 4;
 }
 
-message GenerativeDummyMetadata {}
+message GenerativeDummyMetadata {
+}
 
 message GenerativeMistralMetadata {
   message Usage {
@@ -176,7 +180,8 @@ message GenerativeOctoAIMetadata {
   optional Usage usage = 1;
 }
 
-message GenerativeOllamaMetadata {}
+message GenerativeOllamaMetadata {
+}
 
 message GenerativeOpenAIMetadata {
   message Usage {
