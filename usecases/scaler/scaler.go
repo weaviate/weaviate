@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -46,7 +47,7 @@ var (
 // It scales out a class by replicating its shards on new replicas
 type Scaler struct {
 	schemaReader    SchemaReader
-	cluster         cluster
+	cluster         cluster.NodeSelector
 	source          BackUpper // data source
 	client          client    // client for remote nodes
 	logger          logrus.FieldLogger
@@ -54,7 +55,7 @@ type Scaler struct {
 }
 
 // New returns a new instance of Scaler
-func New(cl cluster, source BackUpper,
+func New(cl cluster.NodeSelector, source BackUpper,
 	c client, logger logrus.FieldLogger, persistenceRoot string,
 ) *Scaler {
 	return &Scaler{
@@ -72,16 +73,6 @@ type BackUpper interface {
 	ShardsBackup(_ context.Context, id, class string, shards []string) (backup.ClassDescriptor, error)
 	// ReleaseBackup releases the backup specified by its id
 	ReleaseBackup(ctx context.Context, id, className string) error
-}
-
-// cluster is used by the scaler to query cluster
-type cluster interface {
-	// Candidates returns list of existing nodes in the cluster
-	Candidates() []string
-	// LocalName returns name of this node
-	LocalName() string
-	// NodeHostname return hosts address for a specific node name
-	NodeHostname(name string) (string, bool)
 }
 
 // SchemaReader is used by the scaler to get and update sharding states
@@ -113,7 +104,7 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 	}
 
 	if newReplFactor < prevReplFactor {
-		return s.scaleIn(ctx, className, updated)
+		return nil, errors.Errorf("scaling in not supported yet")
 	}
 
 	return nil, nil
@@ -213,10 +204,4 @@ func (s *Scaler) LocalScaleOut(ctx context.Context,
 	}()
 	rsync := newRSync(s.client, s.cluster, s.persistenceRoot)
 	return rsync.Push(ctx, bak.Shards, dist, className, s.logger)
-}
-
-func (s *Scaler) scaleIn(ctx context.Context, className string,
-	updated config.Config,
-) (*sharding.State, error) {
-	return nil, errors.Errorf("scaling in not supported yet")
 }
