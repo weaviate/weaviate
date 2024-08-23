@@ -104,6 +104,7 @@ type HybridSearch struct {
 	Properties       []string    `json:"properties"`
 	TargetVectors    []string    `json:"targetVectors"`
 	FusionAlgorithm  int         `json:"fusionalgorithm"`
+	Distance         float32     `json:"dstance"`
 	NearTextParams   *NearTextParams
 	NearVectorParams *NearVector
 }
