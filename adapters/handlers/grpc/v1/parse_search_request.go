@@ -225,13 +225,15 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		}
 
 		var distance float32
-		switch hs.Threshold.(type) {
-		case *pb.Hybrid_VectorDistance:
-			distance = hs.Threshold.(*pb.Hybrid_VectorDistance).VectorDistance
-		default:
-			return dto.GetParams{}, fmt.Errorf("unknown value type %v", hs.Threshold)
+		if hs.Threshold != nil {
+			switch hs.Threshold.(type) {
+			case *pb.Hybrid_VectorDistance:
+				distance = hs.Threshold.(*pb.Hybrid_VectorDistance).VectorDistance
+			default:
+				return dto.GetParams{}, fmt.Errorf("unknown value type %v", hs.Threshold)
+			}
 		}
-
+		
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
