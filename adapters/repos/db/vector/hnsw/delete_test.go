@@ -19,6 +19,7 @@ import (
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -247,6 +248,73 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
 		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
+}
+
+func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
+	// there is a single bulk clean event after all the deletes
+	vectors := vectorsForDeleteTest()
+	var vectorIndex *hnsw
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("running two cleanups should start only once", func(t *testing.T) {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			wg.Done()
+			err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+			require.Nil(t, err)
+		}()
+		wg.Wait()
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		assert.NotNil(t, err)
+		assert.Equal(t, err.Error(), "tombstone cleanup already running")
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -625,6 +693,46 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 			require.Nil(t, index.Drop(context.Background()))
 		})
 	}
+}
+
+func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *testing.T) {
+	vectors := vectorsForDeleteTest()
+	var index *hnsw
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("create control index", func(t *testing.T) {
+		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
+	})
+
+	t.Run("count all cleanup tombstones stops", func(t *testing.T) {
+		counter := 0
+		mutex := &sync.Mutex{}
+		countingStopFunc := func() bool {
+			mutex.Lock()
+			counter++
+			counterCpy := counter
+			mutex.Unlock()
+			return counterCpy > 30 && counterCpy < 40
+		}
+
+		err := index.CleanUpTombstonedNodes(countingStopFunc)
+		require.Nil(t, err)
+	})
+
+	time.Sleep(1000 * time.Millisecond)
+
+	t.Run("even ids are not coming back and tombstones are not removed completely", func(t *testing.T) {
+		ids, _, _ := index.SearchByVector(vectors[0], len(vectors), nil)
+		for _, id := range ids {
+			assert.Equal(t, 1, int(id%2))
+		}
+		assert.True(t, len(index.tombstones) > 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, index.Drop(context.Background()))
+	})
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {

@@ -77,7 +77,7 @@ func (p Physical) BelongsToNode() string {
 }
 
 // AdjustReplicas shrinks or extends the replica set (p.BelongsToNodes)
-func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
+func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
 	if count < 0 {
 		return fmt.Errorf("negative replication factor: %d", count)
 	}
@@ -100,7 +100,7 @@ func (p *Physical) AdjustReplicas(count int, nodes nodes) error {
 		return nil
 	}
 
-	names := nodes.Candidates()
+	names := nodes.StorageCandidates()
 	if count > len(names) {
 		return fmt.Errorf("not enough storage replicas: found %d want %d", len(names), count)
 	}
@@ -123,12 +123,7 @@ func (p *Physical) ActivityStatus() string {
 	return schema.ActivityStatus(p.Status)
 }
 
-type nodes interface {
-	Candidates() []string
-	LocalName() string
-}
-
-func InitState(id string, config config.Config, nodes nodes, replFactor int64, partitioningEnabled bool) (*State, error) {
+func InitState(id string, config config.Config, nodes cluster.NodeSelector, replFactor int64, partitioningEnabled bool) (*State, error) {
 	out := &State{
 		Config:              config,
 		IndexID:             id,
@@ -140,7 +135,7 @@ func InitState(id string, config config.Config, nodes nodes, replFactor int64, p
 		return out, nil
 	}
 
-	names := nodes.Candidates()
+	names := nodes.StorageCandidates()
 	if f, n := replFactor, len(names); f > int64(n) {
 		return nil, fmt.Errorf("not enough storage replicas: found %d want %d", n, f)
 	}
@@ -299,8 +294,8 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 	if len(nodes) == 0 {
 		return nil, fmt.Errorf("list of storage nodes is empty")
 	}
-	if f, n := replFactor, len(nodes); f > int64(n) {
-		return nil, fmt.Errorf("not enough replicas: found %d want %d", n, f)
+	if replFactor > int64(len(nodes)) {
+		return nil, fmt.Errorf("not enough replicas: found %d want %d", len(nodes), replFactor)
 	}
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
 	if err != nil {
