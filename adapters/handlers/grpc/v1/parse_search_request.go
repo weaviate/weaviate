@@ -233,7 +233,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 				return dto.GetParams{}, fmt.Errorf("unknown value type %v", hs.Threshold)
 			}
 		}
-		
+
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
