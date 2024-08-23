@@ -128,9 +128,6 @@ func TestClient(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := New("", 0, nullLogger())
-		// c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
-		// 	return server.URL, nil
-		// }
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Databricks-Token", []string{""})
