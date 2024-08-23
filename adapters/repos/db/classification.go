@@ -32,10 +32,11 @@ import (
 // TODO: why is this logic in the persistence package? This is business-logic,
 // move out of here!
 func (db *DB) GetUnclassified(ctx context.Context, className string,
-	properties []string, filter *libfilters.LocalFilter,
+	properties []string, propsToReturn []string, filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
-	props := make(search.SelectProperties, len(properties))
-	for i, prop := range properties {
+	propsToReturnTmp := append(properties, propsToReturn...)
+	props := make(search.SelectProperties, len(propsToReturnTmp))
+	for i, prop := range propsToReturnTmp {
 		props[i] = search.SelectProperty{Name: prop}
 	}
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, className, properties,
@@ -65,6 +66,11 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
+	props := make(search.SelectProperties, len(properties))
+	for i, prop := range properties {
+		props[i] = search.SelectProperty{Name: prop}
+	}
+
 	res, err := db.VectorSearch(ctx, dto.GetParams{
 		ClassName: class,
 		Pagination: &filters.Pagination{
@@ -74,6 +80,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 		AdditionalProperties: additional.Properties{
 			Vector: true,
 		},
+		Properties: props,
 	}, []string{""}, [][]float32{vector})
 
 	return res, err

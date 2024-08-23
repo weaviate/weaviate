@@ -18,27 +18,29 @@ import (
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 // Raft abstracts away the Raft store, providing clients with an interface that encompasses all query & write operations.
 // It ensures that these operations are executed on the current leader, regardless of the specific leader in the cluster.
 // If current node is the leader, then changes will be applied on the local node and bypass any networking requests.
 type Raft struct {
-	store *Store
-	cl    client
-	log   *logrus.Logger
+	nodeSelector cluster.NodeSelector
+	store        *Store
+	cl           client
+	log          *logrus.Logger
 }
 
 // client to communicate with remote services
 type client interface {
-	Apply(leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error)
+	Apply(ctx context.Context, leaderAddr string, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error)
 	Query(ctx context.Context, leaderAddr string, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 	Remove(ctx context.Context, leaderAddress string, req *cmd.RemovePeerRequest) (*cmd.RemovePeerResponse, error)
 	Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)
 }
 
-func NewRaft(store *Store, client client) *Raft {
-	return &Raft{store: store, cl: client, log: store.log}
+func NewRaft(selector cluster.NodeSelector, store *Store, client client) *Raft {
+	return &Raft{nodeSelector: selector, store: store, cl: client, log: store.log}
 }
 
 // Open opens this store service and marked as such.

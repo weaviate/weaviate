@@ -30,7 +30,6 @@ import (
 )
 
 func Test_OffloadBucketNotAutoCreate(t *testing.T) {
-	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -41,11 +40,11 @@ func Test_OffloadBucketNotAutoCreate(t *testing.T) {
 	compose, err := docker.New().
 		WithOffloadS3("offloading", "us-west-1").
 		WithText2VecContextionary().
-		WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
-		WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
+		WithWeaviateEnv("OFFLOAD_TIMEOUT", "1").
+		WithoutWeaviateEnvs("OFFLOAD_S3_BUCKET_AUTO_CREATE").
 		WithWeaviate().
 		Start(ctx)
-	require.NotNil(t, err)
+	require.Nil(t, err)
 
 	if err := compose.Terminate(ctx); err != nil {
 		t.Fatalf("failed to terminate test containers: %s", err.Error())
@@ -64,7 +63,6 @@ func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 		compose, err := docker.New().
 			WithOffloadS3(bucketname, "us-west-1").
 			WithText2VecContextionary().
-			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
 			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
 			With3NodeCluster().
 			Start(ctx)
