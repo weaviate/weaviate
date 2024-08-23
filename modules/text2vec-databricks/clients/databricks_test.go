@@ -30,9 +30,6 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-databricks/ent"
 )
 
-func TestBuildUrlFn(t *testing.T) {
-}
-
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
