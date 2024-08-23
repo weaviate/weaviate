@@ -95,6 +95,9 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 	}
 
 	if nearVector != nil {
+		if index >= len(nearVector.Vectors) {
+			return nil, fmt.Errorf("nearVector.vectorFromParams was called with invalid index")
+		}
 		return nearVector.Vectors[index], nil
 	}
 

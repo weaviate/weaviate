@@ -74,7 +74,7 @@ func ExtractTargets(source map[string]interface{}) ([]string, *dto.TargetCombina
 						weightsOut[i+j] = float32(w)
 					}
 				} else {
-					return fmt.Errorf("weight for target %s is not a float, got %v", target, weightForTarget)
+					return fmt.Errorf("weight for target %s is not a float or list of floats, got %v", target, weightForTarget)
 				}
 			}
 			return nil

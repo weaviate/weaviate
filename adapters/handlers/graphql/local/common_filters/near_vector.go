@@ -99,6 +99,7 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 			}
 			args.TargetVectors = targets
 		} else {
+			// map provided targetVectors to the provided searchvectors
 			vectors = make([][]float32, len(targetVectors))
 			handled := make(map[string]struct{})
 			for i, target := range targetVectors {
@@ -114,8 +115,8 @@ func ExtractNearVector(source map[string]interface{}, targetVectorsFromOtherLeve
 				if vectorIn, ok := vectorPerTargetParsed.([]float32); ok {
 					vectors[i] = vectorIn
 				} else if vectorsIn, ok := vectorPerTargetParsed.([][]float32); ok {
+					// if one target vector has multiple search vectors, the target vector needs to be repeated multiple times
 					for j, w := range vectorsIn {
-
 						if i+j >= len(targetVectors) || targetVectors[i+j] != target {
 							return searchparams.NearVector{}, nil, fmt.Errorf("target %s is not in the correct order", target)
 						}
