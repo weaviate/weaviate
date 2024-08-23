@@ -172,6 +172,23 @@ type MapPair struct {
 	Tombstone bool
 }
 
+func (kv MapPair) Frequency() float32 {
+	if kv.Tombstone {
+		return 0
+	}
+
+	frequency := math.Float32frombits(binary.LittleEndian.Uint32(kv.Value[0:4]))
+	return frequency
+}
+
+func (kv MapPair) Id() uint64 {
+	return binary.BigEndian.Uint64(kv.Key)
+}
+
+func (kv MapPair) PropLength() float32 {
+	return math.Float32frombits(binary.LittleEndian.Uint32(kv.Value[4:8]))
+}
+
 // Size() returns the exact size in bytes that will be used when Bytes() is
 // called
 func (kv MapPair) Size() int {
