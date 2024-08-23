@@ -24,6 +24,8 @@ UUID4 = uuid.uuid4()
     [
         ([1, 0, 0], [UUID1, UUID2, UUID4], 1.5),
         ({"first": [1, 0, 0], "second": [0, 1, 0]}, [UUID1], 0.5),
+        ([1, 0, 0], [UUID1, UUID2, UUID3, UUID4], 2.5),
+        ([0.5, 0.5, 0.5], [], 0.0001),
     ],
 )
 def test_multi_target_near_vector(
