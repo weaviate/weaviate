@@ -101,7 +101,7 @@ type Repo interface {
 
 type VectorRepo interface {
 	GetUnclassified(ctx context.Context, class string,
-		properties []string, filter *libfilters.LocalFilter) ([]search.Result, error)
+		properties []string, propertiesToReturn []string, filter *libfilters.LocalFilter) ([]search.Result, error)
 	AggregateNeighbors(ctx context.Context, vector []float32,
 		class string, properties []string, k int,
 		filter *libfilters.LocalFilter) ([]NeighborRef, error)
