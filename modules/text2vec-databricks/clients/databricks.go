@@ -183,11 +183,8 @@ func (v *client) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig)
 }
 
 func (v *client) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	config := v.getVectorizationConfig(cfg)
-	name := "Openai"
-	if config.IsAzure {
-		name = "Azure"
-	}
+	name := "Databricks"
+
 	rpm, tpm := modulecomponents.GetRateLimitFromContext(ctx, name, 0, 0)
 	return &modulecomponents.RateLimits{
 		RemainingTokens:   tpm,
