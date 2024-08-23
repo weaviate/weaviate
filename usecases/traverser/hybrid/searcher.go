@@ -81,7 +81,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	)
 
 	alpha := params.Alpha
-	removeSet := map[strfmt.UUID]struct{}{}
+	aboveCutoffSet := map[strfmt.UUID]struct{}{}
 	if alpha < 1 {
 		if params.Query != "" {
 			res, err := processSparseSearch(sparseSearch())
@@ -104,19 +104,30 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 			minFound := -1
 			for i := range res {
 				if res[i].Dist > params.Distance {
-					removeSet[res[i].ID] = struct{}{}
+					aboveCutoffSet[res[i].ID] = struct{}{}
 					if minFound == -1 {
 						minFound = i
 					}
 				}
-
-				// sorted by distance, so just remove everything after the first entry we found
+			}
+			// sorted by distance, so just remove everything after the first entry we found
+			if minFound >= 0 {
 				res = res[:minFound]
 			}
 		}
 		found = append(found, res)
 		weights = append(weights, alpha)
 		names = append(names, "vector")
+	}
+
+	if len(aboveCutoffSet) > 0 && alpha < 1 {
+		newResults := make([]*search.Result, 0, len(found[0]))
+		for i := range found[0] {
+			if _, ok := aboveCutoffSet[found[0][i].ID]; !ok {
+				newResults = append(newResults, found[0][i])
+			}
+		}
+		found[0] = newResults
 	}
 
 	if len(weights) != len(found) {
