@@ -117,7 +117,7 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Write(outBytes)
 }
 
-func TestOpenAIApiErrorDecode(t *testing.T) {
+func TestDatabricksApiErrorDecode(t *testing.T) {
 	t.Run("getModelStringQuery", func(t *testing.T) {
 		type args struct {
 			response []byte
@@ -128,42 +128,21 @@ func TestOpenAIApiErrorDecode(t *testing.T) {
 			want string
 		}{
 			{
-				name: "Error code: missing property",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg..."}`),
-				},
-				want: "",
-			},
-			{
-				name: "Error code: as int",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": 500}`),
-				},
-				want: "500",
-			},
-			{
-				name: "Error code as string number",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
-				},
-				want: "500",
-			},
-			{
 				name: "Error code as string text",
 				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "invalid_api_key"}`),
+					response: []byte(`{"message": "Human-readable error message.", "error_code": "Error code"}`),
 				},
-				want: "invalid_api_key",
+				want: "Error code",
 			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				var got *openAIApiError
+				var got *databricksApiError
 				err := json.Unmarshal(tt.args.response, &got)
 				require.NoError(t, err)
 
-				if got.Code.String() != tt.want {
-					t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
+				if got.ErrorCode.String() != tt.want {
+					t.Errorf("databricksApiError.ErrorCode = %v, want %v", got.ErrorCode, tt.want)
 				}
 			})
 		}
