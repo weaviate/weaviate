@@ -907,7 +907,6 @@ func UnmarshalProperties(data []byte, properties *map[string]interface{}, aggreg
 							return
 						}
 						val = nestedProps
-
 					default:
 						returnError = fmt.Errorf("unknown data type ArrayEach %v", innerDataType)
 						return
