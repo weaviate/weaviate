@@ -14,6 +14,7 @@ package hybrid
 import (
 	"context"
 	"fmt"
+	"github.com/go-openapi/strfmt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -79,7 +80,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	)
 
 	alpha := params.Alpha
-
+	removeSet := map[strfmt.UUID]struct{}{}
 	if alpha < 1 {
 		if params.Query != "" {
 			res, err := processSparseSearch(sparseSearch())
@@ -98,7 +99,20 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		if err != nil {
 			return nil, err
 		}
+		if params.Distance > 0 {
+			minFound := -1
+			for i := range res {
+				if res[i].Dist > params.Distance {
+					removeSet[res[i].ID] = struct{}{}
+					if minFound == -1 {
+						minFound = i
+					}
+				}
 
+				// sorted by distance, so just remove everything after the first entry we found
+				res = res[:minFound]
+			}
+		}
 		found = append(found, res)
 		weights = append(weights, alpha)
 		names = append(names, "vector")
