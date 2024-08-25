@@ -349,18 +349,12 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
-func (d *Compose) WithSecondWeaviate() *Compose {
-	d.With1NodeCluster()
-	d.withSecondWeaviate = true // TODO: create a second 1 node cluster
-	return d
-}
-
 func (d *Compose) WithWeaviateCluster() *Compose {
-	return d.With2NodeCluster()
+	return d.With3NodeCluster()
 }
 
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
-	d.With2NodeCluster()
+	d.With3NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
@@ -591,12 +585,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 func (d *Compose) With1NodeCluster() *Compose {
 	d.withWeaviateCluster = true
 	d.size = 1
-	return d
-}
-
-func (d *Compose) With2NodeCluster() *Compose {
-	d.withWeaviateCluster = true
-	d.size = 2
 	return d
 }
 
