@@ -13,7 +13,6 @@ package common
 
 import (
 	"sync"
-	"sync/atomic"
 )
 
 // SharedGauge is a thread-safe gauge that can be shared between multiple goroutines.
@@ -30,24 +29,39 @@ func NewSharedGauge() *SharedGauge {
 }
 
 func (sc *SharedGauge) Incr() {
-	atomic.AddInt64(&sc.count, 1)
+	sc.cond.L.Lock()
+	defer sc.cond.L.Unlock()
+
+	sc.count++
 }
 
 func (sc *SharedGauge) Decr() {
-	newCount := atomic.AddInt64(&sc.count, -1)
-	if newCount == 0 {
+	sc.cond.L.Lock()
+	defer sc.cond.L.Unlock()
+
+	if sc.count == 0 {
+		panic("illegal gauge state: count cannot be negative")
+	}
+
+	sc.count--
+
+	if sc.count == 0 {
 		sc.cond.Broadcast()
 	}
 }
 
 func (sc *SharedGauge) Count() int64 {
-	return atomic.LoadInt64(&sc.count)
+	sc.cond.L.Lock()
+	defer sc.cond.L.Unlock()
+
+	return sc.count
 }
 
 func (sc *SharedGauge) Wait() {
 	sc.cond.L.Lock()
 	defer sc.cond.L.Unlock()
-	for atomic.LoadInt64(&sc.count) != 0 {
+
+	for sc.count != 0 {
 		sc.cond.Wait()
 	}
 }
