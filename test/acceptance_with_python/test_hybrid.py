@@ -58,9 +58,51 @@ def test_multi_target_near_vector(
         "banana",
         vector=vector,
         target_vector=TargetVectors.sum(["first", "second"]),
-        distance=distance,
+        max_vector_distance=distance,
     ).objects
     assert sorted([obj.uuid for obj in objs]) == sorted(expected)  # order is not guaranteed
+
+
+@pytest.mark.parametrize(
+    "query", ["banana", "car"]
+)  # does not matter if a result is found for bm25
+@pytest.mark.parametrize(
+    "vector,expected,distance",
+    [
+        ([1, 0, 0, 0], [UUID1], 0.5),
+        ([1, 0, 0, 0], [UUID1, UUID2, UUID3, UUID4], 2.5),
+        ([0.5, 0.5, 0.5, 0.5], [], 0.0001),
+        ([0.5, 0.5, 0.5, 0.5], [UUID1, UUID2, UUID3, UUID4], 0),  # everything is found
+    ],
+)
+def test_aggregate_max_vector_distance(
+    collection_factory: CollectionFactory,
+    vector: List[int],
+    expected: List[uuid.UUID],
+    distance: float,
+    query: str,
+) -> None:
+    collection = collection_factory(
+        properties=[Property(name="name", data_type=DataType.TEXT)],
+        vectorizer_config=Configure.Vectorizer.none(),
+    )
+
+    collection.data.insert({"name": "banana one"}, vector=[1, 0, 0, 0], uuid=UUID1)
+    collection.data.insert({"name": "banana two"}, vector=[0, 1, 0, 0], uuid=UUID2)
+    collection.data.insert({"name": "banana three"}, vector=[0, 0, 1, 0], uuid=UUID3)
+    collection.data.insert({"name": "banana four"}, vector=[0, 0, 0, 1], uuid=UUID4)
+
+    # get abd aggregate should match the same objects
+    objs = collection.query.hybrid("banana", vector=vector, max_vector_distance=distance).objects
+    assert sorted([obj.uuid for obj in objs]) == sorted(expected)  # order is not guaranteed
+
+    res = collection.aggregate.hybrid(
+        "banana",
+        vector=vector,
+        max_vector_distance=distance,
+        return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
+    )
+    assert res.total_count == len(expected)
 
 
 def test_hybrid_search_vector_distance_more_objects(collection_factory: CollectionFactory) -> None:
@@ -106,7 +148,7 @@ def test_hybrid_search_vector_distance_more_objects(collection_factory: Collecti
         ).objects
         objs_hy_cutoff = collection.query.hybrid(
             query,
-            distance=middle_distance,
+            max_vector_distance=middle_distance,
             alpha=1,
             return_metadata=wvc.query.MetadataQuery.full(),
             limit=100,
@@ -116,3 +158,10 @@ def test_hybrid_search_vector_distance_more_objects(collection_factory: Collecti
         assert all(
             objs_nt_cutoff[i].uuid == objs_hy_cutoff[i].uuid for i, _ in enumerate(objs_nt_cutoff)
         )
+
+        res = collection.aggregate.hybrid(
+            query,
+            max_vector_distance=middle_distance,
+            return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
+        )
+        assert res.total_count == len(objs_nt_cutoff)
