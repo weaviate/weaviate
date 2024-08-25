@@ -5,9 +5,7 @@ import pytest
 
 from weaviate.classes.config import Configure, Property, DataType
 from weaviate.classes.query import TargetVectors
-from weaviate.collections.classes.grpc import PROPERTIES, TargetVectorJoinType
-from weaviate.types import UUID
-
+import weaviate.classes as wvc
 from .conftest import CollectionFactory
 
 UUID1 = uuid.uuid4()
@@ -63,3 +61,58 @@ def test_multi_target_near_vector(
         distance=distance,
     ).objects
     assert sorted([obj.uuid for obj in objs]) == sorted(expected)  # order is not guaranteed
+
+
+def test_hybrid_search_vector_distance_more_objects(collection_factory: CollectionFactory) -> None:
+    collection = collection_factory(
+        properties=[Property(name="name", data_type=DataType.TEXT)],
+        vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
+            vectorize_collection_name=False
+        ),
+    )
+
+    ret = collection.data.insert_many(
+        [
+            {"name": entry}
+            for entry in [
+                "mountain hike",
+                "banana apple",
+                "road trip",
+                "coconut smoothie",
+                "beach vacation",
+                "apple pie",
+                "banana split",
+                "mountain biking",
+                "apple cider",
+                "beach volleyball",
+                "sailing",
+            ]
+        ]
+    )
+    assert ret.has_errors is False
+
+    for query in ["apple", "banana", "beach", "mountain", "summer dress"]:
+        objs = collection.query.near_text(
+            query, return_metadata=wvc.query.MetadataQuery.full(), limit=100
+        ).objects
+        middle_distance = objs[len(objs) // 2].metadata.distance
+
+        # with the cutoff distance, the results should be the same for hybrid and near
+        objs_nt_cutoff = collection.query.near_text(
+            query,
+            distance=middle_distance,
+            return_metadata=wvc.query.MetadataQuery.full(),
+            limit=100,
+        ).objects
+        objs_hy_cutoff = collection.query.hybrid(
+            query,
+            distance=middle_distance,
+            alpha=1,
+            return_metadata=wvc.query.MetadataQuery.full(),
+            limit=100,
+        ).objects
+
+        assert len(objs_nt_cutoff) == len(objs_hy_cutoff)
+        assert all(
+            objs_nt_cutoff[i].uuid == objs_hy_cutoff[i].uuid for i, _ in enumerate(objs_nt_cutoff)
+        )
