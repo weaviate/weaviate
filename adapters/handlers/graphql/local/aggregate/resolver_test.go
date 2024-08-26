@@ -485,6 +485,7 @@ func Test_Resolve(t *testing.T) {
 			},
 			expectedNearHybrid: &searchparams.HybridSearch{
 				Distance:        0.5,
+				WithDistance:    true,
 				Alpha:           0.75,
 				Query:           "apple",
 				FusionAlgorithm: 1,

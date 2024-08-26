@@ -105,12 +105,24 @@ def test_aggregate_max_vector_distance(
     assert res.total_count == len(expected)
 
 
-def test_hybrid_search_vector_distance_more_objects(collection_factory: CollectionFactory) -> None:
+@pytest.mark.parametrize("query", ["apple", "banana", "beach", "mountain", "summer dress"])
+@pytest.mark.parametrize(
+    "distance",
+    [
+        wvc.config.VectorDistances.DOT,
+        wvc.config.VectorDistances.COSINE,
+        wvc.config.VectorDistances.L2_SQUARED,
+    ],
+)
+def test_hybrid_search_vector_distance_more_objects(
+    collection_factory: CollectionFactory, distance: wvc.config.VectorDistances, query: str
+) -> None:
     collection = collection_factory(
         properties=[Property(name="name", data_type=DataType.TEXT)],
         vectorizer_config=Configure.Vectorizer.text2vec_contextionary(
             vectorize_collection_name=False
         ),
+        vector_index_config=Configure.VectorIndex.hnsw(distance_metric=distance),
     )
 
     ret = collection.data.insert_many(
@@ -133,35 +145,34 @@ def test_hybrid_search_vector_distance_more_objects(collection_factory: Collecti
     )
     assert ret.has_errors is False
 
-    for query in ["apple", "banana", "beach", "mountain", "summer dress"]:
-        objs = collection.query.near_text(
-            query, return_metadata=wvc.query.MetadataQuery.full(), limit=100
-        ).objects
-        middle_distance = objs[len(objs) // 2].metadata.distance
+    objs = collection.query.near_text(
+        query, return_metadata=wvc.query.MetadataQuery.full(), limit=100
+    ).objects
+    middle_distance = objs[len(objs) // 2].metadata.distance
 
-        # with the cutoff distance, the results should be the same for hybrid and near
-        objs_nt_cutoff = collection.query.near_text(
-            query,
-            distance=middle_distance,
-            return_metadata=wvc.query.MetadataQuery.full(),
-            limit=100,
-        ).objects
-        objs_hy_cutoff = collection.query.hybrid(
-            query,
-            max_vector_distance=middle_distance,
-            alpha=1,
-            return_metadata=wvc.query.MetadataQuery.full(),
-            limit=100,
-        ).objects
+    # with the cutoff distance, the results should be the same for hybrid and near
+    objs_nt_cutoff = collection.query.near_text(
+        query,
+        distance=middle_distance,
+        return_metadata=wvc.query.MetadataQuery.full(),
+        limit=100,
+    ).objects
+    objs_hy_cutoff = collection.query.hybrid(
+        query,
+        max_vector_distance=middle_distance,
+        alpha=1,
+        return_metadata=wvc.query.MetadataQuery.full(),
+        limit=100,
+    ).objects
 
-        assert len(objs_nt_cutoff) == len(objs_hy_cutoff)
-        assert all(
-            objs_nt_cutoff[i].uuid == objs_hy_cutoff[i].uuid for i, _ in enumerate(objs_nt_cutoff)
-        )
+    assert len(objs_nt_cutoff) == len(objs_hy_cutoff)
+    assert all(
+        objs_nt_cutoff[i].uuid == objs_hy_cutoff[i].uuid for i, _ in enumerate(objs_nt_cutoff)
+    )
 
-        res = collection.aggregate.hybrid(
-            query,
-            max_vector_distance=middle_distance,
-            return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
-        )
-        assert res.total_count == len(objs_nt_cutoff)
+    res = collection.aggregate.hybrid(
+        query,
+        max_vector_distance=middle_distance,
+        return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
+    )
+    assert res.total_count == len(objs_nt_cutoff)
