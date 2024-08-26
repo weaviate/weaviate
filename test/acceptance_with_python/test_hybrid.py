@@ -72,7 +72,7 @@ def test_multi_target_near_vector(
         ([1, 0, 0, 0], [UUID1], 0.5),
         ([1, 0, 0, 0], [UUID1, UUID2, UUID3, UUID4], 2.5),
         ([0.5, 0.5, 0.5, 0.5], [], 0.0001),
-        ([0.5, 0.5, 0.5, 0.5], [UUID1, UUID2, UUID3, UUID4], 0),  # everything is found
+        ([0.5, 0.5, 0.5, 0.5], [UUID1, UUID2, UUID3, UUID4], None),  # everything is found
     ],
 )
 def test_aggregate_max_vector_distance(
