@@ -19,14 +19,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/tenantactivity"
-
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/tenantactivity"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/replica"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
@@ -98,6 +98,7 @@ func (db *DB) init(ctx context.Context) error {
 				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
 				ForceFullReplicasSearch:   db.config.ForceFullReplicasSearch,
 				ReplicationFactor:         NewAtomicInt64(class.ReplicationConfig.Factor),
+				AsyncReplicationEnabled:   class.ReplicationConfig.AsyncEnabled,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
@@ -135,7 +136,7 @@ func (db *DB) LocalTenantActivity() tenantactivity.ByCollection {
 
 func (db *DB) migrateFileStructureIfNecessary() error {
 	fsMigrationPath := path.Join(db.config.RootPath, "migration1.22.fs.hierarchy")
-	exists, err := fileExists(fsMigrationPath)
+	exists, err := diskio.FileExists(fsMigrationPath)
 	if err != nil {
 		return err
 	}
@@ -159,17 +160,6 @@ func (db *DB) migrateToHierarchicalFS() error {
 	db.logger.WithField("action", "hierarchical_fs_migration").
 		Debugf("fs migration took %s\n", time.Since(before))
 	return nil
-}
-
-func fileExists(file string) (bool, error) {
-	_, err := os.Stat(file)
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func NewAtomicInt64(val int64) *atomic.Int64 {

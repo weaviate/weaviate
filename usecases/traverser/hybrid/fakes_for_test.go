@@ -32,7 +32,7 @@ func newFakeSchemaManager() *fakeSchemaManager {
 
 type fakeTargetVectorParamHelper struct{}
 
-func (*fakeTargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error) {
+func (*fakeTargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className string, targetVector []string) ([]string, error) {
 	return targetVector, nil
 }
 
@@ -78,6 +78,10 @@ func (f *fakeSchemaManager) ClusterHealthScore() int {
 
 func (f *fakeSchemaManager) Statistics() map[string]any {
 	return nil
+}
+
+func (f *fakeSchemaManager) StorageCandidates() []string {
+	return []string{}
 }
 
 func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,

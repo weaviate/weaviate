@@ -22,8 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-anyscale/clients"
-	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 )
 
 const Name = "generative-anyscale"
@@ -34,13 +33,11 @@ func New() *GenerativeAnyscaleModule {
 
 type GenerativeAnyscaleModule struct {
 	generative                   generativeClient
-	additionalPropertiesProvider modulecapabilities.AdditionalProperties
+	additionalPropertiesProvider map[string]modulecapabilities.GenerativeProperty
 }
 
 type generativeClient interface {
-	GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error)
-	Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error)
+	modulecapabilities.GenerativeClient
 	MetaInfo() (map[string]interface{}, error)
 }
 
@@ -56,7 +53,7 @@ func (m *GenerativeAnyscaleModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
-		return errors.Wrap(err, "init q/a")
+		return errors.Wrapf(err, "init %s", Name)
 	}
 
 	return nil
@@ -68,16 +65,10 @@ func (m *GenerativeAnyscaleModule) initAdditional(ctx context.Context, timeout t
 	apiKey := os.Getenv("ANYSCALE_APIKEY")
 
 	client := clients.New(apiKey, timeout, logger)
-
 	m.generative = client
-
-	m.additionalPropertiesProvider = additionalprovider.NewGenerativeProvider(m.generative, logger)
+	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(client)
 
 	return nil
-}
-
-func (m *GenerativeAnyscaleModule) MetaInfo() (map[string]interface{}, error) {
-	return m.generative.MetaInfo()
 }
 
 func (m *GenerativeAnyscaleModule) RootHandler() http.Handler {
@@ -85,13 +76,17 @@ func (m *GenerativeAnyscaleModule) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *GenerativeAnyscaleModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
-	return m.additionalPropertiesProvider.AdditionalProperties()
+func (m *GenerativeAnyscaleModule) MetaInfo() (map[string]interface{}, error) {
+	return m.generative.MetaInfo()
+}
+
+func (m *GenerativeAnyscaleModule) AdditionalGenerativeProperties() map[string]modulecapabilities.GenerativeProperty {
+	return m.additionalPropertiesProvider
 }
 
 // verify we implement the modules.Module interface
 var (
 	_ = modulecapabilities.Module(New())
-	_ = modulecapabilities.AdditionalProperties(New())
 	_ = modulecapabilities.MetaProvider(New())
+	_ = modulecapabilities.AdditionalGenerativeProperties(New())
 )

@@ -12,10 +12,9 @@
 package hnsw
 
 import (
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
 func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
@@ -29,6 +28,13 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	h.RLock()
 	nodeSize := uint64(len(h.nodes))
 	h.RUnlock()
+
+	var compressorDistancer compressionhelpers.CompressorDistancer
+	if h.compressed.Load() {
+		distancer, returnFn := h.compressor.NewDistancer(queryVector)
+		defer returnFn()
+		compressorDistancer = distancer
+	}
 
 	it := allowList.Iterator()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
@@ -49,12 +55,7 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 			continue
 		}
 
-		dist, err := h.distBetweenNodeAndVec(candidate, queryVector)
-		var e storobj.ErrNotFound
-		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
-			continue
-		}
+		dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
 		if err != nil {
 			return nil, nil, err
 		}

@@ -44,6 +44,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	s := &Shard{
 		index:       index,
+		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
@@ -106,6 +107,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
+
+	mux := sync.Mutex{}
+	s.objectPropagationNeededCond = sync.NewCond(&mux)
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())

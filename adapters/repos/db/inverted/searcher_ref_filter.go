@@ -150,6 +150,7 @@ func (r *refFilterExtractor) emptyPropValuePair() *propValuePair {
 		operator:           filters.OperatorEqual,
 		hasFilterableIndex: HasFilterableIndex(r.property),
 		hasSearchableIndex: HasSearchableIndex(r.property),
+		hasRangeableIndex:  HasRangeableIndex(r.property),
 		Class:              r.class,
 	}
 }
@@ -186,6 +187,7 @@ func (r *refFilterExtractor) idToPropValuePairWithValue(v []byte,
 func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*propValuePair, error) {
 	hasFilterableIndex := HasFilterableIndex(r.property)
 	hasSearchableIndex := HasSearchableIndex(r.property)
+	hasRangeableIndex := HasRangeableIndex(r.property)
 
 	children, err := r.idsToPropValuePairs(ids, hasFilterableIndex, hasSearchableIndex)
 	if err != nil {
@@ -198,6 +200,7 @@ func (r *refFilterExtractor) chainedIDsToPropValuePair(ids []classUUIDPair) (*pr
 		children:           children,
 		hasFilterableIndex: hasFilterableIndex,
 		hasSearchableIndex: hasSearchableIndex,
+		hasRangeableIndex:  hasRangeableIndex,
 		Class:              r.class,
 	}, nil
 }

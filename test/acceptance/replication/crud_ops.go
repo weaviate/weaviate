@@ -54,6 +54,11 @@ func createObjects(t *testing.T, host string, batch []*models.Object) {
 	helper.CreateObjectsBatch(t, batch)
 }
 
+func createObjectsCL(t *testing.T, host string, batch []*models.Object, cl replica.ConsistencyLevel) {
+	helper.SetupClient(host)
+	helper.CreateObjectsBatchCL(t, batch, cl)
+}
+
 func createTenantObjects(t *testing.T, host string, batch []*models.Object) {
 	t.Helper()
 	helper.SetupClient(host)
@@ -241,7 +246,7 @@ func gqlTenantGet(t *testing.T, host, class string, cl replica.ConsistencyLevel,
 		cl = replica.Quorum
 	}
 
-	q := fmt.Sprintf("{Get {%s (tenant: %q, consistencyLevel: %s)", class, tenant, cl) + " {%s}}}"
+	q := fmt.Sprintf("{Get {%s (tenant: %q, consistencyLevel: %s, limit: 1000)", class, tenant, cl) + " {%s}}}"
 	if len(fields) == 0 {
 		fields = []string{"_additional{id isConsistent}"}
 	}
@@ -251,6 +256,21 @@ func gqlTenantGet(t *testing.T, host, class string, cl replica.ConsistencyLevel,
 
 	result := resp.Get("Get").Get(class)
 	return result.Result.([]interface{})
+}
+
+func countObjects(t *testing.T, host, class string) int64 {
+	helper.SetupClient(host)
+
+	q := fmt.Sprintf(`{Aggregate{%s{meta{count}}}}`, class)
+
+	resp := graphqlhelper.AssertGraphQL(t, helper.RootAuth, q)
+
+	result := resp.Get("Aggregate").Get(class).AsSlice()
+	require.Len(t, result, 1)
+	meta := result[0].(map[string]interface{})["meta"].(map[string]interface{})
+	count, err := meta["count"].(json.Number).Int64()
+	require.Nil(t, err)
+	return count
 }
 
 func countTenantObjects(t *testing.T, host, class string,

@@ -186,13 +186,8 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				eg := errgroup.Group{}
 				require.Nil(t, compose.Stop(ctx, container.Name(), nil))
-				eg.Go(func() error {
-					require.Nil(t, compose.Start(ctx, container.Name()))
-					return nil
-				})
-				eg.Wait()
+				require.Nil(t, compose.Start(ctx, container.Name()))
 				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: container.URI()})
 				require.Nil(t, err)
 
@@ -211,7 +206,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			cleanupFn func(t *testing.T, ctx context.Context),
 			restartFn func(t *testing.T, ctx context.Context) *wvt.Client,
 		) {
-			compose, err := docker.New().WithWeaviateCluster().Start(ctx)
+			compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
 			require.Nil(t, err)
 
 			client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
@@ -224,20 +219,17 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
 				eg := errgroup.Group{}
-				require.Nil(t, compose.StopAt(ctx, 0, nil))
-				eg.Go(func() error {
-					require.Nil(t, compose.StartAt(ctx, 0))
-					return nil
-				})
-
 				require.Nil(t, compose.StopAt(ctx, 1, nil))
 				eg.Go(func() error {
-					time.Sleep(4 * time.Second) // wait for member list initialization
-					require.Nil(t, compose.StartAt(ctx, 1))
-					return nil
+					return compose.StartAt(ctx, 1)
 				})
 
-				eg.Wait()
+				require.Nil(t, compose.StopAt(ctx, 2, nil))
+				eg.Go(func() error {
+					return compose.StartAt(ctx, 2)
+				})
+
+				require.Nil(t, eg.Wait())
 				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
 				require.Nil(t, err)
 				return client
@@ -308,16 +300,16 @@ func testActivationDeactivationWithRestarts(t *testing.T, composeFn composeFn) {
 			fixtures.CreateDataPizzaForTenants(t, client, tenants1Pizza.Names()...)
 			fixtures.CreateDataPizzaForTenants(t, client, tenants2Pizza.Names()...)
 
+			assertActiveTenants(t, tenants1Pizza, classPizza, idsPizza)
+			assertActiveTenants(t, tenants2Pizza, classPizza, idsPizza)
+			assertInactiveTenants(t, tenants3Pizza, classPizza)
+
 			fixtures.CreateSchemaSoupForTenants(t, client)
 			fixtures.CreateTenantsSoup(t, client, tenants1Soup...)
 			fixtures.CreateTenantsSoup(t, client, tenants2Soup...)
 			fixtures.CreateTenantsSoup(t, client, tenants3Soup...)
 			fixtures.CreateDataSoupForTenants(t, client, tenants1Soup.Names()...)
 			fixtures.CreateDataSoupForTenants(t, client, tenants2Soup.Names()...)
-
-			assertActiveTenants(t, tenants1Pizza, classPizza, idsPizza)
-			assertActiveTenants(t, tenants2Pizza, classPizza, idsPizza)
-			assertInactiveTenants(t, tenants3Pizza, classPizza)
 
 			assertActiveTenants(t, tenants1Soup, classSoup, idsSoup)
 			assertActiveTenants(t, tenants2Soup, classSoup, idsSoup)
@@ -339,6 +331,10 @@ func testActivationDeactivationWithRestarts(t *testing.T, composeFn composeFn) {
 				Do(ctx)
 			require.Nil(t, err)
 
+			assertInactiveTenants(t, tenants1Pizza, classPizza)
+			assertActiveTenants(t, tenants2Pizza, classPizza, idsPizza)
+			assertInactiveTenants(t, tenants3Pizza, classPizza)
+
 			tenants = make(fixtures.Tenants, len(tenants1Soup))
 			for i, tenant := range tenants1Soup {
 				tenants[i] = models.Tenant{
@@ -352,10 +348,6 @@ func testActivationDeactivationWithRestarts(t *testing.T, composeFn composeFn) {
 				WithTenants(tenants...).
 				Do(ctx)
 			require.Nil(t, err)
-
-			assertInactiveTenants(t, tenants1Pizza, classPizza)
-			assertActiveTenants(t, tenants2Pizza, classPizza, idsPizza)
-			assertInactiveTenants(t, tenants3Pizza, classPizza)
 
 			assertInactiveTenants(t, tenants1Soup, classSoup)
 			assertActiveTenants(t, tenants2Soup, classSoup, idsSoup)

@@ -25,47 +25,41 @@ func NewTargetParamHelper() *TargetVectorParamHelper {
 	return &TargetVectorParamHelper{}
 }
 
-func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error) {
-	if targetVector == "" {
+func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, className string, targetVectors []string) ([]string, error) {
+	if len(targetVectors) == 0 {
 		class := sch.FindClassByName(schema.ClassName(className))
 
 		if len(class.VectorConfig) > 1 {
-			return "", fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
+			return []string{}, fmt.Errorf("multiple vectorizers configuration found, please specify target vector name")
 		}
 
 		if len(class.VectorConfig) == 1 {
 			for name := range class.VectorConfig {
-				return name, nil
+				return []string{name}, nil
 			}
 		}
+
+		return []string{""}, nil
 	}
-	return targetVector, nil
+	return targetVectors, nil
 }
 
-func (t *TargetVectorParamHelper) GetTargetVectorFromParams(params dto.GetParams) string {
-	if params.NearObject != nil && len(params.NearObject.TargetVectors) == 1 {
-		return params.NearObject.TargetVectors[0]
+func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParams) []string {
+	if params.NearObject != nil && len(params.NearObject.TargetVectors) >= 1 {
+		return params.NearObject.TargetVectors
 	}
-	if params.NearVector != nil && len(params.NearVector.TargetVectors) == 1 {
-		return params.NearVector.TargetVectors[0]
+	if params.NearVector != nil && len(params.NearVector.TargetVectors) >= 1 {
+		return params.NearVector.TargetVectors
 	}
-	if params.HybridSearch != nil {
-		if len(params.HybridSearch.TargetVectors) == 1 {
-			return params.HybridSearch.TargetVectors[0]
-		}
-		if params.HybridSearch.NearTextParams != nil && len(params.HybridSearch.NearTextParams.TargetVectors) == 1 {
-			return params.HybridSearch.NearTextParams.TargetVectors[0]
-		}
-		if params.HybridSearch.NearVectorParams != nil && len(params.HybridSearch.NearVectorParams.TargetVectors) == 1 {
-			return params.HybridSearch.NearVectorParams.TargetVectors[0]
-		}
+	if params.HybridSearch != nil && len(params.HybridSearch.TargetVectors) >= 1 {
+		return params.HybridSearch.TargetVectors
 	}
 	if len(params.ModuleParams) > 0 {
 		for _, moduleParam := range params.ModuleParams {
-			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && len(nearParam.GetTargetVectors()) == 1 {
-				return nearParam.GetTargetVectors()[0]
+			if nearParam, ok := moduleParam.(modulecapabilities.NearParam); ok && len(nearParam.GetTargetVectors()) >= 1 {
+				return nearParam.GetTargetVectors()
 			}
 		}
 	}
-	return ""
+	return []string{}
 }

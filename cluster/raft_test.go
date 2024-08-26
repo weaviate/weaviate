@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -50,7 +51,7 @@ func TestRaftEndpoints(t *testing.T) {
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 
-	srv := NewRaft(m.store, nil)
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 
 	// LeaderNotFound
 	_, err := srv.Execute(ctx, &command.ApplyRequest{})
@@ -185,7 +186,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Nil(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, version))
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
-	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastIndex()+1), types.ErrDeadlineExceeded)
+	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), types.ErrDeadlineExceeded)
 
 	// DeleteClass
 	_, err = srv.DeleteClass(ctx, "X")
@@ -286,7 +287,7 @@ func TestRaftEndpoints(t *testing.T) {
 
 	s := NewFSM(m.cfg)
 	m.store = &s
-	srv = NewRaft(m.store, nil)
+	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))
 	assert.Nil(t, srv.WaitUntilDBRestored(ctx, time.Second*1, make(chan struct{})))
@@ -328,7 +329,7 @@ func TestRaftClose(t *testing.T) {
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
 	s := NewFSM(m.cfg)
 	m.store = &s
-	srv := NewRaft(m.store, nil)
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	m.indexer.On("Open", mock.Anything).Return(nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
 	assert.Nil(t, srv.store.Notify(m.cfg.NodeID, addr))

@@ -102,6 +102,21 @@ message ObjectPropertiesRequest {
   repeated ObjectPropertiesRequest object_properties = 3;
 }
 
+enum CombinationMethod {
+  COMBINATION_METHOD_UNSPECIFIED = 0;
+  COMBINATION_METHOD_TYPE_SUM = 1;
+  COMBINATION_METHOD_TYPE_MIN = 2;
+  COMBINATION_METHOD_TYPE_AVERAGE = 3;
+  COMBINATION_METHOD_TYPE_RELATIVE_SCORE = 4;
+  COMBINATION_METHOD_TYPE_MANUAL = 5;
+}
+
+message Targets {
+  repeated string target_vectors = 1;
+  CombinationMethod combination = 2;
+  map<string,float> weights = 3;
+}
+
 message Hybrid {
   string query = 1;
   repeated string properties = 2;
@@ -115,9 +130,10 @@ message Hybrid {
   }
   FusionType fusion_type = 5;
   bytes vector_bytes = 6;
-  repeated string target_vectors = 7;
-  NearTextSearch near_text = 8;  // target_vector in msg is ignored and should not be set for hybrid
+  repeated string target_vectors = 7 [deprecated = true];  // deprecated in 1.26 - use targets
+  NearTextSearch near_text = 8;  // targets in msg is ignored and should not be set for hybrid
   NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
+  Targets targets = 10;
 }
 
 message NearTextSearch {
@@ -133,49 +149,56 @@ message NearTextSearch {
   optional double distance = 3;
   optional Move move_to = 4;
   optional Move move_away = 5;
-  repeated string target_vectors = 6;
+  repeated string target_vectors = 6 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 7;
 };
 
 message NearImageSearch {
   string image = 1;
   optional double certainty = 2;
   optional double distance = 3;
-  repeated string target_vectors = 4;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
 };
 
 message NearAudioSearch {
   string audio = 1;
   optional double certainty = 2;
   optional double distance = 3;
-  repeated string target_vectors = 4;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
 };
 
 message NearVideoSearch {
   string video = 1;
   optional double certainty = 2;
   optional double distance = 3;
-  repeated string target_vectors = 4;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
 };
 
 message NearDepthSearch {
   string depth = 1;
   optional double certainty = 2;
   optional double distance = 3;
-  repeated string target_vectors = 4;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
 }
 
 message NearThermalSearch {
   string thermal = 1;
   optional double certainty = 2;
   optional double distance = 3;
-  repeated string target_vectors = 4;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
 }
 
 message NearIMUSearch {
   string imu = 1;
   optional double certainty = 2;
   optional double distance = 3;
-  repeated string target_vectors = 4;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
 }
 
 message BM25 {
@@ -196,14 +219,17 @@ message NearVector {
   optional double certainty = 2;
   optional double distance = 3;
   bytes vector_bytes = 4;
-  repeated string target_vectors = 5;
+  repeated string target_vectors = 5 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 6;
+  map <string, bytes> vector_per_target = 7;
 }
 
 message NearObject {
   string id = 1;
   optional double certainty = 2;
   optional double distance = 3;
-  repeated string target_vectors = 4;
+  repeated string target_vectors = 4 [deprecated = true];  // deprecated in 1.26 - use targets
+  Targets targets = 5;
 }
 
 message Rerank {

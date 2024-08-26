@@ -24,9 +24,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-palm/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	googleparams "github.com/weaviate/weaviate/modules/generative-palm/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
@@ -152,33 +153,35 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 	}
 }
 
-func (v *palm) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *palm) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *palm) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *palm) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
+	params := v.getParameters(cfg, options)
+	debugInformation := v.getDebugInformation(debug, prompt)
 
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(settings.ApiEndpoint())
-	modelID := settings.ModelID()
+	modelID := params.Model
 	if settings.EndpointID() != "" {
 		modelID = settings.EndpointID()
 	}
 
 	endpointURL := v.buildUrlFn(useGenerativeAIEndpoint, settings.ApiEndpoint(), settings.ProjectID(), modelID, settings.Region())
-	input := v.getPayload(useGenerativeAIEndpoint, prompt, settings)
+	input := v.getPayload(useGenerativeAIEndpoint, prompt, params)
 
 	body, err := json.Marshal(input)
 	if err != nil {
@@ -215,17 +218,17 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 
 	if useGenerativeAIEndpoint {
 		if strings.HasPrefix(modelID, "gemini") {
-			return v.parseGenerateContentResponse(res.StatusCode, bodyBytes)
+			return v.parseGenerateContentResponse(res.StatusCode, bodyBytes, debugInformation)
 		}
-		return v.parseGenerateMessageResponse(res.StatusCode, bodyBytes)
+		return v.parseGenerateMessageResponse(res.StatusCode, bodyBytes, debugInformation)
 	}
 	if strings.HasPrefix(modelID, "gemini") {
-		return v.parseGenerateContentResponse(res.StatusCode, bodyBytes)
+		return v.parseGenerateContentResponse(res.StatusCode, bodyBytes, debugInformation)
 	}
-	return v.parseResponse(res.StatusCode, bodyBytes)
+	return v.parseResponse(res.StatusCode, bodyBytes, debugInformation)
 }
 
-func (v *palm) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *palm) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateMessageResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -236,15 +239,56 @@ func (v *palm) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) (*
 	}
 
 	if len(resBody.Candidates) > 0 {
-		return v.getGenerateResponse(resBody.Candidates[0].Content)
+		return v.getGenerateResponse(resBody.Candidates[0].Content, nil, debug)
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
-func (v *palm) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *palm) getParameters(cfg moduletools.ClassConfig, options interface{}) googleparams.Params {
+	settings := config.NewClassSettings(cfg)
+
+	var params googleparams.Params
+	if p, ok := options.(googleparams.Params); ok {
+		params = p
+	}
+
+	if params.Model == "" {
+		model := settings.ModelID()
+		params.Model = model
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	if params.TopP == nil {
+		topP := settings.TopP()
+		params.TopP = &topP
+	}
+	if params.TopK == nil {
+		topK := settings.TopK()
+		params.TopK = &topK
+	}
+	if params.MaxTokens == nil {
+		maxTokens := settings.TokenLimit()
+		params.MaxTokens = &maxTokens
+	}
+	return params
+}
+
+func (v *palm) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
+func (v *palm) parseGenerateContentResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateContentResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -256,17 +300,24 @@ func (v *palm) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*
 
 	if len(resBody.Candidates) > 0 {
 		if len(resBody.Candidates[0].Content.Parts) > 0 {
-			return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text)
+			var params map[string]interface{}
+			if resBody.UsageMetadata != nil {
+				params = v.getResponseParams(map[string]interface{}{
+					"usageMetadata": resBody.UsageMetadata,
+				})
+			}
+			return v.getGenerateResponse(resBody.Candidates[0].Content.Parts[0].Text, params, debug)
 		}
 		return nil, fmt.Errorf(v.decodeFinishReason(resBody.Candidates[0].FinishReason))
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
-func (v *palm) parseResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *palm) parseResponse(statusCode int, bodyBytes []byte, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -277,24 +328,38 @@ func (v *palm) parseResponse(statusCode int, bodyBytes []byte) (*generativemodel
 	}
 
 	if len(resBody.Predictions) > 0 && len(resBody.Predictions[0].Candidates) > 0 {
-		return v.getGenerateResponse(resBody.Predictions[0].Candidates[0].Content)
+		var params map[string]interface{}
+		if resBody.Metadata != nil {
+			params = v.getResponseParams(map[string]interface{}{
+				"metadata": resBody.Metadata,
+			})
+		}
+		return v.getGenerateResponse(resBody.Predictions[0].Candidates[0].Content, params, debug)
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
-func (v *palm) getGenerateResponse(content string) (*generativemodels.GenerateResponse, error) {
+func (v *palm) getResponseParams(params map[string]interface{}) map[string]interface{} {
+	return map[string]interface{}{"google": params}
+}
+
+func (v *palm) getGenerateResponse(content string, params map[string]interface{}, debug *modulecapabilities.GenerateDebugInformation) (*modulecapabilities.GenerateResponse, error) {
 	if content != "" {
 		trimmedResponse := strings.Trim(content, "\n")
-		return &generativemodels.GenerateResponse{
+		return &modulecapabilities.GenerateResponse{
 			Result: &trimmedResponse,
+			Params: params,
+			Debug:  debug,
 		}, nil
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debug,
 	}, nil
 }
 
@@ -313,10 +378,10 @@ func (v *palm) useGenerativeAIEndpoint(apiEndpoint string) bool {
 	return apiEndpoint == "generativelanguage.googleapis.com"
 }
 
-func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.ClassSettings) any {
+func (v *palm) getPayload(useGenerativeAI bool, prompt string, params googleparams.Params) any {
 	if useGenerativeAI {
-		if strings.HasPrefix(settings.ModelID(), "gemini") {
-			return v.getGeminiPayload(prompt, settings)
+		if strings.HasPrefix(params.Model, "gemini") {
+			return v.getGeminiPayload(prompt, params)
 		}
 		input := generateMessageRequest{
 			Prompt: &generateMessagePrompt{
@@ -326,15 +391,15 @@ func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.C
 					},
 				},
 			},
-			Temperature:    settings.Temperature(),
-			TopP:           settings.TopP(),
-			TopK:           settings.TopK(),
+			Temperature:    params.Temperature,
+			TopP:           params.TopP,
+			TopK:           params.TopK,
 			CandidateCount: 1,
 		}
 		return input
 	}
-	if strings.HasPrefix(settings.ModelID(), "gemini") {
-		return v.getGeminiPayload(prompt, settings)
+	if strings.HasPrefix(params.Model, "gemini") {
+		return v.getGeminiPayload(prompt, params)
 	}
 	input := generateInput{
 		Instances: []instance{
@@ -347,16 +412,19 @@ func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.C
 			},
 		},
 		Parameters: parameters{
-			Temperature:     settings.Temperature(),
-			MaxOutputTokens: settings.TokenLimit(),
-			TopP:            settings.TopP(),
-			TopK:            settings.TopK(),
+			Temperature:      params.Temperature,
+			MaxOutputTokens:  params.MaxTokens,
+			TopP:             params.TopP,
+			TopK:             params.TopK,
+			StopSequences:    params.StopSequences,
+			PresencePenalty:  params.PresencePenalty,
+			FrequencyPenalty: params.FrequencyPenalty,
 		},
 	}
 	return input
 }
 
-func (v *palm) getGeminiPayload(prompt string, settings config.ClassSettings) any {
+func (v *palm) getGeminiPayload(prompt string, params googleparams.Params) any {
 	input := generateContentRequest{
 		Contents: []content{
 			{
@@ -369,10 +437,14 @@ func (v *palm) getGeminiPayload(prompt string, settings config.ClassSettings) an
 			},
 		},
 		GenerationConfig: &generationConfig{
-			Temperature:    settings.Temperature(),
-			TopP:           settings.TopP(),
-			TopK:           settings.TopK(),
-			CandidateCount: 1,
+			Temperature:      params.Temperature,
+			MaxOutputTokens:  params.MaxTokens,
+			TopP:             params.TopP,
+			TopK:             params.TopK,
+			PresencePenalty:  params.PresencePenalty,
+			FrequencyPenalty: params.FrequencyPenalty,
+			StopSequences:    params.StopSequences,
+			CandidateCount:   1,
 		},
 		SafetySettings: []safetySetting{
 			{
@@ -467,14 +539,18 @@ type example struct {
 }
 
 type parameters struct {
-	Temperature     float64 `json:"temperature"`
-	MaxOutputTokens int     `json:"maxOutputTokens"`
-	TopP            float64 `json:"topP"`
-	TopK            int     `json:"topK"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	MaxOutputTokens  *int     `json:"maxOutputTokens,omitempty"`
+	TopP             *float64 `json:"topP,omitempty"`
+	TopK             *int     `json:"topK,omitempty"`
+	StopSequences    []string `json:"stopSequences,omitempty"`
+	PresencePenalty  *float64 `json:"presencePenalty,omitempty"`
+	FrequencyPenalty *float64 `json:"frequencyPenalty,omitempty"`
 }
 
 type generateResponse struct {
 	Predictions      []prediction  `json:"predictions,omitempty"`
+	Metadata         *metadata     `json:"metadata,omitempty"`
 	Error            *palmApiError `json:"error,omitempty"`
 	DeployedModelId  string        `json:"deployedModelId,omitempty"`
 	Model            string        `json:"model,omitempty"`
@@ -485,6 +561,20 @@ type generateResponse struct {
 type prediction struct {
 	Candidates       []candidate         `json:"candidates,omitempty"`
 	SafetyAttributes *[]safetyAttributes `json:"safetyAttributes,omitempty"`
+}
+
+type metadata struct {
+	TokenMetadata *tokenMetadata `json:"tokenMetadata,omitempty"`
+}
+
+type tokenMetadata struct {
+	InputTokenCount  *tokenCount `json:"inputTokenCount,omitempty"`
+	OutputTokenCount *tokenCount `json:"outputTokenCount,omitempty"`
+}
+
+type tokenCount struct {
+	TotalBillableCharacters int64 `json:"totalBillableCharacters,omitempty"`
+	TotalTokens             int64 `json:"totalTokens,omitempty"`
 }
 
 type candidate struct {
@@ -506,10 +596,10 @@ type palmApiError struct {
 
 type generateMessageRequest struct {
 	Prompt         *generateMessagePrompt `json:"prompt,omitempty"`
-	Temperature    float64                `json:"temperature,omitempty"`
-	CandidateCount int                    `json:"candidateCount,omitempty"` // default 1
-	TopP           float64                `json:"topP"`
-	TopK           int                    `json:"topK"`
+	Temperature    *float64               `json:"temperature,omitempty"`
+	TopP           *float64               `json:"topP,omitempty"`
+	TopK           *int                   `json:"topK,omitempty"`
+	CandidateCount int                    `json:"candidateCount"` // default 1
 }
 
 type generateMessagePrompt struct {
@@ -574,16 +664,19 @@ type safetySetting struct {
 }
 
 type generationConfig struct {
-	StopSequences   []string `json:"stopSequences,omitempty"`
-	CandidateCount  int      `json:"candidateCount,omitempty"`
-	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
-	Temperature     float64  `json:"temperature,omitempty"`
-	TopP            float64  `json:"topP,omitempty"`
-	TopK            int      `json:"topK,omitempty"`
+	Temperature      *float64 `json:"temperature,omitempty"`
+	TopP             *float64 `json:"topP,omitempty"`
+	TopK             *int     `json:"topK,omitempty"`
+	MaxOutputTokens  *int     `json:"maxOutputTokens,omitempty"`
+	PresencePenalty  *float64 `json:"presencePenalty,omitempty"`
+	FrequencyPenalty *float64 `json:"frequencyPenalty,omitempty"`
+	StopSequences    []string `json:"stopSequences,omitempty"`
+	CandidateCount   int      `json:"candidateCount,omitempty"`
 }
 
 type generateContentResponse struct {
 	Candidates     []generateContentCandidate `json:"candidates,omitempty"`
+	UsageMetadata  *usageMetadata             `json:"usageMetadata,omitempty"`
 	PromptFeedback *promptFeedback            `json:"promptFeedback,omitempty"`
 	Error          *palmApiError              `json:"error,omitempty"`
 }
@@ -608,4 +701,10 @@ type safetyRating struct {
 	Category    harmCategory    `json:"category,omitempty"`
 	Probability harmProbability `json:"probability,omitempty"`
 	Blocked     *bool           `json:"blocked,omitempty"`
+}
+
+type usageMetadata struct {
+	PromptTokenCount     int `json:"promptTokenCount"`
+	CandidatesTokenCount int `json:"candidatesTokenCount"`
+	TotalTokenCount      int `json:"totalTokenCount"`
 }

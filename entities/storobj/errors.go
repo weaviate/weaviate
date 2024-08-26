@@ -13,6 +13,8 @@ package storobj
 
 import "fmt"
 
+var ErrLimitReached = fmt.Errorf("limit reached")
+
 type ErrNotFound struct {
 	DocID       uint64
 	OriginalMsg string

@@ -27,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/modules/ner-transformers/ent"
 )
 
+const Name = "ner-transformers"
+
 func New() *NERModule {
 	return &NERModule{}
 }
@@ -42,7 +44,7 @@ type nerClient interface {
 }
 
 func (m *NERModule) Name() string {
-	return "ner-transformers"
+	return Name
 }
 
 func (m *NERModule) Type() modulecapabilities.ModuleType {

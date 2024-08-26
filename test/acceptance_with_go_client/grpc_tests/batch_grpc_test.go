@@ -50,8 +50,8 @@ func TestGRPC_Batch_Cluster(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 
-	httpUri := compose.GetWeaviateNode2().GetEndpoint(docker.HTTP)
-	grpcUri := compose.GetWeaviateNode2().GetEndpoint(docker.GRPC)
+	httpUri := compose.GetWeaviateNode(2).GetEndpoint(docker.HTTP)
+	grpcUri := compose.GetWeaviateNode(2).GetEndpoint(docker.GRPC)
 
 	config := wvt.Config{
 		Scheme: "http", Host: httpUri,

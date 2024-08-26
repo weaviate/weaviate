@@ -54,7 +54,7 @@ func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Cl
 
 func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
 	for _, prop := range props {
-		if !inverted.HasInvertedIndex(prop) {
+		if !inverted.HasAnyInvertedIndex(prop) {
 			continue
 		}
 
@@ -132,6 +132,19 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketSearchableFromPropNameLSM(prop.Name),
 			searchableBucketOpts...,
+		); err != nil {
+			return err
+		}
+	}
+
+	if inverted.HasRangeableIndex(prop) {
+		if err := s.store.CreateOrLoadBucket(ctx,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name),
+			append(bucketOpts,
+				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
+				lsmkv.WithUseBloomFilter(false),
+				lsmkv.WithCalcCountNetAdditions(false),
+			)...,
 		); err != nil {
 			return err
 		}

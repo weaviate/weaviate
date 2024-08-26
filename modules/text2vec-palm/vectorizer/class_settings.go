@@ -28,13 +28,13 @@ const (
 )
 
 const (
-	DefaultVectorizeClassName     = false
-	DefaultPropertyIndexed        = true
-	DefaultVectorizePropertyName  = false
-	DefaultApiEndpoint            = "us-central1-aiplatform.googleapis.com"
-	DefaultModelID                = "textembedding-gecko@001"
-	DefaulGenerativeAIApiEndpoint = "generativelanguage.googleapis.com"
-	DefaulGenerativeAIModelID     = "embedding-001"
+	DefaultVectorizeClassName      = false
+	DefaultPropertyIndexed         = true
+	DefaultVectorizePropertyName   = false
+	DefaultApiEndpoint             = "us-central1-aiplatform.googleapis.com"
+	DefaultModelID                 = "textembedding-gecko@001"
+	DefaultGenerativeAIApiEndpoint = "generativelanguage.googleapis.com"
+	DefaultGenerativeAIModelID     = "embedding-001"
 )
 
 var availablePalmModels = []string{
@@ -50,7 +50,7 @@ var availablePalmModels = []string{
 }
 
 var availableGenerativeAIModels = []string{
-	DefaulGenerativeAIModelID,
+	DefaultGenerativeAIModelID,
 	"text-embedding-004",
 }
 
@@ -71,9 +71,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	apiEndpoint := ic.ApiEndpoint()
 	model := ic.ModelID()
-	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
+	if apiEndpoint == DefaultGenerativeAIApiEndpoint {
 		if model != "" && !ic.validatePalmSetting(model, availableGenerativeAIModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available Generative AI model names are: %v", modelIDProperty, availableGenerativeAIModels))
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
 		}
 	} else {
 		projectID := ic.ProjectID()
@@ -106,8 +106,8 @@ func (ic *classSettings) getStringProperty(name, defaultValue string) string {
 }
 
 func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
-	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
-		return DefaulGenerativeAIModelID
+	if apiEndpoint == DefaultGenerativeAIApiEndpoint {
+		return DefaultGenerativeAIModelID
 	}
 	return DefaultModelID
 }

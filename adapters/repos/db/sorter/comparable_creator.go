@@ -43,10 +43,6 @@ func (c *comparableCreator) createFromBytesWithPayload(docID uint64, objData []b
 	return &comparable{docID, values, payload}
 }
 
-// func (c *comparableCreator) createFromObject(object *storobj.Object) *comparable {
-// 	return c.createFromObjectWithPayload(object, nil)
-// }
-
 func (c *comparableCreator) createFromObjectWithPayload(object *storobj.Object, payload interface{}) *comparable {
 	values := make([]interface{}, len(c.propNames))
 	for level, propName := range c.propNames {

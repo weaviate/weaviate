@@ -14,36 +14,38 @@ package nearText
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 )
 
 func (g *GraphQLArgumentsProvider) getNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
-	return g.nearTextArgument("GetObjects", classname)
+	return g.nearTextArgument("GetObjects", classname, true)
 }
 
 func (g *GraphQLArgumentsProvider) aggregateNearTextArgumentFn(classname string) *graphql.ArgumentConfig {
-	return g.nearTextArgument("Aggregate", classname)
+	return g.nearTextArgument("Aggregate", classname, false)
 }
 
 func (g *GraphQLArgumentsProvider) exploreNearTextArgumentFn() *graphql.ArgumentConfig {
-	return g.nearTextArgument("Explore", "")
+	return g.nearTextArgument("Explore", "", false)
 }
 
-func (g *GraphQLArgumentsProvider) nearTextArgument(prefix, className string) *graphql.ArgumentConfig {
+func (g *GraphQLArgumentsProvider) nearTextArgument(prefix, className string, addTarget bool) *graphql.ArgumentConfig {
 	prefixName := fmt.Sprintf("%s%s", prefix, className)
 	return &graphql.ArgumentConfig{
 		Type: graphql.NewInputObject(
 			graphql.InputObjectConfig{
 				Name:        fmt.Sprintf("%sNearTextInpObj", prefixName),
-				Fields:      g.nearTextFields(prefixName),
+				Fields:      g.nearTextFields(prefixName, addTarget),
 				Description: descriptions.GetWhereInpObj,
 			},
 		),
 	}
 }
 
-func (g *GraphQLArgumentsProvider) nearTextFields(prefix string) graphql.InputObjectConfigFieldMap {
+func (g *GraphQLArgumentsProvider) nearTextFields(prefix string, addTarget bool) graphql.InputObjectConfigFieldMap {
 	nearTextFields := graphql.InputObjectConfigFieldMap{
 		"concepts": &graphql.InputObjectFieldConfig{
 			// Description: descriptions.Concepts,
@@ -84,6 +86,7 @@ func (g *GraphQLArgumentsProvider) nearTextFields(prefix string) graphql.InputOb
 			Type:        graphql.Boolean,
 		}
 	}
+	nearTextFields = common_filters.AddTargetArgument(nearTextFields, prefix+"nearText", addTarget)
 	return nearTextFields
 }
 

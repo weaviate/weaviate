@@ -21,8 +21,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -77,6 +79,7 @@ type ModuleConfig interface {
 	SetClassDefaults(class *models.Class)
 	SetSinglePropertyDefaults(class *models.Class, props ...*models.Property)
 	ValidateClass(ctx context.Context, class *models.Class) error
+	GetByName(name string) modulecapabilities.Module
 }
 
 // State is a cached copy of the schema that can also be saved into a remote
@@ -140,32 +143,15 @@ func (s State) EqualEnough(other *State) bool {
 
 // SchemaStore is responsible for persisting the schema
 // by providing support for both partial and complete schema updates
+// Deprecated: instead schema now is persistent via RAFT
+// see : usecase/schema/handler.go & cluster/store/store.go
+// Load and save are left to support backward compatibility
 type SchemaStore interface {
 	// Save saves the complete schema to the persistent storage
 	Save(ctx context.Context, schema State) error
 
 	// Load loads the complete schema from the persistent storage
 	Load(context.Context) (State, error)
-
-	// NewClass creates a new class if it doesn't exists, otherwise return an error
-	NewClass(context.Context, ClassPayload) error
-
-	// UpdateClass if it exists, otherwise return an error
-	UpdateClass(context.Context, ClassPayload) error
-
-	// DeleteClass deletes class
-	DeleteClass(ctx context.Context, class string) error
-
-	// NewShards creates new shards of an existing class
-	NewShards(ctx context.Context, class string, shards []KeyValuePair) error
-
-	// UpdateShards updates (replaces) shards of on existing class
-	// Error is returned if class or shard does not exist
-	UpdateShards(ctx context.Context, class string, shards []KeyValuePair) error
-
-	// DeleteShards deletes shards from a class
-	// If the class or a shard does not exist then nothing is done and a nil error is returned
-	DeleteShards(ctx context.Context, class string, shards []string) error
 }
 
 // KeyValuePair is used to serialize shards updates
@@ -185,15 +171,13 @@ type ClassPayload struct {
 }
 
 type clusterState interface {
+	cluster.NodeSelector
 	// Hostnames initializes a broadcast
 	Hostnames() []string
 
 	// AllNames initializes shard distribution across nodes
 	AllNames() []string
-	Candidates() []string
-	LocalName() string
 	NodeCount() int
-	NodeHostname(nodeName string) (string, bool)
 
 	// ClusterHealthScore gets the whole cluster health, the lower number the better
 	ClusterHealthScore() int
@@ -218,6 +202,7 @@ func NewManager(validator validator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
+	cloud modulecapabilities.OffloadCloud,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -225,7 +210,7 @@ func NewManager(validator validator,
 		validator,
 		logger, authorizer,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
-		moduleConfig, clusterState, scaleoutManager)
+		moduleConfig, clusterState, scaleoutManager, cloud)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
@@ -415,7 +400,8 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants: make([]*api.Tenant, 0, len(status)),
+		Tenants:      make([]*api.Tenant, 0, len(status)),
+		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
 
 	for tenant, s := range status {

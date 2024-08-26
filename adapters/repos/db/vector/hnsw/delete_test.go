@@ -255,6 +255,73 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 }
 
+func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
+	// there is a single bulk clean event after all the deletes
+	vectors := vectorsForDeleteTest()
+	var vectorIndex *hnsw
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("running two cleanups should start only once", func(t *testing.T) {
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+		go func() {
+			wg.Done()
+			err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+			require.Nil(t, err)
+		}()
+		wg.Wait()
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		assert.NotNil(t, err)
+		assert.Equal(t, err.Error(), "tombstone cleanup already running")
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
+}
+
 func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T) {
 	var vectors [][]float32
 	for i := 0; i < 100; i++ {
@@ -669,6 +736,7 @@ func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -689,6 +757,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 					Distribution: ent.PQEncoderDistributionNormal,
 				},
 			},
+			BQ: defaultUC.BQ,
+			SQ: defaultUC.SQ,
 		}
 	)
 	store := testinghelpers.NewDummyStore(t)
@@ -725,6 +795,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			BitCompression: false,
 			Segments:       3,
 			Centroids:      256,
+			TrainingLimit:  100000,
 		}
 		userConfig.PQ = cfg
 		index.compress(userConfig)
@@ -815,6 +886,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *testing.T) {
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -828,7 +900,15 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-			PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
+			PQ: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeTile,
+					Distribution: ent.PQEncoderDistributionNormal,
+				},
+			},
+			BQ: defaultUC.BQ,
+			SQ: defaultUC.SQ,
 		}
 	)
 

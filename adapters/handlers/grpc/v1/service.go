@@ -142,7 +142,7 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	objs, objOriginalIndex, objectParsingErrors := batchFromProto(req, s.schemaManager.ReadOnlyClass)
+	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, s.schemaManager.ReadOnlyClass)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {
