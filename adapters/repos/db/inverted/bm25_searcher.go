@@ -184,7 +184,7 @@ func (b *BM25Searcher) wand(
 
 			// stopword filtering for word tokenization
 			if tokenization == models.PropertyTokenizationWord {
-				queryTerms, duplicateBoosts = b.removeStopwordsFromQueryTerms(
+				queryTerms, _ = b.removeStopwordsFromQueryTerms(
 					queryTerms, duplicateBoosts, stopWordDetector)
 			}
 
@@ -194,7 +194,7 @@ func (b *BM25Searcher) wand(
 		}
 	}
 
-	results := make(map[string]terms, 100)
+	results := make(map[string]*terms, 100)
 
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
@@ -228,9 +228,9 @@ func (b *BM25Searcher) wand(
 							continue
 						}
 						if _, exists := results[term.property]; !exists {
-							results[term.property] = make(terms, 0, len(uniqueTerms))
+							results[term.property] = &terms{}
 						}
-						results[term.property] = append(results[term.property], term)
+						results[term.property].data = append(results[term.property].data, term)
 					}
 					resultsLock.Unlock()
 					return
@@ -356,7 +356,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[any], additi
 	return objs, scores, nil
 }
 
-func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength float64,
+func (b *BM25Searcher) getTopKHeap(limit int, results *terms, averagePropLength float64,
 ) *priorityqueue.Queue[any] {
 	topKHeap := priorityqueue.NewMin[any](limit)
 	worstDist := float64(-10000) // tf score can be negative
@@ -511,11 +511,13 @@ func (t *term) advanceAtLeast(minID uint64) {
 	}
 }
 
-type terms []*term
+type terms struct {
+	data []*term
+}
 
 func (t terms) completelyExhausted() bool {
-	for i := range t {
-		if !t[i].exhausted {
+	for i := range t.data {
+		if !t.data[i].exhausted {
 			return false
 		}
 	}
@@ -537,15 +539,16 @@ func (t terms) pivot(minScore float64) bool {
 }
 
 func (t terms) advanceAllAtLeast(minID uint64) {
-	for i := range t {
-		t[i].advanceAtLeast(minID)
+	for i := range t.data {
+		t.data[i].advanceAtLeast(minID)
 	}
 }
 
 func (t terms) findMinID(minScore float64) (uint64, int, bool) {
 	cumScore := float64(0)
-
-	for i, term := range t {
+	i := 0
+	for i < len(t.data) && len(t.data) > 0 {
+		term := t.data[i]
 		if term.exhausted {
 			continue
 		}
@@ -553,14 +556,15 @@ func (t terms) findMinID(minScore float64) (uint64, int, bool) {
 		if cumScore >= minScore {
 			return term.idPointer, i, false
 		}
+		i++
 	}
 
 	return 0, 0, true
 }
 
 func (t terms) findFirstNonExhausted() (int, bool) {
-	for i := range t {
-		if !t[i].exhausted {
+	for i := range t.data {
+		if !t.data[i].exhausted {
 			return i, true
 		}
 	}
@@ -575,13 +579,13 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 		return 0, 0
 	}
 
-	id := t[pos].idPointer
+	id := t.data[pos].idPointer
 	var cumScore float64
-	for i := pos; i < len(t); i++ {
-		if t[i].idPointer != id || t[i].exhausted {
+	for i := 0; i < len(t.data); i++ {
+		if t.data[i].idPointer != id || t.data[i].exhausted {
 			continue
 		}
-		_, score := t[i].scoreAndAdvance(averagePropLength, config)
+		_, score := t.data[i].scoreAndAdvance(averagePropLength, config)
 		cumScore += score
 	}
 
@@ -592,35 +596,19 @@ func (t terms) scoreNext(averagePropLength float64, config schema.BM25Config) (u
 
 // provide sort interface
 func (t terms) Len() int {
-	return len(t)
+	return len(t.data)
 }
 
 func (t terms) Less(i, j int) bool {
-	return t[i].idPointer < t[j].idPointer
+	return t.data[i].idPointer < t.data[j].idPointer
 }
 
 func (t terms) Swap(i, j int) {
-	t[i], t[j] = t[j], t[i]
+	t.data[i], t.data[j] = t.data[j], t.data[i]
 }
 
 type MapPairsAndPropName struct {
-	propBoost float32
-	MapPairs  []lsmkv.MapPair
-}
-
-type AllMapPairsAndPropName []MapPairsAndPropName
-
-// provide sort interface
-func (m AllMapPairsAndPropName) Len() int {
-	return len(m)
-}
-
-func (m AllMapPairsAndPropName) Less(i, j int) bool {
-	return len(m[i].MapPairs) < len(m[j].MapPairs)
-}
-
-func (m AllMapPairsAndPropName) Swap(i, j int) {
-	m[i], m[j] = m[j], m[i]
+	MapPairs []lsmkv.MapPair
 }
 
 func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName string) bool {
