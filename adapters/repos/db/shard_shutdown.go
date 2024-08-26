@@ -62,6 +62,13 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		return err
 	}
 
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.stopHashBeater()
+		s.closeHashTree()
+	}
+	s.hashtreeRWMux.Unlock()
+
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
@@ -103,16 +110,6 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 				return errors.Wrap(err, "shut down vector index")
 			}
 		}
-	}
-
-	// unregister all callbacks at once, in parallel
-	if err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
-		s.cycleCallbacks.compactionCallbacksCtrl,
-		s.cycleCallbacks.flushCallbacksCtrl,
-		s.cycleCallbacks.vectorCombinedCallbacksCtrl,
-		s.cycleCallbacks.geoPropsCombinedCallbacksCtrl,
-	).Unregister(ctx); err != nil {
-		return err
 	}
 
 	if s.store != nil {
@@ -191,3 +188,21 @@ func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
 
 	return false, nil
 }
+
+// // cleanupPartialInit is called when the shard was only partially initialized.
+// // Internally it just uses [Shutdown], but also adds some logging.
+// func (s *Shard) cleanupPartialInit(ctx context.Context) {
+// 	log := s.index.logger.WithField("action", "cleanup_partial_initialization")
+// 	if err := s.Shutdown(ctx); err != nil {
+// 		log.WithError(err).Error("failed to shutdown store")
+// 	}
+
+// 	log.Debug("successfully cleaned up partially initialized shard")
+// }
+
+// func (s *Shard) NotifyReady() {
+// 	s.initStatus()
+// 	s.index.logger.
+// 		WithField("action", "startup").
+// 		Debugf("shard=%s is ready", s.name)
+// }

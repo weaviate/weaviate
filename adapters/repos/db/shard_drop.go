@@ -42,6 +42,14 @@ func (s *Shard) drop() (err error) {
 		s.clearDimensionMetrics()
 	}
 
+	s.hashtreeRWMux.Lock()
+	if s.hashtree != nil {
+		s.stopHashBeater()
+		s.hashtree = nil
+		s.hashtreeInitialized.Store(false)
+	}
+	s.hashtreeRWMux.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 	s.index.logger.WithFields(logrus.Fields{
@@ -115,6 +123,11 @@ func (s *Shard) drop() (err error) {
 	s.propertyIndicesLock.Unlock()
 	if err != nil {
 		return errors.Wrapf(err, "remove property specific indices at %s", s.path())
+	}
+
+	// remove shard dir
+	if err := os.RemoveAll(s.path()); err != nil {
+		return fmt.Errorf("delete shard dir: %w", err)
 	}
 
 	s.metrics.baseMetrics.FinishUnloadingShard(s.index.Config.ClassName.String())

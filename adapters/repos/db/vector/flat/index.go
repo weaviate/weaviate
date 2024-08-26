@@ -46,11 +46,11 @@ import (
 const (
 	compressionBQ   = "bq"
 	compressionPQ   = "pq"
+	compressionSQ   = "sq"
 	compressionNone = "none"
 )
 
 type flat struct {
-	sync.Mutex
 	id                  string
 	targetVector        string
 	rootPath            string
@@ -130,16 +130,16 @@ func (flat *flat) getBQVector(ctx context.Context, id uint64) ([]uint64, error) 
 }
 
 func extractCompression(uc flatent.UserConfig) string {
-	if uc.BQ.Enabled && uc.PQ.Enabled {
-		return compressionNone
-	}
-
 	if uc.BQ.Enabled {
 		return compressionBQ
 	}
 
 	if uc.PQ.Enabled {
 		return compressionPQ
+	}
+
+	if uc.SQ.Enabled {
+		return compressionSQ
 	}
 
 	return compressionNone
@@ -152,6 +152,8 @@ func extractCompressionRescore(uc flatent.UserConfig) int64 {
 		return int64(uc.PQ.RescoreLimit)
 	case compressionBQ:
 		return int64(uc.BQ.RescoreLimit)
+	case compressionSQ:
+		return int64(uc.SQ.RescoreLimit)
 	default:
 		return 0
 	}
@@ -840,6 +842,33 @@ func (index *flat) ContainsNode(id uint64) bool {
 	return true
 }
 
+func (index *flat) Iterate(fn func(id uint64) bool) {
+	var bucketName string
+
+	// logic modeled after SearchByVector which indicates that the PQ bucket is
+	// the same as the uncompressed bucket "for now"
+	switch index.compression {
+	case compressionBQ:
+		bucketName = index.getCompressedBucketName()
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		bucketName = index.getBucketName()
+	}
+
+	bucket := index.store.Bucket(bucketName)
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
+		id := binary.BigEndian.Uint64(key)
+		if !fn(id) {
+			break
+		}
+	}
+}
+
 func (index *flat) DistancerProvider() distancer.Provider {
 	return index.distancerProvider
 }
@@ -913,4 +942,60 @@ func ValidateUserConfigUpdate(initial, updated schemaConfig.VectorIndexConfig) e
 
 func (index *flat) AlreadyIndexed() uint64 {
 	return atomic.LoadUint64(&index.count)
+}
+
+func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	var distFunc func(nodeID uint64) (float32, error)
+	defaultDistFunc := func(nodeID uint64) (float32, error) {
+		vec, err := index.vectorById(nodeID)
+		if err != nil {
+			return 0, err
+		}
+		dist, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+		if err != nil {
+			return 0, err
+		}
+		return dist, nil
+	}
+	switch index.compression {
+	case compressionBQ:
+		if index.bqCache == nil {
+			distFunc = defaultDistFunc
+		} else {
+			queryVecEncode := index.bq.Encode(queryVector)
+			distFunc = func(nodeID uint64) (float32, error) {
+				vec, err := index.bqCache.Get(context.Background(), nodeID)
+				if err != nil {
+					return 0, err
+				}
+				return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
+			}
+		}
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		distFunc = func(nodeID uint64) (float32, error) {
+			vec, err := index.vectorById(nodeID)
+			if err != nil {
+				return 0, err
+			}
+			dist, err := index.distancerProvider.SingleDist(queryVector, float32SliceFromByteSlice(vec, make([]float32, len(vec)/4)))
+			if err != nil {
+				return 0, err
+			}
+			return dist, nil
+		}
+	}
+	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}
+
+func (index *flat) Stats() (common.IndexStats, error) {
+	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
+}
+
+type FlatStats struct{}
+
+func (s *FlatStats) IndexType() common.IndexType {
+	return common.IndexTypeFlat
 }

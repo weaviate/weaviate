@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -229,6 +230,22 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
 			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(0)
+		}
+
+		if err := c.Do(); err != nil {
+			return false, err
+		}
+
+	case segmentindex.StrategyRoaringSetRange:
+		leftCursor := leftSegment.newRoaringSetRangeCursor()
+		rightCursor := rightSegment.newRoaringSetRangeCursor()
+
+		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
+			level, cleanupTombstones)
+
+		if sg.metrics != nil {
+			sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)
+			defer sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(0)
 		}
 
 		if err := c.Do(); err != nil {

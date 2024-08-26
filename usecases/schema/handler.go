@@ -21,6 +21,7 @@ import (
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -51,6 +52,7 @@ type SchemaManager interface {
 	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
 	Remove(_ context.Context, nodeID string) error
 	Stats() map[string]any
+	StorageCandidates() []string
 	StoreSchemaV1() error
 
 	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
@@ -111,6 +113,8 @@ type Handler struct {
 	schemaManager SchemaManager
 	schemaReader  SchemaReader
 
+	cloud modulecapabilities.OffloadCloud
+
 	validator validator
 
 	logger                  logrus.FieldLogger
@@ -135,6 +139,7 @@ func NewHandler(
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
+	cloud modulecapabilities.OffloadCloud,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -150,6 +155,7 @@ func NewHandler(
 		moduleConfig:            moduleConfig,
 		clusterState:            clusterState,
 		scaleOut:                scaleoutManager,
+		cloud:                   cloud,
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)

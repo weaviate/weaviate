@@ -15,7 +15,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
-const NAME = "nearDepth"
+const Name = "nearDepth"
 
 type GraphQLArgumentsProvider struct{}
 
@@ -25,7 +25,7 @@ func New() *GraphQLArgumentsProvider {
 
 func (g *GraphQLArgumentsProvider) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	arguments := map[string]modulecapabilities.GraphQLArgument{}
-	arguments[NAME] = g.getNearDepth()
+	arguments[Name] = g.getNearDepth()
 	return arguments
 }
 

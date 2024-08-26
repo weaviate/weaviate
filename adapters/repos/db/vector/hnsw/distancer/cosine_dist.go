@@ -21,7 +21,7 @@ type CosineDistance struct {
 
 func (d *CosineDistance) Distance(b []float32) (float32, error) {
 	if len(d.a) != len(b) {
-		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(d.a), len(b))
 	}
 
@@ -37,7 +37,7 @@ func NewCosineDistanceProvider() CosineDistanceProvider {
 
 func (d CosineDistanceProvider) SingleDist(a, b []float32) (float32, error) {
 	if len(a) != len(b) {
-		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
+		return 0, errors.Wrapf(ErrVectorLength, "%d vs %d",
 			len(a), len(b))
 	}
 

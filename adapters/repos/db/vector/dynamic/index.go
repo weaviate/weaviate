@@ -67,6 +67,13 @@ type VectorIndex interface {
 	ContainsNode(id uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
+	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
+	// Iterate over all nodes in the index.
+	// Consistency is not guaranteed, as the
+	// index may be concurrently modified.
+	// If the callback returns false, the iteration will stop.
+	Iterate(fn func(id uint64) bool)
+	Stats() (common.IndexStats, error)
 }
 
 type upgradableIndexer interface {
@@ -346,6 +353,12 @@ func (dynamic *dynamic) DistancerProvider() distancer.Provider {
 	return dynamic.index.DistancerProvider()
 }
 
+func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.QueryVectorDistancer(queryVector)
+}
+
 func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
 	if !dynamic.upgraded.Load() {
 		return true, int(dynamic.threshold)
@@ -454,4 +467,18 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	dynamic.upgraded.Store(true)
 	callback()
 	return nil
+}
+
+func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
+	dynamic.index.Iterate(fn)
+}
+
+func (dynamic *dynamic) Stats() (common.IndexStats, error) {
+	return &DynamicStats{}, errors.New("Stats() is not implemented for dynamic index")
+}
+
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
 }

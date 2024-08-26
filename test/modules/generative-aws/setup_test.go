@@ -58,6 +58,7 @@ func createSingleNodeEnvironment(ctx context.Context, accessKey, secretKey, sess
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(accessKey, secretKey, sessionToken).
 		WithWeaviate().
+		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }

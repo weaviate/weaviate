@@ -17,6 +17,8 @@ import (
 	"math"
 	"sync/atomic"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
@@ -154,20 +156,6 @@ func (h *hnsw) SearchByVectorDistance(vector []float32, targetDistance float32, 
 
 func (h *hnsw) shouldRescore() bool {
 	return h.compressed.Load() && !h.doNotRescore
-}
-
-func (h *hnsw) searchLayerByVector(queryVector []float32,
-	entrypoints *priorityqueue.Queue[any], ef int, level int,
-	allowList helpers.AllowList,
-) (*priorityqueue.Queue[any], error,
-) {
-	var compressorDistancer compressionhelpers.CompressorDistancer
-	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
-		defer returnFn()
-	}
-	return h.searchLayerByVectorWithDistancer(queryVector, entrypoints, ef, level, allowList, compressorDistancer)
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
@@ -477,8 +465,13 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	maxLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	entryPointDistance, err := h.distBetweenNodeAndVec(entryPointID, searchVec)
-
+	var compressorDistancer compressionhelpers.CompressorDistancer
+	if h.compressed.Load() {
+		var returnFn compressionhelpers.ReturnDistancerFn
+		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
+		defer returnFn()
+	}
+	entryPointDistance, err := h.distToNode(compressorDistancer, entryPointID, searchVec)
 	var e storobj.ErrNotFound
 	if err != nil && errors.As(err, &e) {
 		h.handleDeletedNode(e.DocID)
@@ -489,12 +482,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		return nil, nil, errors.Wrap(err, "knn search: distance between entrypoint and query node")
 	}
 
-	var compressorDistancer compressionhelpers.CompressorDistancer
-	if h.compressed.Load() {
-		var returnFn compressionhelpers.ReturnDistancerFn
-		compressorDistancer, returnFn = h.compressor.NewDistancer(searchVec)
-		defer returnFn()
-	}
 	// stop at layer 1, not 0!
 	for level := maxLayer; level >= 1; level-- {
 		eps := priorityqueue.NewMin[any](10)
@@ -572,7 +559,30 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	return ids, dists, nil
 }
 
+func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	queryVector = h.normalizeVec(queryVector)
+	if h.compressed.Load() {
+		dist, returnFn := h.compressor.NewDistancer(queryVector)
+		f := func(nodeID uint64) (float32, error) {
+			return dist.DistanceToNode(nodeID)
+		}
+		return common.QueryVectorDistancer{DistanceFunc: f, CloseFunc: returnFn}
+
+	} else {
+		distancer := h.distancerProvider.New(queryVector)
+		f := func(nodeID uint64) (float32, error) {
+			return h.distanceToFloatNode(distancer, nodeID)
+		}
+		return common.QueryVectorDistancer{DistanceFunc: f}
+	}
+}
+
 func (h *hnsw) rescore(res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) {
+	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
+		for res.Len() > h.sqConfig.RescoreLimit {
+			res.Pop()
+		}
+	}
 	ids := make([]uint64, res.Len())
 	i := len(ids) - 1
 	for res.Len() > 0 {

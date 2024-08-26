@@ -98,6 +98,20 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 	}
 
+	if property.HasRangeableIndex {
+		bucketValue := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(property.Name))
+		if bucketValue == nil {
+			return errors.Errorf("no bucket rangeable for prop '%s' found", property.Name)
+		}
+
+		for _, item := range property.Items {
+			key := item.Data
+			if err := s.addToPropertyRangeBucket(bucketValue, docID, key); err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -154,13 +168,13 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 }
 
 func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	return bucket.MapSet(key, pair)
 }
 
 func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
 		docIDBytes := make([]byte, 8)
@@ -170,6 +184,16 @@ func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key [
 	}
 
 	return bucket.RoaringSetAddOne(key, docID)
+}
+
+func (s *Shard) addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyRoaringSetRange)
+
+	if len(key) != 8 {
+		return fmt.Errorf("shard: invalid value length %d, should be 8 bytes", len(key))
+	}
+
+	return bucket.RoaringSetRangeAdd(binary.BigEndian.Uint64(key), docID)
 }
 
 func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,

@@ -25,7 +25,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		cfg               moduletools.ClassConfig
 		wantModel         string
 		wantMaxTokens     int
-		wantTemperature   int
+		wantTemperature   float64
 		wantK             int
 		wantStopSequences []string
 		wantBaseURL       string

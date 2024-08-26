@@ -54,6 +54,19 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 			}
 		}
 
+		if prop.HasRangeableIndex {
+			bucket := s.store.Bucket(helpers.BucketRangeableFromPropNameLSM(prop.Name))
+			if bucket == nil {
+				return fmt.Errorf("no bucket rangeable for prop %q found", prop.Name)
+			}
+			for _, item := range prop.Items {
+				if err := s.deleteFromPropertyRangeBucket(bucket, docID, item.Data); err != nil {
+					return errors.Wrapf(err, "delete item '%s' from index",
+						string(item.Data))
+				}
+			}
+		}
+
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
 		if isMetaCountProperty(prop) || isInternalProperty(prop) {
 			continue
@@ -94,7 +107,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 func (s *Shard) deleteInvertedIndexItemWithFrequencyLSM(bucket *lsmkv.Bucket,
 	item inverted.Countable, docID uint64,
 ) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection)
 
 	docIDBytes := make([]byte, 8)
 	// Shard Index version 2 requires BigEndian for sorting, if the shard was
@@ -141,7 +154,7 @@ func (s *Shard) deleteFromPropertyNullIndex(propName string, docID uint64, isNul
 }
 
 func (s *Shard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	lsmkv.CheckExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategySetCollection, lsmkv.StrategyRoaringSet)
 
 	if bucket.Strategy() == lsmkv.StrategySetCollection {
 		docIDBytes := make([]byte, 8)
@@ -151,4 +164,14 @@ func (s *Shard) deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, 
 	}
 
 	return bucket.RoaringSetRemoveOne(key, docID)
+}
+
+func (s *Shard) deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
+	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyRoaringSetRange)
+
+	if len(key) != 8 {
+		return fmt.Errorf("shard: invalid value length %d, should be 8 bytes", len(key))
+	}
+
+	return bucket.RoaringSetRangeRemove(binary.BigEndian.Uint64(key), docID)
 }

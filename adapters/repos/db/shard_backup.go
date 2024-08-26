@@ -22,8 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// BeginBackup stops compaction, and flushing memtable and commit log to begin with the backup
-func (s *Shard) BeginBackup(ctx context.Context) (err error) {
+// HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload
+func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("pause compaction: %w", err)

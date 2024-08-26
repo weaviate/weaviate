@@ -28,6 +28,8 @@ import (
 	spellchecktexttransformerautocorrect "github.com/weaviate/weaviate/modules/text-spellcheck/transformer/autocorrect"
 )
 
+const Name = "text-spellcheck"
+
 func New() *SpellCheckModule {
 	return &SpellCheckModule{}
 }
@@ -44,7 +46,7 @@ type spellCheckClient interface {
 }
 
 func (m *SpellCheckModule) Name() string {
-	return "text-spellcheck"
+	return Name
 }
 
 func (m *SpellCheckModule) Type() modulecapabilities.ModuleType {

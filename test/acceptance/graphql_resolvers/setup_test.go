@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multishard"
@@ -520,6 +521,8 @@ func addTestSchema(t *testing.T) {
 		},
 	})
 
+	hnswConfig := enthnsw.NewDefaultUserConfig()
+	hnswConfig.MaxConnections = 64 // RansomNote tests require higher default max connections (reduced in 1.26)
 	createObjectClass(t, &models.Class{
 		Class: "RansomNote",
 		ModuleConfig: map[string]interface{}{
@@ -527,6 +530,7 @@ func addTestSchema(t *testing.T) {
 				"vectorizeClassName": true,
 			},
 		},
+		VectorIndexConfig: hnswConfig,
 		Properties: []*models.Property{
 			{
 				Name:         "contents",

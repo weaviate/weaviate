@@ -178,7 +178,7 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 	return cl.writeEntry(CommitTypeCollection, cl.bufNode.Bytes())
 }
 
-func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
+func (cl *commitLogger) add(node *roaringset.SegmentNodeList) error {
 	if cl.paused {
 		return nil
 	}
@@ -193,7 +193,7 @@ func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
 		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
-	return cl.writeEntry(CommitTypeRoaringSet, cl.bufNode.Bytes())
+	return cl.writeEntry(CommitTypeRoaringSetList, cl.bufNode.Bytes())
 }
 
 // Size returns the amount of data that has been written since the commit

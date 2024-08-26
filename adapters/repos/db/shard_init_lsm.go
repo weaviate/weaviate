@@ -17,6 +17,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/schema"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -62,6 +64,27 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return s.initProplenTracker()
 	})
 
+	// geo props depend on the object bucket and we need to wait for its creation in this case
+	hasGeoProp := false
+	for _, prop := range class.Properties {
+		if len(prop.DataType) != 1 {
+			continue
+		}
+		if prop.DataType[0] == schema.DataTypeGeoCoordinates.String() {
+			hasGeoProp = true
+			break
+		}
+	}
+
+	if hasGeoProp {
+		err := eg.Wait()
+		if err != nil {
+			// annotate error with shard id only once, all inner functions should only
+			// annotate what they do, but not repeat the shard id.
+			return fmt.Errorf("init shard %q: %w", s.ID(), err)
+		}
+	}
+
 	// error group is passed, so properties can be initialized in parallel with
 	// the other initializations going on here.
 	s.initProperties(eg, class)
@@ -71,6 +94,16 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		// annotate error with shard id only once, all inner functions should only
 		// annotate what they do, but not repeat the shard id.
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
+	}
+
+	// Object bucket must be available, initHashTree depends on it
+	if s.index.asyncReplicationEnabled() {
+		err = s.initHashTree(ctx)
+		if err != nil {
+			return fmt.Errorf("init shard %q: shard hashtree: %w", s.ID(), err)
+		}
+	} else if s.index.replicationEnabled() {
+		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
 	}
 
 	return nil
@@ -101,7 +134,7 @@ func (s *Shard) initLSMStore() error {
 func (s *Shard) initObjectBucket(ctx context.Context) error {
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
-		lsmkv.WithSecondaryIndices(1),
+		lsmkv.WithSecondaryIndices(2),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
 		s.dynamicMemtableSizing(),

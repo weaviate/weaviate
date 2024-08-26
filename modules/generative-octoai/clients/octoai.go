@@ -27,9 +27,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-octoai/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	octoparams "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
@@ -50,24 +51,26 @@ func New(apiKey string, timeout time.Duration, logger logrus.FieldLogger) *octoa
 	}
 }
 
-func (v *octoai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *octoai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *octoai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *octoai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
+	params := v.getParameters(cfg, options)
+	debugInformation := v.getDebugInformation(debug, prompt)
 
 	octoAIUrl, isImage, err := v.getOctoAIUrl(ctx, settings.BaseURL())
 	if err != nil {
@@ -82,9 +85,11 @@ func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if !isImage {
 		input = generateInputText{
 			Messages:    octoAIPrompt,
-			Model:       settings.Model(),
-			MaxTokens:   settings.MaxTokens(),
-			Temperature: settings.Temperature(),
+			Model:       params.Model,
+			MaxTokens:   params.MaxTokens,
+			Temperature: params.Temperature,
+			N:           params.N,
+			TopP:        params.TopP,
 		}
 	} else {
 		input = generateInputImage{
@@ -150,14 +155,54 @@ func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		textResponse = resBody.Choices[0].Message.Content
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: &textResponse,
+		Debug:  debugInformation,
+		Params: v.getResponseParams(resBody.Usage),
 	}, nil
+}
+
+func (v *octoai) getParameters(cfg moduletools.ClassConfig, options interface{}) octoparams.Params {
+	settings := config.NewClassSettings(cfg)
+
+	var params octoparams.Params
+	if p, ok := options.(octoparams.Params); ok {
+		params = p
+	}
+
+	if params.Model == "" {
+		params.Model = settings.Model()
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	if params.MaxTokens == nil {
+		maxTokens := settings.MaxTokens()
+		params.MaxTokens = &maxTokens
+	}
+	return params
+}
+
+func (v *octoai) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
+func (v *octoai) getResponseParams(usage *usage) map[string]interface{} {
+	if usage != nil {
+		return map[string]interface{}{"octoai": map[string]interface{}{"usage": usage}}
+	}
+	return nil
 }
 
 func (v *octoai) getOctoAIUrl(ctx context.Context, baseURL string) (string, bool, error) {
 	passedBaseURL := baseURL
-	if headerBaseURL := v.getValueFromContext(ctx, "X-Octoai-Baseurl"); headerBaseURL != "" {
+	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Octoai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
 	if strings.Contains(passedBaseURL, "image") {
@@ -192,18 +237,6 @@ func (v *octoai) generateForPrompt(textProperties map[string]string, prompt stri
 	return prompt, nil
 }
 
-func (v *octoai) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, key); apiKeyValue != "" {
-		return apiKeyValue
-	}
-	return ""
-}
-
 func (v *octoai) getApiKey(ctx context.Context) (string, error) {
 	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Octoai-Api-Key"); apiKey != "" {
 		return apiKey, nil
@@ -219,8 +252,10 @@ func (v *octoai) getApiKey(ctx context.Context) (string, error) {
 type generateInputText struct {
 	Model       string              `json:"model"`
 	Messages    []map[string]string `json:"messages"`
-	MaxTokens   int                 `json:"max_tokens"`
-	Temperature int                 `json:"temperature"`
+	MaxTokens   *int                `json:"max_tokens"`
+	Temperature *float64            `json:"temperature,omitempty"`
+	N           *int                `json:"n,omitempty"`
+	TopP        *float64            `json:"top_p,omitempty"`
 }
 
 type generateInputImage struct {
@@ -257,8 +292,15 @@ type Image struct {
 type generateResponse struct {
 	Choices []Choice
 	Images  []Image
+	Usage   *usage `json:"usage,omitempty"`
 
 	Error *octoaiApiError `json:"error,omitempty"`
+}
+
+type usage struct {
+	PromptTokens     *int `json:"prompt_tokens,omitempty"`
+	CompletionTokens *int `json:"completion_tokens,omitempty"`
+	TotalTokens      *int `json:"total_tokens,omitempty"`
 }
 
 type octoaiApiError struct {

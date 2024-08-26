@@ -31,7 +31,7 @@ var logger, _ = test.NewNullLogger()
 func TestBinaryQuantizerRecall(t *testing.T) {
 	k := 10
 	distanceProvider := distancer.NewCosineDistanceProvider()
-	vectors, queryVecs := testinghelpers.RandomVecs(10_000, 100, 1536)
+	vectors, queryVecs := testinghelpers.RandomVecsFixedSeed(10_000, 100, 1536)
 	compressionhelpers.Concurrently(logger, uint64(len(vectors)), func(i uint64) {
 		vectors[i] = distancer.Normalize(vectors[i])
 	})

@@ -95,7 +95,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	var err error
 
 	if n.distancer == nil {
-		dist, err = n.graph.distBetweenNodeAndVec(id, n.nodeVec)
+		dist, err = n.graph.distToNode(n.distancer, id, n.nodeVec)
 	} else {
 		dist, err = n.distancer.DistanceToNode(id)
 	}
@@ -120,10 +120,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		return err
 	}
 
+	n.graph.RLock()
+	nodesLen := uint64(len(n.graph.nodes))
+	n.graph.RUnlock()
 	var pending []uint64
 	// lock the nodes slice
 	n.graph.shardedNodeLocks.RLock(from)
-	if uint64(len(n.graph.nodes)) < from || n.graph.nodes[from] == nil {
+	if nodesLen < from || n.graph.nodes[from] == nil {
 		n.graph.handleDeletedNode(from)
 		n.graph.shardedNodeLocks.RUnlock(from)
 		return nil
@@ -273,13 +276,22 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 
 	n.graph.pools.pqResults.Put(results)
 
-	// set all outgoing in one go
-	n.node.setConnectionsAtLevel(level, neighbors)
-	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighbors); err != nil {
+	neighborsCpy := neighbors
+	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
+	// if so, we need to create a copy
+	owned := n.node.setConnectionsAtLevel(level, neighbors)
+	if owned {
+		n.node.Lock()
+		neighborsCpy = make([]uint64, len(neighbors))
+		copy(neighborsCpy, neighbors)
+		n.node.Unlock()
+	}
+
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighborsCpy); err != nil {
 		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
 	}
 
-	for _, neighborID := range neighbors {
+	for _, neighborID := range neighborsCpy {
 		if err := n.connectNeighborAtLevel(neighborID, level); err != nil {
 			return errors.Wrapf(err, "connect neighbor %d", neighborID)
 		}
@@ -288,7 +300,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if len(neighbors) > 0 {
 		// there could be no neighbors left, if all are marked deleted, in this
 		// case, don't change the entrypoint
-		nextEntryPointID := neighbors[len(neighbors)-1]
+		nextEntryPointID := neighborsCpy[len(neighbors)-1]
 		if nextEntryPointID == n.node.id {
 			return nil
 		}
@@ -499,7 +511,7 @@ func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error)
 	var dist float32
 	var err error
 	if n.distancer == nil {
-		dist, err = n.graph.distBetweenNodeAndVec(candidate, n.nodeVec)
+		dist, err = n.graph.distToNode(n.distancer, candidate, n.nodeVec)
 	} else {
 		dist, err = n.distancer.DistanceToNode(candidate)
 	}
