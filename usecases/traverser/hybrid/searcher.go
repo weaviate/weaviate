@@ -100,7 +100,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		if err != nil {
 			return nil, err
 		}
-		if params.Distance > 0 {
+		if params.WithDistance {
 			minFound := -1
 			for i := range res {
 				if res[i].Dist > params.Distance {

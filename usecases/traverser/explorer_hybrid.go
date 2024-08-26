@@ -285,7 +285,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				errorText = "hybrid"
 			}
 
-			if params.HybridSearch.Distance > 0 {
+			if params.HybridSearch.WithDistance {
 				minFound := -1
 				for i := range res {
 					if res[i].Dist > params.HybridSearch.Distance {

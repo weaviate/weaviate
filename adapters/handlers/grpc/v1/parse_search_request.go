@@ -225,7 +225,9 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		}
 
 		var distance float32
+		withDistance := false
 		if hs.Threshold != nil {
+			withDistance = true
 			switch hs.Threshold.(type) {
 			case *pb.Hybrid_VectorDistance:
 				distance = hs.Threshold.(*pb.Hybrid_VectorDistance).VectorDistance
@@ -248,6 +250,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			FusionAlgorithm: fusionType,
 			TargetVectors:   targetVectors,
 			Distance:        distance,
+			WithDistance:    withDistance,
 		}
 
 		if nearVec != nil {

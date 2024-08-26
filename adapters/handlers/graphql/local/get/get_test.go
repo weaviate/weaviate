@@ -1910,6 +1910,7 @@ func TestHybridWithVectorDistance(t *testing.T) {
 		HybridSearch: &searchparams.HybridSearch{
 			Query:           "apple",
 			Distance:        0.5,
+			WithDistance:    true,
 			FusionAlgorithm: 1,
 			Alpha:           0.75,
 			Type:            "hybrid",
