@@ -251,7 +251,17 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	return nil, fmt.Errorf("not implemented")
+	res := models.BackupListResponse{}
+	if s.backupper.descriptor.ID != "" {
+		// active backups
+		res = append(res, &models.BackupListResponseItems0{
+			ID:      s.backupper.descriptor.ID,
+			Classes: s.backupper.descriptor.Classes(),
+			Status:  string(s.backupper.descriptor.Status),
+		})
+	}
+	// TODO : add canceled backups to the list
+	return &res, nil
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id string) (coordStore, error) {
