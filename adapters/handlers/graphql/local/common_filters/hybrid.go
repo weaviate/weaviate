@@ -110,9 +110,16 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	} else {
 		args.Alpha = DefaultAlpha
 	}
-
 	if args.Alpha < 0 || args.Alpha > 1 {
 		return nil, nil, fmt.Errorf("alpha should be between 0.0 and 1.0")
+	}
+
+	vectorDistanceCutOff, ok := source["maxVectorDistance"]
+	if ok {
+		args.Distance = float32(vectorDistanceCutOff.(float64))
+		args.WithDistance = true
+	} else {
+		args.WithDistance = false
 	}
 
 	query, ok := source["query"]
