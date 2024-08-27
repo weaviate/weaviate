@@ -37,7 +37,7 @@ func TestClient(t *testing.T) {
 
 		c := New("databricksToken", 0, nullLogger())
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Databricks-Servingurl", []string{server.URL})
+			"X-Databricks-Endpoint", []string{server.URL})
 
 		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
@@ -56,7 +56,7 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 		c := New("databricksToken", 0, nullLogger())
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Databricks-Servingurl", []string{server.URL})
+			"X-Databricks-Endpoint", []string{server.URL})
 
 		ctx, cancel := context.WithDeadline(ctxWithValue, time.Now())
 		defer cancel()
@@ -75,7 +75,7 @@ func TestClient(t *testing.T) {
 		defer server.Close()
 		c := New("databricksToken", 0, nullLogger())
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Databricks-Servingurl", []string{server.URL})
+			"X-Databricks-Endpoint", []string{server.URL})
 
 		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"},
 			fakeClassConfig{})
@@ -93,7 +93,7 @@ func TestClient(t *testing.T) {
 			"X-Databricks-Token", []string{"some-key"})
 
 		ctxWithValue = context.WithValue(ctxWithValue,
-			"X-Databricks-Servingurl", []string{server.URL})
+			"X-Databricks-Endpoint", []string{server.URL})
 
 		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
@@ -141,26 +141,26 @@ func TestClient(t *testing.T) {
 			"nor in environment variable under DATABRICKS_TOKEN")
 	})
 
-	t.Run("when X-Databricks-Servingurl header is passed", func(t *testing.T) {
+	t.Run("when X-Databricks-Endpoint header is passed", func(t *testing.T) {
 		c := New("", 0, nullLogger())
 
 		config := ent.VectorizationConfig{
-			Type:       "text",
-			Model:      "ada",
-			BaseURL:    "http://default-url.com",
-			ServingURL: "http://serving-url-in-config.com",
+			Type:     "text",
+			Model:    "ada",
+			BaseURL:  "http://default-url.com",
+			Endpoint: "http://serving-url-in-config.com",
 		}
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Databricks-Servingurl", []string{"http://serving-url-passed-in-header.com"})
+			"X-Databricks-Endpoint", []string{"http://serving-url-passed-in-header.com"})
 
-		servingURL, err := c.buildURL(ctxWithValue, config)
+		endpoint, err := c.buildURL(ctxWithValue, config)
 		require.NoError(t, err)
-		assert.Equal(t, "http://serving-url-passed-in-header.com", servingURL)
+		assert.Equal(t, "http://serving-url-passed-in-header.com", endpoint)
 
-		servingURL, err = c.buildURL(context.TODO(), config)
+		endpoint, err = c.buildURL(context.TODO(), config)
 		require.NoError(t, err)
-		assert.Equal(t, "http://serving-url-in-config.com", servingURL)
+		assert.Equal(t, "http://serving-url-in-config.com", endpoint)
 	})
 
 	t.Run("pass rate limit headers requests", func(t *testing.T) {

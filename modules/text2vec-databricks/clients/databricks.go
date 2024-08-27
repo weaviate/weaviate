@@ -143,11 +143,11 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 }
 
 func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
-	servingUrl := config.ServingURL
-	if headerServingUrl := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Servingurl"); headerServingUrl != "" {
-		servingUrl = headerServingUrl
+	endpoint := config.Endpoint
+	if headerEndpoint := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Endpoint"); headerEndpoint != "" {
+		endpoint = headerEndpoint
 	}
-	return servingUrl, nil
+	return endpoint, nil
 }
 
 func (v *client) getError(statusCode int, resBody embedding) error {
@@ -219,7 +219,7 @@ func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	settings := ent.NewClassSettings(cfg)
 	return ent.VectorizationConfig{
-		ServingURL:  settings.ServingURL(),
+		Endpoint:    settings.Endpoint(),
 		Instruction: settings.Instruction(),
 	}
 }

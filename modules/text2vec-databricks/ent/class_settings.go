@@ -34,8 +34,8 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
 }
 
-func (cs *classSettings) ServingURL() string {
-	return cs.BaseClassSettings.GetPropertyAsString("servingUrl", "")
+func (cs *classSettings) Endpoint() string {
+	return cs.BaseClassSettings.GetPropertyAsString("endpoint", "")
 }
 
 func (cs *classSettings) Instruction() string {
@@ -47,17 +47,17 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	servingUrl := cs.ServingURL()
-	if err := cs.ValidateServingURL(servingUrl); err != nil {
+	endpoint := cs.Endpoint()
+	if err := cs.ValidateEndpoint(endpoint); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (cs *classSettings) ValidateServingURL(servingUrl string) error {
-	if servingUrl == "" {
-		return errors.New("servingUrl cannot be empty")
+func (cs *classSettings) ValidateEndpoint(endpoint string) error {
+	if endpoint == "" {
+		return errors.New("endpoint cannot be empty")
 	}
 	return nil
 }

@@ -41,7 +41,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "user supplied serving url",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl": "https://foo.databricks.com/serving-endpoints/databricks-gte-large-en/invocations",
+					"endpoint": "https://foo.databricks.com/serving-endpoints/databricks-gte-large-en/invocations",
 				},
 			},
 		},
@@ -50,7 +50,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{},
 			},
-			wantErr: errors.New("servingUrl cannot be empty"),
+			wantErr: errors.New("endpoint cannot be empty"),
 		},
 	}
 	for _, tt := range tests {
