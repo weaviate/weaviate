@@ -154,15 +154,16 @@ func (c *Checkpoints) DeleteShard(shardID string) error {
 		b := tx.Bucket(checkpointBucket)
 
 		c := b.Cursor()
+		sID := []byte(shardID)
 		var toDelete [][]byte
 
-		for k, _ := c.Seek([]byte(shardID)); k != nil; k, _ = c.Next() {
-			if !bytes.HasPrefix(k, []byte(shardID)) {
+		for k, _ := c.Seek(sID); k != nil; k, _ = c.Next() {
+			if !bytes.HasPrefix(k, sID) {
 				break
 			}
 
 			// ensure the key is either the shardID or shardID_vector
-			if !bytes.Equal(k, []byte(shardID)) && k[len(shardID)] != '_' {
+			if !bytes.Equal(k, sID) && k[len(sID)] != '_' {
 				continue
 			}
 
