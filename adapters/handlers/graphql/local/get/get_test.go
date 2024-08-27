@@ -2193,6 +2193,17 @@ func TestHybridWithTargets(t *testing.T) {
 	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
 		query := `{Get{SomeAction(hybrid:{
 					query:"apple", 
+					targetVectors: ["title1", "title2", "title3"],
+					searches: {nearVector:{
+     							vectorPerTarget: {title1: [1, "fish"], title2: [0, 0, 1], title3: [0, 0, 0, 1]}
+                    }}
+					}){intField}}}`
+		resolver.AssertFailToResolve(t, query)
+	})
+
+	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
+		query := `{Get{SomeAction(hybrid:{
+					query:"apple", 
 					targetVectors: ["title1", "title2", "title2", "title3", "title3"],
 					searches: {nearVector:{
      							vectorPerTarget: {title1: [1, 0], title2: [[0, 0, 1], [1,0,0]], title3: [[0, 0, 0, 1], [1, 0, 0, 1]]}
