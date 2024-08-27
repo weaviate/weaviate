@@ -39,7 +39,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"servingUrl": "https://foo.bar.com",
 				},
 			},
-			wantMaxTokens:   1e9,
+			wantMaxTokens:   8192,
 			wantTemperature: 1.0,
 			wantTopP:        1,
 			wantTopK:        math.MaxInt64,

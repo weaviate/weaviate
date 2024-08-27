@@ -31,7 +31,7 @@ const (
 var (
 	DefaultDatabricksTemperature = 1.0
 	DefaultDatabricksTopP        = 1.0
-	DefaultDatabricksMaxTokens   = 1e9
+	DefaultDatabricksMaxTokens   = 8192.0
 	DefaultDatabricksTopK        = math.MaxInt64
 )
 
