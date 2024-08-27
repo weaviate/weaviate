@@ -308,6 +308,13 @@ func (l *LazyLoadShard) drop() error {
 				idx.vectorIndexUserConfig, idx.vectorIndexUserConfigs)
 		}
 
+		// cleanup index checkpoints
+		if l.shardOpts.indexCheckpoints != nil {
+			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
+				return fmt.Errorf("delete shard index checkpoints: %w", err)
+			}
+		}
+
 		// remove shard dir
 		if err := os.RemoveAll(shardPath(idx.path(), shardName)); err != nil {
 			return fmt.Errorf("delete shard dir: %w", err)
