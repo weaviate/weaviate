@@ -213,6 +213,13 @@ func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props se
 	return l.shard.ObjectByID(ctx, id, props, additional)
 }
 
+func (l *LazyLoadShard) UUIDByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (strfmt.UUID, error) {
+	if err := l.Load(ctx); err != nil {
+		return "", err
+	}
+	return l.shard.UUIDByIndexID(ctx, indexID, acceptDeleted)
+}
+
 func (l *LazyLoadShard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err

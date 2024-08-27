@@ -66,6 +66,7 @@ func (h *hnsw) DumpJSON(labels ...string) {
 			ID:          node.id,
 			Level:       node.level,
 			Connections: node.connections,
+			Maintenance: node.maintenance,
 		}
 		dump.Nodes = append(dump.Nodes, dumpNode)
 	}
@@ -75,6 +76,33 @@ func (h *hnsw) DumpJSON(labels ...string) {
 		fmt.Println(err)
 	}
 	fmt.Printf("%s\n", string(out))
+}
+
+func GetGraph(vectorIndex any, labels ...string) (*JSONDump, error) {
+	h, ok := vectorIndex.(*hnsw)
+	if !ok {
+		return nil, fmt.Errorf("not an hnsw index")
+	}
+	dump := JSONDump{
+		Labels:              labels,
+		ID:                  h.id,
+		Entrypoint:          h.entryPointID,
+		CurrentMaximumLayer: h.currentMaximumLayer,
+		Tombstones:          h.tombstones,
+	}
+	for _, node := range h.nodes {
+		if node == nil {
+			continue
+		}
+
+		dumpNode := JSONDumpNode{
+			ID:          node.id,
+			Level:       node.level,
+			Connections: node.connections,
+		}
+		dump.Nodes = append(dump.Nodes, dumpNode)
+	}
+	return &dump, nil
 }
 
 type JSONDump struct {
@@ -90,6 +118,7 @@ type JSONDumpNode struct {
 	ID          uint64     `json:"id"`
 	Level       int        `json:"level"`
 	Connections [][]uint64 `json:"connections"`
+	Maintenance bool       `json:"maintenance"`
 }
 
 type JSONDumpMap struct {

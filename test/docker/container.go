@@ -21,6 +21,7 @@ type EndpointName string
 var (
 	HTTP EndpointName = "http"
 	GRPC EndpointName = "grpc"
+	PROF EndpointName = "prof"
 )
 
 type endpoint struct {

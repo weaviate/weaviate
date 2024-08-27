@@ -162,6 +162,29 @@ func (s *Shard) objectByIndexID(ctx context.Context, indexID uint64, acceptDelet
 	return obj, nil
 }
 
+func (s *Shard) UUIDByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (strfmt.UUID, error) {
+	keyBuf := make([]byte, 8)
+	binary.LittleEndian.PutUint64(keyBuf, indexID)
+
+	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).
+		GetBySecondary(0, keyBuf)
+	if err != nil {
+		return "", err
+	}
+
+	if bytes == nil {
+		return "", storobj.NewErrNotFoundf(indexID,
+			"uuid found for docID, but object is nil")
+	}
+
+	obj, err := storobj.FromBinaryUUIDOnly(bytes)
+	if err != nil {
+		return "", errors.Wrap(err, "unmarshal kind object")
+	}
+
+	return obj.ID(), nil
+}
+
 func (s *Shard) vectorByIndexID(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 	keyBuf := make([]byte, 8)
 	return s.readVectorByIndexIDIntoSlice(ctx, indexID, &common.VectorSlice{Buff8: keyBuf}, targetVector)
@@ -511,6 +534,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID) error {
 		// nothing to do
 		return nil
 	}
+
+	lock := &s.uuidLock[s.uuidToIdLockPoolId(idBytes)]
+	lock.Lock()
+	defer lock.Unlock()
 
 	// we need the doc ID so we can clean up inverted indices currently
 	// pointing to this object

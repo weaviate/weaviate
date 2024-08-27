@@ -136,3 +136,12 @@ func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 	}
 	return nil
 }
+
+func (d *DockerCompose) GetContainerByClusterHostName(name string) *DockerContainer {
+	for _, c := range d.containers {
+		if c.envSettings["CLUSTER_HOSTNAME"] == name {
+			return c
+		}
+	}
+	return nil
+}

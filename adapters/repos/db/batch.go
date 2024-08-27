@@ -170,7 +170,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl)
+	shardUuids, err := idx.findUUIDs(ctx, params.Filters, tenant, repl)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}
@@ -179,16 +179,16 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	limit := db.config.QueryMaximumResults
 
 	matches := int64(0)
-	for shardName, docIDs := range shardDocIDs {
-		docIDsLength := int64(len(docIDs))
+	for shardName, uuids := range shardUuids {
+		uuidsLength := int64(len(uuids))
 		if matches <= limit {
-			if matches+docIDsLength <= limit {
-				toDelete[shardName] = docIDs
+			if matches+uuidsLength <= limit {
+				toDelete[shardName] = uuids
 			} else {
-				toDelete[shardName] = docIDs[:limit-matches]
+				toDelete[shardName] = uuids[:limit-matches]
 			}
 		}
-		matches += docIDsLength
+		matches += uuidsLength
 	}
 
 	if err := db.memMonitor.CheckAlloc(memwatch.EstimateObjectDeleteMemory() * matches); err != nil {

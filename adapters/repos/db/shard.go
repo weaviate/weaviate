@@ -156,6 +156,7 @@ type ShardLike interface {
 	updateVectorIndexIgnoreDelete(vector []float32, status objectInsertStatus) error
 	updateVectorIndexesIgnoreDelete(vectors map[string][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
+	UUIDByIndexID(ctx context.Context, indexID uint64, acceptDeleted bool) (strfmt.UUID, error)
 
 	Metrics() *Metrics
 
@@ -193,7 +194,7 @@ type Shard struct {
 
 	centralJobQueue chan job // reference to queue used by all shards
 
-	docIdLock []sync.Mutex
+	uuidLock []sync.Mutex
 	// replication
 	replicationMap pendingReplicaTasks
 
@@ -270,7 +271,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	s.initCycleCallbacks()
 
-	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
+	s.uuidLock = make([]sync.Mutex, IdLockPoolSize)
 
 	defer s.metrics.ShardStartup(before)
 
