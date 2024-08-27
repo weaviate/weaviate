@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package main
 
 import (
@@ -59,11 +70,11 @@ func main() {
 	case "querier":
 		grpcQuerier, err := NewQuerier(log)
 		if err != nil {
-			log.Fatalf("failed to create querier: %w", err)
+			log.Fatal("failed to create querier", err)
 		}
 		listener, err := net.Listen("tcp", opts.GRPCListenAddr)
 		if err != nil {
-			log.Fatalf("failed to bind grpc server port: %w", err)
+			log.Fatal("failed to bind grpc server port", err)
 		}
 
 		grpcServer := grpc.NewServer()
@@ -72,7 +83,7 @@ func main() {
 
 		log.WithField("port", opts.GRPCListenAddr).Info("starting querier grpc")
 		if err := grpcServer.Serve(listener); err != nil {
-			log.Fatalf("failed to start grpc server: %w", err)
+			log.Fatal("failed to start grpc server", err)
 		}
 
 	default:
@@ -282,7 +293,7 @@ func NewQuerier(log logrus.FieldLogger) (*query.GRPC, error) {
 	)
 	weaviateOIDC, err := oidc.New(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create weaviate OIDC", err)
+		return nil, fmt.Errorf("failed to create weaviate OIDC: %w", err)
 	}
 
 	weaviateApiKey, err := apikey.New(cfg)
