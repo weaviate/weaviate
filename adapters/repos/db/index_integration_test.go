@@ -16,6 +16,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -352,6 +353,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		},
 	}
 
+	// create a checkpoint file
 	cpFile, err := indexcheckpoint.New(dirName, logger)
 	require.Nil(t, err)
 	defer cpFile.Close()
@@ -367,6 +369,18 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		}, nil, logger, nil, nil, nil, nil, class, nil, cpFile, nil)
 	require.Nil(t, err)
 
+	// at this point the shard is not loaded yet.
+	// update the checkpoint file to simulate a previously loaded shard
+	var shardName string
+	for name := range shardState.Physical {
+		shardName = name
+		break
+	}
+	require.NotEmpty(t, shardName)
+	shardID := fmt.Sprintf("%s_%s", index.ID(), shardName)
+	err = cpFile.Update(shardID, "", 10)
+	require.Nil(t, err)
+
 	// drop the index before loading the shard
 	err = index.drop()
 	require.Nil(t, err)
@@ -374,6 +388,12 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	// ensure the checkpoint file is not deleted
 	_, err = os.Stat(filepath.Join(dirName, "index.db"))
 	require.Nil(t, err)
+
+	// ensure the shard checkpoint is deleted
+	v, ok, err := cpFile.Get(shardID, "")
+	require.Nil(t, err)
+	require.False(t, ok)
+	require.Zero(t, v)
 }
 
 func TestIndex_DropLoadedShard(t *testing.T) {
