@@ -36,10 +36,10 @@ func GetRateLimitsFromHeader(header http.Header) *modulecomponents.RateLimits {
 	remainingTokens := getHeaderInt(header, "x-ratelimit-remaining-tokens")
 
 	// azure returns 0 as limit, make sure this does not block anything by setting a high value
-	if limitTokens == 0 && remainingTokens > 0 {
+	if limitTokens == 0 {
 		limitTokens = dummyLimit
 	}
-	if limitRequests == 0 && remainingRequests > 0 {
+	if limitRequests == 0 {
 		limitRequests = dummyLimit
 	}
 	return &modulecomponents.RateLimits{
