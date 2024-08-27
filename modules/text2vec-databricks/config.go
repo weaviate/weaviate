@@ -25,7 +25,6 @@ import (
 func (m *DatabricksModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": ent.DefaultVectorizeClassName,
-		"model":              ent.DefaultOpenAIModel,
 	}
 }
 

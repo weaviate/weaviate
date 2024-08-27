@@ -20,8 +20,6 @@ import (
 )
 
 const (
-	// TODO: Check how Databricks embeddings model tokenize the text
-	DefaultOpenAIModel           = "ada"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
@@ -34,10 +32,6 @@ type classSettings struct {
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
-}
-
-func (cs *classSettings) Model() string {
-	return cs.BaseClassSettings.GetPropertyAsString("model", DefaultOpenAIModel)
 }
 
 func (cs *classSettings) ServingURL() string {

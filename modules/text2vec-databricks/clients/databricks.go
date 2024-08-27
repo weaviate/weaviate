@@ -127,7 +127,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 
 	texts := make([]string, len(resBody.Data))
 	embeddings := make([][]float32, len(resBody.Data))
-	openAIerror := make([]error, len(resBody.Data))
+	databrickserror := make([]error, len(resBody.Data))
 	for i := range resBody.Data {
 		texts[i] = resBody.Data[i].Object
 		embeddings[i] = resBody.Data[i].Embedding
@@ -138,7 +138,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 		Text:       texts,
 		Dimensions: len(resBody.Data[0].Embedding),
 		Vector:     embeddings,
-		Errors:     openAIerror,
+		Errors:     databrickserror,
 	}, rateLimit, nil
 }
 
@@ -219,8 +219,6 @@ func (v *client) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, 
 func (v *client) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
 	settings := ent.NewClassSettings(cfg)
 	return ent.VectorizationConfig{
-		// TODO: Check how Databricks embeddings model tokenize the text
-		Model:       settings.Model(),
 		ServingURL:  settings.ServingURL(),
 		Instruction: settings.Instruction(),
 	}

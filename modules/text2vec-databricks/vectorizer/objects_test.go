@@ -28,17 +28,12 @@ import (
 // text2vec-contextionary module
 func TestVectorizingObjects(t *testing.T) {
 	type testCase struct {
-		name                string
-		input               *models.Object
-		expectedClientCall  string
-		expectedOpenAIType  string
-		expectedOpenAIModel string
-		noindex             string
-		excludedProperty    string // to simulate a schema where property names aren't vectorized
-		excludedClass       string // to simulate a schema where class names aren't vectorized
-		openAIType          string
-		openAIModel         string
-		openAIModelVersion  string
+		name               string
+		input              *models.Object
+		expectedClientCall string
+		noindex            string
+		excludedProperty   string // to simulate a schema where property names aren't vectorized
+		excludedClass      string // to simulate a schema where class names aren't vectorized
 	}
 	logger, _ := test.NewNullLogger()
 
@@ -48,11 +43,8 @@ func TestVectorizingObjects(t *testing.T) {
 			input: &models.Object{
 				Class: "Car",
 			},
-			openAIType:          "text",
-			openAIModel:         "ada",
-			expectedOpenAIType:  "text",
-			expectedOpenAIModel: "ada",
-			expectedClientCall:  "car",
+
+			expectedClientCall: "car",
 		},
 		{
 			name: "object with one string prop",
@@ -188,9 +180,6 @@ func TestVectorizingObjects(t *testing.T) {
 			cfg := &FakeClassConfig{
 				classConfig: map[string]interface{}{
 					"vectorizeClassName": test.excludedClass != "Car",
-					"type":               test.openAIType,
-					"model":              test.openAIModel,
-					"modelVersion":       test.openAIModelVersion,
 				},
 				vectorizePropertyName: true,
 				skippedProperty:       test.noindex,
@@ -202,8 +191,6 @@ func TestVectorizingObjects(t *testing.T) {
 			require.Nil(t, err)
 			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
 			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
-			conf := ent.NewClassSettings(client.lastConfig)
-			assert.Equal(t, test.expectedOpenAIModel, conf.Model())
 		})
 	}
 }

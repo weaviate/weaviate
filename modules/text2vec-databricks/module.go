@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-databricks/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-openai/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-databricks/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 

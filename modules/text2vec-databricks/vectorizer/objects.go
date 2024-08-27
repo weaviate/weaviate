@@ -27,10 +27,10 @@ import (
 )
 
 const (
-	MaxObjectsPerBatch = 2000 // https://platform.openai.com/docs/api-reference/embeddings/create
+	MaxObjectsPerBatch = 2000
 	// time per token goes down up to a certain batch size and then flattens - however the times vary a lot so we
 	// don't want to get too close to the maximum of 50s
-	OpenAIMaxTimePerBatch = float64(10)
+	DatabricksMaxTimePerBatch = float64(10)
 )
 
 func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecbase.BatchVectorizer {
@@ -56,5 +56,5 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 	// there does not seem to be a limit
 	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
 
-	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, DatabricksMaxTimePerBatch, logger), batchTokenizer)
 }
