@@ -18,6 +18,7 @@ import (
 	"context"
 	"os"
 	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -323,6 +325,54 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	})
 
 	err = index.drop()
+	require.Nil(t, err)
+}
+
+func TestIndex_DropUnloadedShard(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		Class: "deletetest",
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{},
+	}
+	fakeSchema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				class,
+			},
+		},
+	}
+
+	cpFile, err := indexcheckpoint.New(dirName, logger)
+	require.Nil(t, err)
+	defer cpFile.Close()
+
+	// create index
+	shardState := singleShardState()
+	index, err := NewIndex(testCtx(), IndexConfig{
+		RootPath:  dirName,
+		ClassName: schema.ClassName(class.Class),
+	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
+			schema: fakeSchema, shardState: shardState,
+		}, nil, logger, nil, nil, nil, nil, class, nil, cpFile, nil)
+	require.Nil(t, err)
+
+	// drop the index before loading the shard
+	err = index.drop()
+	require.Nil(t, err)
+
+	// ensure the checkpoint file is not deleted
+	_, err = os.Stat(filepath.Join(dirName, "index.db"))
 	require.Nil(t, err)
 }
 
