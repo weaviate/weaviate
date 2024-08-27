@@ -232,7 +232,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	results = make([][]*search.Result, resultsCount)
 	weights = make([]float64, resultsCount)
 	names = make([]string, resultsCount)
-	aboveCutoffSet := map[strfmt.UUID]struct{}{}
+	var belowCutoffSet map[strfmt.UUID]struct{}
 
 	if (params.HybridSearch.Alpha) > 0 {
 		eg.Go(func() error {
@@ -286,19 +286,18 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 			}
 
 			if params.HybridSearch.WithDistance {
-				minFound := -1
+				belowCutoffSet = map[strfmt.UUID]struct{}{}
+				maxFound := -1
 				for i := range res {
-					if res[i].Dist > params.HybridSearch.Distance {
-						aboveCutoffSet[res[i].ID] = struct{}{}
-						if minFound == -1 {
-							minFound = i
-						}
+					if res[i].Dist <= params.HybridSearch.Distance {
+						belowCutoffSet[res[i].ID] = struct{}{}
+						maxFound = i
+					} else {
+						break
 					}
 				}
 				// sorted by distance, so just remove everything after the first entry we found
-				if minFound >= 0 {
-					res = res[:minFound]
-				}
+				res = res[:maxFound+1]
 			}
 
 			if err != nil {
@@ -339,10 +338,10 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	}
 
 	// remove results with a vector distance above the cutoff from the BM25 results
-	if sparseSearchIndex >= 0 && len(aboveCutoffSet) > 0 {
+	if sparseSearchIndex >= 0 && belowCutoffSet != nil {
 		newResults := make([]*search.Result, 0, len(results[sparseSearchIndex]))
 		for i := range results[sparseSearchIndex] {
-			if _, ok := aboveCutoffSet[results[sparseSearchIndex][i].ID]; !ok {
+			if _, ok := belowCutoffSet[results[sparseSearchIndex][i].ID]; ok {
 				newResults = append(newResults, results[sparseSearchIndex][i])
 			}
 		}
