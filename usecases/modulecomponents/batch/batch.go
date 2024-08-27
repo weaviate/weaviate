@@ -247,7 +247,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 	maxTokensPerBatch := b.maxTokensPerBatch(job.cfg)
 	tokensInCurrentBatch := 0
 	numRequests := 0
-	numSendObjets := 0
+	numSendObjects := 0
 
 	texts := make([]string, 0, 100)
 	origIndex := make([]int, 0, 100)
@@ -311,7 +311,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 			timePerToken = batchTookInS / float64(tokensInCurrentBatch)
 		}
 		numRequests += 1
-		numSendObjets += len(texts)
+		numSendObjects += len(texts)
 
 		// in case of low rate limits we should not send the next batch immediately but sleep a bit
 		batchesPerMinute := 61.0 / batchTookInS
@@ -327,7 +327,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 			time.Sleep(time.Duration(sleepFor * float64(time.Second)))
 		}
 
-		// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the OPenAI
+		// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the OpenAI
 		// free tier only the RPD limits are shown but not RPM
 		if rateLimit.RemainingRequests <= 0 && time.Until(rateLimit.ResetRequests) > 0 {
 			// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
@@ -355,7 +355,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 	}
 	objectsPerRequest := 0
 	if numRequests > 0 {
-		objectsPerRequest = numSendObjets / numRequests
+		objectsPerRequest = numSendObjects / numRequests
 	}
 	b.endOfBatchChannel <- endOfBatchJob{
 		timePerToken:      timePerToken,
