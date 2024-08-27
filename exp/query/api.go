@@ -41,7 +41,6 @@ func NewAPI(
 	config *config.Config,
 	log logrus.FieldLogger,
 ) *API {
-
 	return &API{
 		log:    log,
 		config: config,

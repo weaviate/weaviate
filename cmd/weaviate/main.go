@@ -104,8 +104,8 @@ func newSchemaManager(
 	modulesProvider *modules.Provider,
 	clusterState *cluster.State,
 	repo *db.DB,
-	log logrus.FieldLogger) *schema.Manager {
-
+	log logrus.FieldLogger,
+) *schema.Manager {
 	migrator := db.NewMigrator(repo, log) // still need db.DB
 	scalar := scaler.New(clusterState, nil, nil, log, "/tmp")
 	schemaRepo := schemarepo.NewStore(config.DefaultPersistenceDataPath, log)
@@ -163,7 +163,6 @@ func newSchemaManager(
 }
 
 func newRepo(weaviateCfg *config.Config, clusterState *cluster.State, log logrus.FieldLogger) *db.DB {
-
 	clusterHttpClient := &http.Client{
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
