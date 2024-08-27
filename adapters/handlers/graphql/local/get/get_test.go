@@ -2190,7 +2190,7 @@ func TestHybridWithTargets(t *testing.T) {
 		resolver.AssertResolve(t, query)
 	})
 
-	t.Run("hybrid search with near vector subsearch and multi vector", func(t *testing.T) {
+	t.Run("hybrid search with near vector subsearch and wrong input", func(t *testing.T) {
 		query := `{Get{SomeAction(hybrid:{
 					query:"apple", 
 					targetVectors: ["title1", "title2", "title3"],
