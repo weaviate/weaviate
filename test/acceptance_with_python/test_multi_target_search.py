@@ -75,9 +75,9 @@ def test_multi_target_near_object(
     "target_vector,distances",
     [
         (["first", "first", "second", "second", "third"], (0, 0)),
-        (TargetVectors.sum(["first", "first", "second", "second", "third"]), [3, 4]),
-        (TargetVectors.minimum(["first", "first", "second", "second", "third"]), [0, 0]),
-        (TargetVectors.average(["first", "first", "second", "second", "third"]), [0.6, 0.8]),
+        (TargetVectors.sum(["first", "second", "third"]), [3, 4]),
+        (TargetVectors.minimum(["first", "second", "third"]), [0, 0]),
+        (TargetVectors.average(["first", "second", "third"]), [0.6, 0.8]),
         (
             TargetVectors.manual_weights({"first": [3, 2], "second": [1.5, 1], "third": 0.5}),
             [3, 6.5],
