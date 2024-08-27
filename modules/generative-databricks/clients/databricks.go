@@ -35,13 +35,13 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildServingUrlFn(servingUrl string) (string, error) {
-	return servingUrl, nil
+func buildEndpointFn(endpoint string) (string, error) {
+	return endpoint, nil
 }
 
 type databricks struct {
 	databricksToken string
-	buildServingUrl func(servingUrl string) (string, error)
+	buildEndpoint   func(endpoint string) (string, error)
 	httpClient      *http.Client
 	logger          logrus.FieldLogger
 }
@@ -52,8 +52,8 @@ func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogge
 		httpClient: &http.Client{
 			Timeout: timeout,
 		},
-		buildServingUrl: buildServingUrlFn,
-		logger:          logger,
+		buildEndpoint: buildEndpointFn,
+		logger:        logger,
 	}
 }
 
@@ -78,7 +78,7 @@ func (v *databricks) Generate(ctx context.Context, cfg moduletools.ClassConfig, 
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	oaiUrl, err := v.buildDatabricksServingUrl(ctx, settings)
+	oaiUrl, err := v.buildDatabricksEndpoint(ctx, settings)
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
@@ -193,12 +193,12 @@ func (v *databricks) getResponseParams(usage *usage) map[string]interface{} {
 	return nil
 }
 
-func (v *databricks) buildDatabricksServingUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
-	servingURL, _ := v.buildServingUrl(settings.ServingURL())
-	if headerServingURL := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Servingurl"); headerServingURL != "" {
-		servingURL = headerServingURL
+func (v *databricks) buildDatabricksEndpoint(ctx context.Context, settings config.ClassSettings) (string, error) {
+	endpoint, _ := v.buildEndpoint(settings.Endpoint())
+	if headerEndpoint := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Endpoint"); headerEndpoint != "" {
+		endpoint = headerEndpoint
 	}
-	return servingURL, nil
+	return endpoint, nil
 }
 
 func (v *databricks) generateInput(prompt string, params databricksparams.Params, settings config.ClassSettings) (generateInput, error) {

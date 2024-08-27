@@ -41,7 +41,7 @@ type ClassSettings interface {
 	TopP() float64
 	TopK() int
 	Validate(class *models.Class) error
-	ServingURL() string
+	Endpoint() string
 }
 
 type classSettings struct {
@@ -79,8 +79,8 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("Wrong topK configuration, values should be greater than zero or nil")
 	}
 
-	servingURL := ic.ServingURL()
-	err := ic.ValidateServingURL(servingURL)
+	endpoint := ic.Endpoint()
+	err := ic.ValidateEndpoint(endpoint)
 	if err != nil {
 		return err
 	}
@@ -119,13 +119,13 @@ func (ic *classSettings) TopK() int {
 	return *ic.getIntProperty(topKProperty, &DefaultDatabricksTopK)
 }
 
-func (ic *classSettings) ServingURL() string {
-	return *ic.getStringProperty("servingUrl", "")
+func (ic *classSettings) Endpoint() string {
+	return *ic.getStringProperty("endpoint", "")
 }
 
-func (cs *classSettings) ValidateServingURL(servingUrl string) error {
-	if servingUrl == "" {
-		return errors.New("servingUrl cannot be empty")
+func (cs *classSettings) ValidateEndpoint(endpoint string) error {
+	if endpoint == "" {
+		return errors.New("endpoint cannot be empty")
 	}
 	return nil
 }

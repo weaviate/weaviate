@@ -55,7 +55,7 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("databricksToken", 0, nullLogger())
-		c.buildServingUrl = func(servingUrl string) (string, error) {
+		c.buildEndpoint = func(endpoint string) (string, error) {
 			return fakeBuildUrl(server.URL)
 		}
 
@@ -69,18 +69,18 @@ func TestGetAnswer(t *testing.T) {
 		assert.Equal(t, expected, *res)
 	})
 
-	t.Run("when X-Databricks-Servingurl header is passed", func(t *testing.T) {
+	t.Run("when X-Databricks-Endpoint header is passed", func(t *testing.T) {
 		settings := &fakeClassSettings{}
 		c := New("databricksToken", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Databricks-Servingurl", []string{"http://base-url-passed-in-header.com"})
+			"X-Databricks-Endpoint", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL, err := c.buildDatabricksServingUrl(ctxWithValue, settings)
+		buildURL, err := c.buildDatabricksEndpoint(ctxWithValue, settings)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com", buildURL)
 
-		buildURL, err = c.buildDatabricksServingUrl(context.TODO(), settings)
+		buildURL, err = c.buildDatabricksEndpoint(context.TODO(), settings)
 		require.NoError(t, err)
 		assert.Equal(t, "", buildURL)
 	})
@@ -158,7 +158,7 @@ type fakeClassSettings struct {
 	temperature float64
 	topP        float64
 	topK        int
-	servingUrl  string
+	endpoint    string
 }
 
 func (s *fakeClassSettings) MaxTokens() float64 {
@@ -185,6 +185,6 @@ func (s *fakeClassSettings) Validate(class *models.Class) error {
 	return nil
 }
 
-func (s *fakeClassSettings) ServingURL() string {
-	return s.servingUrl
+func (s *fakeClassSettings) Endpoint() string {
+	return s.endpoint
 }
