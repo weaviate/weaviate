@@ -376,6 +376,87 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 	require.Nil(t, err)
 }
 
+func TestIndex_DropLoadedShard(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		Class: "deletetest",
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{},
+	}
+	fakeSchema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				class,
+			},
+		},
+	}
+
+	cpFile, err := indexcheckpoint.New(dirName, logger)
+	require.Nil(t, err)
+	defer cpFile.Close()
+
+	// create index
+	shardState := singleShardState()
+	index, err := NewIndex(testCtx(), IndexConfig{
+		RootPath:  dirName,
+		ClassName: schema.ClassName(class.Class),
+	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
+			schema: fakeSchema, shardState: shardState,
+		}, nil, logger, nil, nil, nil, nil, class, nil, cpFile, nil)
+	require.Nil(t, err)
+
+	// force the index to load the shard
+	productsIds := []strfmt.UUID{
+		"1295c052-263d-4aae-99dd-920c5a370d06",
+		"1295c052-263d-4aae-99dd-920c5a370d07",
+	}
+
+	products := []map[string]interface{}{
+		{"name": "one"},
+		{"name": "two"},
+	}
+
+	err = index.addUUIDProperty(context.TODO())
+	require.Nil(t, err)
+
+	err = index.addProperty(context.TODO(), &models.Property{
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
+	})
+	require.Nil(t, err)
+
+	for i, p := range products {
+		product := models.Object{
+			Class:      class.Class,
+			ID:         productsIds[i],
+			Properties: p,
+		}
+
+		err := index.putObject(context.TODO(), storobj.FromObject(
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
+		require.Nil(t, err)
+	}
+
+	// drop the index
+	err = index.drop()
+	require.Nil(t, err)
+
+	// ensure the checkpoint file is not deleted
+	_, err = os.Stat(filepath.Join(dirName, "index.db"))
+	require.Nil(t, err)
+}
+
 func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 	logger, _ := test.NewNullLogger()
 	shardState := singleShardState()
