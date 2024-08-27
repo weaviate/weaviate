@@ -58,18 +58,3 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 
 	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
 }
-
-// IndexCheck returns whether a property of a class should be indexed
-type ClassSettings interface {
-	PropertyIndexed(property string) bool
-	VectorizePropertyName(propertyName string) bool
-	VectorizeClassName() bool
-	Model() string
-	Type() string
-	ModelVersion() string
-	ResourceName() string
-	DeploymentID() string
-	BaseURL() string
-	ApiVersion() string
-	IsAzure() bool
-}
