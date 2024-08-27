@@ -74,6 +74,19 @@ func TestCheckpoint(t *testing.T) {
 		require.Zero(t, v)
 	})
 
+	t.Run("deleteShard: single vector", func(t *testing.T) {
+		err = c.Update("shard1", "", 123)
+		require.NoError(t, err)
+
+		err := c.DeleteShard("shard1")
+		require.NoError(t, err)
+
+		v, ok, err := c.Get("shard1", "")
+		require.NoError(t, err)
+		require.False(t, ok)
+		require.Zero(t, v)
+	})
+
 	t.Run("drop", func(t *testing.T) {
 		c, err := New(t.TempDir(), l)
 		require.NoError(t, err)
