@@ -195,7 +195,7 @@ func (v *databricks) getResponseParams(usage *usage) map[string]interface{} {
 
 func (v *databricks) buildDatabricksServingUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
 	servingURL, _ := v.buildServingUrl(settings.ServingURL())
-	if headerServingURL := v.getValueFromContext(ctx, "X-Databricks-Servingurl"); headerServingURL != "" {
+	if headerServingURL := modulecomponents.GetValueFromContext(ctx, "X-Databricks-Servingurl"); headerServingURL != "" {
 		servingURL = headerServingURL
 	}
 	return servingURL, nil
@@ -270,27 +270,13 @@ func (v *databricks) getApiKey(ctx context.Context) (string, error) {
 }
 
 func (v *databricks) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
-	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
+	if apiKeyValue := modulecomponents.GetValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
 	}
 	if envVarValue != "" {
 		return envVarValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
-}
-
-func (v *databricks) getValueFromContext(ctx context.Context, key string) string {
-	if value := ctx.Value(key); value != nil {
-		if keyHeader, ok := value.([]string); ok && len(keyHeader) > 0 && len(keyHeader[0]) > 0 {
-			return keyHeader[0]
-		}
-	}
-	// try getting header from GRPC if not successful
-	if apiKey := modulecomponents.GetValueFromGRPC(ctx, key); len(apiKey) > 0 && len(apiKey[0]) > 0 {
-		return apiKey[0]
-	}
-
-	return ""
 }
 
 type generateInput struct {
