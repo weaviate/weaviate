@@ -81,7 +81,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	)
 
 	alpha := params.Alpha
-	aboveCutoffSet := map[strfmt.UUID]struct{}{}
+	var belowCutoffSet map[strfmt.UUID]struct{}
 	if alpha < 1 {
 		if params.Query != "" {
 			res, err := processSparseSearch(sparseSearch())
@@ -101,29 +101,31 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 			return nil, err
 		}
 		if params.WithDistance {
-			minFound := -1
+			belowCutoffSet = map[strfmt.UUID]struct{}{}
+			// index starts with 0, use one less so we do not get any results in case nothing is above the limit
+			maxFound := -1
 			for i := range res {
-				if res[i].Dist > params.Distance {
-					aboveCutoffSet[res[i].ID] = struct{}{}
-					if minFound == -1 {
-						minFound = i
-					}
+				if res[i].Dist <= params.HybridSearch.Distance {
+					belowCutoffSet[res[i].ID] = struct{}{}
+					maxFound = i
+				} else {
+					break
 				}
 			}
 			// sorted by distance, so just remove everything after the first entry we found
-			if minFound >= 0 {
-				res = res[:minFound]
-			}
+			res = res[:maxFound+1]
 		}
+
 		found = append(found, res)
 		weights = append(weights, alpha)
 		names = append(names, "vector")
 	}
 
-	if len(aboveCutoffSet) > 0 && alpha < 1 {
+	// remove results with a vector distance above the cutoff from the BM25 results
+	if alpha < 1 && belowCutoffSet != nil {
 		newResults := make([]*search.Result, 0, len(found[0]))
 		for i := range found[0] {
-			if _, ok := aboveCutoffSet[found[0][i].ID]; !ok {
+			if _, ok := belowCutoffSet[found[0][i].ID]; ok {
 				newResults = append(newResults, found[0][i])
 			}
 		}
