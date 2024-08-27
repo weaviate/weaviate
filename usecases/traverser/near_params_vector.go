@@ -350,6 +350,9 @@ func (v *nearParamsVector) extractCertaintyFromParams(nearVector *searchparams.N
 	}
 
 	if hybrid != nil {
+		if hybrid.WithDistance {
+			return additional.DistToCertainty(float64(hybrid.Distance))
+		}
 		if hybrid.NearVectorParams != nil {
 			if hybrid.NearVectorParams.Certainty != 0 {
 				return hybrid.NearVectorParams.Certainty

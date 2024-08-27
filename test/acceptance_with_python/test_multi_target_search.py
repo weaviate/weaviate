@@ -1,5 +1,5 @@
 import math
-from typing import List, Union, Dict
+from typing import List
 
 import pytest
 
