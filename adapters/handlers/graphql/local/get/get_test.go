@@ -1898,6 +1898,31 @@ func TestHybridWithSort(t *testing.T) {
 	resolver.AssertFailToResolve(t, query, "hybrid search is not compatible with sort")
 }
 
+func TestHybridWithVectorDistance(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolverWithNoModules()
+	query := `{Get{SomeAction(hybrid:{query:"apple", maxVectorDistance: 0.5}){intField}}}`
+
+	var emptySubsearches []searchparams.WeightedSearchResult
+	expectedParams := dto.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+		HybridSearch: &searchparams.HybridSearch{
+			Query:           "apple",
+			Distance:        0.5,
+			WithDistance:    true,
+			FusionAlgorithm: 1,
+			Alpha:           0.75,
+			Type:            "hybrid",
+			SubSearches:     emptySubsearches,
+		},
+	}
+	resolver.On("GetClass", expectedParams).
+		Return([]interface{}{}, nil).Once()
+
+	resolver.AssertResolve(t, query)
+}
+
 func TestNearObjectNoModules(t *testing.T) {
 	t.Parallel()
 
