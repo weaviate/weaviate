@@ -223,20 +223,12 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				eg := errgroup.Group{}
 				require.Nil(t, compose.StopAt(ctx, 1, nil))
-				eg.Go(func() error {
-					require.Nil(t, compose.StartAt(ctx, 1))
-					return nil
-				})
+				require.Nil(t, compose.StartAt(ctx, 1))
 
 				require.Nil(t, compose.StopAt(ctx, 2, nil))
-				eg.Go(func() error {
-					require.Nil(t, compose.StartAt(ctx, 2))
-					return nil
-				})
+				require.Nil(t, compose.StartAt(ctx, 2))
 
-				eg.Wait()
 				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
 				require.Nil(t, err)
 				return client
