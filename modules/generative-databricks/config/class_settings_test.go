@@ -36,7 +36,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Happy flow",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl": "https://foo.bar.com",
+					"endpoint": "https://foo.bar.com",
 				},
 			},
 			wantMaxTokens:   8192,
@@ -50,7 +50,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Everything non default configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl":  "https://foo.bar.com",
+					"endpoint":    "https://foo.bar.com",
 					"maxTokens":   42,
 					"temperature": 0.5,
 					"topP":        3,
@@ -68,8 +68,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong maxTokens configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl": "https://foo.bar.com",
-					"maxTokens":  true,
+					"endpoint":  "https://foo.bar.com",
+					"maxTokens": true,
 				},
 			},
 			wantErr: errors.Errorf("Wrong maxTokens configuration, values should be greater than zero or nil"),
@@ -78,7 +78,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong temperature configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl":  "https://foo.bar.com",
+					"endpoint":    "https://foo.bar.com",
 					"temperature": true,
 				},
 			},
@@ -88,8 +88,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong topP configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl": "https://foo.bar.com",
-					"topP":       true,
+					"endpoint": "https://foo.bar.com",
+					"topP":     true,
 				},
 			},
 			wantErr: errors.Errorf("Wrong topP configuration, values are should have a minimal value of 1 and max of 5"),
@@ -98,20 +98,20 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Wrong topK configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl": "https://foo.bar.com",
-					"topK":       true,
+					"endpoint": "https://foo.bar.com",
+					"topK":     true,
 				},
 			},
 			wantErr: errors.Errorf("Wrong topK configuration, values should be greater than zero or nil"),
 		},
 		{
-			name: "Empty servingURL",
+			name: "Empty endpoint",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"servingUrl": "",
+					"endpoint": "",
 				},
 			},
-			wantErr: errors.Errorf("servingUrl cannot be empty"),
+			wantErr: errors.Errorf("endpoint cannot be empty"),
 		},
 	}
 	for _, tt := range tests {
