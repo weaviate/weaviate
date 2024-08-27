@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
 
@@ -99,10 +100,17 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
+var (
+	timesTotal = make([]int, 4)
+	timesCount = 0
+)
+
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 	additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
+	start := time.Now()
+
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
 	var stopWordDetector *stopwords.Detector
@@ -196,6 +204,9 @@ func (b *BM25Searcher) wand(
 
 	results := make(map[string]*terms, 100)
 
+	timesTotal[0] += int(time.Since(start).Milliseconds())
+	start = time.Now()
+
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -243,6 +254,9 @@ func (b *BM25Searcher) wand(
 		return nil, nil, err
 	}
 
+	timesTotal[1] += int(time.Since(start).Milliseconds())
+	start = time.Now()
+
 	topKResults := make(map[string][]*storobj.Object, len(results))
 	topKScores := make(map[string][]float32, len(results))
 
@@ -270,6 +284,9 @@ func (b *BM25Searcher) wand(
 		return nil, nil, err
 	}
 
+	timesTotal[2] += int(time.Since(start).Milliseconds())
+	start = time.Now()
+
 	if len(topKResults) == 0 {
 		return nil, nil, nil
 	}
@@ -282,6 +299,14 @@ func (b *BM25Searcher) wand(
 	}
 	for _, sco := range topKScores {
 		combinedScores = append(combinedScores, sco...)
+	}
+
+	timesTotal[3] += int(time.Since(start).Milliseconds())
+	timesCount++
+
+	if timesCount%100 == 0 {
+		b.logger.WithField("times", timesTotal).Debugf("bm25 times")
+		timesTotal = make([]int, 4)
 	}
 
 	return combinedResults, combinedScores, nil
@@ -550,6 +575,7 @@ func (t terms) findMinID(minScore float64) (uint64, int, bool) {
 	for i < len(t.data) && len(t.data) > 0 {
 		term := t.data[i]
 		if term.exhausted {
+			i++
 			continue
 		}
 		cumScore += term.idf
