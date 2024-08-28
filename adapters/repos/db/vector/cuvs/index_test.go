@@ -14,6 +14,7 @@
 package cuvs_index
 
 import (
+	"context"
 	"testing"
 
 	cuvs "github.com/rapidsai/cuvs/go"
@@ -40,8 +41,8 @@ func TestCagra(t *testing.T) {
 
 	// rand.Seed(time.Now().UnixNano())
 
-	NDataPoints := 256
-	NFeatures := 16
+	NDataPoints := 1024
+	NFeatures := 128
 
 	TestDataset := make([][]float32, NDataPoints)
 	for i := range TestDataset {
@@ -59,12 +60,23 @@ func TestCagra(t *testing.T) {
 		panic(err)
 	}
 
-	for i := range TestDataset {
-		err := index.Add(uint64(i), TestDataset[i])
+	ids := make([]uint64, 1000)
+	for i := range ids {
+		ids[i] = uint64(i)
+	}
+
+	err = index.AddBatch(context.Background(), ids, TestDataset[:1000])
+
+	for i := 0; i < 100000; i++ {
+		// err = index.Add(uint64(1001), TestDataset[1001])
+		// if err != nil {
+		// 	panic(err)
+		// }
+		err = index.AddBatch(context.Background(), ids, TestDataset[:1000])
 		if err != nil {
 			panic(err)
 		}
-		println("adding")
+		// 	println("adding")
 	}
 
 	// use the first 4 points from the dataset as queries : will test that we get them back
@@ -82,7 +94,7 @@ func TestCagra(t *testing.T) {
 	// 	DistancesDataset[i] = make([]float32, K)
 	// }
 
-	ids, dists, err := index.SearchByVector([][]float32{TestDataset[1]}, K, nil)
+	ids, dists, err := index.SearchByVector(TestDataset[1], K, nil)
 
 	if err != nil {
 		panic(err)

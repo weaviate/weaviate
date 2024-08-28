@@ -17,12 +17,16 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math"
+	"os"
+	"runtime/pprof"
 	"testing"
 	"time"
 
 	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/sirupsen/logrus/hooks/test"
 	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
+	"golang.org/x/exp/rand"
 
 	"github.com/weaviate/hdf5"
 )
@@ -70,10 +74,28 @@ func TestBench(t *testing.T) {
 	defer file.Close()
 
 	dataset, err := file.OpenDataset("train")
+	testdataset, err := file.OpenDataset("test")
+
+	if err != nil {
+		t.Fatalf("Error opening dataset: %v\n", err)
+	}
 
 	LoadVectors(index, dataset, t)
 
-	QueryVectors(index, dataset, t)
+	// Create a CPU profile file
+	f, err := os.Create("cpu_profile.prof")
+	if err != nil {
+		log.Fatal("could not create CPU profile: ", err)
+	}
+	defer f.Close()
+
+	// Start CPU profiling
+	if err := pprof.StartCPUProfile(f); err != nil {
+		log.Fatal("could not start CPU profile: ", err)
+	}
+	defer pprof.StopCPUProfile()
+
+	QueryVectors(index, testdataset, t)
 
 }
 
@@ -92,9 +114,10 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 	dimensions := dims[1]
 
 	rows = uint(1_000_000)
+	// rows = uint(100_000)
 
 	// batchSize := uint(30_000)
-	batchSize := uint(10_000)
+	batchSize := uint(1_000_000)
 
 	// Handle offsetting the data for product quantization
 	// i := uint(0)
@@ -106,6 +129,8 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 	defer memspace.Close()
 
 	start := time.Now()
+
+	minValC, maxValC := float32(math.Inf(1)), float32(math.Inf(-1))
 
 	for i := uint(0); i < rows; i += batchSize {
 
@@ -129,6 +154,7 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 		var chunkData [][]float32
 
 		if byteSize == 4 {
+			println("byte size 4")
 			chunkData1D := make([]float32, batchRows*dimensions)
 
 			if err := dataset.ReadSubset(&chunkData1D, memspace, dataspace); err != nil {
@@ -165,6 +191,99 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 
 		}
 
+		// ids := make([]uint64, batchSize)
+		// for i := range ids {
+		// 	ids[i] = uint64(i)
+		// }
+
+		NDataPoints := batchSize
+		NFeatures := 128
+
+		TestDataset := make([][]float32, NDataPoints)
+		for i := range TestDataset {
+			TestDataset[i] = make([]float32, NFeatures)
+			for j := range TestDataset[i] {
+				TestDataset[i][j] = rand.Float32()
+			}
+		}
+
+		// neatly print chunkData
+		// for i := range chunkData {
+		// 	println("chunk data: ", chunkData[i])
+		// 	for j := range chunkData[i] {
+		// 		println(chunkData[i][j])
+		// 		println(TestDataset[i][j])
+		// 	}
+		// }
+
+		for i := range TestDataset {
+			for j := range TestDataset[i] {
+				TestDataset[i][j] = chunkData[i][j]
+			}
+		}
+
+		for i := range chunkData {
+			for j := range chunkData[i] {
+
+				chunkData[i][j] = chunkData[i][j] * 0.146
+				// max := float32(31.99999)
+				// if chunkData[i][j] > max {
+				// 	chunkData[i][j] = max
+				// } else {
+				// 	chunkData[i][j] = chunkData[i][j] * 1.0
+				// }
+				// chunkData[i][j] = chunkData[i][j] * -1
+			}
+		}
+
+		// // neatly print TestDataset
+		// for i := range TestDataset {
+		// 	println("TestDataset: ", TestDataset[i])
+		// 	for j := range TestDataset[i] {
+
+		// 	}
+		// }
+
+		println("chunk data vector len: ", len(chunkData[0]))
+		if len(chunkData[0]) != 128 {
+			panic("chunk data vector len is not 128")
+		}
+
+		for i := range chunkData {
+			if len(chunkData[i]) != 128 {
+				log.Printf("Invalid vector length: %d", len(chunkData[i]))
+			}
+			for j := range chunkData[i] {
+				if math.IsNaN(float64(chunkData[i][j])) || math.IsInf(float64(chunkData[i][j]), 0) {
+					log.Printf("Invalid value at [%d][%d]: %f", i, j, chunkData[i][j])
+				}
+			}
+		}
+
+		for _, vec := range chunkData {
+			for _, val := range vec {
+				if val < minValC {
+					minValC = val
+				}
+				if val > maxValC {
+					maxValC = val
+				}
+			}
+		}
+
+		minVal, maxVal := float32(math.Inf(1)), float32(math.Inf(-1))
+		for _, vec := range TestDataset {
+			for _, val := range vec {
+				if val < minVal {
+					minVal = val
+				}
+				if val > maxVal {
+					maxVal = val
+				}
+			}
+		}
+		log.Printf("TestDataset range: [%f, %f]", minVal, maxVal)
+
 		err := index.AddBatch(context.Background(), ids, chunkData)
 		if err != nil {
 			panic(err)
@@ -173,6 +292,8 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 		// }
 
 	}
+
+	log.Printf("chunkData range: [%f, %f]", minValC, maxValC)
 
 	elapsed := time.Since(start)
 	println("elapsed time: ", elapsed.Seconds())
@@ -193,10 +314,11 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 	rows := dims[0]
 	dimensions := dims[1]
 
-	rows = uint(100_000)
+	rows = uint(10_000)
 
 	// batchSize := uint(30_000)
-	batchSize := uint(20_000)
+	batchSize := uint(10_000)
+	// batchSize := uint(1)
 
 	// Handle offsetting the data for product quantization
 	// i := uint(0)
@@ -260,6 +382,20 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 
 		// for i := range chunkData {
 
+		for i := range chunkData {
+			for j := range chunkData[i] {
+
+				chunkData[i][j] = chunkData[i][j] * 0.146
+				// max := float32(31.99999)
+				// if chunkData[i][j] > max {
+				// 	chunkData[i][j] = max
+				// } else {
+				// 	chunkData[i][j] = chunkData[i][j] * 1.0
+				// }
+				// chunkData[i][j] = chunkData[i][j] * -1
+			}
+		}
+
 		ids := make([]uint64, batchSize)
 
 		for j := uint(0); j < batchSize; j++ {
@@ -268,17 +404,22 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 		}
 
 		K := 10
-
-		_, _, err := index.SearchByVector(chunkData, K, nil)
-		if err != nil {
-			panic(err)
+		for k := range chunkData {
+			_, _, err := index.SearchByVector(chunkData[k], K, nil)
+			// r = r + 1
+			if err != nil {
+				panic(err)
+			}
 		}
 
 		// }
 
 	}
 
+	// println("r: ", r)
+
 	elapsed := time.Since(start)
 	println("elapsed time (query): ", elapsed.Seconds())
+	println(float64(rows))
 	println("QPS: ", float64(rows)/elapsed.Seconds())
 }

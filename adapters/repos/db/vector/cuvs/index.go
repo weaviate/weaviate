@@ -72,7 +72,8 @@ type cuvs_index struct {
 	dlpackTensor    *cuvs.Tensor[float32]
 	idCuvsIdMap     map[uint32]uint64
 	cuvsResource    *cuvs.Resource
-	cuvsExpandCount uint64
+	cuvsExtendCount uint64
+	cuvsNumExtends  uint64
 
 	// rescore             int64
 	// bq                  compressionhelpers.BinaryQuantizer
@@ -142,47 +143,102 @@ func byteSliceFromFloat32Slice(vector []float32, slice []byte) []byte {
 	return slice
 }
 
+func shouldExtend(index *cuvs_index, num_new uint64) bool {
+
+	// return false
+
+	// if index.cuvsNumExtends > 1 {
+	// 	println("cuvs num extends is greater than 8; rebuilding")
+	// 	return false
+	// }
+
+	// if index.count > 40 {
+	// 	println("cuvs count is greater than 900; extending")
+	// 	return true
+	// }
+
+	if num_new > 100 {
+		println("num_new is greater than 100; rebuilding")
+		return false
+	}
+
+	if index.count < 300_000 {
+		println("index count is less than 300_000; rebuilding")
+		return false
+	}
+
+	if index.dlpackTensor == nil {
+		println("dlpack tensor is nil; rebuilding")
+		return false
+	}
+
+	percentNewVectors := (float32(num_new+index.cuvsExtendCount) / float32(index.count+num_new)) * 100
+	println("percentNewVectors: ", percentNewVectors)
+	// why 20? https://weaviate-org.slack.com/archives/C05V3MGDGQY/p1722897390825229?thread_ts=1722894509.398509&cid=C05V3MGDGQY
+	if percentNewVectors > 20 {
+		println("percentNewVectors is greater than 20; rebuilding")
+		return false
+	}
+
+	println("extending")
+
+	return true
+
+}
+
+func Normalize_Temp(vector []float32) []float32 {
+	for i := range vector {
+		vector[i] = vector[i] * 0.146
+
+	}
+	return vector
+}
+
 func (index *cuvs_index) Add(id uint64, vector []float32) error {
 	index.logger.Debug("adding single")
 	return index.AddBatch(context.Background(), []uint64{id}, [][]float32{vector})
-	// index.Lock()
-	// defer index.Unlock()
-
-	// if index.cuvsIndex == nil {
-	// 	return errors.New("cuvs index is nil")
-	// }
-
-	// if len(vector) != int(index.dims) {
-	// 	return errors.Errorf("insert called with a vector of the wrong size")
-	// }
-
-	// slice := make([]byte, len(vector)*4)
-
-	// // store in bucket
-	// idBytes := make([]byte, 8)
-	// binary.BigEndian.PutUint64(idBytes, id)
-	// index.store.Bucket(index.getBucketName()).Put(idBytes, byteSliceFromFloat32Slice(vector, slice))
-
-	// // vector = index.normalized(vector)
-
-	// index.idCuvsIdMap[uint32(index.count)] = id
-
-	// index.count += 1
-
-	// index.dlpackTensor.Expand(index.cuvsResource, [][]float32{vector})
-
-	// err := cagra.BuildIndex(*index.cuvsResource, index.cuvsIndexParams, index.dlpackTensor, index.cuvsIndex)
-
-	// if err != nil {
-	// 	return err
-	// }
-
-	// return nil
 }
 
 func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vector [][]float32) error {
 	index.Lock()
 	defer index.Unlock()
+
+	println("cuvs index post startup")
+
+	err := cuvs.ResetMemoryResource()
+
+	if err != nil {
+		panic(err)
+	}
+
+	err = cuvs.EnablePoolMemoryResource(80, 100)
+
+	if err != nil {
+		panic(err)
+	}
+
+	if index == nil {
+		return errors.New("cuvs index is nil")
+	}
+
+	for v := range vector {
+		vector[v] = Normalize_Temp(vector[v])
+	}
+
+	if shouldExtend(index, uint64(len(id))) {
+		index.cuvsExtendCount += uint64(len(id))
+		index.cuvsNumExtends += 1
+		return AddWithExtend(index, id, vector)
+	} else {
+		index.cuvsExtendCount = 0
+		return AddWithRebuild(index, id, vector)
+	}
+
+}
+
+func AddWithRebuild(index *cuvs_index, id []uint64, vector [][]float32) error {
+	// index.Lock()
+	// defer index.Unlock()
 
 	index.logger.Debug("adding batch, batch size: ", len(id))
 	index.logger.Debug("adding batch, batch dimension: ", len(vector[0]))
@@ -190,9 +246,9 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vector [][]f
 	// 	panic("length not 128")
 	// }
 
-	if err := ctx.Err(); err != nil {
-		return err
-	}
+	// if err := ctx.Err(); err != nil {
+	// 	return err
+	// }
 
 	if index.cuvsIndex == nil {
 		return errors.New("cuvs index is nil")
@@ -240,13 +296,188 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vector [][]f
 
 }
 
+func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
+	// index.Lock()
+	// defer index.Unlock()
+	// id = id[:64]
+	// vector = vector[:64]
+
+	tensor, err := cuvs.NewTensor(true, vector)
+	if err != nil {
+		return err
+	}
+	_, err = tensor.ToDevice(index.cuvsResource)
+	if err != nil {
+		return err
+	}
+
+	ExtendParams, err := cagra.CreateExtendParams()
+	if err != nil {
+		return err
+	}
+	println("return SIZE")
+	println(index.count)
+	println(index.count + uint64(len(id)))
+	ReturnDataset := make([][]float32, index.count+uint64(len(id)))
+	for i := range ReturnDataset {
+		ReturnDataset[i] = make([]float32, len(vector[0]))
+	}
+
+	returnTensor, err := cuvs.NewTensor(true, ReturnDataset)
+	if err != nil {
+		return err
+	}
+	_, err = returnTensor.ToDevice(index.cuvsResource)
+	if err != nil {
+		return err
+	}
+
+	println("before extending")
+	for i := range id {
+		index.idCuvsIdMap[uint32(index.count)] = id[i]
+		index.count += 1
+	}
+
+	err = cagra.ExtendIndex(*index.cuvsResource, ExtendParams, &tensor, &returnTensor, index.cuvsIndex)
+
+	println("done extending")
+	println("done extending")
+	// return nil
+	if err != nil {
+		return err
+	}
+
+	// err = index.dlpackTensor.Close()
+
+	if err != nil {
+		return err
+	}
+
+	index.dlpackTensor = &returnTensor
+
+	return nil
+
+}
+
 func (index *cuvs_index) Delete(ids ...uint64) error {
 	return nil
 }
 
-func (index *cuvs_index) SearchByVector(vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	index.Lock()
-	defer index.Unlock()
+func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	// index.Lock()
+	// defer index.Unlock()
+
+	// for v := range vector {
+	vector = Normalize_Temp(vector)
+	// }
+
+	tensor, err := cuvs.NewTensor(false, [][]float32{vector})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = tensor.ToDevice(index.cuvsResource)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	queries, err := cuvs.NewTensor(true, [][]float32{vector})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// NeighborsDataset := make([][]uint32, 1)
+	// for i := range NeighborsDataset {
+	// 	NeighborsDataset[i] = make([]uint32, k)
+	// }
+	// DistancesDataset := make([][]float32, 1)
+	// for i := range DistancesDataset {
+	// 	DistancesDataset[i] = make([]float32, k)
+	// }
+
+	// neighbors, err := cuvs.NewTensor(true, NeighborsDataset)
+	neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(1), int64(k)})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// distances, err := cuvs.NewTensor(true, DistancesDataset)
+	distances, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(1), int64(k)})
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = queries.ToDevice(index.cuvsResource)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// _, err = neighbors.ToDevice(index.cuvsResource)
+
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
+	// _, err = distances.ToDevice(index.cuvsResource)
+
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
+
+	params, err := cagra.CreateSearchParams()
+
+	cagra.SearchIndex(*index.cuvsResource, params, index.cuvsIndex, &queries, &neighbors, &distances)
+
+	neighbors.ToHost(index.cuvsResource)
+	distances.ToHost(index.cuvsResource)
+
+	neighborsSlice, err := neighbors.GetArray()
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	distancesSlice, err := distances.GetArray()
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	neighborsResultSlice := make([]uint64, k)
+
+	for i := range neighborsSlice[0] {
+		neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
+	}
+	// println("got here")
+
+	// for i := range neighborsSlice[0] {
+	// 	println(neighborsSlice[0][i])
+	// }
+
+	// for i := range distancesSlice[0] {
+	// 	println(distancesSlice[0][i])
+	// }
+
+	// for i := range neighborsResultSlice {
+	// 	println(neighborsResultSlice[i])
+	// }
+
+	return neighborsResultSlice, distancesSlice[0], nil
+
+}
+
+func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	// index.Lock()
+	// defer index.Unlock()
+
+	for v := range vector {
+		vector[v] = Normalize_Temp(vector[v])
+	}
 
 	tensor, err := cuvs.NewTensor(false, vector)
 
@@ -364,6 +595,20 @@ func (index *cuvs_index) AlreadyIndexed() uint64 {
 
 func (index *cuvs_index) PostStartup() {
 
+	println("cuvs index post startup")
+
+	err := cuvs.ResetMemoryResource()
+
+	if err != nil {
+		panic(err)
+	}
+
+	err = cuvs.EnablePoolMemoryResource(30, 100)
+
+	if err != nil {
+		panic(err)
+	}
+
 	// cursor := index.store.Bucket(index.getBucketName()).Cursor()
 	// defer cursor.Close()
 
@@ -444,7 +689,7 @@ func (index *cuvs_index) ContainsNode(id uint64) bool {
 }
 
 func (index *cuvs_index) DistancerProvider() distancer.Provider {
-	return nil
+	return distancer.NewL2SquaredProvider()
 }
 
 func (index *cuvs_index) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {

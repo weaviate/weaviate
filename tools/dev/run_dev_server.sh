@@ -27,7 +27,7 @@ function go_run() {
 
 function go_run_cuvs() {
   GIT_HASH=$(git rev-parse --short HEAD)
-  go run -tags "cuvs" "$@"
+  /usr/local/go/bin/go run -tags "cuvs" "$@"
 }
 
 case $CONFIG in
