@@ -145,9 +145,6 @@ func TestClient(t *testing.T) {
 		c := New("", 0, nullLogger())
 
 		config := ent.VectorizationConfig{
-			Type:     "text",
-			Model:    "ada",
-			BaseURL:  "http://default-url.com",
 			Endpoint: "http://serving-url-in-config.com",
 		}
 

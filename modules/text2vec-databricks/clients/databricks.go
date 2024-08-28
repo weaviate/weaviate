@@ -100,7 +100,7 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "API Key")
 	}
-	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey, config.IsAzure))
+	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey))
 
 	req.Header.Add("Content-Type", "application/json")
 
@@ -167,10 +167,7 @@ func (v *client) getEmbeddingsRequest(input []string, instruction string) embedd
 	return embeddingsRequest{Input: input, Instruction: instruction}
 }
 
-func (v *client) getApiKeyHeaderAndValue(apiKey string, isAzure bool) (string, string) {
-	if isAzure {
-		return "api-key", apiKey
-	}
+func (v *client) getApiKeyHeaderAndValue(apiKey string) (string, string) {
 	return "Authorization", fmt.Sprintf("Bearer %s", apiKey)
 }
 
