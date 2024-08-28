@@ -111,6 +111,7 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 		// Metric uses non-standard base unit ms, use ms for backwards compatibility
 		metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
 			Observe(float64(duration.Milliseconds()))
+		metrics.BatchSizeBytes.WithLabelValues("grpc").Observe(reqSizeBytes)
 
 		return resp, err
 	})
