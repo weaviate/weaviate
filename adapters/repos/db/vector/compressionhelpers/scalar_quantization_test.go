@@ -26,7 +26,63 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	testinghelpers "github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
+	"github.com/stretchr/testify/require"
 )
+
+func FuzzScalarQuantizer(f *testing.F) {
+	const codes = 255.0
+    f.Add(float32(0), float32(1), float32(2), float32(3), float32(4), float32(5), float32(6), float32(7))
+
+    f.Fuzz(func(t *testing.T, v1, v2, v3, v4, v5, v6, v7, v8 float32) {
+        data1 := []float32{v1, v2, v3, v4}
+        data2 := []float32{v5, v6, v7, v8}
+
+        sq :=compressionhelpers. NewScalarQuantizer([][]float32{data1, data2}, distancer.NewCosineDistanceProvider())
+        if sq == nil {
+            t.Skip("Invalid input resulted in nil ScalarQuantizer")
+        }
+
+        for _, vec := range [][]float32{data1, data2} {
+            encoded := sq.Encode(vec)
+            decoded := sq.Decode(encoded)
+
+            require.Equal(t, len(vec)+8, len(encoded), "Encoded length should be input length + 8")
+            require.Equal(t, len(vec), len(decoded), "Decoded length should match input length")
+
+            for i, decodedVal := range decoded {
+                if encoded[i] == 255 {  // Upper bound case
+                    assert.GreaterOrEqual(t, decodedVal, sq.B()+sq.A(), 
+                        "Decoded value(%v) should be greater than or equal to B+A for upper bound(%v)", decodedVal, sq.B()+sq.A())
+                } else {
+                    lowerBound := sq.B() + (sq.A() * float32(encoded[i]) / codes)
+                    upperBound := sq.B() + (sq.A() * float32(encoded[i]+1) / codes)
+
+                    assert.GreaterOrEqual(t, decodedVal, lowerBound, 
+                        "Decoded value should be greater than or equal to lower bound")
+                    assert.Less(t, decodedVal, upperBound, 
+                        "Decoded value should be less than upper bound")
+                }
+            }
+
+            encoded2 := sq.Encode(vec)
+            assert.Equal(t, encoded, encoded2, "Encoding should be deterministic")
+        }
+
+        encoded1 := sq.Encode(data1)
+        encoded2 := sq.Encode(data2)
+        dist, err := sq.DistanceBetweenCompressedVectors(encoded1, encoded2)
+        assert.NoError(t, err, "Distance calculation should not error")
+        assert.NotNil(t, dist, "Distance should not be nil")
+
+        distancer := sq.NewDistancer(data1)
+        assert.NotNil(t, distancer, "NewDistancer should not return nil")
+
+        dist2, ok, err := distancer.Distance(encoded2)
+        assert.True(t, ok, "Distance calculation should be successful")
+        assert.NoError(t, err, "Distance calculation should not error")
+        assert.Equal(t, dist, dist2, "Distances should match")
+    })
+}
 
 func Test_NoRaceSQEncode(t *testing.T) {
 	sq := compressionhelpers.NewScalarQuantizer([][]float32{
@@ -179,6 +235,80 @@ func Test_NoRaceRandomSQDistanceByteToByte(t *testing.T) {
 		fmt.Println(distancer.Type(), recall, latency)
 		assert.GreaterOrEqual(t, recall, float32(0.8), distancer.Type())
 	}
+}
+
+func FuzzSQDistanceByteToByte(f *testing.F) {
+    // Add some seed corpus
+    f.Add(int64(1), uint8(100), uint8(10), uint8(150), uint8(10))
+
+    f.Fuzz(func(t *testing.T, seed int64, vSize, qSize, dims, k uint8) {
+        // Ensure reasonable values
+        vSize = vSize%100 + 1  // 1 to 100
+        qSize = qSize%20 + 1   // 1 to 20
+        dims = dims%200 + 1    // 1 to 200
+        k = k%10 + 1           // 1 to 10
+
+        distancers := []distancer.Provider{
+            distancer.NewL2SquaredProvider(),
+            distancer.NewCosineDistanceProvider(),
+            distancer.NewDotProductProvider(),
+        }
+
+        data, queries := testinghelpers.RandomVecs( int(vSize), int(qSize), int(dims))
+        testinghelpers.Normalize(data)
+        testinghelpers.Normalize(queries)
+
+        for _, distancer := range distancers {
+            sq := compressionhelpers.NewScalarQuantizer(data, distancer)
+            neighbors := make([][]uint64, qSize)
+            for j, y := range queries {
+                neighbors[j], _ = testinghelpers.BruteForce(logrus.New(), data, y, int(k), distancerWrapper(distancer))
+            }
+
+            xCompressed := make([][]byte, vSize)
+            for i, x := range data {
+                xCompressed[i] = sq.Encode(x)
+            }
+
+            var relevant uint64
+            mutex := sync.Mutex{}
+            ellapsed := time.Duration(0)
+
+            compressionhelpers.Concurrently(logrus.New(), uint64(len(queries)), func(i uint64) {
+                heap := priorityqueue.NewMax[any](int(k))
+                cd := sq.NewCompressedQuantizerDistancer(sq.Encode(queries[i]))
+                for j := range xCompressed {
+                    before := time.Now()
+                    d, _, _ := cd.Distance(xCompressed[j])
+                    ell := time.Since(before)
+                    mutex.Lock()
+                    ellapsed += ell
+                    mutex.Unlock()
+                    if heap.Len() < int(k) || heap.Top().Dist > d {
+                        if heap.Len() == int(k) {
+                            heap.Pop()
+                        }
+                        heap.Insert(uint64(j), d)
+                    }
+                }
+                results := make([]uint64, 0, k)
+                for heap.Len() > 0 {
+                    results = append(results, heap.Pop().ID)
+                }
+                hits := matchesInLists(neighbors[i][:k], results)
+                mutex.Lock()
+                relevant += hits
+                mutex.Unlock()
+            })
+
+            recall := float32(relevant) / float32(int(k)*len(queries))
+            latency := float32(ellapsed.Microseconds()) / float32(len(queries))
+
+            // Use assertions instead of printing
+            assert.GreaterOrEqual(t, recall, float32(0.7), "Recall for %s should be at least 0.7", distancer.Type())
+            assert.Less(t, latency, float32(1000), "Latency for %s should be less than 1000 microseconds", distancer.Type())
+        }
+    })
 }
 
 func matchesInLists(control []uint64, results []uint64) uint64 {
