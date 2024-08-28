@@ -142,6 +142,9 @@ const (
 
 	// PropertyTokenizationKagomeKr captures enum value "kagome_kr"
 	PropertyTokenizationKagomeKr string = "kagome_kr"
+
+	// PropertyTokenizationKagomeJa captures enum value "kagome_ja"
+	PropertyTokenizationKagomeJa string = "kagome_ja"
 )
 
 // prop value enum
