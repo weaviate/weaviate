@@ -367,6 +367,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 				var m []lsmkv.MapPair
 				if filterDocIds != nil {
+					if filteredDocIDsThread[i] == nil {
+						filteredDocIDsThread[i] = sroar.NewBitmap()
+					}
 					m = make([]lsmkv.MapPair, 0, len(preM))
 					for _, val := range preM {
 						docID := binary.BigEndian.Uint64(val.Key)
@@ -392,8 +395,12 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	}
 
 	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
-	for _, docIDs := range filteredDocIDsThread {
-		filteredDocIDs.Or(docIDs)
+	if filterDocIds != nil {
+		for _, docIDs := range filteredDocIDsThread {
+			if docIDs != nil {
+				filteredDocIDs.Or(docIDs)
+			}
+		}
 	}
 
 	indices := make([]int, len(allMsAndProps))
