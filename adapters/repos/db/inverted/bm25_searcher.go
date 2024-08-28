@@ -343,12 +343,12 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms, averagePropLength f
 
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, additionalExplanations bool) (term, map[uint64]int, error) {
 	termResult := term{queryTerm: query}
-	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
 
 	var eg errgroup.Group
 	eg.SetLimit(_NUMCPU)
 
 	allMsAndProps := make(AllMapPairsAndPropName, len(propertyNames))
+	filteredDocIDsThread := make([]*sroar.Bitmap, len(propertyNames))
 
 	for i, propName := range propertyNames {
 		i := i
@@ -373,7 +373,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 						if filterDocIds.Contains(docID) {
 							m = append(m, val)
 						} else {
-							filteredDocIDs.Set(docID)
+							filteredDocIDsThread[i].Set(docID)
 						}
 					}
 				} else {
@@ -389,6 +389,11 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 
 	if err := eg.Wait(); err != nil {
 		return termResult, nil, err
+	}
+
+	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+	for _, docIDs := range filteredDocIDsThread {
+		filteredDocIDs.Or(docIDs)
 	}
 
 	indices := make([]int, len(allMsAndProps))
