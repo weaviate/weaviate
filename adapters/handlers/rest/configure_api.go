@@ -87,6 +87,7 @@ import (
 	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
+	moddatabricks "github.com/weaviate/weaviate/modules/text2vec-databricks"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
@@ -799,6 +800,7 @@ func registerModules(appState *state.State) error {
 	defaultVectorizers := []string{
 		modtext2vecaws.Name,
 		modcohere.Name,
+		moddatabricks.Name,
 		modhuggingface.Name,
 		modjinaai.Name,
 		modoctoai.Name,
@@ -975,6 +977,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modopenai.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[moddatabricks.Name]; ok {
+		appState.Modules.Register(moddatabricks.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", moddatabricks.Name).
 			Debug("enabled module")
 	}
 
