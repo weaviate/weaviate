@@ -508,6 +508,12 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
 
+	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
+		cfg.EnableFQDNResolver = true
+	}
+
+	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
+
 	return cfg, nil
 }
 

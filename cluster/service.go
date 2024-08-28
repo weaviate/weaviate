@@ -74,11 +74,21 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("open raft store: %w", err)
 	}
 
+	// If FQDN resolver is enabled make sure we're also using it for the bootstrapping process
+	nodeToAddressResolver := c.config.NodeToAddressResolver
+	if c.config.EnableFQDNResolver {
+		nodeToAddressResolver = resolver.NewFQDN(resolver.FQDNConfig{
+			// We don't need to specify more config as we are only using that resolver to resolve a node id to an IP
+			// overriding the default resolver using memberlist.
+			TLD: c.config.FQDNResolverTLD,
+		})
+	}
+
 	bs := bootstrap.NewBootstrapper(
 		c.rpcClient,
 		c.config.NodeID,
 		c.raftAddr,
-		c.config.NodeToAddressResolver,
+		nodeToAddressResolver,
 		c.Raft.Ready,
 	)
 
