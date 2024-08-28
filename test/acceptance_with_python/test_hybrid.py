@@ -176,3 +176,53 @@ def test_hybrid_search_vector_distance_more_objects(
         return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
     )
     assert res.total_count == len(objs_nt_cutoff)
+
+
+def test_hybrid_search_with_bm25_only_objects(
+    collection_factory: CollectionFactory,
+) -> None:
+    collection = collection_factory(
+        properties=[Property(name="name", data_type=DataType.TEXT)],
+        vectorizer_config=Configure.Vectorizer.none(),
+    )
+
+    collection.data.insert({"name": "banana"}, vector=[1, 0, 0, 0], uuid=UUID1)
+    collection.data.insert({"name": "apple"}, uuid=UUID2)  # not in vector search results
+
+    # both objects are found without limit as second object is found via BM25 search
+    objs = collection.query.hybrid("apple", vector=[1, 0, 0, 0]).objects
+    assert len(objs) == 2
+    res = collection.aggregate.hybrid(
+        "apple",
+        vector=[1, 0, 0, 0],
+        object_limit=50,
+        return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
+    )
+    assert res.total_count == 2
+
+    # only first object with vector is found with a max vector distance
+    objs = collection.query.hybrid("apple", vector=[1, 0, 0, 0], max_vector_distance=0.5).objects
+    assert len(objs) == 1
+    assert objs[0].uuid == UUID1
+
+    res = collection.aggregate.hybrid(
+        "apple",
+        vector=[1, 0, 0, 0],
+        object_limit=50,
+        max_vector_distance=0.5,
+        return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
+    )
+    assert res.total_count == 1
+
+    # no results found
+    objs = collection.query.hybrid("apple", vector=[0, 1, 0, 0], max_vector_distance=0.5).objects
+    assert len(objs) == 0
+
+    res = collection.aggregate.hybrid(
+        "apple",
+        vector=[0, 1, 0, 0],
+        object_limit=50,
+        max_vector_distance=0.5,
+        return_metrics=[wvc.aggregate.Metrics("name").text(count=True)],
+    )
+    assert res.total_count == 0
