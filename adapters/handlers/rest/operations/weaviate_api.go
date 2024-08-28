@@ -79,6 +79,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		BackupsBackupsCreateStatusHandler: backups.BackupsCreateStatusHandlerFunc(func(params backups.BackupsCreateStatusParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsCreateStatus has not yet been implemented")
 		}),
+		BackupsBackupsListHandler: backups.BackupsListHandlerFunc(func(params backups.BackupsListParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsList has not yet been implemented")
+		}),
 		BackupsBackupsRestoreHandler: backups.BackupsRestoreHandlerFunc(func(params backups.BackupsRestoreParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsRestore has not yet been implemented")
 		}),
@@ -283,6 +286,8 @@ type WeaviateAPI struct {
 	BackupsBackupsCreateHandler backups.BackupsCreateHandler
 	// BackupsBackupsCreateStatusHandler sets the operation handler for the backups create status operation
 	BackupsBackupsCreateStatusHandler backups.BackupsCreateStatusHandler
+	// BackupsBackupsListHandler sets the operation handler for the backups list operation
+	BackupsBackupsListHandler backups.BackupsListHandler
 	// BackupsBackupsRestoreHandler sets the operation handler for the backups restore operation
 	BackupsBackupsRestoreHandler backups.BackupsRestoreHandler
 	// BackupsBackupsRestoreStatusHandler sets the operation handler for the backups restore status operation
@@ -474,6 +479,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.BackupsBackupsCreateStatusHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsCreateStatusHandler")
+	}
+	if o.BackupsBackupsListHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsListHandler")
 	}
 	if o.BackupsBackupsRestoreHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsRestoreHandler")
@@ -735,6 +743,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/backups/{backend}/{id}"] = backups.NewBackupsCreateStatus(o.context, o.BackupsBackupsCreateStatusHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/backups/{backend}"] = backups.NewBackupsList(o.context, o.BackupsBackupsListHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
