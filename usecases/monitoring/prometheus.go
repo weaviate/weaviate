@@ -27,6 +27,9 @@ type Config struct {
 
 type PrometheusMetrics struct {
 	BatchTime                         *prometheus.HistogramVec
+	BatchSizeBytes                    *prometheus.SummaryVec
+	BatchSizeObjects                  prometheus.Summary
+	BatchSizeTenants                  prometheus.Summary
 	BatchDeleteTime                   *prometheus.SummaryVec
 	ObjectsTime                       *prometheus.SummaryVec
 	LSMBloomFilters                   *prometheus.SummaryVec
@@ -186,7 +189,7 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 }
 
 var (
-	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000}
+	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
 	metrics   *PrometheusMetrics = nil
 )
 
@@ -209,6 +212,19 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help:    "Duration in ms of a single batch",
 			Buckets: msBuckets,
 		}, []string{"operation", "class_name", "shard_name"}),
+		BatchSizeBytes: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "batch_size_bytes",
+			Help: "Size of a raw batch request batch in bytes",
+		}, []string{"api"}),
+		BatchSizeObjects: promauto.NewSummary(prometheus.SummaryOpts{
+			Name: "batch_size_objects",
+			Help: "Number of objects in a batch",
+		}),
+		BatchSizeTenants: promauto.NewSummary(prometheus.SummaryOpts{
+			Name: "batch_size_tenants",
+			Help: "Number of unique tenants referenced in a batch",
+		}),
+
 		BatchDeleteTime: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "batch_delete_durations_ms",
 			Help: "Duration in ms of a single delete batch",
