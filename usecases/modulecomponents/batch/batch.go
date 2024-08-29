@@ -169,12 +169,6 @@ func (b *Batch) batchWorker() {
 			objCounter++
 		}
 
-		stats := monitoring.GetMetrics().T2VRateLimitStats
-		stats.WithLabelValues(b.label, "token_limit").Set(float64(rateLimit.LimitTokens))
-		stats.WithLabelValues(b.label, "token_remaining").Set(float64(rateLimit.RemainingTokens))
-		stats.WithLabelValues(b.label, "request_limit").Set(float64(rateLimit.LimitRequests))
-		stats.WithLabelValues(b.label, "request_remaining").Set(float64(rateLimit.RemainingRequests))
-
 		// if we have a high rate limit we can send multiple batches in parallel.
 		//
 		// If the rate limit is high enough to "fit" the current batch, we send it concurrently. If not, we wait for
@@ -194,6 +188,13 @@ func (b *Batch) batchWorker() {
 		for {
 			timePerToken, objectsPerBatch = b.updateState(rateLimitPerApiKey, timePerToken, objectsPerBatch)
 			numRequests := 1 + int(1.25*float32(len(job.texts)))/objectsPerBatch // round up to be on the safe side
+
+			stats := monitoring.GetMetrics().T2VRateLimitStats
+			stats.WithLabelValues(b.label, "token_limit").Set(float64(rateLimit.LimitTokens))
+			stats.WithLabelValues(b.label, "token_remaining").Set(float64(rateLimit.RemainingTokens))
+			stats.WithLabelValues(b.label, "request_limit").Set(float64(rateLimit.LimitRequests))
+			stats.WithLabelValues(b.label, "request_remaining").Set(float64(rateLimit.RemainingRequests))
+
 			if rateLimit.CanSendFullBatch(numRequests, job.tokenSum) {
 				b.concurrentBatches.Add(1)
 				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Inc()
@@ -207,6 +208,8 @@ func (b *Batch) batchWorker() {
 				numRequests := numRequests
 				enterrors.GoWrapper(func() {
 					b.sendBatch(jobCopy, objCounter, dummyRateLimit(), timePerToken, numRequests, true)
+					monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.label, "processing_async").
+						Observe(time.Since(startProcessingTime).Seconds())
 				}, b.logger)
 				break
 			} else if b.concurrentBatches.Load() < 1 {
@@ -214,13 +217,13 @@ func (b *Batch) batchWorker() {
 				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Inc()
 				// block so no concurrent batch can be sent
 				b.sendBatch(job, objCounter, rateLimit, timePerToken, 0, false)
+				monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.label, "processing_sync").
+					Observe(time.Since(startProcessingTime).Seconds())
 				break
 			}
 			time.Sleep(100 * time.Millisecond)
 		}
 
-		monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(b.label, "processing").
-			Observe(time.Since(startProcessingTime).Seconds())
 	}
 }
 
@@ -378,6 +381,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 	if numRequests > 0 {
 		objectsPerRequest = numSendObjets / numRequests
 	}
+	monitoring.GetMetrics().T2VRequestsPerBatch.WithLabelValues(b.label).Observe(float64(numRequests))
 	b.endOfBatchChannel <- endOfBatchJob{
 		timePerToken:      timePerToken,
 		objectsPerRequest: objectsPerRequest,

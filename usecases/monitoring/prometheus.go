@@ -116,6 +116,7 @@ type PrometheusMetrics struct {
 	T2VTokensInBatch      *prometheus.HistogramVec
 	T2VTokensInRequest    *prometheus.HistogramVec
 	T2VRateLimitStats     *prometheus.GaugeVec
+	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
 // Delete Shard deletes existing label combinations that match both
@@ -548,6 +549,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "t2v_rate_limit_stats",
 			Help: "Rate limit stats for the vectorizer",
 		}, []string{"vectorizer", "stat"}),
+		T2VRequestsPerBatch: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "t2v_requests_per_batch",
+			Help:    "Number of requests required to process an entire (user) batch",
+			Buckets: []float64{1, 2, 5, 10, 100, 1000},
+		}, []string{"vectorizer"}),
 	}
 }
 
