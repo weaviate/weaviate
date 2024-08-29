@@ -108,6 +108,15 @@ type PrometheusMetrics struct {
 	SchemaTxOpened   *prometheus.CounterVec
 	SchemaTxClosed   *prometheus.CounterVec
 	SchemaTxDuration *prometheus.SummaryVec
+
+	// Vectorization
+	T2VBatches            *prometheus.GaugeVec
+	T2VBatchQueueDuration *prometheus.HistogramVec
+	T2VRequestDuration    *prometheus.HistogramVec
+	T2VTokensInBatch      *prometheus.HistogramVec
+	T2VTokensInRequest    *prometheus.HistogramVec
+	T2VRateLimitStats     *prometheus.GaugeVec
+	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
 // Delete Shard deletes existing label combinations that match both
@@ -190,6 +199,7 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 
 var (
 	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
+	sBuckets                     = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
 	metrics   *PrometheusMetrics = nil
 )
 
@@ -510,6 +520,40 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "tombstone_delete_list_size",
 			Help: "Delete list size of tombstones",
 		}, []string{"class_name", "shard_name"}),
+
+		T2VBatches: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "t2v_concurrent_batches",
+			Help: "Number of batches currently running",
+		}, []string{"vectorizer"}),
+		T2VBatchQueueDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "t2v_batch_queue_duration_seconds",
+			Help:    "Time of a batch spend in specific portions of the queue",
+			Buckets: sBuckets,
+		}, []string{"vectorizer", "operation"}),
+		T2VRequestDuration: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "t2v_request_duration_seconds",
+			Help:    "Duration of an individual request to the vectorizer",
+			Buckets: sBuckets,
+		}, []string{"vectorizer"}),
+		T2VTokensInBatch: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "t2v_tokens_in_batch",
+			Help:    "Number of tokens in a user-defined batch",
+			Buckets: []float64{1, 10, 100, 1000, 10000, 100000, 1000000},
+		}, []string{"vectorizer"}),
+		T2VTokensInRequest: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "t2v_tokens_in_request",
+			Help:    "Number of tokens in an individual request sent to the vectorizer",
+			Buckets: []float64{1, 10, 100, 1000, 10000, 100000, 1000000},
+		}, []string{"vectorizer"}),
+		T2VRateLimitStats: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "t2v_rate_limit_stats",
+			Help: "Rate limit stats for the vectorizer",
+		}, []string{"vectorizer", "stat"}),
+		T2VRequestsPerBatch: promauto.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "t2v_requests_per_batch",
+			Help:    "Number of requests required to process an entire (user) batch",
+			Buckets: []float64{1, 2, 5, 10, 100, 1000},
+		}, []string{"vectorizer"}),
 	}
 }
 
