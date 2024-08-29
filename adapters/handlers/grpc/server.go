@@ -54,15 +54,21 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 		o = append(o, grpc.Creds(c))
 	}
 
+	var interceptors []grpc.UnaryServerInterceptor
+
 	// If sentry is enabled add automatic spans on gRPC requests
 	if state.ServerConfig.Config.Sentry.Enabled {
-		o = append(o, grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
+		interceptors = append(interceptors, grpc_middleware.ChainUnaryServer(
 			grpc_sentry.UnaryServerInterceptor(),
-		)))
+		))
 	}
 
 	if state.Metrics != nil {
-		o = append(o, makeMetricsInterceptor(state.Logger, state.Metrics))
+		interceptors = append(interceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
+	}
+
+	if len(interceptors) > 0 {
+		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}
 
 	s := grpc.NewServer(o...)
@@ -85,8 +91,8 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 	return &GRPCServer{s}
 }
 
-func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.ServerOption {
-	return grpc.UnaryInterceptor(func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.PrometheusMetrics) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		if info.FullMethod != "/weaviate.v1.Weaviate/BatchObjects" {
 			return handler(ctx, req)
 		}
@@ -114,7 +120,7 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 		metrics.BatchSizeBytes.WithLabelValues("grpc").Observe(reqSizeBytes)
 
 		return resp, err
-	})
+	}
 }
 
 func StartAndListen(s *GRPCServer, state *state.State) error {
