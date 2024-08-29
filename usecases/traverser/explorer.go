@@ -249,10 +249,11 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 				searchVectorParam = searchVectorParams[i]
 			}
 
-			searchVectors[i], err = e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
+			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
 			if err != nil {
 				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
 			}
+			searchVectors[i] = vec
 			return nil
 		})
 	}
