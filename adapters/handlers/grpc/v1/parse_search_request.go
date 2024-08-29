@@ -225,6 +225,18 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			vector = hs.Vector
 		}
 
+		var distance float32
+		withDistance := false
+		if hs.Threshold != nil {
+			withDistance = true
+			switch hs.Threshold.(type) {
+			case *pb.Hybrid_VectorDistance:
+				distance = hs.Threshold.(*pb.Hybrid_VectorDistance).VectorDistance
+			default:
+				return dto.GetParams{}, fmt.Errorf("unknown value type %v", hs.Threshold)
+			}
+		}
+
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -238,6 +250,8 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			Alpha:           float64(hs.Alpha),
 			FusionAlgorithm: fusionType,
 			TargetVectors:   targetVectors,
+			Distance:        distance,
+			WithDistance:    withDistance,
 		}
 
 		if nearVec != nil {
