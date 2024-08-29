@@ -19,6 +19,7 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 type DockerCompose struct {
@@ -102,6 +103,15 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 		}
 		endPoints[name] = endpoint{e.port, newURI}
+
+		// wait until node is ready
+		if name != HTTP {
+			continue
+		}
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
+			return err
+		}
 	}
 	c.endpoints = endPoints
 	return nil
