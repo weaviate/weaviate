@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
-	"golang.org/x/sync/errgroup"
 )
 
 func TestActivationDeactivation(t *testing.T) {
@@ -186,13 +185,8 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				eg := errgroup.Group{}
 				require.Nil(t, compose.Stop(ctx, container.Name(), nil))
-				eg.Go(func() error {
-					require.Nil(t, compose.Start(ctx, container.Name()))
-					return nil
-				})
-				eg.Wait()
+				require.Nil(t, compose.Start(ctx, container.Name()))
 				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: container.URI()})
 				require.Nil(t, err)
 
@@ -211,7 +205,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			cleanupFn func(t *testing.T, ctx context.Context),
 			restartFn func(t *testing.T, ctx context.Context) *wvt.Client,
 		) {
-			compose, err := docker.New().WithWeaviateCluster().Start(ctx)
+			compose, err := docker.New().With3NodeCluster().Start(ctx)
 			require.Nil(t, err)
 
 			client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
@@ -223,21 +217,12 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				eg := errgroup.Group{}
 				require.Nil(t, compose.StopAt(ctx, 1, nil))
-				eg.Go(func() error {
-					require.Nil(t, compose.StartAt(ctx, 1))
-					return nil
-				})
+				require.Nil(t, compose.StartAt(ctx, 1))
 
 				require.Nil(t, compose.StopAt(ctx, 2, nil))
-				eg.Go(func() error {
-					time.Sleep(4 * time.Second) // wait for member list initialization
-					require.Nil(t, compose.StartAt(ctx, 2))
-					return nil
-				})
+				require.Nil(t, compose.StartAt(ctx, 2))
 
-				eg.Wait()
 				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
 				require.Nil(t, err)
 				return client
