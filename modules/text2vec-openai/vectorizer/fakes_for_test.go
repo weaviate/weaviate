@@ -36,7 +36,9 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
-
+	if len(text) == 0 {
+		panic("Vectorize() called with empty text array")
+	}
 	vectors := make([][]float32, len(text))
 	errors := make([]error, len(text))
 	rateLimit := &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
