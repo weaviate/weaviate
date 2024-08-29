@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -22,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
-	"github.com/pkg/errors"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 
 	"github.com/sirupsen/logrus"
@@ -47,6 +47,7 @@ type BatchJob struct {
 	startTime  time.Time
 	apiKeyHash [32]byte
 	tokenSum   int
+	lock       *sync.Mutex
 }
 
 func (b BatchJob) copy() BatchJob {
@@ -62,6 +63,7 @@ func (b BatchJob) copy() BatchJob {
 		startTime:  b.startTime,
 		apiKeyHash: b.apiKeyHash,
 		tokenSum:   b.tokenSum,
+		lock:       b.lock,
 	}
 }
 
@@ -275,6 +277,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 
 	texts := make([]string, 0, 100)
 	origIndex := make([]int, 0, 100)
+	wg := sync.WaitGroup{}
 
 	for objCounter < len(job.texts) {
 		if job.ctx.Err() != nil {
@@ -328,48 +331,62 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 			continue // try again or next item
 		}
 
-		start := time.Now()
-		_ = b.makeRequest(job, texts, job.cfg, origIndex, rateLimit, tokensInCurrentBatch)
-		batchTookInS := time.Since(start).Seconds()
-		if tokensInCurrentBatch > 0 {
-			timePerToken = batchTookInS / float64(tokensInCurrentBatch)
-		}
 		numRequests += 1
 		numSendObjects += len(texts)
 
-		// in case of low rate limits we should not send the next batch immediately but sleep a bit
-		batchesPerMinute := 61.0 / batchTookInS
-		if batchesPerMinute > float64(rateLimit.LimitRequests) {
-			sleepFor := time.Duration((60.0-batchTookInS*float64(rateLimit.LimitRequests))/float64(rateLimit.LimitRequests)) * time.Second
-			time.Sleep(sleepFor)
-
-			// adapt the batches per limit
-			batchesPerMinute = float64(rateLimit.LimitRequests)
-		}
-		if batchesPerMinute*float64(tokensInCurrentBatch) > float64(rateLimit.LimitTokens) {
-			sleepFor := batchTookInS * (batchesPerMinute*float64(tokensInCurrentBatch) - float64(rateLimit.LimitTokens)) / float64(rateLimit.LimitTokens)
-			time.Sleep(time.Duration(sleepFor * float64(time.Second)))
-		}
-
-		// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the OpenAI
-		// free tier only the RPD limits are shown but not RPM
-		if rateLimit.RemainingRequests <= 0 && time.Until(rateLimit.ResetRequests) > 0 {
-			// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
-			if time.Since(job.startTime)+time.Until(rateLimit.ResetRequests) > b.maxBatchTime {
-				for j := origIndex[0]; j < len(job.texts); j++ {
-					if !job.skipObject[j] {
-						job.errs[j] = errors.New("request rate limit exceeded and will not refresh in time")
-					}
-				}
-				break
+		if concurrentBatch {
+			tokensInCurrentBatch := tokensInCurrentBatch
+			textsTmp := make([]string, len(texts))
+			copy(textsTmp, texts)
+			origIndexTmp := make([]int, len(origIndex))
+			copy(origIndexTmp, origIndex)
+			f := func() {
+				_ = b.makeRequest(job, textsTmp, job.cfg, origIndexTmp, rateLimit, tokensInCurrentBatch)
+				wg.Done()
 			}
-			time.Sleep(time.Until(rateLimit.ResetRequests))
+			wg.Add(1)
+			enterrors.GoWrapper(f, b.logger)
+		} else {
+			start := time.Now()
+			batchTookInS := time.Since(start).Seconds()
+			if tokensInCurrentBatch > 0 {
+				timePerToken = batchTookInS / float64(tokensInCurrentBatch)
+			}
+			// in case of low rate limits we should not send the next batch immediately but sleep a bit
+			batchesPerMinute := 61.0 / batchTookInS
+			if batchesPerMinute > float64(rateLimit.LimitRequests) {
+				sleepFor := time.Duration((60.0-batchTookInS*float64(rateLimit.LimitRequests))/float64(rateLimit.LimitRequests)) * time.Second
+				time.Sleep(sleepFor)
+
+				// adapt the batches per limit
+				batchesPerMinute = float64(rateLimit.LimitRequests)
+			}
+			if batchesPerMinute*float64(tokensInCurrentBatch) > float64(rateLimit.LimitTokens) {
+				sleepFor := batchTookInS * (batchesPerMinute*float64(tokensInCurrentBatch) - float64(rateLimit.LimitTokens)) / float64(rateLimit.LimitTokens)
+				time.Sleep(time.Duration(sleepFor * float64(time.Second)))
+			}
+
+			// not all request limits are included in "RemainingRequests" and "ResetRequests". For example, in the OpenAI
+			// free tier only the RPD limits are shown but not RPM
+			if rateLimit.RemainingRequests <= 0 && time.Until(rateLimit.ResetRequests) > 0 {
+				// if we need to wait more than MaxBatchTime for a reset we need to stop the batch to not produce timeouts
+				if time.Since(job.startTime)+time.Until(rateLimit.ResetRequests) > b.maxBatchTime {
+					for j := origIndex[0]; j < len(job.texts); j++ {
+						if !job.skipObject[j] {
+							job.errs[j] = errors.New("request rate limit exceeded and will not refresh in time")
+						}
+					}
+					break
+				}
+				time.Sleep(time.Until(rateLimit.ResetRequests))
+			}
+
 		}
 
 		// reset for next vectorizer-batch
-		tokensInCurrentBatch = 0
 		texts = texts[:0]
 		origIndex = origIndex[:0]
+		tokensInCurrentBatch = 0
 	}
 
 	// in case we exit the loop without sending the last batch. This can happen when the last object is a skip or
@@ -390,6 +407,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 		apiKeyHash:        job.apiKeyHash,
 		concurrentBatch:   concurrentBatch,
 	}
+	wg.Wait()
 	job.wg.Done()
 	b.concurrentBatches.Add(-1)
 	monitoring.GetMetrics().T2VBatches.WithLabelValues(b.label).Dec()
@@ -406,6 +424,9 @@ func (b *Batch) makeRequest(job BatchJob, texts []string, cfg moduletools.ClassC
 		Observe(float64(tokensInCurrentBatch))
 
 	res, rateLimitNew, err := b.client.Vectorize(job.ctx, texts, cfg)
+	// most time is spend waiting for the vectorizer, so locking here is not a problem
+	job.lock.Lock()
+	defer job.lock.Unlock()
 	if err != nil {
 		for j := 0; j < len(texts); j++ {
 			job.errs[origIndex[j]] = err
@@ -461,6 +482,7 @@ func (b *Batch) SubmitBatchAndWait(ctx context.Context, cfg moduletools.ClassCon
 		apiKeyHash: b.client.GetApiKeyHash(ctx, cfg),
 		startTime:  time.Now(),
 		tokenSum:   tokenSum,
+		lock:       &sync.Mutex{},
 	}
 
 	// observe enqueue duration
