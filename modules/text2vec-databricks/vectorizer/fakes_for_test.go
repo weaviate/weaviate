@@ -14,12 +14,9 @@ package vectorizer
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -53,12 +50,11 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 			rateLimit.LimitTokens = 2 * rate
 		}
 
-		azureTok := len("azure_tokens ")
-		if len(text[i]) >= azureTok && text[i][:azureTok] == "azure_tokens " {
-			rate, _ := strconv.Atoi(text[i][azureTok:])
-			header := make(http.Header)
-			header.Add("x-ratelimit-remaining-tokens", strconv.Itoa(rate))
-			rateLimit = ent.GetRateLimitsFromHeader(header)
+		azureTok := len("azureTokens ")
+		if len(text[i]) >= azureTok && text[i][:azureTok] == "azureTokens " {
+			rate, _ := strconv.Atoi(text[i][tok:])
+			rateLimit.RemainingTokens = rate
+			rateLimit.LimitTokens = 0
 		}
 
 		req := len("requests ")
