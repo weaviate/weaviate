@@ -33,6 +33,10 @@ func (n *NoopCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	return nil
 }
 
+func (n *NoopCommitLogger) AddLASQCompression(data compressionhelpers.LASQData) error {
+	return nil
+}
+
 func (n *NoopCommitLogger) AddNode(node *vertex) error {
 	return nil
 }

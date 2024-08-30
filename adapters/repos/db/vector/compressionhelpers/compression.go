@@ -38,6 +38,7 @@ type ReturnDistancerFn func()
 type CommitLogger interface {
 	AddPQCompression(PQData) error
 	AddSQCompression(SQData) error
+	AddLASQCompression(LASQData) error
 }
 
 type VectorCompressor interface {
@@ -410,6 +411,33 @@ func RestoreHNSWSQCompressor(
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
 	quantizer, err := RestoreScalarQuantizer(a, b, dimensions, distance)
+	if err != nil {
+		return nil, err
+	}
+	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
+		quantizer:       quantizer,
+		compressedStore: store,
+		storeId:         binary.BigEndian.PutUint64,
+		loadId:          binary.BigEndian.Uint64,
+		logger:          logger,
+	}
+	sqVectorsCompressor.initCompressedStore()
+	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		0, allocChecker)
+	return sqVectorsCompressor, nil
+}
+
+func RestoreHNSWLASQCompressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	dimensions uint16,
+	means []float32,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+) (VectorCompressor, error) {
+	quantizer, err := RestoreLocallyAdaptiveScalarQuantizer(dimensions, means, distance)
 	if err != nil {
 		return nil, err
 	}

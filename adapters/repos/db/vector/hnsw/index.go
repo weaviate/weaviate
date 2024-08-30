@@ -196,6 +196,7 @@ type CommitLogger interface {
 	SwitchCommitLogs(bool) error
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
+	AddLASQCompression(compressionhelpers.LASQData) error
 }
 
 type BufferedLinksLogger interface {

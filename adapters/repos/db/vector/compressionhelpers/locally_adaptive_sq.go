@@ -35,13 +35,16 @@ type LaScalarQuantizer struct {
 	distancer distancer.Provider
 	dims      int
 	means     []float32
-	meansAcc  float32
+}
+
+type LASQData struct {
+	Dimensions uint16
+	Means      []float32
 }
 
 func NewLocallyAdaptiveScalarQuantizer(data [][]float32, distance distancer.Provider) *LaScalarQuantizer {
 	dims := len(data[0])
 	means := make([]float32, dims)
-	meansAcc := float32(0)
 	for _, v := range data {
 		for i := range v {
 			means[i] += v[i]
@@ -49,14 +52,24 @@ func NewLocallyAdaptiveScalarQuantizer(data [][]float32, distance distancer.Prov
 	}
 	for i := range data[0] {
 		means[i] /= float32(len(data))
-		meansAcc += means[i]
 	}
 	return &LaScalarQuantizer{
 		distancer: distance,
 		dims:      dims,
 		means:     means,
-		meansAcc:  meansAcc,
 	}
+}
+
+func RestoreLocallyAdaptiveScalarQuantizer(dimensions uint16, means []float32, distance distancer.Provider) (*LaScalarQuantizer, error) {
+	if int(dimensions) != len(means) {
+		return nil, errors.New("mismatching dimensions and means len")
+	}
+	lasq := &LaScalarQuantizer{
+		distancer: distance,
+		dims:      int(dimensions),
+		means:     means,
+	}
+	return lasq, nil
 }
 
 func (lasq *LaScalarQuantizer) Encode(vec []float32) []byte {
@@ -195,9 +208,7 @@ func (sq *LaScalarQuantizer) FromCompressedBytes(compressed []byte) []byte {
 }
 
 func (sq *LaScalarQuantizer) PersistCompression(logger CommitLogger) {
-	/*logger.AddSQCompression(SQData{
-		A:          sq.a,
-		B:          sq.b,
-		Dimensions: uint16(sq.dimensions),
-	})*/
+	logger.AddLASQCompression(LASQData{
+		Dimensions: uint16(sq.dims),
+	})
 }

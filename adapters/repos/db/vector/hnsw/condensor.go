@@ -65,6 +65,10 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			if err := c.AddSQCompression(*res.CompressionSQData); err != nil {
 				return fmt.Errorf("write sq data: %w", err)
 			}
+		} else if res.CompressionLASQData != nil {
+			if err := c.AddLASQCompression(*res.CompressionLASQData); err != nil {
+				return fmt.Errorf("write sq data: %w", err)
+			}
 		} else {
 			return errors.Wrap(err, "unavailable compression data")
 		}
@@ -298,6 +302,17 @@ func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error
 	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
 	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
 	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
+	_, err := c.newLog.Write(toWrite)
+	return err
+}
+
+func (c *MemoryCondensor) AddLASQCompression(data compressionhelpers.LASQData) error {
+	toWrite := make([]byte, 3+4*data.Dimensions)
+	toWrite[0] = byte(AddLASQ)
+	binary.LittleEndian.PutUint16(toWrite[1:], data.Dimensions)
+	for i, mean := range data.Means {
+		binary.LittleEndian.PutUint32(toWrite[3+i*4:], math.Float32bits(mean))
+	}
 	_, err := c.newLog.Write(toWrite)
 	return err
 }
