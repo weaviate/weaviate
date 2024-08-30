@@ -16,6 +16,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -55,5 +56,16 @@ func NewAPI(
 }
 
 // Search serves vector search over the offloaded tenant on object storage.
-func (a *API) Search(ctx context.Context, req SearchRequest) {
+func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
+	// This will fetch tenants/objects from the underlying object store
+	return &SearchResponse{}, nil
+}
+
+type SearchRequest struct {
+	Collection string
+	Tenant     string
+}
+
+type SearchResponse struct {
+	Objects []models.Object
 }
