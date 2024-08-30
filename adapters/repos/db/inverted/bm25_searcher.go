@@ -12,9 +12,7 @@
 package inverted
 
 import (
-	"bytes"
 	"context"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"strconv"
@@ -384,7 +382,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
-	allMsAndProps := make(AllMapPairsAndPropName, len(propertyNames))
+	allMsAndProps := make([][]terms.DocPointerWithScore, len(propertyNames))
 	for i, propName := range propertyNames {
 		i := i
 		propName := propName
@@ -395,19 +393,19 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 				if bucket == nil {
 					return fmt.Errorf("could not find bucket for property %v", propName)
 				}
-				preM, err := bucket.MapList(ctx, []byte(query))
+				preM, err := bucket.DocPointerWithScoreList(ctx, []byte(query), propertyBoosts[propName])
 				if err != nil {
 					return err
 				}
 
-				var m []lsmkv.MapPair
+				var m []terms.DocPointerWithScore
 				if filterDocIds != nil {
 					if filteredDocIDsThread[i] == nil {
 						filteredDocIDsThread[i] = sroar.NewBitmap()
 					}
-					m = make([]lsmkv.MapPair, 0, len(preM))
+					m = make([]terms.DocPointerWithScore, 0, len(preM))
 					for _, val := range preM {
-						docID := binary.BigEndian.Uint64(val.Key)
+						docID := val.Id
 						if filterDocIds.Contains(docID) {
 							m = append(m, val)
 						} else {
@@ -417,31 +415,14 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 				} else {
 					m = preM
 				}
-				if len(m) == 0 {
-					allMsAndProps[i] = MapPairsAndPropName{MapPairs: nil, propname: propName}
-				} else {
-					allMsAndProps[i] = MapPairsAndPropName{MapPairs: m, propname: propName}
-				}
+
+				allMsAndProps[i] = m
 				return nil
 			},
 		)
 	}
 	if err := eg.Wait(); err != nil {
 		return termResult, err
-	}
-
-	// remove gaps
-	for i := range allMsAndProps {
-		if i >= len(allMsAndProps) {
-			break // in case the length of allMsAndProps changed during the loop
-		}
-		if len(allMsAndProps[i].MapPairs) == 0 {
-			if i == len(allMsAndProps)-1 {
-				allMsAndProps = allMsAndProps[:i]
-			} else {
-				allMsAndProps = append(allMsAndProps[:i], allMsAndProps[i+1:]...)
-			}
-		}
 	}
 
 	if filterDocIds != nil {
@@ -462,15 +443,15 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 	for {
 		i := -1
-		minKey := make([]byte, 8)
+		minId := uint64(0)
 		for ti, mAndProps := range allMsAndProps {
-			if indices[ti] >= len(mAndProps.MapPairs) {
+			if indices[ti] >= len(mAndProps) {
 				continue
 			}
-			ki := mAndProps.MapPairs[indices[ti]].Key
-			if i == -1 || bytes.Compare(ki, minKey) < 0 {
+			ki := mAndProps[indices[ti]].Id
+			if i == -1 || ki < minId {
 				i = ti
-				copy(minKey, ki)
+				minId = ki
 			}
 		}
 
@@ -478,41 +459,22 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 			break
 		}
 
-		m := allMsAndProps[i].MapPairs
+		m := allMsAndProps[i]
 		k := indices[i]
 		val := m[indices[i]]
 
 		indices[i]++
 
-		propBoost := propertyBoosts[allMsAndProps[i].propname]
-
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
 			docMapPairs = make([]terms.DocPointerWithScore, 0, len(m))
 			docMapPairsIndices = make(map[uint64]int, len(m))
-			if len(val.Value) < 8 {
-				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
-				continue
-			}
-			freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
-			propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
-			docMapPairs = append(docMapPairs,
-				terms.DocPointerWithScore{
-					Id:         binary.BigEndian.Uint64(val.Key),
-					Frequency:  math.Float32frombits(freqBits) * propBoost,
-					PropLength: math.Float32frombits(propLenBits),
-				})
-			docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
 
+			docMapPairs = append(docMapPairs, val)
+			docMapPairsIndices[val.Id] = k
 		} else {
-			if len(val.Value) < 8 {
-				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
-				continue
-			}
-			key := binary.BigEndian.Uint64(val.Key)
+			key := val.Id
 			ind, ok := docMapPairsIndices[key]
-			freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
-			propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
 			if ok {
 				if ind >= len(docMapPairs) {
 					// the index is not valid anymore, but the key is still in the map
@@ -524,16 +486,11 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 					continue
 				}
 
-				docMapPairs[ind].PropLength += math.Float32frombits(propLenBits)
-				docMapPairs[ind].Frequency += math.Float32frombits(freqBits) * propBoost
+				docMapPairs[ind].PropLength += val.PropLength
+				docMapPairs[ind].Frequency += val.Frequency
 			} else {
-				docMapPairs = append(docMapPairs,
-					terms.DocPointerWithScore{
-						Id:         binary.BigEndian.Uint64(val.Key),
-						Frequency:  math.Float32frombits(freqBits) * propBoost,
-						PropLength: math.Float32frombits(propLenBits),
-					})
-				docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
+				docMapPairs = append(docMapPairs, val)
+				docMapPairsIndices[val.Id] = len(docMapPairs) - 1 // current last entry
 			}
 
 		}
