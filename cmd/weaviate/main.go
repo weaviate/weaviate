@@ -51,7 +51,9 @@ func main() {
 		myConfig := config.GetConfigOptionGroup()
 		appState := rest.MakeAppState(context.TODO(), myConfig)
 
-		cfg := config.Config{}
+		cfg := config.Config{
+			QueryDefaults: config.QueryDefaults{Limit: 25},
+		}
 		weaviateOIDC, err := oidc.New(cfg)
 		if err != nil {
 			panic(err)
