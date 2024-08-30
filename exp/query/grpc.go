@@ -66,5 +66,21 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 		panic(err)
 	}
 	// TODO download objects from s3 here?
-	return g.api.svc.Search(ctx, req)
+	res, err := g.api.Search(ctx, requestFromProto(req))
+	if err != nil {
+		return nil, err
+	}
+
+	return toProtoResponse(res), nil
+}
+
+func requestFromProto(req *protocol.SearchRequest) *SearchRequest {
+	return &SearchRequest{
+		Collection: req.Collection,
+		Tenant:     req.Tenant,
+	}
+}
+
+func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
+	return &protocol.SearchReply{}
 }
