@@ -13,8 +13,13 @@ package query
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -35,5 +40,47 @@ func NewGRPC(api *API, log logrus.FieldLogger) *GRPC {
 }
 
 func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protocol.SearchReply, error) {
-	return g.api.svc.Search(ctx, req)
+	// TODO only create class if not exists/not changed? replace with go client and do not hardcode the url
+	r, err := http.Get(fmt.Sprintf("http://localhost:8080/v1/schema/%s", req.Collection))
+	if err != nil {
+		panic(err)
+	}
+	defer r.Body.Close()
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		panic(err)
+	}
+	cc := models.Class{}
+	json.Unmarshal(body, &cc)
+	classToCreate := models.Class{
+		Class:              cc.Class,
+		MultiTenancyConfig: cc.MultiTenancyConfig,
+		// TODO fill in the other relevant parts of the class here?
+	}
+	_, _, err = g.api.schema.AddClass(context.TODO(), &models.Principal{}, &classToCreate)
+	if err != nil {
+		panic(err)
+	}
+	_, err = g.api.schema.AddTenants(context.TODO(), &models.Principal{}, req.Collection, []*models.Tenant{{Name: req.Tenant, ActivityStatus: "ACTIVE"}})
+	if err != nil {
+		panic(err)
+	}
+	// TODO download objects from s3 here?
+	res, err := g.api.Search(ctx, requestFromProto(req))
+	if err != nil {
+		return nil, err
+	}
+
+	return toProtoResponse(res), nil
+}
+
+func requestFromProto(req *protocol.SearchRequest) *SearchRequest {
+	return &SearchRequest{
+		Collection: req.Collection,
+		Tenant:     req.Tenant,
+	}
+}
+
+func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
+	return &protocol.SearchReply{}
 }
