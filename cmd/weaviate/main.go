@@ -38,8 +38,12 @@ const (
 // TODO: We want this to be part of original `cmd/weaviate-server`.
 // But for some reason that binary is auto-generated and I couldn't modify as I need. Hence separate binary for now
 func main() {
-	var opts Options
-	log := logrus.WithFields(logrus.Fields{"app": "weaviate"}).Logger
+	var (
+		opts Options
+		log  logrus.FieldLogger
+	)
+
+	log = logrus.WithFields(logrus.Fields{"app": "weaviate"})
 
 	_, err := flags.Parse(&opts)
 	if err != nil {
@@ -48,6 +52,7 @@ func main() {
 
 	switch opts.Target {
 	case "querier":
+		log = log.WithField("target", "querier")
 		myConfig := config.GetConfigOptionGroup()
 		appState := rest.MakeAppState(context.TODO(), myConfig)
 
@@ -56,30 +61,36 @@ func main() {
 		}
 		weaviateOIDC, err := oidc.New(cfg)
 		if err != nil {
-			panic(err)
+			log.WithField("cause", err).Error("failed to create OIDC")
 		}
 
 		weaviateApiKey, err := apikey.New(cfg)
 		if err != nil {
-			panic(err)
+			log.WithField("cause", err).Error("failed to generate api key")
 		}
 		a := query.NewAPI(
-			appState,
+			appState.Traverser,
 			composer.New(cfg.Authentication, weaviateOIDC, weaviateApiKey),
+			authAnonymousEnabled,
+			appState.SchemaManager,
+			appState.BatchManager,
 			&cfg,
 			log,
 		)
 		grpcQuerier := query.NewGRPC(a, log)
 		listener, err := net.Listen("tcp", opts.GRPCListenAddr)
 		if err != nil {
-			log.Fatal("failed to bind grpc server port", err)
+			log.WithFields(logrus.Fields{
+				"cause": err,
+				"addrs": opts.GRPCListenAddr,
+			}).Fatal("failed to bind grpc server addr")
 		}
 
 		grpcServer := grpc.NewServer()
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
-		log.WithField("port", opts.GRPCListenAddr).Info("starting querier grpc")
+		log.WithField("addr", opts.GRPCListenAddr).Info("starting querier over grpc")
 		if err := grpcServer.Serve(listener); err != nil {
 			log.Fatal("failed to start grpc server", err)
 		}

@@ -57,11 +57,11 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 		MultiTenancyConfig: cc.MultiTenancyConfig,
 		// TODO fill in the other relevant parts of the class here?
 	}
-	_, _, err = g.api.appState.SchemaManager.AddClass(context.TODO(), &models.Principal{}, &classToCreate)
+	_, _, err = g.api.schema.AddClass(context.TODO(), &models.Principal{}, &classToCreate)
 	if err != nil {
 		panic(err)
 	}
-	_, err = g.api.appState.SchemaManager.AddTenants(context.TODO(), &models.Principal{}, req.Collection, []*models.Tenant{{Name: req.Tenant, ActivityStatus: "ACTIVE"}})
+	_, err = g.api.schema.AddTenants(context.TODO(), &models.Principal{}, req.Collection, []*models.Tenant{{Name: req.Tenant, ActivityStatus: "ACTIVE"}})
 	if err != nil {
 		panic(err)
 	}
