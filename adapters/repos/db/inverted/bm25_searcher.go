@@ -433,6 +433,28 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 		}
 	}
 
+	// remove empty results from allMsAndProps
+	nonEmptyMsAndProps := make([][]terms.DocPointerWithScore, 0, len(allMsAndProps))
+	for _, m := range allMsAndProps {
+		if len(m) > 0 {
+			nonEmptyMsAndProps = append(nonEmptyMsAndProps, m)
+		}
+	}
+	allMsAndProps = nonEmptyMsAndProps
+
+	if len(nonEmptyMsAndProps) == 0 {
+		termResult.exhausted = true
+		return termResult, nil
+	}
+
+	if len(allMsAndProps) == 1 {
+		termResult.data = allMsAndProps[0]
+		termResult.idf = math.Log(float64(1)+(N-float64(len(termResult.data))+0.5)/(float64(len(termResult.data))+0.5)) * float64(duplicateTextBoost)
+		termResult.posPointer = 0
+		termResult.idPointer = termResult.data[0].Id
+		return termResult, nil
+	}
+
 	indices := make([]int, len(allMsAndProps))
 	var docMapPairs []terms.DocPointerWithScore = nil
 
