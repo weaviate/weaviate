@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/replication"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -112,7 +113,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	h.setClassDefaults(cls)
+	if err := h.setClassDefaults(cls, h.config.Replication); err != nil {
+		return nil, 0, err
+	}
 
 	if err := h.validateCanAddClass(ctx, cls, false); err != nil {
 		return nil, 0, err
@@ -165,7 +168,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	class.Class = schema.UppercaseClassName(class.Class)
 	class.Properties = schema.LowercaseAllPropertyNames(class.Properties)
 
-	h.setClassDefaults(class)
+	if err := h.setClassDefaults(class, h.config.Replication); err != nil {
+		return err
+	}
+
 	err = h.validateCanAddClass(ctx, class, true)
 	if err != nil {
 		return err
@@ -209,7 +215,10 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
-	h.setClassDefaults(updated)
+	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
+		return err
+	}
+
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
 	}
@@ -249,7 +258,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	return err
 }
 
-func (h *Handler) setClassDefaults(class *models.Class) {
+func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	// set only when no target vectors configured
 	if !hasTargetVectors(class) {
 		if class.Vectorizer == "" {
@@ -275,10 +284,20 @@ func (h *Handler) setClassDefaults(class *models.Class) {
 	}
 
 	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+		class.ReplicationConfig = &models.ReplicationConfig{Factor: int64(globalCfg.MinimumFactor)}
+	}
+
+	if class.ReplicationConfig.Factor > 0 && class.ReplicationConfig.Factor < int64(globalCfg.MinimumFactor) {
+		return fmt.Errorf("invalid replication factor: setup requires a minimum replication factor of %d: got %d",
+			globalCfg.MinimumFactor, class.ReplicationConfig.Factor)
+	}
+
+	if class.ReplicationConfig.Factor < 1 {
+		class.ReplicationConfig.Factor = int64(globalCfg.MinimumFactor)
 	}
 
 	h.moduleConfig.SetClassDefaults(class)
+	return nil
 }
 
 func setPropertyDefaults(props ...*models.Property) {

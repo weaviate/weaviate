@@ -69,6 +69,13 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 		resp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
 
+		listresp, err := helper.ListBackup(t, helper.DefaultBackupConfig(), className, backend)
+		helper.AssertRequestOk(t, listresp, err, nil)
+
+		require.Equal(t, backupID, listresp.Payload[0].ID)
+		require.Equal(t, models.BackupCreateResponseStatusSTARTED, listresp.Payload[0].Status)
+		require.Equal(t, []string{className}, listresp.Payload[0].Classes)
+
 		// wait for create success
 		ticker := time.NewTicker(90 * time.Second)
 
@@ -101,6 +108,13 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 
 		require.Equal(t, *statusResp.Payload.Status,
 			string(backup.Success), statusResp.Payload.Error)
+
+		listresp, err = helper.ListBackup(t, helper.DefaultBackupConfig(), className, backend)
+		helper.AssertRequestOk(t, listresp, err, nil)
+
+		require.Equal(t, backupID, listresp.Payload[0].ID)
+		require.Equal(t, models.BackupCreateResponseStatusSUCCESS, listresp.Payload[0].Status)
+		require.Equal(t, []string{className}, listresp.Payload[0].Classes)
 	})
 
 	t.Run("delete class for restoration", func(t *testing.T) {
