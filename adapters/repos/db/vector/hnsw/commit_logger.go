@@ -278,6 +278,7 @@ const (
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 	AddPQ
 	AddSQ
+	AddLASQ
 )
 
 func (t HnswCommitType) String() string {
@@ -308,6 +309,8 @@ func (t HnswCommitType) String() string {
 		return "AddProductQuantizer"
 	case AddSQ:
 		return "AddScalarQuantizer"
+	case AddLASQ:
+		return "AddLocallyAdaptiveScalarQuantizer"
 	}
 	return "unknown commit type"
 }
@@ -328,6 +331,13 @@ func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	defer l.Unlock()
 
 	return l.commitLogger.AddSQCompression(data)
+}
+
+func (l *hnswCommitLogger) AddLASQCompression(data compressionhelpers.LASQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddLASQCompression(data)
 }
 
 // AddNode adds an empty node
