@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v4/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
-	"golang.org/x/sync/errgroup"
 )
 
 func TestActivationDeactivation(t *testing.T) {
@@ -218,18 +217,12 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			}
 
 			restartFn = func(t *testing.T, ctx context.Context) *wvt.Client {
-				eg := errgroup.Group{}
 				require.Nil(t, compose.StopAt(ctx, 1, nil))
-				eg.Go(func() error {
-					return compose.StartAt(ctx, 1)
-				})
+				require.Nil(t, compose.StartAt(ctx, 1))
 
 				require.Nil(t, compose.StopAt(ctx, 2, nil))
-				eg.Go(func() error {
-					return compose.StartAt(ctx, 2)
-				})
+				require.Nil(t, compose.StartAt(ctx, 2))
 
-				require.Nil(t, eg.Wait())
 				client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
 				require.Nil(t, err)
 				return client

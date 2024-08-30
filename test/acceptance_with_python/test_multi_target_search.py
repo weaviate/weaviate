@@ -2,8 +2,7 @@ import pytest
 
 from weaviate.classes.config import Configure
 from weaviate.classes.query import TargetVectors
-from weaviate.collections.classes.grpc import PROPERTIES, TargetVectorJoinType
-from weaviate.types import UUID
+from weaviate.collections.classes.grpc import TargetVectorJoinType
 
 from .conftest import CollectionFactory
 
