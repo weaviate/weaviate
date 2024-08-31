@@ -436,6 +436,8 @@ func (ri *RemoteIndex) queryAllReplicas(
 
 			wg.Add(1)
 			enterrors.GoWrapper(func() {
+				defer wg.Done()
+
 				if errC := ctx.Err(); errC != nil {
 					mu.Lock()
 					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, errC))
