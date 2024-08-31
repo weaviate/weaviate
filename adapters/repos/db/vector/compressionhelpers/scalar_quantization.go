@@ -145,10 +145,7 @@ func (sq *ScalarQuantizer) NewDistancer(a []float32) *SQDistancer {
 }
 
 func (d *SQDistancer) Distance(x []byte) (float32, error) {
-	if len(d.x) > 0 {
-		return d.sq.DistanceBetweenCompressedVectors(d.compressed, x)
-	}
-	return d.sq.a2 * float32(l2SquaredByteImpl(d.compressed, x)), nil
+	return d.sq.DistanceBetweenCompressedVectors(d.compressed, x)
 }
 
 func (d *SQDistancer) DistanceToFloat(x []float32) (float32, error) {
