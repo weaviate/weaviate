@@ -17,16 +17,10 @@ package client
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
-	"net/http"
-
-	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	httptransport "github.com/go-openapi/runtime/client"
-	"github.com/go-openapi/spec"
 	"github.com/go-openapi/strfmt"
-	"github.com/go-openapi/swag"
 
-	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/classifications"
@@ -35,9 +29,9 @@ import (
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
+	"github.com/weaviate/weaviate/client/operations"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/client/well_known"
-	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Default weaviate HTTP client.
