@@ -442,9 +442,6 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		{"name": "two"},
 	}
 
-	err = index.addUUIDProperty(context.TODO())
-	require.Nil(t, err)
-
 	err = index.addProperty(context.TODO(), &models.Property{
 		Name:         "name",
 		DataType:     schema.DataTypeText.PropString(),
@@ -460,7 +457,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
