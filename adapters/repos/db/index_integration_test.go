@@ -423,8 +423,9 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	// create index
 	shardState := singleShardState()
 	index, err := NewIndex(testCtx(), IndexConfig{
-		RootPath:  dirName,
-		ClassName: schema.ClassName(class.Class),
+		RootPath:          dirName,
+		ClassName:         schema.ClassName(class.Class),
+		ReplicationFactor: NewAtomicInt64(1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
