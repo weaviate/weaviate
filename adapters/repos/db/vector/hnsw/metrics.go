@@ -204,12 +204,12 @@ func (m *Metrics) AddTombstone() {
 	m.tombstones.Inc()
 }
 
-func (m *Metrics) AddUnexpectedTombstone() {
+func (m *Metrics) AddUnexpectedTombstone(operation string) {
 	if !m.enabled {
 		return
 	}
 
-	m.tombstoneUnexpected.Inc()
+	m.tombstoneUnexpected.With(prometheus.Labels{"operation": operation}).Inc()
 }
 
 func (m *Metrics) RemoveTombstone() {
