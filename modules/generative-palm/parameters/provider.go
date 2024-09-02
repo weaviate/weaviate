@@ -13,7 +13,7 @@ package parameters
 
 import "github.com/weaviate/weaviate/entities/modulecapabilities"
 
-const Name = "palm"
+const Name = "google"
 
 func AdditionalGenerativeParameters(client modulecapabilities.GenerativeClient) map[string]modulecapabilities.GenerativeProperty {
 	return map[string]modulecapabilities.GenerativeProperty{
