@@ -161,7 +161,7 @@ func (h *Handler) UpdateClassProperty(ctx context.Context, principal *models.Pri
 
 	existingProp.IndexRangeFilters = prop.IndexRangeFilters
 
-	version, err := h.schemaManager.AddProperty(class.Class, existingProp)
+	version, err := h.schemaManager.AddProperty(ctx, class.Class, existingProp)
 	if err != nil {
 		return nil, 0, err
 	}
