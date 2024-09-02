@@ -353,7 +353,7 @@ func (m *MigratorFilterableToRangeable) migrateSegment(ctx context.Context, segm
 	subSegmentsCounter := 1
 
 	cursor := segment.newRoaringSetCursor()
-	tempPath := m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, subSegmentsCounter))
+	subSegmentPath := m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, subSegmentsCounter))
 	mem := roaringsetrange.NewMemtable(m.logger)
 
 	for k, bml, _ := cursor.First(); k != nil; k, bml, _ = cursor.Next() {
@@ -362,7 +362,7 @@ func (m *MigratorFilterableToRangeable) migrateSegment(ctx context.Context, segm
 		mem.Delete(binary.BigEndian.Uint64(k), deletions)
 
 		if elementsCount >= elementsPerSegment {
-			err := m.flushRangeMemtable(ctx, mem, segment.level, tempPath)
+			err := m.flushRangeMemtable(ctx, mem, segment.level, subSegmentPath)
 			if err != nil {
 				m.logErrF(map[string]interface{}{"segment": name}, err)
 				return err
@@ -375,7 +375,7 @@ func (m *MigratorFilterableToRangeable) migrateSegment(ctx context.Context, segm
 
 			elementsCount = 0
 			subSegmentsCounter++
-			tempPath = m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, subSegmentsCounter))
+			subSegmentPath = m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, subSegmentsCounter))
 			mem = roaringsetrange.NewMemtable(m.logger)
 		}
 	}
@@ -385,7 +385,7 @@ func (m *MigratorFilterableToRangeable) migrateSegment(ctx context.Context, segm
 		mem.Insert(binary.BigEndian.Uint64(k), additions)
 
 		if elementsCount >= elementsPerSegment {
-			err := m.flushRangeMemtable(ctx, mem, segment.level, tempPath)
+			err := m.flushRangeMemtable(ctx, mem, segment.level, subSegmentPath)
 			if err != nil {
 				m.logErrF(map[string]interface{}{"segment": name}, err)
 				return err
@@ -398,12 +398,12 @@ func (m *MigratorFilterableToRangeable) migrateSegment(ctx context.Context, segm
 
 			elementsCount = 0
 			subSegmentsCounter++
-			tempPath = m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, subSegmentsCounter))
+			subSegmentPath = m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, subSegmentsCounter))
 			mem = roaringsetrange.NewMemtable(m.logger)
 		}
 	}
 	if elementsCount > 0 {
-		err := m.flushRangeMemtable(ctx, mem, segment.level, tempPath)
+		err := m.flushRangeMemtable(ctx, mem, segment.level, subSegmentPath)
 		if err != nil {
 			m.logErrF(map[string]interface{}{"segment": name}, err)
 			return err
@@ -416,41 +416,64 @@ func (m *MigratorFilterableToRangeable) migrateSegment(ctx context.Context, segm
 	}
 
 	for subSegmentsCounter > 1 {
-		mergedId := 1
+		mergeId := 1
+		renames := map[string]string{}
 
-		for c, sc := 1, subSegmentsCounter; c <= sc; c += 2 {
-			leftId := c
-			rightId := c + 1
+		eg := errors.NewErrorGroupWrapper(m.logger)
+		eg.SetLimit(_NUMCPU / 2)
 
-			if c == sc {
-				leftId = mergedId - 1
-				rightId = c
-				mergedId = mergedId - 1
-			}
-
+		for leftId, total := 1, subSegmentsCounter; leftId <= total; leftId += 2 {
 			leftPath := m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, leftId))
-			rightPath := m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, rightId))
-			mergePath := m.dstDirPath(fmt.Sprintf(segmentFileTempMergeFormat, name, leftId, rightId))
-			tempPath = m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, mergedId))
+			subSegmentPath := m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, mergeId))
 
-			if err := m.compactSubSegments(ctx, leftPath, rightPath, mergePath, tempPath,
-				m.dstBucket.mmapContents, segment.level); err != nil {
+			if leftId == total { // no pair to compact - just rename file
+				renames[leftPath] = subSegmentPath
+			} else {
+				rightId := leftId + 1
+				mergeId := mergeId
+				rightPath := m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, rightId))
+				tempPath := m.dstDirPath(fmt.Sprintf(segmentFileTempMergeFormat, name, leftId, rightId))
+				renames[tempPath] = subSegmentPath
+				subSegmentsCounter--
+
+				eg.Go(func() error {
+					if err := m.compactSubSegments(ctx, leftPath, rightPath, tempPath,
+						m.dstBucket.mmapContents, segment.level); err != nil {
+						m.logErrF(map[string]interface{}{
+							"segment":  name,
+							"left_id":  leftId,
+							"right_id": rightId,
+							"merge_id": mergeId,
+						}, err)
+						return err
+					}
+
+					m.logF(map[string]interface{}{
+						"segment":  name,
+						"left_id":  leftId,
+						"right_id": rightId,
+						"merge_id": mergeId,
+					}, "compacted subsegments")
+
+					return nil
+				})
+			}
+			mergeId++
+		}
+
+		if err := eg.Wait(); err != nil {
+			return err
+		}
+		for tempPath, subSegmentPath := range renames {
+			if err := os.Rename(tempPath, subSegmentPath); err != nil {
 				m.logErrF(map[string]interface{}{"segment": name}, err)
 				return err
 			}
-			m.logF(map[string]interface{}{
-				"segment":   name,
-				"left_id":   leftId,
-				"right_id":  rightId,
-				"merged_id": mergedId,
-			}, "compacted subsegments")
-
-			mergedId++
-			subSegmentsCounter--
 		}
 	}
 
-	err := os.Rename(tempPath, m.dstDirPath(name))
+	subSegmentPath = m.dstDirPath(fmt.Sprintf(segmentFileTempFormat, name, 1)) // at the end there should be just one subsegment
+	err := os.Rename(subSegmentPath, m.dstDirPath(name))
 	if err != nil {
 		m.logErrF(map[string]interface{}{"segment": name}, err)
 		return err
@@ -514,7 +537,7 @@ func (m *MigratorFilterableToRangeable) flushRangeMemtable(ctx context.Context,
 }
 
 func (m *MigratorFilterableToRangeable) compactSubSegments(ctx context.Context,
-	leftPath, rightPath, mergePath, finalPath string, mmapContents bool, level uint16,
+	leftPath, rightPath, tempPath string, mmapContents bool, level uint16,
 ) error {
 	if ctx.Err() != nil {
 		return m.errw(ctx.Err())
@@ -522,7 +545,7 @@ func (m *MigratorFilterableToRangeable) compactSubSegments(ctx context.Context,
 
 	eol := func(key []byte) (bool, error) { return false, nil }
 
-	f, err := os.OpenFile(mergePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
+	f, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}
@@ -531,10 +554,12 @@ func (m *MigratorFilterableToRangeable) compactSubSegments(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	defer left.close()
 	right, err := newSegment(rightPath, m.logger, nil, eol, mmapContents, false, false, false)
 	if err != nil {
 		return err
 	}
+	defer right.close()
 
 	compactor := roaringsetrange.NewCompactor(f,
 		left.newRoaringSetRangeCursor(), right.newRoaringSetRangeCursor(),
@@ -554,9 +579,6 @@ func (m *MigratorFilterableToRangeable) compactSubSegments(ctx context.Context,
 		return err
 	}
 	if err := os.Remove(rightPath); err != nil {
-		return err
-	}
-	if err := os.Rename(mergePath, finalPath); err != nil {
 		return err
 	}
 	return nil
