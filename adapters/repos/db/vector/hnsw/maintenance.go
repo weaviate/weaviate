@@ -43,8 +43,8 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	// lock h.nodes' individual elements to avoid race between writing to elements
 	// and copying entire slice in growIndexToAccomodateNode method
 	newIndex, err := func() ([]*vertex, error) {
-		h.shardedNodeLocks.RLockAll()
-		defer h.shardedNodeLocks.RUnlockAll()
+		h.shardedNodeLocks.LockAll()
+		defer h.shardedNodeLocks.UnlockAll()
 
 		newIndex, _, err := growIndexToAccomodateNode(h.nodes, id, logger)
 		return newIndex, err
