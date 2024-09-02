@@ -433,11 +433,15 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 		}
 	}
 
+	largestN := 0
 	// remove empty results from allMsAndProps
 	nonEmptyMsAndProps := make([][]terms.DocPointerWithScore, 0, len(allMsAndProps))
 	for _, m := range allMsAndProps {
 		if len(m) > 0 {
 			nonEmptyMsAndProps = append(nonEmptyMsAndProps, m)
+		}
+		if len(m) > largestN {
+			largestN = len(m)
 		}
 	}
 	allMsAndProps = nonEmptyMsAndProps
@@ -462,7 +466,6 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 	// They were previously used to keep track of additional explanations TF and prop len,
 	// but this is now done when adding terms to the heap in the getTopKHeap function
 	var docMapPairsIndices map[uint64]int = nil
-
 	for {
 		i := -1
 		minId := uint64(0)
@@ -489,8 +492,8 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
-			docMapPairs = make([]terms.DocPointerWithScore, 0, len(m))
-			docMapPairsIndices = make(map[uint64]int, len(m))
+			docMapPairs = make([]terms.DocPointerWithScore, 0, largestN)
+			docMapPairsIndices = make(map[uint64]int, largestN)
 
 			docMapPairs = append(docMapPairs, val)
 			docMapPairsIndices[val.Id] = k
