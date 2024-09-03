@@ -547,12 +547,12 @@ func TestCondensorPhantom(t *testing.T) {
 	require.Nil(t, err)
 	defer control.Shutdown(ctx)
 
-	t.Run("add tombstone data", func(t *testing.T) {
+	t.Run("add node via replace links", func(t *testing.T) {
 		uncondensed1.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3})
 		require.Nil(t, uncondensed1.Flush())
 	})
 
-	t.Run("remove all tombstones except the first", func(t *testing.T) {
+	t.Run("start tombstone job, delete node, remove tombstone", func(t *testing.T) {
 		uncondensed1.AddTombstone(0)
 		uncondensed2.DeleteNode(0)
 		uncondensed2.RemoveTombstone(0)
@@ -761,9 +761,6 @@ func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
 		res, _, err = NewDeserializer(logger).Do(bufr, res, false)
 		require.Nil(t, err)
 	}
-
-	t.Logf("fileNames: %v", fileNames)
-	t.Logf("res.Nodes: %v", res.Nodes)
 
 	return &hnsw{
 		nodes:               removeTrailingNilNodes(res.Nodes),
