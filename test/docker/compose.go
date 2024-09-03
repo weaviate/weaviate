@@ -500,7 +500,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		if d.withWeaviateAuth {
 			envSettings["AUTHENTICATION_OIDC_ENABLED"] = "true"
 			envSettings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-			envSettings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.semi.technology/auth/realms/SeMI"
+			envSettings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
 			envSettings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
 			envSettings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 			envSettings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
