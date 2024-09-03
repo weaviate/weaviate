@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"time"
 
 	"io"
 	"sync"
@@ -74,6 +75,7 @@ type cuvs_index struct {
 	cuvsResource    *cuvs.Resource
 	cuvsExtendCount uint64
 	cuvsNumExtends  uint64
+	searchBatcher   *SearchBatcher
 
 	// rescore             int64
 	// bq                  compressionhelpers.BinaryQuantizer
@@ -127,6 +129,8 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		dlpackTensor:    nil,
 		idCuvsIdMap:     make(map[uint32]uint64),
 	}
+
+	index.searchBatcher = NewSearchBatcher(index, 16, 5000*time.Microsecond)
 
 	// if err := index.initBuckets(context.Background()); err != nil {
 	// 	return nil, fmt.Errorf("init cuvs index buckets: %w", err)
@@ -363,6 +367,7 @@ func (index *cuvs_index) Delete(ids ...uint64) error {
 }
 
 func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+	return index.searchBatcher.SearchByVector(context.Background(), vector, k, allow)
 	// index.Lock()
 	// defer index.Unlock()
 	// start := time.Now()
@@ -498,7 +503,7 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	return neighborsResultSlice, distancesSlice[0], nil
 }
 
-func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
+func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([][]uint64, [][]float32, error) {
 	// index.Lock()
 	// defer index.Unlock()
 
@@ -524,11 +529,11 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 		return nil, nil, err
 	}
 
-	NeighborsDataset := make([][]uint32, 1)
+	NeighborsDataset := make([][]uint32, len(vector))
 	for i := range NeighborsDataset {
 		NeighborsDataset[i] = make([]uint32, k)
 	}
-	DistancesDataset := make([][]float32, 1)
+	DistancesDataset := make([][]float32, len(vector))
 	for i := range DistancesDataset {
 		DistancesDataset[i] = make([]float32, k)
 	}
@@ -581,13 +586,15 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 		return nil, nil, err
 	}
 
-	neighborsResultSlice := make([]uint64, k)
-
-	for i := range neighborsSlice[0] {
-		neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
+	neighborsResultSlice := make([][]uint64, len(vector))
+	for j := range neighborsSlice {
+		neighborsResultSlice[j] = make([]uint64, k)
+		for i := range neighborsSlice[j] {
+			neighborsResultSlice[j][i] = index.idCuvsIdMap[neighborsSlice[j][i]]
+		}
 	}
 
-	return neighborsResultSlice, distancesSlice[0], nil
+	return neighborsResultSlice, distancesSlice, nil
 
 }
 
