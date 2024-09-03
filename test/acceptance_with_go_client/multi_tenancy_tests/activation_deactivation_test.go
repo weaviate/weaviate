@@ -172,7 +172,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 			cleanupFn func(t *testing.T, ctx context.Context),
 			restartFn func(t *testing.T, ctx context.Context) *wvt.Client,
 		) {
-			compose, err := docker.New().WithWeaviate().Start(ctx)
+			compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
 			require.Nil(t, err)
 
 			container := compose.GetWeaviate()
