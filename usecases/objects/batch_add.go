@@ -54,7 +54,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	var maxSchemaVersion uint64
 	batchObjects, maxSchemaVersion := b.validateAndGetVector(ctx, principal, objects, repl)
-	schemaVersion, err := b.autoSchemaManager.autoTenants(ctx, principal, objects)
+	schemaVersion, tenantCount, err := b.autoSchemaManager.autoTenants(ctx, principal, objects)
 	if err != nil {
 		return nil, fmt.Errorf("auto create tenants: %w", err)
 	}
@@ -62,6 +62,8 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		maxSchemaVersion = schemaVersion
 	}
 
+	b.metrics.BatchTenants(tenantCount)
+	b.metrics.BatchObjects(len(objects))
 	b.metrics.BatchOp("total_preprocessing", beforePreProcessing.UnixNano())
 
 	var res BatchObjects
