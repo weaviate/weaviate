@@ -1067,7 +1067,7 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 
 	t.Run("two docs to test additional explanations", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana", AdditionalExplanations: true}
-		res, _, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, nil, "", 0)
+		res, _, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, nil, "", 0, props)
 		require.Nil(t, err)
 
 		// Print results
