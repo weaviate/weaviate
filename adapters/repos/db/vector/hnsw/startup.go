@@ -14,6 +14,7 @@ package hnsw
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -58,14 +59,14 @@ func (h *hnsw) restoreFromDisk() error {
 	beforeAll := time.Now()
 	defer h.metrics.TrackStartupTotal(beforeAll)
 
-	fileNames, err := getCommitFileNames(h.rootPath, h.id)
+	state, stateTimestamp, lastSnapshotPath, err := getLastSnapshot(h.rootPath, h.id, h.logger)
 	if err != nil {
-		return err
+		return errors.Wrap(err, "get last snapshot")
 	}
 
-	if len(fileNames) == 0 {
-		// nothing to do
-		return nil
+	fileNames, err := getCommitFileNames(h.rootPath, h.id, stateTimestamp)
+	if err != nil {
+		return err
 	}
 
 	fileNames, err = NewCorruptedCommitLogFixer(h.logger).Do(fileNames)
@@ -73,7 +74,6 @@ func (h *hnsw) restoreFromDisk() error {
 		return errors.Wrap(err, "corrupted commit log fixer")
 	}
 
-	var state *DeserializationResult
 	for i, fileName := range fileNames {
 		beforeIndividual := time.Now()
 
@@ -115,6 +115,74 @@ func (h *hnsw) restoreFromDisk() error {
 
 		h.metrics.StartupProgress(float64(i+1) / float64(len(fileNames)))
 		h.metrics.TrackStartupIndividual(beforeIndividual)
+	}
+
+	if len(fileNames) > 0 {
+		// some commit files has been processed, a new snapshot is created
+		snapshotFileName := snapshotFileName(fileNames[len(fileNames)-1])
+
+		tmpSnapshotFileName := fmt.Sprintf("%s.tmp", snapshotFileName)
+		checkPointsFileName := fmt.Sprintf("%s.checkpoints", snapshotFileName)
+
+		snap, err := os.OpenFile(tmpSnapshotFileName, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+		if err != nil {
+			return errors.Wrapf(err, "create snapshot file %q", tmpSnapshotFileName)
+		}
+		defer snap.Close()
+
+		w := bufio.NewWriter(snap)
+
+		checkpoints, err := writeStateTo(state, w)
+		if err != nil {
+			return errors.Wrapf(err, "writing snapshot file %q", tmpSnapshotFileName)
+		}
+
+		err = w.Flush()
+		if err != nil {
+			return errors.Wrapf(err, "flushing snapshot file %q", tmpSnapshotFileName)
+		}
+
+		err = snap.Sync()
+		if err != nil {
+			return errors.Wrapf(err, "fsync snapshot file %q", tmpSnapshotFileName)
+		}
+
+		err = snap.Close()
+		if err != nil {
+			return errors.Wrapf(err, "close snapshot file %q", tmpSnapshotFileName)
+		}
+
+		writeCheckpoints(checkPointsFileName, checkpoints)
+
+		err = os.Rename(tmpSnapshotFileName, snapshotFileName)
+		if err != nil {
+			return errors.Wrapf(err, "rename snapshot file %q", tmpSnapshotFileName)
+		}
+
+		if lastSnapshotPath != "" {
+			// remove old snapshot
+			if err := os.Remove(lastSnapshotPath); err != nil {
+				return errors.Wrapf(err, "remove snapshot file %q", lastSnapshotPath)
+			}
+
+			cpfn := lastSnapshotPath + ".checkpoints"
+			if err := os.Remove(cpfn); err != nil {
+				return errors.Wrapf(err, "remove checkpoints file %q", cpfn)
+			}
+		}
+
+		// commit log files can be deleted because an snapshot includes its actions
+		for _, fileName := range fileNames {
+			err := os.Remove(fileName)
+			if err != nil {
+				return errors.Wrapf(err, "remove commit log file %q", fileName)
+			}
+		}
+	}
+
+	if state == nil {
+		// nothing to do
+		return nil
 	}
 
 	h.Lock()

@@ -54,13 +54,11 @@ func BenchmarkDeserializer2ReadUint16(b *testing.B) {
 	val := make([]byte, 2)
 	binary.LittleEndian.PutUint16(val, randUint16)
 	data := bytes.NewReader(val)
-	logger, _ := test.NewNullLogger()
-	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
 	for i := 0; i < b.N; i++ {
-		d.readUint16(reader)
+		readUint16(reader)
 	}
 }
 
@@ -72,13 +70,11 @@ func BenchmarkDeserializer2ReadCommitType(b *testing.B) {
 	val := make([]byte, 1)
 	val[0] = byte(commitType)
 	data := bytes.NewReader(val)
-	logger, _ := test.NewNullLogger()
-	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
 	for i := 0; i < b.N; i++ {
-		d.ReadCommitType(reader)
+		ReadCommitType(reader)
 	}
 }
 
@@ -120,10 +116,8 @@ func TestDeserializer2ReadCommitType(t *testing.T) {
 		b := make([]byte, 1)
 		b[0] = byte(commitType)
 		data := bytes.NewReader(b)
-		logger, _ := test.NewNullLogger()
-		d := NewDeserializer(logger)
 		reader := bufio.NewReader(data)
-		res, err := d.ReadCommitType(reader)
+		res, err := ReadCommitType(reader)
 		if err != nil {
 			t.Errorf("Error reading commit type: %v", err)
 		}
