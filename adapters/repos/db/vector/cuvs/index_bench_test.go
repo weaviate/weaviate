@@ -114,10 +114,11 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 	dimensions := dims[1]
 
 	rows = uint(1_000_000)
-	// rows = uint(100_000)
+	// rows = uint(1_000)
 
 	// batchSize := uint(30_000)
 	batchSize := uint(1_000_000)
+	// batchSize := uint(1_000)
 
 	// Handle offsetting the data for product quantization
 	// i := uint(0)
@@ -315,10 +316,11 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 	dimensions := dims[1]
 
 	rows = uint(10_000)
+	// rows = uint(5)
 
 	// batchSize := uint(30_000)
 	batchSize := uint(10_000)
-	// batchSize := uint(1)
+	// batchSize := uint(5)
 
 	// Handle offsetting the data for product quantization
 	// i := uint(0)

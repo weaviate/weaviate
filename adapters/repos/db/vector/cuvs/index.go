@@ -203,19 +203,13 @@ func (index *cuvs_index) AddBatch(ctx context.Context, id []uint64, vector [][]f
 	index.Lock()
 	defer index.Unlock()
 
-	println("cuvs index post startup")
+	// println("cuvs index post startup")
 
-	err := cuvs.ResetMemoryResource()
+	// err := cuvs.ResetMemoryResource()
 
-	if err != nil {
-		panic(err)
-	}
-
-	err = cuvs.EnablePoolMemoryResource(80, 100)
-
-	if err != nil {
-		panic(err)
-	}
+	// if err != nil {
+	// 	panic(err)
+	// }
 
 	if index == nil {
 		return errors.New("cuvs index is nil")
@@ -292,6 +286,11 @@ func AddWithRebuild(index *cuvs_index, id []uint64, vector [][]float32) error {
 		return err
 	}
 
+	// err = index.dlpackTensor.Close()
+	// if err != nil {
+	// 	return err
+	// }
+
 	return nil
 
 }
@@ -366,109 +365,137 @@ func (index *cuvs_index) Delete(ids ...uint64) error {
 func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
 	// index.Lock()
 	// defer index.Unlock()
+	// start := time.Now()
 
-	// for v := range vector {
+	// index.cuvsResource.Close()
+	// res, err := cuvs.NewResource(nil)
+
+	// index.cuvsResource = &res
+
 	vector = Normalize_Temp(vector)
+	// normalizeDuration := time.Since(start)
+	// fmt.Printf("Normalize_Temp duration: %v\n", normalizeDuration)
+
+	// tensorStart := time.Now()
+	// tensor, err := cuvs.NewTensor(false, [][]float32{vector}, false)
+	// if err != nil {
+	// 	return nil, nil, err
 	// }
+	// tensorDuration := time.Since(tensorStart)
+	// fmt.Printf("NewTensor duration: %v\n", tensorDuration)
 
-	tensor, err := cuvs.NewTensor(false, [][]float32{vector})
+	// toDeviceStart := time.Now()
+	// _, err = tensor.ToDevice(index.cuvsResource)
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
+	// toDeviceDuration := time.Since(toDeviceStart)
+	// fmt.Printf("ToDevice duration: %v\n", toDeviceDuration)
 
-	if err != nil {
-		return nil, nil, err
-	}
-
-	_, err = tensor.ToDevice(index.cuvsResource)
-
-	if err != nil {
-		return nil, nil, err
-	}
-
+	// queriesStart := time.Now()
 	queries, err := cuvs.NewTensor(true, [][]float32{vector})
-
 	if err != nil {
 		return nil, nil, err
 	}
+	// queriesDuration := time.Since(queriesStart)
+	// fmt.Printf("NewTensor for queries duration: %v\n", queriesDuration)
 
-	// NeighborsDataset := make([][]uint32, 1)
-	// for i := range NeighborsDataset {
-	// 	NeighborsDataset[i] = make([]uint32, k)
-	// }
-	// DistancesDataset := make([][]float32, 1)
-	// for i := range DistancesDataset {
-	// 	DistancesDataset[i] = make([]float32, k)
-	// }
+	// neighborsStart := time.Now()
+	// neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(1), int64(k)}, false)
+	NeighborsDataset := make([][]uint32, 1)
+	for i := range NeighborsDataset {
+		NeighborsDataset[i] = make([]uint32, k)
+	}
+	DistancesDataset := make([][]float32, 1)
+	for i := range DistancesDataset {
+		DistancesDataset[i] = make([]float32, k)
+	}
 
-	// neighbors, err := cuvs.NewTensor(true, NeighborsDataset)
-	neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(1), int64(k)})
-
+	neighbors, err := cuvs.NewTensor(true, NeighborsDataset)
 	if err != nil {
 		return nil, nil, err
 	}
+	// neighborsDuration := time.Since(neighborsStart)
+	// fmt.Printf("NewTensorOnDevice for neighbors duration: %v\n", neighborsDuration)
 
-	// distances, err := cuvs.NewTensor(true, DistancesDataset)
-	distances, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(1), int64(k)})
-
+	// distancesStart := time.Now()
+	distances, err := cuvs.NewTensor(true, DistancesDataset)
 	if err != nil {
 		return nil, nil, err
 	}
+	// distancesDuration := time.Since(distancesStart)
+	// fmt.Printf("NewTensorOnDevice for distances duration: %v\n", distancesDuration)
 
+	// queriesToDeviceStart := time.Now()
 	_, err = queries.ToDevice(index.cuvsResource)
-
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// _, err = neighbors.ToDevice(index.cuvsResource)
+	_, err = neighbors.ToDevice(index.cuvsResource)
+	if err != nil {
+		return nil, nil, err
+	}
+	_, err = distances.ToDevice(index.cuvsResource)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	// if err != nil {
-	// 	return nil, nil, err
-	// }
-	// _, err = distances.ToDevice(index.cuvsResource)
+	// queriesToDeviceDuration := time.Since(queriesToDeviceStart)
+	// fmt.Printf("Queries ToDevice duration: %v\n", queriesToDeviceDuration)
+	// dummyTensor, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(1), int64(1)}, true)
 
-	// if err != nil {
-	// 	return nil, nil, err
-	// }
-
+	// paramsStart := time.Now()
 	params, err := cagra.CreateSearchParams()
+	params.SetAlgo(cagra.SearchAlgoMultiCta)
+	// params.SetHashmapMode(cagra.HashmapModeSmall)
+	// params.SetMaxQueries(1)
+	// paramsDuration := time.Since(paramsStart)
+	// fmt.Printf("CreateSearchParams duration: %v\n", paramsDuration)
+	// index.cuvsResource.Sync()
 
+	// dummyTensor.ToHost(index.cuvsResource)
+	// searchStart := time.Now()
 	cagra.SearchIndex(*index.cuvsResource, params, index.cuvsIndex, &queries, &neighbors, &distances)
-
-	neighbors.ToHost(index.cuvsResource)
+	// index.cuvsResource.Sync()
+	// searchDuration := time.Since(searchStart)
+	// fmt.Printf("SearchIndex duration: %v\n", searchDuration)
+	// wait 200 microseconds
+	// time.Sleep(200 * time.Microsecond)
+	// toHostStart := time.Now()
 	distances.ToHost(index.cuvsResource)
+	neighbors.ToHost(index.cuvsResource)
 
+	// toHostDuration := time.Since(toHostStart)
+	// fmt.Printf("ToHost duration: %v\n", toHostDuration)
+	// getArrayStart := time.Now()
 	neighborsSlice, err := neighbors.GetArray()
-
 	if err != nil {
 		return nil, nil, err
 	}
-
 	distancesSlice, err := distances.GetArray()
-
 	if err != nil {
 		return nil, nil, err
 	}
+	// getArrayDuration := time.Since(getArrayStart)
+	// fmt.Printf("GetArray duration: %v\n", getArrayDuration)
 
+	// resultProcessingStart := time.Now()
 	neighborsResultSlice := make([]uint64, k)
-
 	for i := range neighborsSlice[0] {
 		neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
 	}
-	// println("got here")
+	// resultProcessingDuration := time.Since(resultProcessingStart)
+	// fmt.Printf("Result processing duration: %v\n", resultProcessingDuration)
 
-	// for i := range neighborsSlice[0] {
-	// 	println(neighborsSlice[0][i])
-	// }
-
-	// for i := range distancesSlice[0] {
-	// 	println(distancesSlice[0][i])
-	// }
+	// totalDuration := time.Since(start)
+	// fmt.Printf("Total SearchByVector duration: %v\n", totalDuration)
 
 	// for i := range neighborsResultSlice {
-	// 	println(neighborsResultSlice[i])
+	// 	fmt.Printf("neighborsResultSlice[i]: %v\n", neighborsResultSlice[i])
 	// }
 
 	return neighborsResultSlice, distancesSlice[0], nil
-
 }
 
 func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
@@ -603,7 +630,7 @@ func (index *cuvs_index) PostStartup() {
 		panic(err)
 	}
 
-	err = cuvs.EnablePoolMemoryResource(30, 100)
+	err = cuvs.EnablePoolMemoryResource(80, 100, false)
 
 	if err != nil {
 		panic(err)
