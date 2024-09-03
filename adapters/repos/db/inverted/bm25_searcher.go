@@ -12,6 +12,7 @@
 package inverted
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -357,12 +358,13 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 	additionalExplanations bool,
 ) (term, map[uint64]int, error) {
 	termResult := term{queryTerm: query}
-	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
-	filterLock := sync.Mutex{}
+
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
 	allMsAndProps := make(AllMapPairsAndPropName, len(propertyNames))
+	filteredDocIDsThread := make([]*sroar.Bitmap, len(propertyNames))
+
 	for i, propName := range propertyNames {
 		i := i
 		propName := propName
@@ -380,130 +382,126 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 				var m []lsmkv.MapPair
 				if filterDocIds != nil {
+					if filteredDocIDsThread[i] == nil {
+						filteredDocIDsThread[i] = sroar.NewBitmap()
+					}
 					m = make([]lsmkv.MapPair, 0, len(preM))
 					for _, val := range preM {
 						docID := binary.BigEndian.Uint64(val.Key)
 						if filterDocIds.Contains(docID) {
 							m = append(m, val)
 						} else {
-							filterLock.Lock()
-							filteredDocIDs.Set(docID)
-							filterLock.Unlock()
+							filteredDocIDsThread[i].Set(docID)
 						}
 					}
 				} else {
 					m = preM
 				}
-				if len(m) == 0 {
-					allMsAndProps[i] = MapPairsAndPropName{MapPairs: nil, propBoost: propertyBoosts[propName]}
-				} else {
-					allMsAndProps[i] = MapPairsAndPropName{MapPairs: m, propBoost: propertyBoosts[propName]}
-				}
+				allMsAndProps[i] = MapPairsAndPropName{MapPairs: m, propBoost: propertyBoosts[propName]}
 				return nil
 			},
 		)
 	}
+
 	if err := eg.Wait(); err != nil {
 		return termResult, nil, err
 	}
 
-	// remove gaps
-	for i := range allMsAndProps {
-		if i >= len(allMsAndProps) {
-			break // in case the length of allMsAndProps changed during the loop
-		}
-		if len(allMsAndProps[i].MapPairs) == 0 {
-			if i == len(allMsAndProps)-1 {
-				allMsAndProps = allMsAndProps[:i]
-			} else {
-				allMsAndProps = append(allMsAndProps[:i], allMsAndProps[i+1:]...)
+	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
+	if filterDocIds != nil {
+		for _, docIDs := range filteredDocIDsThread {
+			if docIDs != nil {
+				filteredDocIDs.Or(docIDs)
 			}
 		}
 	}
 
-	// sort ascending, this code has two effects
-	// 1) We can skip writing the indices from the last property to the map (see next comment). Therefore, having the
-	//    biggest property at the end will save us most writes on average
-	// 2) For the first property all entries are new, and we can create the map with the respective size. When choosing
-	//    the second-biggest entry as the first property we save additional allocations later
-	sort.Sort(allMsAndProps)
-	if len(allMsAndProps) > 2 {
-		allMsAndProps[len(allMsAndProps)-2], allMsAndProps[0] = allMsAndProps[0], allMsAndProps[len(allMsAndProps)-2]
-	}
-
+	indices := make([]int, len(allMsAndProps))
 	var docMapPairs []docPointerWithScore = nil
-	var docMapPairsIndices map[uint64]int = nil
-	for i, mAndProps := range allMsAndProps {
-		m := mAndProps.MapPairs
 
-		// The indices are needed for two things:
-		// a) combining the results of different properties
-		// b) Retrieve additional information that helps to understand the results when debugging. The retrieval is done
-		//    in a later step, after it is clear which objects are the most relevant
-		//
-		// When b) is not needed the results from the last property do not need to be added to the index-map as there
-		// won't be any follow-up combinations.
-		includeIndicesForLastElement := false
-		if additionalExplanations || i < len(allMsAndProps)-1 {
-			includeIndicesForLastElement = true
+	// The indices are needed for two things:
+	// a) combining the results of different properties
+	// b) Retrieve additional information that helps to understand the results when debugging. The retrieval is done
+	//    in a later step, after it is clear which objects are the most relevant
+	var docMapPairsIndices map[uint64]int = nil
+
+	for {
+		i := -1
+		minKey := make([]byte, 8)
+		for ti, mAndProps := range allMsAndProps {
+			if indices[ti] >= len(mAndProps.MapPairs) {
+				continue
+			}
+			ki := mAndProps.MapPairs[indices[ti]].Key
+			if i == -1 || bytes.Compare(ki, minKey) < 0 {
+				i = ti
+				copy(minKey, ki)
+			}
 		}
+
+		if i == -1 {
+			break
+		}
+
+		m := allMsAndProps[i].MapPairs
+		k := indices[i]
+		val := m[indices[i]]
+
+		indices[i]++
+
+		propBoost := allMsAndProps[i].propBoost
 
 		// only create maps/slices if we know how many entries there are
 		if docMapPairs == nil {
 			docMapPairs = make([]docPointerWithScore, 0, len(m))
 			docMapPairsIndices = make(map[uint64]int, len(m))
-			for k, val := range m {
-				if len(val.Value) < 8 {
-					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
+			if len(val.Value) < 8 {
+				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
+				continue
+			}
+			freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
+			propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+			docMapPairs = append(docMapPairs,
+				docPointerWithScore{
+					id:         binary.BigEndian.Uint64(val.Key),
+					frequency:  math.Float32frombits(freqBits) * propBoost,
+					propLength: math.Float32frombits(propLenBits),
+				})
+			docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
+
+		} else {
+			if len(val.Value) < 8 {
+				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
+				continue
+			}
+			key := binary.BigEndian.Uint64(val.Key)
+			ind, ok := docMapPairsIndices[key]
+			freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
+			propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+			if ok {
+				if ind >= len(docMapPairs) {
+					// the index is not valid anymore, but the key is still in the map
+					b.logger.Warnf("Skipping pair in BM25: Index %d is out of range for key %d, length %d.", ind, key, len(docMapPairs))
 					continue
 				}
-				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
-				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
+				if ind < len(docMapPairs) && docMapPairs[ind].id != key {
+					b.logger.Warnf("Skipping pair in BM25: id at %d in doc map pairs, %d, differs from current key, %d", ind, docMapPairs[ind].id, key)
+					continue
+				}
+
+				docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
+				docMapPairs[ind].frequency += math.Float32frombits(freqBits) * propBoost
+			} else {
 				docMapPairs = append(docMapPairs,
 					docPointerWithScore{
 						id:         binary.BigEndian.Uint64(val.Key),
-						frequency:  math.Float32frombits(freqBits) * mAndProps.propBoost,
+						frequency:  math.Float32frombits(freqBits) * propBoost,
 						propLength: math.Float32frombits(propLenBits),
 					})
-				if includeIndicesForLastElement {
-					docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = k
-				}
-			}
-		} else {
-			for _, val := range m {
-				if len(val.Value) < 8 {
-					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(val.Value))
-					continue
-				}
-				key := binary.BigEndian.Uint64(val.Key)
-				ind, ok := docMapPairsIndices[key]
-				freqBits := binary.LittleEndian.Uint32(val.Value[0:4])
-				propLenBits := binary.LittleEndian.Uint32(val.Value[4:8])
-				if ok {
-					if ind >= len(docMapPairs) {
-						// the index is not valid anymore, but the key is still in the map
-						b.logger.Warnf("Skipping pair in BM25: Index %d is out of range for key %d, length %d.", ind, key, len(docMapPairs))
-						continue
-					}
-					if ind < len(docMapPairs) && docMapPairs[ind].id != key {
-						b.logger.Warnf("Skipping pair in BM25: id at %d in doc map pairs, %d, differs from current key, %d", ind, docMapPairs[ind].id, key)
-						continue
-					}
+				docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
 
-					docMapPairs[ind].propLength += math.Float32frombits(propLenBits)
-					docMapPairs[ind].frequency += math.Float32frombits(freqBits) * mAndProps.propBoost
-				} else {
-					docMapPairs = append(docMapPairs,
-						docPointerWithScore{
-							id:         binary.BigEndian.Uint64(val.Key),
-							frequency:  math.Float32frombits(freqBits) * mAndProps.propBoost,
-							propLength: math.Float32frombits(propLenBits),
-						})
-					if includeIndicesForLastElement {
-						docMapPairsIndices[binary.BigEndian.Uint64(val.Key)] = len(docMapPairs) - 1 // current last entry
-					}
-				}
 			}
+
 		}
 	}
 	if docMapPairs == nil {
