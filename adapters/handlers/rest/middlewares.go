@@ -170,6 +170,8 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 					"shard_name": "n/a",
 				}).
 					Observe(float64(time.Since(before) / time.Millisecond))
+
+				metrics.BatchSizeBytes.WithLabelValues("rest").Observe(float64(r.ContentLength))
 			}
 		})
 	}
