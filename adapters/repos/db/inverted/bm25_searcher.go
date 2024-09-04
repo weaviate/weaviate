@@ -207,21 +207,20 @@ func (b *BM25Searcher) wand(
 			}
 
 			for i := range queryTerms {
-				j := i
-				term := allTerms[currentTerm]
+				term := queryTerms[i]
 				currentTerm++
 				termId := (currentTerm - 1)
+				duplicateBoost := duplicateBoosts[i]
 
-				eg.Go(func() (err error) {
-					termResult, termErr := b.createTerm(ctx, N, filterDocIds, term, termId, propNames,
-						propertyBoosts, duplicateBoosts[j], params.AdditionalExplanations)
-					if termErr != nil {
-						err = termErr
-						return
+				eg.Go(func() error {
+					termResult, err := b.createTerm(ctx, N, filterDocIds, term, termId, propNames,
+						propertyBoosts, duplicateBoost)
+					if err != nil {
+						return err
 					}
 					results[termId] = &termResult
-					return
-				}, "query_term", queryTerms[j], "prop_names", propNames, "has_filter", filterDocIds != nil)
+					return nil
+				}, "query_term", term, "prop_names", propNames, "has_filter", filterDocIds != nil)
 			}
 		}
 	}
@@ -373,7 +372,6 @@ func (b *BM25Searcher) getTopKHeap(limit int, results terms.Terms, averagePropLe
 
 func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int,
 	propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int,
-	additionalExplanations bool,
 ) (term, error) {
 	termResult := term{queryTerm: query, queryTermIndex: queryTermIndex}
 	filteredDocIDs := sroar.NewBitmap() // to build the global n if there is a filter
@@ -451,7 +449,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 		return termResult, nil
 	}
 
-	if len(allMsAndProps) == 1 {
+	if len(nonEmptyMsAndProps) == 1 {
 		termResult.data = allMsAndProps[0]
 		termResult.idf = math.Log(float64(1)+(N-float64(len(termResult.data))+0.5)/(float64(len(termResult.data))+0.5)) * float64(duplicateTextBoost)
 		termResult.posPointer = 0
