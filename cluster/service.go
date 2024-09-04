@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
+	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/bootstrap"
 	"github.com/weaviate/weaviate/cluster/resolver"
@@ -84,22 +86,42 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		})
 	}
 
-	bs := bootstrap.NewBootstrapper(
-		c.rpcClient,
-		c.config.NodeID,
-		c.raftAddr,
-		nodeToAddressResolver,
-		c.Raft.Ready,
-	)
+	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
+	if err != nil {
+		return err
+	}
+	c.log.WithField("hasState", hasState).Info("raft init")
 
+	// If we have a state in raft, we only want to re-join the nodes in raft_join list to ensure that we update the
+	// configuration with our current ip.
+	// If we have no state, we want to do the bootstrap procedure where we will try to join a cluster or notify other
+	// peers that we are ready to form a new cluster.
 	bCtx, bCancel := context.WithTimeout(ctx, c.config.BootstrapTimeout)
 	defer bCancel()
-	if err := bs.Do(
-		bCtx,
-		c.config.NodeNameToPortMap,
-		c.logger,
-		c.config.Voter, c.closeBootstrapper); err != nil {
-		return fmt.Errorf("bootstrap: %w", err)
+	if hasState {
+		// Only join the remote nodes
+		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
+		backoff.Retry(func() error {
+			joinNodes := bootstrap.ResolveRemoteNodes(nodeToAddressResolver, c.config.NodeNameToPortMap)
+			_, err := joiner.Do(bCtx, c.logger, joinNodes)
+			return err
+		}, backoff.WithMaxRetries(backoff.NewConstantBackOff(2*time.Second), 10))
+	} else {
+		bs := bootstrap.NewBootstrapper(
+			c.rpcClient,
+			c.config.NodeID,
+			c.raftAddr,
+			c.config.Voter,
+			nodeToAddressResolver,
+			c.Raft.Ready,
+		)
+		if err := bs.Do(
+			bCtx,
+			c.config.NodeNameToPortMap,
+			c.logger,
+			c.closeBootstrapper); err != nil {
+			return fmt.Errorf("bootstrap: %w", err)
+		}
 	}
 
 	if err := c.WaitUntilDBRestored(ctx, 10*time.Second, c.closeWaitForDB); err != nil {
