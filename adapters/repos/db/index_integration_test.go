@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -320,6 +322,152 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 	})
 
 	err = index.drop()
+	require.Nil(t, err)
+}
+
+func TestIndex_DropUnloadedShard(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		Class: "deletetest",
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{},
+	}
+	fakeSchema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				class,
+			},
+		},
+	}
+
+	// create a checkpoint file
+	cpFile, err := indexcheckpoint.New(dirName, logger)
+	require.Nil(t, err)
+	defer cpFile.Close()
+
+	// create index
+	shardState := singleShardState()
+	index, err := NewIndex(testCtx(), IndexConfig{
+		RootPath:  dirName,
+		ClassName: schema.ClassName(class.Class),
+	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
+			schema: fakeSchema, shardState: shardState,
+		}, nil, logger, nil, nil, nil, nil, class, nil, cpFile, nil)
+	require.Nil(t, err)
+
+	// at this point the shard is not loaded yet.
+	// update the checkpoint file to simulate a previously loaded shard
+	var shardName string
+	for name := range shardState.Physical {
+		shardName = name
+		break
+	}
+	require.NotEmpty(t, shardName)
+	shardID := fmt.Sprintf("%s_%s", index.ID(), shardName)
+	err = cpFile.Update(shardID, "", 10)
+	require.Nil(t, err)
+
+	// drop the index before loading the shard
+	err = index.drop()
+	require.Nil(t, err)
+
+	// ensure the checkpoint file is not deleted
+	_, err = os.Stat(filepath.Join(dirName, "index.db"))
+	require.Nil(t, err)
+
+	// ensure the shard checkpoint is deleted
+	v, ok, err := cpFile.Get(shardID, "")
+	require.Nil(t, err)
+	require.False(t, ok)
+	require.Zero(t, v)
+}
+
+func TestIndex_DropLoadedShard(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+
+	dirName := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	class := &models.Class{
+		Class: "deletetest",
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{},
+	}
+	fakeSchema := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				class,
+			},
+		},
+	}
+
+	cpFile, err := indexcheckpoint.New(dirName, logger)
+	require.Nil(t, err)
+	defer cpFile.Close()
+
+	// create index
+	shardState := singleShardState()
+	index, err := NewIndex(testCtx(), IndexConfig{
+		RootPath:          dirName,
+		ClassName:         schema.ClassName(class.Class),
+		ReplicationFactor: NewAtomicInt64(1),
+	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		hnsw.NewDefaultUserConfig(), nil, &fakeSchemaGetter{
+			schema: fakeSchema, shardState: shardState,
+		}, nil, logger, nil, nil, nil, nil, class, nil, cpFile, nil)
+	require.Nil(t, err)
+
+	// force the index to load the shard
+	productsIds := []strfmt.UUID{
+		"1295c052-263d-4aae-99dd-920c5a370d06",
+		"1295c052-263d-4aae-99dd-920c5a370d07",
+	}
+
+	products := []map[string]interface{}{
+		{"name": "one"},
+		{"name": "two"},
+	}
+
+	err = index.addProperty(context.TODO(), &models.Property{
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
+	})
+	require.Nil(t, err)
+
+	for i, p := range products {
+		product := models.Object{
+			Class:      class.Class,
+			ID:         productsIds[i],
+			Properties: p,
+		}
+
+		err := index.putObject(context.TODO(), storobj.FromObject(
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+		require.Nil(t, err)
+	}
+
+	// drop the index
+	err = index.drop()
+	require.Nil(t, err)
+
+	// ensure the checkpoint file is not deleted
+	_, err = os.Stat(filepath.Join(dirName, "index.db"))
 	require.Nil(t, err)
 }
 
