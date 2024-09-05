@@ -109,7 +109,6 @@ func TestTokenise(t *testing.T) {
 
 	tokens = Tokenize(models.PropertyTokenizationKagomeJa, "The quick brown fox jumps over the lazy dog")
 	assert.Equal(t, []string{"The", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
-
 }
 
 func TestTokenize(t *testing.T) {
