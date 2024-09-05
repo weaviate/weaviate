@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package querytenant
 
 import (
@@ -54,7 +65,7 @@ func (t *TenantInfo) TenantStatus(ctx context.Context, collection, tenant string
 		for _, e := range v.Error {
 			rerr = errors.Join(rerr, errors.New(e.Message))
 		}
-		if strings.ToLower(v.Name) == strings.ToLower(tenant) {
+		if strings.EqualFold(v.Name, tenant) {
 			return v.Status, nil
 		}
 
