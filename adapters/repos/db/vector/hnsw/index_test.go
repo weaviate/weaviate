@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -130,6 +131,47 @@ func TestHnswIndexGrow(t *testing.T) {
 		require.Nil(t, err)
 		assert.Equal(t, int(id)+cache.MinimumIndexGrowthDelta, len(index.nodes))
 		assert.Equal(t, int32(id+2*cache.MinimumIndexGrowthDelta), index.cache.Len())
+	})
+}
+
+func TestHnswIndexGrowSafely(t *testing.T) {
+	vector := []float32{0.1, 0.2}
+	vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		return vector, nil
+	}
+	index := createEmptyHnswIndexForTests(t, vecForIDFn)
+
+	t.Run("concurrently add nodes to grow index", func(t *testing.T) {
+		growAttempts := 20
+		var wg sync.WaitGroup
+		offset := uint64(len(index.nodes))
+		ctx := context.Background()
+
+		addVectorPair := func(ids []uint64) {
+			defer wg.Done()
+			err := index.AddBatch(ctx, ids, [][]float32{vector, vector})
+			require.Nil(t, err)
+		}
+
+		for i := 0; i < growAttempts; i++ {
+			wg.Add(4)
+			go addVectorPair([]uint64{offset - 4, offset - 5})
+			go addVectorPair([]uint64{offset - 3, offset})
+			go addVectorPair([]uint64{offset - 2, offset + 2})
+			go addVectorPair([]uint64{offset - 1, offset + 3})
+			wg.Wait()
+			offset = uint64(len(index.nodes))
+		}
+
+		// Calculate non-nil nodes
+		nonNilNodes := 0
+		for _, node := range index.nodes {
+			if node != nil {
+				nonNilNodes++
+			}
+		}
+
+		assert.Equal(t, growAttempts*8, nonNilNodes)
 	})
 }
 
