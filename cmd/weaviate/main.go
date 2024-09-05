@@ -27,9 +27,6 @@ import (
 
 const (
 	TargetQuerier = "querier"
-
-	// v1/schema/collection/tenants
-	schemaPath = "v1/schema/%s/tenants"
 )
 
 // TODO: We want this to be part of original `cmd/weaviate-server`.
@@ -57,7 +54,7 @@ func main() {
 		s3module.DataPath = opts.Query.DataPath
 		s3module.Endpoint = opts.Query.S3Endpoint
 
-		tenantInfo := querytenant.NewTenantInfo(opts.Query.SchemaAddr, schemaPath)
+		tenantInfo := querytenant.NewTenantInfo(opts.Query.SchemaAddr, querytenant.DefaultSchemaPath)
 
 		a := query.NewAPI(
 			tenantInfo,
