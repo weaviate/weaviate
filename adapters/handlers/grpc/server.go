@@ -30,6 +30,7 @@ import (
 	_ "google.golang.org/grpc/encoding/gzip" // Install the gzip compressor
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/protobuf/proto"
+	grpc_datadog "gopkg.in/DataDog/dd-trace-go.v1/contrib/google.golang.org/grpc"
 
 	v0 "github.com/weaviate/weaviate/adapters/handlers/grpc/v0"
 	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
@@ -60,6 +61,12 @@ func CreateGRPCServer(state *state.State) *GRPCServer {
 	if state.ServerConfig.Config.Sentry.Enabled {
 		interceptors = append(interceptors, grpc_middleware.ChainUnaryServer(
 			grpc_sentry.UnaryServerInterceptor(),
+		))
+	}
+
+	if state.ServerConfig.Config.Datadog.Enabled {
+		interceptors = append(interceptors, grpc_datadog.UnaryServerInterceptor(
+			grpc_datadog.WithServiceName(state.ServerConfig.Config.Datadog.Service),
 		))
 	}
 

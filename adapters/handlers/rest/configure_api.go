@@ -47,6 +47,7 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/entities/datadog"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -110,6 +111,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 
 	"github.com/getsentry/sentry-go"
+	dd_logrus "gopkg.in/DataDog/dd-trace-go.v1/contrib/sirupsen/logrus"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -222,6 +224,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 				scope.SetTag(key, value)
 			}
 		})
+	}
+
+	if appState.ServerConfig.Config.Datadog.Enabled {
+		datadog.Start()
 	}
 
 	limitResources(appState)
@@ -648,6 +654,10 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).Error("could not load config")
 		logger.Exit(1)
+	}
+	if serverConfig.Config.Datadog.Enabled {
+		logger.AddHook(&dd_logrus.DDContextLogHook{})
+		appState.Logger = logger
 	}
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/datadog"
 	"github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/weaviate/weaviate/entities/schema"
@@ -408,6 +409,12 @@ func FromEnv(config *Config) error {
 	config.Sentry, err = sentry.InitSentryConfig()
 	if err != nil {
 		return fmt.Errorf("parse sentry config from env: %w", err)
+	}
+	// explicitly reset datadog config
+	datadog.Config = nil
+	config.Datadog, err = datadog.InitDatadogConfig()
+	if err != nil {
+		return fmt.Errorf("parse datadog config from env: %w", err)
 	}
 
 	return nil

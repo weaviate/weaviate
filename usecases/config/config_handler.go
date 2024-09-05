@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/deprecations"
+	entdatadog "github.com/weaviate/weaviate/entities/datadog"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -127,6 +128,7 @@ type Config struct {
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
+	Datadog                             *entdatadog.ConfigOpts   `json:"datadog" yaml:"datadog"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
