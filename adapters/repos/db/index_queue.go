@@ -339,42 +339,34 @@ func (q *IndexQueue) Size() int64 {
 	return count
 }
 
-// Delete marks the given vectors as deleted.
-// This method can be called even if the async indexing is disabled.
+// Deletes the vectors from the index synchronously
+// if they are already indexed, otherwise it marks them as deleted in the queue.
+// If async indexing is disabled, it calls the index delete method directly.
 func (q *IndexQueue) Delete(ids ...uint64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+
+	start := time.Now()
+	defer q.metrics.Delete(start, len(ids))
+
 	if !asyncEnabled() {
 		return q.index.Delete(ids...)
 	}
-	start := time.Now()
-	defer q.metrics.Delete(start, len(ids))
 
 	q.indexLock.RLock()
 	defer q.indexLock.RUnlock()
 
-	remaining := make([]uint64, 0, len(ids))
-	indexed := make([]uint64, 0, len(ids))
-
-	for _, id := range ids {
-		if q.index.ContainsNode(id) {
-			indexed = append(indexed, id)
-
-			// is it already marked as deleted in the queue?
-			if q.queue.IsDeleted(id) {
-				q.queue.ResetDeleted(id)
+	for i := range ids {
+		if q.index.ContainsNode(ids[i]) {
+			err := q.index.Delete(ids[i])
+			if err != nil {
+				q.Logger.WithError(err).Error("failed to delete vector from index")
 			}
-
-			continue
+		} else {
+			q.queue.Delete(ids[i])
 		}
-
-		remaining = append(remaining, id)
 	}
-
-	err := q.index.Delete(indexed...)
-	if err != nil {
-		return errors.Wrap(err, "delete node from index")
-	}
-
-	q.queue.Delete(remaining)
 
 	return nil
 }
@@ -411,6 +403,12 @@ func (q *IndexQueue) indexer() {
 			if q.checkCompressionSettings() {
 				q.indexLock.RUnlock()
 				continue
+			}
+
+			// cleanup deleted vectors from the index
+			err := q.cleanupDeleted()
+			if err != nil {
+				q.Logger.WithError(err).Error("cleanup deleted vectors")
 			}
 
 			if q.Size() == 0 {
@@ -508,6 +506,24 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 	}
 
 	return count
+}
+
+func (q *IndexQueue) cleanupDeleted() error {
+	q.queue.deleted.Lock()
+	defer q.queue.deleted.Unlock()
+
+	for id := range q.queue.deleted.m {
+		if q.index.ContainsNode(id) {
+			err := q.index.Delete(id)
+			if err != nil {
+				return errors.Wrapf(err, "delete vector %d from index", id)
+			}
+
+			delete(q.queue.deleted.m, id)
+		}
+	}
+
+	return nil
 }
 
 func (q *IndexQueue) logStats(vectorsSent int64) {
@@ -990,7 +1006,7 @@ func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vec
 	return nil
 }
 
-func (q *vectorQueue) Delete(ids []uint64) {
+func (q *vectorQueue) Delete(ids ...uint64) {
 	q.deleted.Lock()
 	for _, id := range ids {
 		q.deleted.m[id] = struct{}{}

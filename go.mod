@@ -65,8 +65,8 @@ require (
 	github.com/ikawaha/kagome/v2 v2.9.11
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
-	github.com/urfave/cli/v2 v2.27.2
 	github.com/tailor-inc/graphql v0.4.1
+	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/fgprof v0.0.0-20240724124431-aab99fd9c876
 	github.com/weaviate/s5cmd/v2 v2.0.1
@@ -88,8 +88,6 @@ require (
 	github.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/Microsoft/hcsshim v0.11.4 // indirect
-	github.com/PuerkitoBio/purell v1.1.1 // indirect
-	github.com/PuerkitoBio/urlesc v0.0.0-20170810143723-de5bf2ad4578 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20210307081110-f21760c49a8d // indirect
