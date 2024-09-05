@@ -110,7 +110,6 @@ func TestListSetResize(t *testing.T) {
 	l.Visit(3)
 	assert.Equal(t, []uint8{2, 0, 2, 0, 2}, l.set[0:5])
 	assert.Equal(t, (2 + 1024), l.Len())
-	l.free()
 	assert.Equal(t, []uint8(nil), l.set)
 }
 

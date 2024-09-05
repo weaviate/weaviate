@@ -27,14 +27,11 @@ type ListSet struct {
 // Len returns the number of elements in the list.
 func (l ListSet) Len() int { return len(l.set) - 1 }
 
-// free allocated slice. This list should not be reusable after this call.
-func (l *ListSet) free() { l.set = nil }
-
 // NewList creates a new list. It allocates memory for elements and marker
-func NewList(size int) ListSet {
+func NewList(size int) *ListSet {
 	set := make([]uint8, size+1)
 	set[0] = 1 // the marker starts always by 1 since on reset all element are set to 0
-	return ListSet{set: set}
+	return &ListSet{set: set}
 }
 
 // Visit sets element at node to the marker value
@@ -61,6 +58,12 @@ func (l *ListSet) Reset() {
 		}
 		l.set[0] = 1 // restart counting
 	}
+}
+
+func (l *ListSet) ResetCap(capacity int) {
+	set := make([]uint8, capacity+513)
+	set[0] = 1 // the marker starts always by 1 since on reset all element are set to 0
+	l.set = set
 }
 
 // threshold let us double the size if the old size is below it
