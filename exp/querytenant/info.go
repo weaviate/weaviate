@@ -21,6 +21,11 @@ import (
 	"time"
 )
 
+const (
+	// v1/schema/collection/tenants
+	DefaultSchemaPath = "v1/schema/%s/tenants"
+)
+
 var ErrTenantNotFound = errors.New("tenant not found")
 
 type TenantInfo struct {
@@ -41,11 +46,7 @@ func NewTenantInfo(addr, path string) *TenantInfo {
 }
 
 func (t *TenantInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, error) {
-	respPayload := []struct {
-		Error  []ErrorResponse `json:"error,omitempty"`
-		Status string          `json:"activityStatus"`
-		Name   string          `json:"name"`
-	}{}
+	respPayload := []Response{}
 
 	path := fmt.Sprintf(t.path, collection)
 	u := fmt.Sprintf("%s/%s", t.addr, path)
@@ -76,6 +77,12 @@ func (t *TenantInfo) TenantStatus(ctx context.Context, collection, tenant string
 	}
 
 	return "", ErrTenantNotFound
+}
+
+type Response struct {
+	Error  []ErrorResponse `json:"error,omitempty"`
+	Status string          `json:"activityStatus"`
+	Name   string          `json:"name"`
 }
 
 type ErrorResponse struct {
