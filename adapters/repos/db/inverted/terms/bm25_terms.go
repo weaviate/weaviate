@@ -229,6 +229,8 @@ func (t *Terms) Pivot(minScore float64) bool {
 	}
 
 	t.AdvanceAllAtLeast(minID)
+
+	// we don't need to sort the entire list, just the first pivotPoint elements
 	t.PartialSort()
 	return false
 }
@@ -317,19 +319,15 @@ func (t *Terms) FullSort() {
 }
 
 func (t *Terms) PartialSort() {
-	// ensure the first element is the one with the lowest id instead of doing a full sort
-	if len(t.T) < 2 {
-		return
-	}
-	min := t.T[0].IdPointer()
-	minIndex := 0
-	for i := 1; i < len(t.T); i++ {
-		if t.T[i].IdPointer() < min {
+	min := uint64(0)
+	minIndex := -1
+	for i := 0; i < len(t.T); i++ {
+		if minIndex == -1 || (t.T[i].IdPointer() < min && !t.T[i].IsExhausted()) {
 			min = t.T[i].IdPointer()
 			minIndex = i
 		}
 	}
-	if minIndex != 0 {
+	if minIndex > 0 {
 		t.T[0], t.T[minIndex] = t.T[minIndex], t.T[0]
 	}
 }

@@ -568,6 +568,7 @@ func (t *term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Conf
 	t.posPointer++
 	if t.posPointer >= uint64(len(t.data)) {
 		t.exhausted = true
+		t.idPointer = math.MaxUint64 // force them to the end of the term list
 	} else {
 		t.idPointer = t.data[t.posPointer].Id
 	}
@@ -580,6 +581,7 @@ func (t *term) AdvanceAtLeast(minID uint64) {
 		t.posPointer++
 		if t.posPointer >= uint64(len(t.data)) {
 			t.exhausted = true
+			t.idPointer = math.MaxUint64 // force them to the end of the term list
 			return
 		}
 		t.idPointer = t.data[t.posPointer].Id
@@ -611,7 +613,6 @@ func (t *term) Count() int {
 }
 
 type MapPairsAndPropName struct {
-	propname string
 	MapPairs []lsmkv.MapPair
 }
 
