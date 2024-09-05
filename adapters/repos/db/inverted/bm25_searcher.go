@@ -97,6 +97,14 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 	return b.propLenTracker.(*JsonShardMetaData)
 }
 
+type termListRequest struct {
+	term               string
+	termId             int
+	duplicateTextBoost int
+	propertyNames      []string
+	propertyBoosts     map[string]float32
+}
+
 func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 	additional additional.Properties,
@@ -175,11 +183,7 @@ func (b *BM25Searcher) wand(
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
 	// 100 is a reasonable expected capacity for the total number of terms to query.
-	allTerms := make([]string, 0, 100)
-	currentTerm := 0
-
-	eg := enterrors.NewErrorGroupWrapper(b.logger)
-	eg.SetLimit(_NUMCPU)
+	allRequests := make([]termListRequest, 0, 100)
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
@@ -189,40 +193,37 @@ func (b *BM25Searcher) wand(
 				queryTerms, _ = b.removeStopwordsFromQueryTerms(
 					queryTerms, duplicateBoosts, stopWordDetector)
 			}
-			allTerms = append(allTerms, queryTerms...)
+			for queryTermIndex, queryTerm := range queryTerms {
+				allRequests = append(allRequests, termListRequest{
+					term:               queryTerm,
+					termId:             len(allRequests),
+					duplicateTextBoost: duplicateBoosts[queryTermIndex],
+					propertyNames:      propNames,
+					propertyBoosts:     propertyBoosts,
+				})
+			}
 		}
 	}
 
-	results := make([]terms.Term, len(allTerms))
+	results := make([]terms.Term, len(allRequests))
+	eg := enterrors.NewErrorGroupWrapper(b.logger)
+	eg.SetLimit(_NUMCPU)
 
-	for _, tokenization := range helpers.Tokenizations {
-		propNames := propNamesByTokenization[tokenization]
-		if len(propNames) > 0 {
-			queryTerms, duplicateBoosts := helpers.TokenizeAndCountDuplicates(tokenization, params.Query)
+	for _, request := range allRequests {
+		term := request.term
+		termId := request.termId
+		propNames := request.propertyNames
+		duplicateBoost := request.duplicateTextBoost
 
-			// stopword filtering for word tokenization
-			if tokenization == models.PropertyTokenizationWord {
-				queryTerms, duplicateBoosts = b.removeStopwordsFromQueryTerms(
-					queryTerms, duplicateBoosts, stopWordDetector)
+		eg.Go(func() error {
+			termResult, err := b.createTerm(ctx, N, filterDocIds, term, termId, propNames,
+				propertyBoosts, duplicateBoost)
+			if err != nil {
+				return err
 			}
-
-			for i := range queryTerms {
-				term := queryTerms[i]
-				currentTerm++
-				termId := (currentTerm - 1)
-				duplicateBoost := duplicateBoosts[i]
-
-				eg.Go(func() error {
-					termResult, err := b.createTerm(ctx, N, filterDocIds, term, termId, propNames,
-						propertyBoosts, duplicateBoost)
-					if err != nil {
-						return err
-					}
-					results[termId] = &termResult
-					return nil
-				}, "query_term", term, "prop_names", propNames, "has_filter", filterDocIds != nil)
-			}
-		}
+			results[termId] = &termResult
+			return nil
+		}, "query_term", term, "prop_names", propNames, "has_filter", filterDocIds != nil)
 	}
 
 	if err := eg.Wait(); err != nil {
@@ -252,11 +253,11 @@ func (b *BM25Searcher) wand(
 
 	finalTerms := terms.Terms{
 		T:     results,
-		Count: len(allTerms),
+		Count: len(allRequests),
 	}
 
 	topKHeap := b.getTopKHeap(limit, finalTerms, averagePropLength, params.AdditionalExplanations)
-	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, additional, allTerms)
+	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, additional, allRequests)
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
@@ -287,7 +288,7 @@ WordLoop:
 }
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
-	additional additional.Properties, allTerms []string,
+	additional additional.Properties, allRequests []termListRequest,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	scores := make([]float32, 0, topKHeap.Len())
@@ -333,7 +334,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 				if result == nil {
 					continue
 				}
-				queryTerm := allTerms[j]
+				queryTerm := allRequests[j].term
 				objs[k].Object.Additional["BM25F_"+queryTerm+"_frequency"] = result.Frequency
 				objs[k].Object.Additional["BM25F_"+queryTerm+"_propLength"] = result.PropLength
 			}
