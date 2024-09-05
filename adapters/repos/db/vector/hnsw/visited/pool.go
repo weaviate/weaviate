@@ -36,13 +36,12 @@ func NewPool(size int, listSetSize int) *Pool {
 	return p
 }
 
-// Borrow return a free list
+// Borrow return a reseted list
 func (p *Pool) Borrow() ListSet {
 	p.Lock()
 
 	if n := len(p.listSets); n > 0 {
 		l := p.listSets[n-1]
-		p.listSets[n-1].free() // prevent memory leak
 		p.listSets = p.listSets[:n-1]
 		p.Unlock()
 
