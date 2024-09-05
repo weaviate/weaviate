@@ -71,7 +71,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 		return 120000 // unknown model, use the smallest limit
 	}
 
-	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger, "voyageai"), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
