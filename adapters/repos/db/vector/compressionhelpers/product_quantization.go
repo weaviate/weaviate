@@ -402,6 +402,8 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 			return errorResult
 		}
 	}
+	polyTraining := NewPolysemousTraining()
+	polyTraining.OptimizePQForHamming(pq)
 	pq.buildGlobalDistances()
 	return nil
 }

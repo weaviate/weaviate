@@ -94,6 +94,10 @@ func (m *KMeans) ExposeDataForRestore() []byte {
 
 func (m *KMeans) Add(x []float32) {
 	// nothing to do here
+	for i := 0; i < m.K; i++ {
+		m.centers[i] = x[i*m.dimensions : (i+1)*m.dimensions]
+	}
+
 }
 
 func (m *KMeans) Centers() [][]float32 {
