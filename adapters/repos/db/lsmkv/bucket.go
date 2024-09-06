@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
@@ -697,9 +699,39 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 	segments := [][]MapPair{}
 	// before := time.Now()
-	disk, err := b.disk.getCollectionBySegments(key)
+	disk, segmentsDisk, err := b.disk.getCollectionBySegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
+	}
+
+	hasTombstones := false
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+	for i, segment := range segmentsDisk {
+		if segment.strategy == segmentindex.StrategyInverted {
+			tombstones, err := segment.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[i] = tombstones
+			hasTombstones = true
+		}
+	}
+	if hasTombstones {
+		// check if there are any tombstones in the flushing memtable
+		if b.flushing != nil {
+			tombstones, err := b.flushing.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[len(segmentsDisk)] = tombstones
+		}
+
+		// check if there are any tombstones in the active memtable
+		tombstones, err := b.active.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[len(segmentsDisk)+1] = tombstones
 	}
 
 	for i := range disk {
@@ -709,15 +741,31 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 
 		segmentDecoded := make([]MapPair, len(disk[i]))
 		for j, v := range disk[i] {
-			if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
-				return nil, err
+			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+				if err := segmentDecoded[j].FromBytesInverted(v.value, false, segmentsDisk[i].invertedKeyLength, segmentsDisk[i].invertedValueLength); err != nil {
+					return nil, err
+				}
+				docId := binary.BigEndian.Uint64(segmentDecoded[j].Key[:8])
+				// check if there are any tombstones between the i and len(disk) segments
+				for _, tombstones := range allTombstones[i+1:] {
+					if tombstones != nil && tombstones.Contains(docId) {
+						segmentDecoded[j].Tombstone = true
+						break
+					}
+				}
+			} else {
+				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				// Read "broken" tombstones with length 12 but a non-tombstone value
+				// Related to Issue #4125
+				// TODO: Remove the extra check, as it may interfere future in-disk format changes
+				segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 			}
-			// Read "broken" tombstones with length 12 but a non-tombstone value
-			// Related to Issue #4125
-			// TODO: Remove the extra check, as it may interfere future in-disk format changes
-			segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 		}
-		segments = append(segments, segmentDecoded)
+		if len(segmentDecoded) > 0 {
+			segments = append(segments, segmentDecoded)
+		}
 	}
 
 	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
@@ -730,8 +778,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
-
-		segments = append(segments, v)
+		if len(v) > 0 {
+			segments = append(segments, v)
+		}
 	}
 
 	// before = time.Now()
@@ -739,7 +788,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
-	segments = append(segments, v)
+	if len(v) > 0 {
+		segments = append(segments, v)
+	}
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
 	// before = time.Now()
