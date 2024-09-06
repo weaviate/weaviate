@@ -247,6 +247,9 @@ func (s *State) IsLocalShard(name string) bool {
 // Shard 2: Node8, Node9, Node10, Node 11, Node 12
 // Shard 3: Node9, Node10, Node11, Node 12, Node 1
 func (s *State) initPhysical(nodes []string, replFactor int64) error {
+	if len(nodes) == 0 {
+		return fmt.Errorf("there is no nodes provided, can't initiate state for empty node list")
+	}
 	it, err := cluster.NewNodeIterator(nodes, cluster.StartAfter)
 	if err != nil {
 		return err
