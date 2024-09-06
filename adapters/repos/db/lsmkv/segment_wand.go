@@ -404,7 +404,9 @@ func (store *Store) GetAllSegmentStats(segments map[string][]SegmentTokenization
 		for _, segmentAndTokenization := range segments[propName] {
 			segment := segmentAndTokenization.Segment
 			tokenization := segmentAndTokenization.Tokenization
-			propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[tokenization]))
+			if _, ok := propertySizes[propName]; !ok {
+				propertySizes[propName] = make(map[string]int64, len(queryTermsByTokenization[tokenization]))
+			}
 			for _, term := range queryTermsByTokenization[tokenization] {
 				nonTombstones, tombstones, _, _, err := segment.GetTermTombstoneNonTombstone([]byte(term))
 				// segment does not contain term
