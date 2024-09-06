@@ -66,7 +66,7 @@ func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
 
 	t.Run("class with MT disabled", func(t *testing.T) {
 		// without multi tenancy disabled
-		testClass = articles.ParagraphsClass()
+		testClass := articles.ParagraphsClass()
 		testClass.Class = fmt.Sprintf("%s-MT-disabled", testClass.Class)
 		testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: false}
 		testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
