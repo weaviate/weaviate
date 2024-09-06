@@ -20,10 +20,12 @@ import (
 	"runtime/debug"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -249,11 +251,17 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+	if !h.tombstoneCleanupRunning.CompareAndSwap(false, true) {
+		return false, errors.New("tombstone cleanup already running")
+	}
+	defer h.tombstoneCleanupRunning.Store(false)
+
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 	defer func() {
 		err := recover()
 		if err != nil {
+			entsentry.Recover(err)
 			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
 			debug.PrintStack()
 		}
@@ -388,7 +396,11 @@ func tombstoneDeletionConcurrency() int {
 			return asInt
 		}
 	}
-	return runtime.GOMAXPROCS(0) / 2
+	concurrency := runtime.GOMAXPROCS(0) / 2
+	if concurrency == 0 {
+		return 1
+	}
+	return concurrency
 }
 
 func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
@@ -399,11 +411,19 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	defer h.resetLock.Unlock()
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	ch := make(chan uint64)
+	var cancelled atomic.Bool
 
 	for i := 0; i < tombstoneDeletionConcurrency(); i++ {
 		g.Go(func() error {
 			for {
+				if breakCleanUpTombstonedNodes() {
+					cancelled.Store(true)
+					cancel()
+					return nil
+				}
 				select {
 				case <-ctx.Done():
 					return nil
@@ -430,6 +450,10 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 
 LOOP:
 	for i := 0; i < size; i++ {
+		if breakCleanUpTombstonedNodes() {
+			cancelled.Store(true)
+			cancel()
+		}
 		select {
 		case ch <- uint64(i):
 			if i%1_000_000 == 0 {
@@ -460,8 +484,7 @@ LOOP:
 		h.logger.Errorf("class %s: tombstone cleanup canceled", h.className)
 		return false, nil
 	}
-
-	return true, err
+	return !cancelled.Load(), err
 }
 
 func (h *hnsw) reassignNeighbor(
@@ -732,6 +755,10 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 	h.tombstoneLock.Lock()
 	defer h.tombstoneLock.Unlock()
 
+	if h.tombstones == nil {
+		h.tombstones = map[uint64]struct{}{}
+	}
+
 	for _, id := range ids {
 		h.metrics.AddTombstone()
 		h.tombstones[id] = struct{}{}
@@ -745,25 +772,26 @@ func (h *hnsw) addTombstone(ids ...uint64) error {
 func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakCleanUpTombstonedNodes breakCleanUpTombstonedNodesFunc) (ok bool, err error) {
 	it := deleteList.Iterator()
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
+		if breakCleanUpTombstonedNodes() {
+			return false, nil
+		}
 		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()
 		delete(h.tombstones, id)
 		h.tombstoneLock.Unlock()
 
 		h.resetLock.Lock()
-		if !breakCleanUpTombstonedNodes() {
-			h.shardedNodeLocks.Lock(id)
-			h.nodes[id] = nil
-			h.shardedNodeLocks.Unlock(id)
-			if h.compressed.Load() {
-				h.compressor.Delete(context.TODO(), id)
-			} else {
-				h.cache.Delete(context.TODO(), id)
-			}
-			if err := h.commitLog.DeleteNode(id); err != nil {
-				h.resetLock.Unlock()
-				return false, err
-			}
+		h.shardedNodeLocks.Lock(id)
+		h.nodes[id] = nil
+		h.shardedNodeLocks.Unlock(id)
+		if h.compressed.Load() {
+			h.compressor.Delete(context.TODO(), id)
+		} else {
+			h.cache.Delete(context.TODO(), id)
+		}
+		if err := h.commitLog.DeleteNode(id); err != nil {
+			h.resetLock.Unlock()
+			return false, err
 		}
 		h.resetLock.Unlock()
 

@@ -73,8 +73,7 @@ func ParseCorpi(ds Dataset, multiply int) (Corpi, error) {
 		for _, prop := range ds.Corpus.UnindexedProperties {
 			propStr, ok := obj[prop].(string)
 			if !ok {
-				return nil, fmt.Errorf("unindexed property %s is not a string: %T",
-					prop, obj[prop])
+				propStr = fmt.Sprintf("%v", obj[prop])
 			}
 
 			corp[SanitizePropName(prop)] = propStr

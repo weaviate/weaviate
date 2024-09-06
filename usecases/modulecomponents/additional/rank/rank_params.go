@@ -29,3 +29,11 @@ func (n Params) GetProperty() string {
 	}
 	return ""
 }
+
+func (n Params) GetPropertiesToExtract() []string {
+	property := n.GetProperty()
+	if property != "" {
+		return []string{property}
+	}
+	return []string{}
+}

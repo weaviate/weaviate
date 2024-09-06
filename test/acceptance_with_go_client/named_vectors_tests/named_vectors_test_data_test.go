@@ -204,6 +204,16 @@ func bqFlatIndexConfig() map[string]interface{} {
 	}
 }
 
+func sqVectorIndexConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"sq": map[string]interface{}{
+			"enabled":      true,
+			"rescoreLimit": -1,
+			"cache":        true,
+		},
+	}
+}
+
 func getVectorsWithNearText(t *testing.T, client *wvt.Client,
 	className, id string, nearText *graphql.NearTextArgumentBuilder, targetVectors ...string,
 ) map[string][]float32 {

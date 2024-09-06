@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
+var grpcClient pb.WeaviateClient
+
 func SetupClient(uri string) {
 	host, port := "", ""
 	res := strings.Split(uri, ":")
@@ -36,6 +38,10 @@ func SetupClient(uri string) {
 	}
 	ServerHost = host
 	ServerPort = port
+}
+
+func SetupGRPCClient(t *testing.T, uri string) {
+	grpcClient = ClientGRPC(t, uri)
 }
 
 func CreateClass(t *testing.T, class *models.Class) {
@@ -290,6 +296,13 @@ func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tena
 	return err
 }
 
+func UpdateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	_, err := Client(t).Schema.TenantsUpdate(params, nil)
+	return err
+}
+
 func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	t.Helper()
 	params := schema.NewTenantsGetParams().WithClassName(class)
@@ -299,7 +312,7 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 
 func GetTenantsGRPC(t *testing.T, class string) (*pb.TenantsGetReply, error) {
 	t.Helper()
-	return ClientGRPC(t).TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
+	return grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
 }
 
 func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {
@@ -325,4 +338,10 @@ func GetMeta(t *testing.T) *models.Meta {
 	resp, err := Client(t).Meta.MetaGet(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+func ObjectContentsProp(contents string) map[string]interface{} {
+	props := map[string]interface{}{}
+	props["contents"] = contents
+	return props
 }

@@ -189,12 +189,10 @@ func (r *BucketReaderRoaringSetRange) mergeGreaterThanEqual(ctx context.Context,
 	defer cursor.close()
 
 	mergeCh := make(chan func(), 16)
-	doneCh := make(chan struct{})
-	errors.GoWrapper(func() {
+	errCh := errors.GoWrapperWithErrorCh(func() {
 		for merge := range mergeCh {
 			merge()
 		}
-		doneCh <- struct{}{}
 	}, r.logger)
 
 	// if first AND-merge occurred. Before that all OR-merges can be skipped
@@ -220,18 +218,30 @@ func (r *BucketReaderRoaringSetRange) mergeGreaterThanEqual(ctx context.Context,
 				continue
 			}
 			prevOR = false
-			mergeCh <- func() { resBM.And(localCurrBM) }
+
+			select {
+			case mergeCh <- func() { resBM.And(localCurrBM) }:
+			case err := <-errCh:
+				return nil, err
+			}
 		} else if ANDed {
 			if prevOR && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
 				// skip merge if same BM was OR-merged step before
 				continue
 			}
 			prevOR = true
-			mergeCh <- func() { resBM.Or(localCurrBM) }
+
+			select {
+			case mergeCh <- func() { resBM.Or(localCurrBM) }:
+			case err := <-errCh:
+				return nil, err
+			}
 		}
 	}
 	close(mergeCh)
-	<-doneCh
+	if err := <-errCh; err != nil {
+		return nil, err
+	}
 
 	return resBM, nil
 }
@@ -242,12 +252,10 @@ func (r *BucketReaderRoaringSetRange) mergeEqual(ctx context.Context, resBM *sro
 	defer cursor.close()
 
 	mergeCh := make(chan func(), 16)
-	doneCh := make(chan struct{})
-	errors.GoWrapper(func() {
+	errCh := errors.GoWrapperWithErrorCh(func() {
 		for merge := range mergeCh {
 			merge()
 		}
-		doneCh <- struct{}{}
 	}, r.logger)
 
 	// if first AND-merge occurred. Before that all OR-merges can be skipped
@@ -279,14 +287,24 @@ func (r *BucketReaderRoaringSetRange) mergeEqual(ctx context.Context, resBM *sro
 				continue
 			}
 			prevOR = false
-			mergeCh <- func() { resBM.And(localCurrBM) }
+
+			select {
+			case mergeCh <- func() { resBM.And(localCurrBM) }:
+			case err := <-errCh:
+				return nil, err
+			}
 		} else if ANDed {
 			if prevOR && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
 				// skip merge if same BM was OR-merged step before
 				continue
 			}
 			prevOR = true
-			mergeCh <- func() { resBM.Or(localCurrBM) }
+
+			select {
+			case mergeCh <- func() { resBM.Or(localCurrBM) }:
+			case err := <-errCh:
+				return nil, err
+			}
 		}
 
 		if value1&b != 0 {
@@ -296,19 +314,37 @@ func (r *BucketReaderRoaringSetRange) mergeEqual(ctx context.Context, resBM *sro
 				continue
 			}
 			prevOR1 = false
-			mergeCh <- func() { resBM1.And(localCurrBM) }
+
+			select {
+			case mergeCh <- func() { resBM1.And(localCurrBM) }:
+			case err := <-errCh:
+				return nil, err
+			}
 		} else if ANDed1 {
 			if prevOR1 && bytes.Equal(localCurrBM.ToBuffer(), localPrevBM.ToBuffer()) {
 				// skip merge if same BM was OR-merged step before
 				continue
 			}
 			prevOR1 = true
-			mergeCh <- func() { resBM1.Or(localCurrBM) }
+
+			select {
+			case mergeCh <- func() { resBM1.Or(localCurrBM) }:
+			case err := <-errCh:
+				return nil, err
+			}
 		}
 	}
-	mergeCh <- func() { resBM.AndNot(resBM1) }
+
+	select {
+	case mergeCh <- func() { resBM.AndNot(resBM1) }:
+	case err := <-errCh:
+		return nil, err
+	}
+
 	close(mergeCh)
-	<-doneCh
+	if err := <-errCh; err != nil {
+		return nil, err
+	}
 
 	return resBM, nil
 }

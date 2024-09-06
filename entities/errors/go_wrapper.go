@@ -16,7 +16,8 @@ import (
 	"os"
 	"runtime/debug"
 
-	"github.com/weaviate/weaviate/usecases/configbase"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
 	"github.com/sirupsen/logrus"
 )
@@ -24,9 +25,10 @@ import (
 func GoWrapper(f func(), logger logrus.FieldLogger) {
 	go func() {
 		defer func() {
-			if !configbase.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 				if r := recover(); r != nil {
 					logger.Errorf("Recovered from panic: %v", r)
+					entsentry.Recover(r)
 					debug.PrintStack()
 				}
 			}
@@ -35,13 +37,14 @@ func GoWrapper(f func(), logger logrus.FieldLogger) {
 	}()
 }
 
-func GoWrapperWithBlock(f func(), logger logrus.FieldLogger) error {
-	errChan := make(chan error)
+func GoWrapperWithErrorCh(f func(), logger logrus.FieldLogger) chan error {
+	errChan := make(chan error, 1)
 	go func() {
 		defer func() {
-			if !configbase.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 				if r := recover(); r != nil {
 					logger.Errorf("Recovered from panic: %v", r)
+					entsentry.Recover(r)
 					debug.PrintStack()
 					errChan <- fmt.Errorf("panic occurred: %v", r)
 				}
@@ -50,5 +53,9 @@ func GoWrapperWithBlock(f func(), logger logrus.FieldLogger) error {
 		f()
 		errChan <- nil
 	}()
-	return <-errChan
+	return errChan
+}
+
+func GoWrapperWithBlock(f func(), logger logrus.FieldLogger) error {
+	return <-GoWrapperWithErrorCh(f, logger)
 }

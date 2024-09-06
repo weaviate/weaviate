@@ -63,6 +63,25 @@ func TestTokenise(t *testing.T) {
 
 	tokens = Tokenize(models.PropertyTokenizationGse, "The quick brown fox jumps over the lazy dog")
 	assert.Equal(t, []string{"t", "h", "e", "q", "u", "i", "c", "k", "b", "r", "o", "w", "n", "f", "o", "x", "j", "u", "m", "p", "s", "o", "v", "e", "r", "t", "h", "e", "l", "a", "z", "y", "d", "o", "g", "the", "quick", "brown", "fox", "jumps", "over", "the", "lazy", "dog"}, tokens)
+
+	// Kagome tokenizer for Korean
+	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
+	_ = initializeKagomeTokenizerKr()
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "아버지가방에들어가신다")
+	assert.Equal(t, []string{"아버지", "가", "방", "에", "들어가", "신다"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "아버지가 방에 들어가신다")
+	assert.Equal(t, []string{"아버지", "가", "방", "에", "들어가", "신다"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "결정하겠다")
+	assert.Equal(t, []string{"결정", "하", "겠", "다"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를처리하는예시입니다")
+	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
+
+	tokens = Tokenize(models.PropertyTokenizationKagomeKr, "한국어를 처리하는 예시입니다")
+	assert.Equal(t, []string{"한국어", "를", "처리", "하", "는", "예시", "입니다"}, tokens)
 }
 
 func TestTokenize(t *testing.T) {
@@ -127,21 +146,27 @@ func TestTokenize(t *testing.T) {
 }
 
 func TestTokenizeAndCountDuplicates(t *testing.T) {
-	input := "Hello You Beautiful World! hello you beautiful world!"
-
 	type testCase struct {
+		input        string
 		tokenization string
 		expected     map[string]int
 	}
 
+	t.Setenv("ENABLE_TOKENIZER_KAGOME_KR", "true")
+	_ = initializeKagomeTokenizerKr()
+
+	alphaInput := "Hello You Beautiful World! hello you beautiful world!"
+
 	testCases := []testCase{
 		{
+			input:        alphaInput,
 			tokenization: models.PropertyTokenizationField,
 			expected: map[string]int{
 				"Hello You Beautiful World! hello you beautiful world!": 1,
 			},
 		},
 		{
+			input:        alphaInput,
 			tokenization: models.PropertyTokenizationWhitespace,
 			expected: map[string]int{
 				"Hello":     1,
@@ -155,6 +180,7 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 			},
 		},
 		{
+			input:        alphaInput,
 			tokenization: models.PropertyTokenizationLowercase,
 			expected: map[string]int{
 				"hello":     2,
@@ -164,6 +190,7 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 			},
 		},
 		{
+			input:        alphaInput,
 			tokenization: models.PropertyTokenizationWord,
 			expected: map[string]int{
 				"hello":     2,
@@ -172,11 +199,24 @@ func TestTokenizeAndCountDuplicates(t *testing.T) {
 				"world":     2,
 			},
 		},
+		{
+			input:        "한국어를 처리하는 예시입니다 한국어를 처리하는 예시입니다",
+			tokenization: models.PropertyTokenizationKagomeKr,
+			expected: map[string]int{
+				"한국어": 2,
+				"를":   2,
+				"처리":  2,
+				"하":   2,
+				"는":   2,
+				"예시":  2,
+				"입니다": 2,
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.tokenization, func(t *testing.T) {
-			terms, dups := TokenizeAndCountDuplicates(tc.tokenization, input)
+			terms, dups := TokenizeAndCountDuplicates(tc.tokenization, tc.input)
 
 			assert.Len(t, terms, len(tc.expected))
 			assert.Len(t, dups, len(tc.expected))

@@ -31,13 +31,18 @@ import (
 
 // TODO: why is this logic in the persistence package? This is business-logic,
 // move out of here!
-func (db *DB) GetUnclassified(ctx context.Context, class string,
-	properties []string, filter *libfilters.LocalFilter,
+func (db *DB) GetUnclassified(ctx context.Context, className string,
+	properties []string, propsToReturn []string, filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
-	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
+	propsToReturnTmp := append(properties, propsToReturn...)
+	props := make(search.SelectProperties, len(propsToReturnTmp))
+	for i, prop := range propsToReturnTmp {
+		props[i] = search.SelectProperty{Name: prop}
+	}
+	mergedFilter := mergeUserFilterWithRefCountFilter(filter, className, properties,
 		libfilters.OperatorEqual, 0)
 	res, err := db.Search(ctx, dto.GetParams{
-		ClassName: class,
+		ClassName: className,
 		Filters:   mergedFilter,
 		Pagination: &libfilters.Pagination{
 			Limit: 10000, // TODO: gh-1219 increase
@@ -49,6 +54,7 @@ func (db *DB) GetUnclassified(ctx context.Context, class string,
 				"interpretation": true,
 			},
 		},
+		Properties: props,
 	})
 
 	return res, err
@@ -60,6 +66,11 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	class string, properties []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
+	props := make(search.SelectProperties, len(properties))
+	for i, prop := range properties {
+		props[i] = search.SelectProperty{Name: prop}
+	}
+
 	res, err := db.VectorSearch(ctx, dto.GetParams{
 		ClassName: class,
 		Pagination: &filters.Pagination{
@@ -69,6 +80,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 		AdditionalProperties: additional.Properties{
 			Vector: true,
 		},
+		Properties: props,
 	}, []string{""}, [][]float32{vector})
 
 	return res, err
@@ -80,6 +92,10 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	class string, properties []string, k int,
 	filter *libfilters.LocalFilter,
 ) ([]classification.NeighborRef, error) {
+	props := make(search.SelectProperties, len(properties))
+	for i, prop := range properties {
+		props[i] = search.SelectProperty{Name: prop}
+	}
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		libfilters.OperatorGreaterThan, 0)
 	res, err := db.VectorSearch(ctx, dto.GetParams{
@@ -91,6 +107,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 		AdditionalProperties: additional.Properties{
 			Vector: true,
 		},
+		Properties: props,
 	}, []string{""}, [][]float32{vector})
 	if err != nil {
 		return nil, errors.Wrap(err, "aggregate neighbors: search neighbors")

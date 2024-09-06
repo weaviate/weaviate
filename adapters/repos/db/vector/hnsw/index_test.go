@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -133,6 +134,47 @@ func TestHnswIndexGrow(t *testing.T) {
 	})
 }
 
+func TestHnswIndexGrowSafely(t *testing.T) {
+	vector := []float32{0.1, 0.2}
+	vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+		return vector, nil
+	}
+	index := createEmptyHnswIndexForTests(t, vecForIDFn)
+
+	t.Run("concurrently add nodes to grow index", func(t *testing.T) {
+		growAttempts := 20
+		var wg sync.WaitGroup
+		offset := uint64(len(index.nodes))
+		ctx := context.Background()
+
+		addVectorPair := func(ids []uint64) {
+			defer wg.Done()
+			err := index.AddBatch(ctx, ids, [][]float32{vector, vector})
+			require.Nil(t, err)
+		}
+
+		for i := 0; i < growAttempts; i++ {
+			wg.Add(4)
+			go addVectorPair([]uint64{offset - 4, offset - 5})
+			go addVectorPair([]uint64{offset - 3, offset})
+			go addVectorPair([]uint64{offset - 2, offset + 2})
+			go addVectorPair([]uint64{offset - 1, offset + 3})
+			wg.Wait()
+			offset = uint64(len(index.nodes))
+		}
+
+		// Calculate non-nil nodes
+		nonNilNodes := 0
+		for _, node := range index.nodes {
+			if node != nil {
+				nonNilNodes++
+			}
+		}
+
+		assert.Equal(t, growAttempts*8, nonNilNodes)
+	})
+}
+
 func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[float32]) *hnsw {
 	// mock out commit logger before adding data so we don't leave a disk
 	// footprint. Commit logging and deserializing from a (condensed) commit log
@@ -151,4 +193,193 @@ func createEmptyHnswIndexForTests(t testing.TB, vecForIDFn common.VectorForID[fl
 		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 	require.Nil(t, err)
 	return index
+}
+
+func TestHnswIndexContainsNode(t *testing.T) {
+	t.Run("should return false if index is empty", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			t.Fatalf("vecForID should not be called on empty index")
+			return nil, nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		require.False(t, index.ContainsNode(1))
+	})
+
+	t.Run("should return true if node is in the index", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+		require.True(t, index.ContainsNode(5))
+	})
+
+	t.Run("should return false if node is not in the index", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+		require.False(t, index.ContainsNode(100))
+	})
+
+	t.Run("should return false if node is deleted", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+		err := index.Delete(5)
+		require.Nil(t, err)
+		require.False(t, index.ContainsNode(5))
+	})
+}
+
+func TestHnswIndexIterate(t *testing.T) {
+	t.Run("should not run callback on empty index", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			t.Fatalf("vecForID should not be called on empty index")
+			return nil, nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		index.Iterate(func(id uint64) bool {
+			t.Fatalf("callback should not be called on empty index")
+			return true
+		})
+	})
+
+	t.Run("should iterate over all nodes", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		visited := make([]bool, len(testVectors))
+		index.Iterate(func(id uint64) bool {
+			visited[id] = true
+			return true
+		})
+		for i, v := range visited {
+			assert.True(t, v, "node %d was not visited", i)
+		}
+	})
+
+	t.Run("should stop iteration when callback returns false", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		visited := make([]bool, len(testVectors))
+		index.Iterate(func(id uint64) bool {
+			visited[id] = true
+			return id < 5
+		})
+		for i, v := range visited {
+			if i <= 5 {
+				assert.True(t, v, "node %d was not visited", i)
+			} else {
+				assert.False(t, v, "node %d was visited", i)
+			}
+		}
+	})
+
+	t.Run("should stop iteration when shutdownCtx is canceled", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		visited := make([]bool, len(testVectors))
+		index.Iterate(func(id uint64) bool {
+			visited[id] = true
+			if id == 5 {
+				err := index.Shutdown(context.Background())
+				require.NoError(t, err)
+			}
+			return true
+		})
+		for i, v := range visited {
+			if i <= 5 {
+				assert.True(t, v, "node %d was not visited", i)
+			} else {
+				assert.False(t, v, "node %d was visited", i)
+			}
+		}
+	})
+
+	t.Run("should stop iteration when resetCtx is canceled", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		visited := make([]bool, len(testVectors))
+		index.Iterate(func(id uint64) bool {
+			visited[id] = true
+			if id == 5 {
+				index.resetCtxCancel()
+			}
+			return true
+		})
+		for i, v := range visited {
+			if i <= 5 {
+				assert.True(t, v, "node %d was not visited", i)
+			} else {
+				assert.False(t, v, "node %d was visited", i)
+			}
+		}
+	})
+
+	t.Run("should skip deleted nodes", func(t *testing.T) {
+		vecForIDFn := func(ctx context.Context, id uint64) ([]float32, error) {
+			return testVectors[id], nil
+		}
+		index := createEmptyHnswIndexForTests(t, vecForIDFn)
+		for i, vec := range testVectors {
+			err := index.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+
+		err := index.Delete(uint64(5))
+		require.Nil(t, err)
+
+		visited := make([]bool, len(testVectors))
+		index.Iterate(func(id uint64) bool {
+			visited[id] = true
+			return true
+		})
+		for i, v := range visited {
+			if i == 5 {
+				assert.False(t, v, "node %d was visited", i)
+			} else {
+				assert.True(t, v, "node %d was not visited", i)
+			}
+		}
+	})
 }

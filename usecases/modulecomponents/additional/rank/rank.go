@@ -15,6 +15,8 @@ import (
 	"context"
 	"errors"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -39,7 +41,7 @@ func (p *ReRankerProvider) AdditionalPropertyDefaultValue() interface{} {
 	return &Params{}
 }
 
-func (p *ReRankerProvider) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (p *ReRankerProvider) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return p.parseReRankerArguments(param)
 }
 

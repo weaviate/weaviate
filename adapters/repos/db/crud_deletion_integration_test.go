@@ -17,6 +17,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,6 +80,7 @@ func TestDeleteJourney(t *testing.T) {
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
+				Properties: search.SelectProperties{{Name: "name"}},
 			}, []string{""}, [][]float32{searchVector})
 
 			expectedOrder := []interface{}{
@@ -142,6 +145,7 @@ func TestDeleteJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
+			Properties: search.SelectProperties{{Name: "name"}},
 		}, []string{""}, [][]float32{searchVector})
 
 		expectedOrder := []interface{}{
@@ -183,6 +187,7 @@ func TestDeleteJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
+			Properties: search.SelectProperties{{Name: "name"}},
 		}, []string{""}, [][]float32{searchVector})
 
 		expectedOrder := []interface{}{
@@ -213,6 +218,7 @@ func TestDeleteJourney(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
+			Properties: search.SelectProperties{{Name: "name"}},
 		}, []string{""}, [][]float32{searchVector})
 
 		expectedOrder := []interface{}{
