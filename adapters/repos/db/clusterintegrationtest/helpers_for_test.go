@@ -10,7 +10,6 @@
 //
 
 //go:build integrationTest
-// +build integrationTest
 
 package clusterintegrationtest
 
@@ -24,6 +23,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/entities/filters"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -34,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -112,7 +117,7 @@ func multiShardState(nodeCount int) *sharding.State {
 	}
 
 	s, err := sharding.InitState("multi-shard-test-index", config,
-		fakeNodes{nodeList}, 1, false)
+		mocks.NewMockNodeSelector(nodeList...), 1, false)
 	if err != nil {
 		panic(err)
 	}
@@ -155,6 +160,25 @@ func class() *models.Class {
 				DataType: schema.DataTypePhoneNumber.PropString(),
 			},
 		},
+	}
+}
+
+func multiVectorClass(asyncIndexing bool) *models.Class {
+	namedVectors := map[string]models.VectorConfig{
+		"custom1": {VectorIndexConfig: enthnsw.UserConfig{}},
+		"custom2": {VectorIndexType: "hnsw", VectorIndexConfig: enthnsw.UserConfig{}},
+		"custom3": {VectorIndexType: "flat", VectorIndexConfig: flatent.UserConfig{}},
+	}
+
+	if asyncIndexing {
+		namedVectors["custom4"] = models.VectorConfig{VectorIndexType: "dynamic", VectorIndexConfig: dynamicent.UserConfig{}}
+	}
+
+	return &models.Class{
+		Class:               "Test",
+		InvertedIndexConfig: invertedConfig(),
+		VectorConfig:        namedVectors,
+		Properties:          []*models.Property{},
 	}
 }
 
@@ -262,7 +286,7 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 	distances := make([]distanceAndObj, len(objs))
 
 	for i := range objs {
-		dist, _, _ := distProv.SingleDist(normalize(query), normalize(objs[i].Vector))
+		dist, _ := distProv.SingleDist(normalize(query), normalize(objs[i].Vector))
 		distances[i] = distanceAndObj{
 			distance: dist,
 			obj:      objs[i],
@@ -362,4 +386,16 @@ func refsAsBatch(in []*models.Object, propName string) objects.BatchReferences {
 	}
 
 	return out
+}
+
+func createParams(className string, weights map[string]float32) dto.GetParams {
+	targetCombination := &dto.TargetCombination{Type: dto.Minimum}
+	if weights != nil {
+		targetCombination = &dto.TargetCombination{Type: dto.Sum, Weights: weights}
+	}
+	return dto.GetParams{
+		Pagination:              &filters.Pagination{Limit: 100},
+		ClassName:               className,
+		TargetVectorCombination: targetCombination,
+	}
 }

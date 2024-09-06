@@ -17,6 +17,10 @@ import (
 	"fmt"
 	"net"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
+	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
+	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -33,7 +37,7 @@ type raftPeers interface {
 }
 
 type raftFSM interface {
-	Execute(cmd *cmd.ApplyRequest) (uint64, error)
+	Execute(ctx context.Context, cmd *cmd.ApplyRequest) (uint64, error)
 	Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResponse, error)
 }
 
@@ -43,6 +47,7 @@ type Server struct {
 	listenAddress      string
 	grpcMessageMaxSize int
 	log                *logrus.Logger
+	sentryEnabled      bool
 
 	grpcServer *grpc.Server
 }
@@ -50,13 +55,14 @@ type Server struct {
 // NewServer returns the Server implementing the RPC interface for RAFT peers management and execute/query commands.
 // The server must subsequently be started with Open().
 // The server will be configure the gRPC service with grpcMessageMaxSize.
-func NewServer(raftPeers raftPeers, raftFSM raftFSM, listenAddress string, log *logrus.Logger, grpcMessageMaxSize int) *Server {
+func NewServer(raftPeers raftPeers, raftFSM raftFSM, listenAddress string, log *logrus.Logger, grpcMessageMaxSize int, sentryEnabled bool) *Server {
 	return &Server{
 		raftPeers:          raftPeers,
 		raftFSM:            raftFSM,
 		listenAddress:      listenAddress,
 		log:                log,
 		grpcMessageMaxSize: grpcMessageMaxSize,
+		sentryEnabled:      sentryEnabled,
 	}
 }
 
@@ -90,8 +96,8 @@ func (s *Server) NotifyPeer(_ context.Context, req *cmd.NotifyPeerRequest) (*cmd
 // Apply will update the RAFT FSM representation to apply req.
 // Returns the FSM version of that change.
 // Returns an error and the current raft leader if applying fails.
-func (s *Server) Apply(_ context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
-	v, err := s.raftFSM.Execute(req)
+func (s *Server) Apply(ctx context.Context, req *cmd.ApplyRequest) (*cmd.ApplyResponse, error) {
+	v, err := s.raftFSM.Execute(ctx, req)
 	if err != nil {
 		return &cmd.ApplyResponse{Leader: s.raftPeers.Leader()}, toRPCError(err)
 	}
@@ -130,16 +136,22 @@ func (s *Server) Open() error {
 		return fmt.Errorf("server tcp net.listen: %w", err)
 	}
 
-	s.grpcServer = grpc.NewServer(
-		grpc.MaxRecvMsgSize(s.grpcMessageMaxSize),
-	)
+	var options []grpc.ServerOption
+	options = append(options, grpc.MaxRecvMsgSize(s.grpcMessageMaxSize))
+	if s.sentryEnabled {
+		options = append(options,
+			grpc.UnaryInterceptor(grpc_middleware.ChainUnaryServer(
+				grpc_sentry.UnaryServerInterceptor(),
+			)))
+	}
+	s.grpcServer = grpc.NewServer(options...)
 	cmd.RegisterClusterServiceServer(s.grpcServer, s)
-	go func() {
+	enterrors.GoWrapper(func() {
 		if err := s.grpcServer.Serve(listener); err != nil {
 			s.log.WithError(err).Error("serving incoming requests")
 			panic("error accepting incoming requests")
 		}
-	}()
+	}, s.log)
 	return nil
 }
 
@@ -158,8 +170,8 @@ func toRPCError(err error) error {
 
 	var ec codes.Code
 	switch {
-	case errors.Is(err, types.ErrNotLeader):
-		ec = codes.NotFound
+	case errors.Is(err, types.ErrNotLeader), errors.Is(err, types.ErrLeaderNotFound):
+		ec = codes.ResourceExhausted
 	case errors.Is(err, types.ErrNotOpen):
 		ec = codes.Unavailable
 	default:

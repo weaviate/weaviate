@@ -229,6 +229,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.metrics.TrackStartupBucket(beforeAll)
 
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		// prevent accidentally trying to register the same bucket twice
+		return nil, err
+	}
+
 	return b, nil
 }
 
@@ -322,6 +327,10 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
+	return b.get(key)
+}
+
+func (b *Bucket) get(key []byte) ([]byte, error) {
 	v, err := b.active.get(key)
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
@@ -476,7 +485,20 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		}
 	}
 
-	return b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	k, v, buffer, err := b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// additional validation to ensure the primary key has not been marked as deleted
+	pkv, err := b.get(k)
+	if err != nil {
+		return nil, nil, err
+	} else if pkv == nil {
+		return nil, buffer, nil
+	}
+
+	return v, buffer, nil
 }
 
 // SetList returns all Set entries for a given key.
@@ -627,7 +649,7 @@ func (b *Bucket) WasDeleted(key []byte) (bool, error) {
 		}
 	}
 
-	_, err = b.disk.get(key)
+	_, err = b.disk.getErrDeleted(key)
 	switch err {
 	case nil, lsmkv.NotFound:
 		return false, nil
@@ -824,7 +846,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 		return errors.Wrap(err, "init commit logger")
 	}
 
-	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics)
+	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl, b.metrics, b.logger)
 	if err != nil {
 		return err
 	}
@@ -903,6 +925,8 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 }
 
 func (b *Bucket) Shutdown(ctx context.Context) error {
+	defer GlobalBucketRegistry.Remove(b.dir)
+
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
 	}

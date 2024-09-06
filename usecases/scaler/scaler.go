@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -45,8 +46,8 @@ var (
 //
 // It scales out a class by replicating its shards on new replicas
 type Scaler struct {
-	schema          SchemaManager
-	cluster         cluster
+	schemaReader    SchemaReader
+	cluster         cluster.NodeSelector
 	source          BackUpper // data source
 	client          client    // client for remote nodes
 	logger          logrus.FieldLogger
@@ -54,7 +55,7 @@ type Scaler struct {
 }
 
 // New returns a new instance of Scaler
-func New(cl cluster, source BackUpper,
+func New(cl cluster.NodeSelector, source BackUpper,
 	c client, logger logrus.FieldLogger, persistenceRoot string,
 ) *Scaler {
 	return &Scaler{
@@ -74,23 +75,13 @@ type BackUpper interface {
 	ReleaseBackup(ctx context.Context, id, className string) error
 }
 
-// cluster is used by the scaler to query cluster
-type cluster interface {
-	// Candidates returns list of existing nodes in the cluster
-	Candidates() []string
-	// LocalName returns name of this node
-	LocalName() string
-	// NodeHostname return hosts address for a specific node name
-	NodeHostname(name string) (string, bool)
-}
-
-// SchemaManager is used by the scaler to get and update sharding states
-type SchemaManager interface {
+// SchemaReader is used by the scaler to get and update sharding states
+type SchemaReader interface {
 	CopyShardingState(class string) *sharding.State
 }
 
-func (s *Scaler) SetSchemaManager(sm SchemaManager) {
-	s.schema = sm
+func (s *Scaler) SetSchemaReader(sr SchemaReader) {
+	s.schemaReader = sr
 }
 
 // Scale increase/decrease class replicas.
@@ -104,7 +95,7 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 	// First identify what the sharding state was before this change. This is
 	// mainly to be able to compare the diff later, so we know where we need to
 	// make changes
-	ssBefore := s.schema.CopyShardingState(className)
+	ssBefore := s.schemaReader.CopyShardingState(className)
 	if ssBefore == nil {
 		return nil, fmt.Errorf("no sharding state for class %q", className)
 	}
@@ -113,7 +104,7 @@ func (s *Scaler) Scale(ctx context.Context, className string,
 	}
 
 	if newReplFactor < prevReplFactor {
-		return s.scaleIn(ctx, className, updated)
+		return nil, errors.Errorf("scaling in not supported yet")
 	}
 
 	return nil, nil
@@ -213,10 +204,4 @@ func (s *Scaler) LocalScaleOut(ctx context.Context,
 	}()
 	rsync := newRSync(s.client, s.cluster, s.persistenceRoot)
 	return rsync.Push(ctx, bak.Shards, dist, className, s.logger)
-}
-
-func (s *Scaler) scaleIn(ctx context.Context, className string,
-	updated config.Config,
-) (*sharding.State, error) {
-	return nil, errors.Errorf("scaling in not supported yet")
 }

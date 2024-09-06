@@ -44,6 +44,9 @@ type Property struct {
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. If you choose false, you will not be able to use this property in where filters, bm25 or hybrid search. This property has no affect on vectorization decisions done by modules (deprecated as of v1.19; use indexFilterable or/and indexSearchable instead)
 	IndexInverted *bool `json:"indexInverted,omitempty"`
 
+	// Optional. Should this property be indexed in the inverted index. Defaults to false. Provides better performance for range queries compared to filterable index in large datasets. Applicable only to properties of data type int, number, date.
+	IndexRangeFilters *bool `json:"indexRangeFilters,omitempty"`
+
 	// Optional. Should this property be indexed in the inverted index. Defaults to true. Applicable only to properties of data type text and text[]. If you choose false, you will not be able to use this property in bm25 or hybrid search. This property has no affect on vectorization decisions done by modules
 	IndexSearchable *bool `json:"indexSearchable,omitempty"`
 
@@ -57,7 +60,7 @@ type Property struct {
 	NestedProperties []*NestedProperty `json:"nestedProperties,omitempty"`
 
 	// Determines tokenization of the property as separate words or whole field. Optional. Applies to text and text[] data types. Allowed values are `word` (default; splits on any non-alphanumerical, lowercases), `lowercase` (splits on white spaces, lowercases), `whitespace` (splits on white spaces), `field` (trims). Not supported for remaining data types
-	// Enum: [word lowercase whitespace field trigram gse]
+	// Enum: [word lowercase whitespace field trigram gse kagome_kr]
 	Tokenization string `json:"tokenization,omitempty"`
 }
 
@@ -109,7 +112,7 @@ var propertyTypeTokenizationPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field","trigram","gse"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["word","lowercase","whitespace","field","trigram","gse","kagome_kr"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -136,6 +139,9 @@ const (
 
 	// PropertyTokenizationGse captures enum value "gse"
 	PropertyTokenizationGse string = "gse"
+
+	// PropertyTokenizationKagomeKr captures enum value "kagome_kr"
+	PropertyTokenizationKagomeKr string = "kagome_kr"
 )
 
 // prop value enum

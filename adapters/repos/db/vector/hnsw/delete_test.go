@@ -19,6 +19,7 @@ import (
 	"sort"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -247,6 +248,104 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 
 	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
 		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
+}
+
+func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
+	// there is a single bulk clean event after all the deletes
+	vectors := vectorsForDeleteTest()
+	var vectorIndex *hnsw
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("running two cleanups concurrently", func(t *testing.T) {
+		var wg sync.WaitGroup
+		results := make(chan error, 2)
+
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+				results <- err
+			}()
+		}
+
+		wg.Wait()
+		close(results)
+
+		var errors []error
+		for err := range results {
+			errors = append(errors, err)
+		}
+
+		require.Len(t, errors, 2, "Expected exactly two results")
+
+		successCount := 0
+		alreadyRunningCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if err.Error() == "tombstone cleanup already running" {
+				alreadyRunningCount++
+			} else {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		}
+
+		// There is a possibility the first cleanup completes before the second one starts
+		assert.GreaterOrEqual(t, successCount, 1, "Expected at least one successful cleanup")
+		assert.LessOrEqual(t, alreadyRunningCount, 1, "Expected at most one 'already running' error")
+		stats, err := vectorIndex.Stats()
+		require.Nil(t, err)
+		hnswStats, ok := stats.(*HnswStats)
+		require.True(t, ok)
+		assert.Equal(t, 0, hnswStats.NumTombstones, "Expected no tombstones after cleanup")
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
@@ -627,7 +726,48 @@ func TestDelete_WithCleaningUpTombstonesStopped(t *testing.T) {
 	}
 }
 
+func TestDelete_WithCleaningUpTombstonesStoppedShouldNotRemoveTombstoneMarks(t *testing.T) {
+	vectors := vectorsForDeleteTest()
+	var index *hnsw
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("create control index", func(t *testing.T) {
+		index, _ = createIndexImportAllVectorsAndDeleteEven(t, vectors, store)
+	})
+
+	t.Run("count all cleanup tombstones stops", func(t *testing.T) {
+		counter := 0
+		mutex := &sync.Mutex{}
+		countingStopFunc := func() bool {
+			mutex.Lock()
+			counter++
+			counterCpy := counter
+			mutex.Unlock()
+			return counterCpy > 30 && counterCpy < 40
+		}
+
+		err := index.CleanUpTombstonedNodes(countingStopFunc)
+		require.Nil(t, err)
+	})
+
+	time.Sleep(1000 * time.Millisecond)
+
+	t.Run("even ids are not coming back and tombstones are not removed completely", func(t *testing.T) {
+		ids, _, _ := index.SearchByVector(vectors[0], len(vectors), nil)
+		for _, id := range ids {
+			assert.Equal(t, 1, int(id%2))
+		}
+		assert.True(t, len(index.tombstones) > 0)
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, index.Drop(context.Background()))
+	})
+}
+
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -648,6 +788,8 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 					Distribution: ent.PQEncoderDistributionNormal,
 				},
 			},
+			BQ: defaultUC.BQ,
+			SQ: defaultUC.SQ,
 		}
 	)
 	store := testinghelpers.NewDummyStore(t)
@@ -684,6 +826,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 			BitCompression: false,
 			Segments:       3,
 			Centroids:      256,
+			TrainingLimit:  100000,
 		}
 		userConfig.PQ = cfg
 		index.compress(userConfig)
@@ -774,6 +917,7 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce(t *testing.T) {
 }
 
 func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *testing.T) {
+	defaultUC := ent.NewDefaultUserConfig()
 	var (
 		vectorIndex *hnsw
 		// there is a single bulk clean event after all the deletes
@@ -787,7 +931,15 @@ func TestDelete_InCompressedIndex_WithCleaningUpTombstonesOnce_DoesNotCrash(t *t
 			// zero it will constantly think it's full and needs to be deleted - even
 			// after just being deleted, so make sure to use a positive number here.
 			VectorCacheMaxObjects: 100000,
-			PQ:                    ent.PQConfig{Enabled: true, Encoder: ent.PQEncoder{Type: "tile", Distribution: "normal"}},
+			PQ: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeTile,
+					Distribution: ent.PQEncoderDistributionNormal,
+				},
+			},
+			BQ: defaultUC.BQ,
+			SQ: defaultUC.SQ,
 		}
 	)
 
@@ -1335,7 +1487,7 @@ func bruteForceCosine(vectors [][]float32, query []float32, k int) []uint64 {
 
 	d := distancer.NewCosineDistanceProvider().New(distancer.Normalize(query))
 	for i, vec := range vectors {
-		dist, _, _ := d.Distance(distancer.Normalize(vec))
+		dist, _ := d.Distance(distancer.Normalize(vec))
 		distances[i] = distanceAndIndex{
 			index:    uint64(i),
 			distance: dist,

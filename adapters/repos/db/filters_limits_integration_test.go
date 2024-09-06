@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/search"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,6 +100,7 @@ func Test_LimitsOnChainedFilters(t *testing.T) {
 			Pagination: &filters.Pagination{
 				Limit: limit,
 			},
+			Properties: search.SelectProperties{{Name: "price"}},
 		})
 
 		require.Nil(t, err)

@@ -20,11 +20,11 @@ import (
 )
 
 type NearVector struct {
-	Vector        []float32 `json:"vector"`
-	Certainty     float64   `json:"certainty"`
-	Distance      float64   `json:"distance"`
-	WithDistance  bool      `json:"-"`
-	TargetVectors []string  `json:"targetVectors"`
+	Certainty       float64              `json:"certainty"`
+	Distance        float64              `json:"distance"`
+	WithDistance    bool                 `json:"-"`
+	VectorPerTarget map[string][]float32 `json:"vectorPerTarget"`
+	TargetVectors   []string             `json:"targetVectors"`
 }
 
 type KeywordRanking struct {
@@ -104,6 +104,8 @@ type HybridSearch struct {
 	Properties       []string    `json:"properties"`
 	TargetVectors    []string    `json:"targetVectors"`
 	FusionAlgorithm  int         `json:"fusionalgorithm"`
+	Distance         float32     `json:"distance"`
+	WithDistance     bool        `json:"withDistance"`
 	NearTextParams   *NearTextParams
 	NearVectorParams *NearVector
 }

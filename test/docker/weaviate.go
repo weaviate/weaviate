@@ -28,6 +28,7 @@ const (
 	Weaviate1      = "weaviate"
 	Weaviate2      = "weaviate2"
 	Weaviate3      = "weaviate3"
+	Weaviate       = "weaviate"
 	SecondWeaviate = "second-weaviate"
 )
 
@@ -79,6 +80,7 @@ func startWeaviate(ctx context.Context,
 		"QUERY_DEFAULTS_LIMIT":      "20",
 		"PERSISTENCE_DATA_PATH":     "./data",
 		"DEFAULT_VECTORIZER_MODULE": "none",
+		"FAST_FAILURE_DETECTION":    "true",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -104,6 +106,7 @@ func startWeaviate(ctx context.Context,
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
 		Hostname:       containerName,
+		Name:           containerName,
 		Networks:       []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},

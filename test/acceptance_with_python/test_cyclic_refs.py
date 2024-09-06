@@ -1,11 +1,12 @@
 import weaviate.classes as wvc
 
-from conftest import CollectionFactory
+from .conftest import CollectionFactory
 
 
 def test_ref_with_cycle(collection_factory: CollectionFactory) -> None:
     col = collection_factory(
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)]
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
     col.config.add_reference(wvc.config.ReferenceProperty(name="ref", target_collection=col.name))
 
@@ -39,7 +40,8 @@ def test_ref_with_cycle(collection_factory: CollectionFactory) -> None:
 
 def test_ref_with_multiple_cycle(collection_factory: CollectionFactory) -> None:
     col = collection_factory(
-        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)]
+        properties=[wvc.config.Property(name="name", data_type=wvc.config.DataType.TEXT)],
+        vectorizer_config=wvc.config.Configure.Vectorizer.none(),
     )
     col.config.add_reference(wvc.config.ReferenceProperty(name="ref", target_collection=col.name))
 

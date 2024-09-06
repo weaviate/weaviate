@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -30,7 +31,7 @@ func TestClient(t *testing.T) {
 
 	t.Run("Verify error on invalid raft address", func(t *testing.T) {
 		addr := fmt.Sprintf("localhost:%v", 8013)
-		c := NewClient(fakes.NewFakeRPCAddressResolver(addr, ErrAny), 1024*1024*1024)
+		c := NewClient(fakes.NewFakeRPCAddressResolver(addr, ErrAny), 1024*1024*1024, false, logrus.StandardLogger())
 		_, err := c.Join(ctx, addr, &cmd.JoinPeerRequest{Id: "Node1", Address: addr, Voter: false})
 		require.ErrorIs(t, err, ErrAny)
 		require.ErrorContains(t, err, "resolve")
@@ -43,7 +44,7 @@ func TestClient(t *testing.T) {
 		require.ErrorIs(t, err, ErrAny)
 		require.ErrorContains(t, err, "resolve")
 
-		_, err = c.Apply(addr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+		_, err = c.Apply(context.TODO(), addr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 		require.ErrorIs(t, err, ErrAny)
 		require.ErrorContains(t, err, "resolve")
 
@@ -55,7 +56,7 @@ func TestClient(t *testing.T) {
 	t.Run("Verify error on invalid address dial", func(t *testing.T) {
 		// invalid control character in URL
 		badAddr := string(byte(0))
-		c := NewClient(fakes.NewFakeRPCAddressResolver(badAddr, nil), 1024*1024*1024)
+		c := NewClient(fakes.NewFakeRPCAddressResolver(badAddr, nil), 1024*1024*1024, false, logrus.StandardLogger())
 
 		_, err := c.Join(ctx, badAddr, &cmd.JoinPeerRequest{Id: "Node1", Address: "abc", Voter: false})
 		require.ErrorContains(t, err, "dial")
@@ -66,7 +67,7 @@ func TestClient(t *testing.T) {
 		_, err = c.Remove(ctx, badAddr, &cmd.RemovePeerRequest{Id: "Node1"})
 		require.ErrorContains(t, err, "dial")
 
-		_, err = c.Apply(badAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
+		_, err = c.Apply(context.TODO(), badAddr, &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DELETE_CLASS, Class: "C"})
 		require.ErrorContains(t, err, "dial")
 
 		_, err = c.Query(ctx, badAddr, &cmd.QueryRequest{Type: cmd.QueryRequest_TYPE_GET_CLASSES})

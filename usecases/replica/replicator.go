@@ -43,6 +43,7 @@ type (
 	}
 
 	nodeResolver interface {
+		AllHostnames() []string // All node names for live members, including self
 		NodeHostname(nodeName string) (string, bool)
 	}
 
@@ -82,8 +83,13 @@ func NewReplicator(className string,
 		client:      client,
 		resolver:    resolver,
 		log:         l,
-		Finder:      NewFinder(className, resolver, client, l),
+		Finder: NewFinder(className, resolver, client, l,
+			defaultPullBackOffInitialInterval, defaultPullBackOffMaxElapsedTime),
 	}
+}
+
+func (r *Replicator) AllHostnames() []string {
+	return r.resolver.AllHostnames()
 }
 
 func (r *Replicator) PutObject(ctx context.Context,
@@ -143,8 +149,12 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
 	if err != nil {
-		r.log.WithField("op", "put").WithField("class", r.class).
+		r.log.WithField("op", "merge").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
+		replicaErr, ok := err.(*Error)
+		if ok && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
+			return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
+		}
 	}
 	return err
 }

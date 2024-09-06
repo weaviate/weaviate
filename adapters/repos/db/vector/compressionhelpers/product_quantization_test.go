@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -33,7 +32,7 @@ type IndexAndDistance struct {
 
 func distance(dp distancer.Provider) func(x, y []float32) float32 {
 	return func(x, y []float32) float32 {
-		dist, _, _ := dp.SingleDist(x, y)
+		dist, _ := dp.SingleDist(x, y)
 		return dist
 	}
 }
@@ -97,7 +96,7 @@ func Test_NoRacePQKMeans(t *testing.T) {
 
 		distancer := pq.NewDistancer(query)
 		for v := range vectors {
-			d, _, _ := distancer.Distance(encoded[v])
+			d, _ := distancer.Distance(encoded[v])
 			distances[v] = IndexAndDistance{index: uint64(v), distance: d}
 		}
 		sort.Slice(distances, func(a, b int) bool {
@@ -201,34 +200,6 @@ func Test_NoRacePQInvalidConfig(t *testing.T) {
 			logger,
 		)
 		assert.ErrorContains(t, err, "segments should be an integer divisor of dimensions")
-	})
-	t.Run("validate training limit applied", func(t *testing.T) {
-		amount := 64
-		centroids := 256
-		vectors_size := 400
-		vectors, _ := testinghelpers.RandomVecs(vectors_size, vectors_size, amount)
-		distanceProvider := distancer.NewL2SquaredProvider()
-
-		cfg := ent.PQConfig{
-			Enabled: true,
-			Encoder: ent.PQEncoder{
-				Type:         hnsw.PQEncoderTypeKMeans,
-				Distribution: ent.PQEncoderDistributionLogNormal,
-			},
-			Centroids:     centroids,
-			TrainingLimit: 260,
-			Segments:      amount,
-		}
-		pq, err := compressionhelpers.NewProductQuantizer(
-			cfg,
-			distanceProvider,
-			amount,
-			logger,
-		)
-		assert.NoError(t, err)
-		pq.Fit(vectors)
-		pqdata := pq.ExposeFields()
-		assert.Equal(t, pqdata.TrainingLimit, 260)
 	})
 }
 

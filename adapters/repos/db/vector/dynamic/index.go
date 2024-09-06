@@ -32,12 +32,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	werrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/configbase"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
 )
@@ -63,10 +63,17 @@ type VectorIndex interface {
 	PostStartup()
 	Compressed() bool
 	ValidateBeforeInsert(vector []float32) error
-	DistanceBetweenVectors(x, y []float32) (float32, bool, error)
+	DistanceBetweenVectors(x, y []float32) (float32, error)
 	ContainsNode(id uint64) bool
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
+	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
+	// Iterate over all nodes in the index.
+	// Consistency is not guaranteed, as the
+	// index may be concurrently modified.
+	// If the callback returns false, the iteration will stop.
+	Iterate(fn func(id uint64) bool)
+	Stats() (common.IndexStats, error)
 }
 
 type upgradableIndexer interface {
@@ -100,7 +107,7 @@ type dynamic struct {
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
-	if !configbase.Enabled(os.Getenv("ASYNC_INDEXING")) {
+	if !entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
 		return nil, errors.New("the dynamic index can only be created under async indexing environment")
 	}
 	if err := cfg.Validate(); err != nil {
@@ -116,6 +123,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	flatConfig := flat.Config{
 		ID:               cfg.ID,
+		RootPath:         cfg.RootPath,
 		TargetVector:     cfg.TargetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
@@ -321,7 +329,7 @@ func (dynamic *dynamic) Dump(labels ...string) {
 	fmt.Printf("--------------------------------------------------\n")
 }
 
-func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.DistanceBetweenVectors(x, y)
@@ -343,6 +351,12 @@ func (dynamic *dynamic) DistancerProvider() distancer.Provider {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.index.DistancerProvider()
+}
+
+func (dynamic *dynamic) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.QueryVectorDistancer(queryVector)
 }
 
 func (dynamic *dynamic) ShouldUpgrade() (bool, int) {
@@ -453,4 +467,18 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	dynamic.upgraded.Store(true)
 	callback()
 	return nil
+}
+
+func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
+	dynamic.index.Iterate(fn)
+}
+
+func (dynamic *dynamic) Stats() (common.IndexStats, error) {
+	return &DynamicStats{}, errors.New("Stats() is not implemented for dynamic index")
+}
+
+type DynamicStats struct{}
+
+func (s *DynamicStats) IndexType() common.IndexType {
+	return common.IndexTypeDynamic
 }

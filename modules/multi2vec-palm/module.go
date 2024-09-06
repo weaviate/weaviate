@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -122,7 +123,8 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	if apiKey == "" {
 		apiKey = os.Getenv("PALM_APIKEY")
 	}
-	client := clients.New(apiKey, timeout, logger)
+	useGoogleAuth := entcfg.Enabled(os.Getenv("USE_GOOGLE_AUTH"))
+	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 
 	m.imageVectorizer = vectorizer.New(client)
 	m.textVectorizer = vectorizer.New(client)

@@ -18,7 +18,3 @@ type GenerateResult struct {
 	GroupedResult *string `json:"groupedResult,omitempty"`
 	Error         error   `json:"error,omitempty"`
 }
-
-type GenerateResponse struct {
-	Result *string
-}

@@ -22,42 +22,36 @@ type number interface {
 	~uint8 | ~uint32 | ~float32
 }
 
-//gcassert:inline
 func dot2[T number, U number](x []T, y []T) U {
 	sum := U(x[1])*U(y[1]) + U(x[0])*U(y[0])
 
 	return U(sum)
 }
 
-//gcassert:inline
 func dot3[T, U number](x []T, y []T) U {
 	sum := U(x[2]) * U(y[2])
 
 	return dot2[T, U](x, y) + U(sum)
 }
 
-//gcassert:inline
 func dot4[T, U number](x []T, y []T) U {
 	sum := U(x[3])*U(y[3]) + U(x[2])*U(y[2])
 
 	return dot2[T, U](x, y) + U(sum)
 }
 
-//gcassert:inline
 func dot5[T, U number](x []T, y []T) U {
 	sum := U(x[4]) * U(y[4])
 
 	return dot4[T, U](x, y) + U(sum)
 }
 
-//gcassert:inline
 func dot6[T, U number](x []T, y []T) U {
 	sum := U(x[5])*U(y[5]) + U(x[4])*U(y[4])
 
 	return dot4[T, U](x, y) + U(sum)
 }
 
-//gcassert:inline
 func dot7[T, U number](x []T, y []T) U {
 	sum := U(x[6]) * U(y[6])
 

@@ -92,7 +92,6 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	defer repo.Shutdown(context.Background())
 
 	migrator := NewMigrator(repo, logger)
-	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
 		Name:         "updateWithIINil",
@@ -171,7 +170,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	})
 
 	t.Run("delete class", func(t *testing.T) {
-		require.Nil(t, migrator.DropClass(context.Background(), class.Class))
+		require.Nil(t, migrator.DropClass(context.Background(), class.Class, false))
 		for _, idx := range migrator.db.indices {
 			idx.ForEachShard(func(name string, shd ShardLike) error {
 				require.Nil(t, shd.Store().Bucket("property__creationTimeUnix"))
@@ -1348,10 +1347,9 @@ func TestFilterPropertyLengthError(t *testing.T) {
 	}
 
 	params := dto.GetParams{
-		SearchVector: []float32{0.1, 0.1, 0.1, 1.1, 0.1},
-		ClassName:    class.Class,
-		Pagination:   &filters.Pagination{Limit: 5},
-		Filters:      LengthFilter,
+		ClassName:  class.Class,
+		Pagination: &filters.Pagination{Limit: 5},
+		Filters:    LengthFilter,
 	}
 	_, err = repo.Search(context.Background(), params)
 	require.NotNil(t, err)

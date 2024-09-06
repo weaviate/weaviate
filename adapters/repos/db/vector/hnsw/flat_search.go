@@ -14,16 +14,27 @@ package hnsw
 import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 )
 
-func (h *hnsw) flatSearch(queryVector []float32, limit int,
+func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	if !h.shouldRescore() {
+		limit = k
+	}
 	results := priorityqueue.NewMax[any](limit)
 
 	h.RLock()
 	nodeSize := uint64(len(h.nodes))
 	h.RUnlock()
+
+	var compressorDistancer compressionhelpers.CompressorDistancer
+	if h.compressed.Load() {
+		distancer, returnFn := h.compressor.NewDistancer(queryVector)
+		defer returnFn()
+		compressorDistancer = distancer
+	}
 
 	it := allowList.Iterator()
 	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
@@ -44,14 +55,9 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			continue
 		}
 
-		dist, ok, err := h.distBetweenNodeAndVec(candidate, queryVector)
+		dist, err := h.distToNode(compressorDistancer, candidate, queryVector)
 		if err != nil {
 			return nil, nil, err
-		}
-
-		if !ok {
-			// deleted node, ignore
-			continue
 		}
 
 		if results.Len() < limit {
@@ -60,6 +66,12 @@ func (h *hnsw) flatSearch(queryVector []float32, limit int,
 			results.Pop()
 			results.Insert(candidate, dist)
 		}
+	}
+
+	if h.shouldRescore() {
+		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
+		h.rescore(results, k, compressorDistancer)
+		fn()
 	}
 
 	ids := make([]uint64, results.Len())

@@ -22,8 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
-// BeginBackup stops compaction, and flushing memtable and commit log to begin with the backup
-func (s *Shard) BeginBackup(ctx context.Context) (err error) {
+// HaltForTransfer stops compaction, and flushing memtable and commit log to begin with backup or cloud offload
+func (s *Shard) HaltForTransfer(ctx context.Context) (err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("pause compaction: %w", err)
@@ -110,7 +110,12 @@ func (s *Shard) resumeMaintenanceCycles(ctx context.Context) error {
 
 func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	d.Name = s.name
-	d.Node = s.nodeName()
+
+	d.Node, err = s.nodeName()
+	if err != nil {
+		return fmt.Errorf("node name: %w", err)
+	}
+
 	fpath := s.counter.FileName()
 	if d.DocIDCounter, err = os.ReadFile(fpath); err != nil {
 		return fmt.Errorf("read shard doc-id-counter %s: %w", fpath, err)
@@ -138,8 +143,8 @@ func (s *Shard) readBackupMetadata(d *backup.ShardDescriptor) (err error) {
 	return nil
 }
 
-func (s *Shard) nodeName() string {
-	node, _ := s.index.getSchema.ShardOwner(
+func (s *Shard) nodeName() (string, error) {
+	node, err := s.index.getSchema.ShardOwner(
 		s.index.Config.ClassName.String(), s.name)
-	return node
+	return node, err
 }

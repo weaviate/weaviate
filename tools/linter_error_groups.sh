@@ -2,8 +2,11 @@
 
 set -euo pipefail
 
+# Search for all tracked non-test .go files in the Git repository
+all_files=$(git ls-files | grep -E '\.go$' | grep -vE 'test')
+
 # Get all files with 'errgroup' in them. The only place where direct usage is allowed is in error_group_wrapper.go
-files=$(git ls-files | xargs grep -l 'errgroup')
+files=$(grep -l 'errgroup' ${all_files})
 
 found_error=false
 

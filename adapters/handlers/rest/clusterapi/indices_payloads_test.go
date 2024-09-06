@@ -12,8 +12,13 @@
 package clusterapi
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/searchparams"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -93,4 +98,98 @@ func Test_objectListPayload_Marshal(t *testing.T) {
 	assert.EqualValues(t, objs[0].ID(), received[0].ID())
 	assert.EqualValues(t, objs[2].Object, received[1].Object)
 	assert.EqualValues(t, objs[2].ID(), received[1].ID())
+}
+
+type searchParamsPayloadOld struct{}
+
+func (p searchParamsPayloadOld) Marshal(vector []float32, targetVector string, limit int,
+	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
+	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
+	addP additional.Properties,
+) ([]byte, error) {
+	type params struct {
+		SearchVector   []float32                    `json:"searchVector"`
+		TargetVector   string                       `json:"targetVector"`
+		Limit          int                          `json:"limit"`
+		Filters        *filters.LocalFilter         `json:"filters"`
+		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
+		Sort           []filters.Sort               `json:"sort"`
+		Cursor         *filters.Cursor              `json:"cursor"`
+		GroupBy        *searchparams.GroupBy        `json:"groupBy"`
+		Additional     additional.Properties        `json:"additional"`
+	}
+
+	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP}
+	return json.Marshal(par)
+}
+
+func (p searchParamsPayloadOld) Unmarshal(in []byte) ([]float32, string, float32, int,
+	*filters.LocalFilter, *searchparams.KeywordRanking, []filters.Sort,
+	*filters.Cursor, *searchparams.GroupBy, additional.Properties, error,
+) {
+	type searchParametersPayload struct {
+		SearchVector   []float32                    `json:"searchVector"`
+		TargetVector   string                       `json:"targetVector"`
+		Distance       float32                      `json:"distance"`
+		Limit          int                          `json:"limit"`
+		Filters        *filters.LocalFilter         `json:"filters"`
+		KeywordRanking *searchparams.KeywordRanking `json:"keywordRanking"`
+		Sort           []filters.Sort               `json:"sort"`
+		Cursor         *filters.Cursor              `json:"cursor"`
+		GroupBy        *searchparams.GroupBy        `json:"groupBy"`
+		Additional     additional.Properties        `json:"additional"`
+	}
+	var par searchParametersPayload
+	err := json.Unmarshal(in, &par)
+	return par.SearchVector, par.TargetVector, par.Distance, par.Limit,
+		par.Filters, par.KeywordRanking, par.Sort, par.Cursor, par.GroupBy, par.Additional, err
+}
+
+// This tests the backward compatibility of the searchParamsPayload with the old version in 1.25 and before (copied from the old code above)
+func TestBackwardCompatibilitySearch(t *testing.T) {
+	payload := searchParamsPayload{}
+	tests := []struct {
+		SearchVectors [][]float32
+		Targets       []string
+		compatible    bool
+	}{
+		{
+			SearchVectors: [][]float32{{1, 2, 3}, {4, 5, 6}},
+			Targets:       []string{"target1", "target2"},
+			compatible:    false,
+		},
+		{
+			SearchVectors: [][]float32{{1, 2, 3}},
+			Targets:       []string{"target1"},
+			compatible:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run("test", func(t *testing.T) {
+			b126, err := payload.Marshal(tt.SearchVectors, tt.Targets, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil)
+			require.Nil(t, err)
+
+			vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b126)
+			require.Nil(t, err)
+			assert.Equal(t, tt.SearchVectors, vecs)
+			assert.Equal(t, tt.Targets, targets)
+
+			if tt.compatible {
+				payloadOld := searchParamsPayloadOld{}
+				b125, err := payloadOld.Marshal(tt.SearchVectors[0], tt.Targets[0], 10, nil, nil, nil, nil, nil, additional.Properties{})
+				require.Nil(t, err)
+				vecsOld, targetsOld, _, _, _, _, _, _, _, _, err := payloadOld.Unmarshal(b126)
+				require.Nil(t, err)
+				assert.Equal(t, tt.SearchVectors[0], vecsOld)
+				assert.Equal(t, tt.Targets[0], targetsOld)
+
+				vecs, targets, _, _, _, _, _, _, _, _, _, _, err := payload.Unmarshal(b125)
+				require.Nil(t, err)
+				assert.Equal(t, tt.SearchVectors, vecs)
+				assert.Equal(t, tt.Targets, targets)
+
+			}
+		})
+	}
 }

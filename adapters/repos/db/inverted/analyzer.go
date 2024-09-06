@@ -33,6 +33,7 @@ type Property struct {
 	Length             int
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
+	HasRangeableIndex  bool // roaring set index for ranged queries
 }
 
 type NilProperty struct {

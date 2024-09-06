@@ -32,6 +32,17 @@ func L2PureGo(a, b []float32) float32 {
 	return sum
 }
 
+func L2PureGoByte(a, b []uint8) uint32 {
+	var sum uint32
+
+	for i := range a {
+		diff := int32(a[i]) - int32(b[i])
+		sum += uint32(diff * diff)
+	}
+
+	return sum
+}
+
 func Test_L2_DistanceImplementation(t *testing.T) {
 	lengths := []int{1, 2, 3, 4, 5, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777, 1000, 1536}
 
@@ -112,6 +123,52 @@ func Benchmark_L2_PureGo_VS_SIMD(b *testing.B) {
 					asm.L2_Neon(x, y)
 				}
 			})
+		})
+	}
+}
+
+func Test_L2_Byte_DistanceImplementation_RandomValues(t *testing.T) {
+	lengths := []int{1, 2, 3, 4, 5, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777, 1000, 1536}
+
+	for _, length := range lengths {
+		t.Run(fmt.Sprintf("with vector l=%d", length), func(t *testing.T) {
+			x := make([]uint8, length)
+			y := make([]uint8, length)
+			for i := range x {
+				x[i] = uint8(rand.Uint32() % 256)
+				y[i] = uint8(rand.Uint32() % 256)
+			}
+
+			control := L2PureGoByte(x, y)
+
+			asmResult := asm.L2ByteARM64(x, y)
+			if uint32(control) != asmResult {
+				t.Logf("for dim: %d -> want: %d, got: %d", length, control, asmResult)
+				t.Fail()
+			}
+		})
+	}
+}
+
+func Test_L2_Byte_DistanceImplementation_FixedValues(t *testing.T) {
+	lengths := []int{1, 2, 3, 4, 5, 16, 31, 32, 35, 64, 67, 128, 130, 256, 260, 384, 390, 768, 777, 1000, 1536}
+
+	for _, length := range lengths {
+		t.Run(fmt.Sprintf("with vector l=%d", length), func(t *testing.T) {
+			x := make([]uint8, length)
+			y := make([]uint8, length)
+			for i := range x {
+				x[i] = uint8(251)
+				y[i] = uint8(251)
+			}
+
+			control := L2PureGoByte(x, y)
+
+			asmResult := asm.L2ByteARM64(x, y)
+			if uint32(control) != asmResult {
+				t.Logf("for dim: %d -> want: %d, got: %d", length, control, asmResult)
+				t.Fail()
+			}
 		})
 	}
 }

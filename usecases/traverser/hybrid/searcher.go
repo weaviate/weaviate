@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
+
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -67,7 +69,7 @@ type modulesProvider interface {
 }
 
 type targetVectorParamHelper interface {
-	GetTargetVectorOrDefault(sch schema.Schema, className, targetVector string) (string, error)
+	GetTargetVectorOrDefault(sch schema.Schema, className string, targetVector []string) ([]string, error)
 }
 
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion
@@ -79,7 +81,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	)
 
 	alpha := params.Alpha
-
+	var belowCutoffSet map[strfmt.UUID]struct{}
 	if alpha < 1 {
 		if params.Query != "" {
 			res, err := processSparseSearch(sparseSearch())
@@ -98,10 +100,36 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		if err != nil {
 			return nil, err
 		}
+		if params.WithDistance {
+			belowCutoffSet = map[strfmt.UUID]struct{}{}
+			// index starts with 0, use one less so we do not get any results in case nothing is above the limit
+			maxFound := -1
+			for i := range res {
+				if res[i].Dist <= params.HybridSearch.Distance {
+					belowCutoffSet[res[i].ID] = struct{}{}
+					maxFound = i
+				} else {
+					break
+				}
+			}
+			// sorted by distance, so just remove everything after the first entry we found
+			res = res[:maxFound+1]
+		}
 
 		found = append(found, res)
 		weights = append(weights, alpha)
 		names = append(names, "vector")
+	}
+
+	// remove results with a vector distance above the cutoff from the BM25 results
+	if alpha < 1 && belowCutoffSet != nil {
+		newResults := make([]*search.Result, 0, len(found[0]))
+		for i := range found[0] {
+			if _, ok := belowCutoffSet[found[0][i].ID]; ok {
+				newResults = append(newResults, found[0][i])
+			}
+		}
+		found[0] = newResults
 	}
 
 	if len(weights) != len(found) {
@@ -112,7 +140,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
 		fused = FusionRanked(weights, found, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, found, names)
+		fused = FusionRelativeScore(weights, found, names, true)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
@@ -124,9 +152,6 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		}
 		newResults := make([]*search.Result, len(sr))
 		for i := range sr {
-			if err != nil {
-				return nil, fmt.Errorf("hybrid search post-processing: %w", err)
-			}
 			newResults[i] = &sr[i]
 		}
 		fused = newResults
@@ -165,7 +190,7 @@ func HybridCombiner(ctx context.Context, params *Params, resultSet [][]*search.R
 	if params.FusionAlgorithm == common_filters.HybridRankedFusion {
 		fused = FusionRanked(weights, resultSet, names)
 	} else if params.FusionAlgorithm == common_filters.HybridRelativeScoreFusion {
-		fused = FusionRelativeScore(weights, resultSet, names)
+		fused = FusionRelativeScore(weights, resultSet, names, true)
 	} else {
 		return nil, fmt.Errorf("unknown ranking algorithm %v for hybrid search", params.FusionAlgorithm)
 	}
@@ -219,13 +244,17 @@ func processDenseSearch(ctx context.Context,
 	if params.HybridSearch.NearTextParams != nil {
 		params.NearTextParams = params.HybridSearch.NearTextParams
 		query = params.HybridSearch.NearTextParams.Values[0]
-	} else if params.HybridSearch.NearVectorParams != nil {
-		params.NearVectorParams = params.HybridSearch.NearVectorParams
-		vector = params.HybridSearch.NearVectorParams.Vector
 	}
-	vector, err := decideSearchVector(ctx, params.Class, query, params.TargetVectors, vector, modules, schemaGetter, targetVectorParamHelper)
-	if err != nil {
-		return nil, err
+
+	if params.HybridSearch.NearVectorParams == nil {
+		var err error
+		vector, err = decideSearchVector(ctx, params.Class, query, params.TargetVectors, vector, modules, schemaGetter, targetVectorParamHelper)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		targetVector := getTargetVector(params.TargetVectors)
+		vector = params.HybridSearch.NearVectorParams.VectorPerTarget[targetVector]
 	}
 
 	res, dists, err := denseSearch(vector)
@@ -250,9 +279,9 @@ func decideSearchVector(ctx context.Context,
 		return vector, nil
 	} else {
 		if modules != nil && schemaGetter != nil && targetVectorParamHelper != nil {
+			targetVectors, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
+				class, targetVectors)
 			targetVector := getTargetVector(targetVectors)
-			targetVector, err := targetVectorParamHelper.GetTargetVectorOrDefault(schemaGetter.GetSchemaSkipAuth(),
-				class, targetVector)
 			if err != nil {
 				return nil, err
 			}

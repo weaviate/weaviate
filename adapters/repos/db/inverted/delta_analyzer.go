@@ -59,6 +59,7 @@ func Delta(previous, next []Property) DeltaResults {
 				Length:             nextProp.Length,
 				HasFilterableIndex: nextProp.HasFilterableIndex,
 				HasSearchableIndex: nextProp.HasSearchableIndex,
+				HasRangeableIndex:  nextProp.HasRangeableIndex,
 			})
 		}
 		if len(toDelete) > 0 {
@@ -68,6 +69,7 @@ func Delta(previous, next []Property) DeltaResults {
 				Length:             prevProp.Length,
 				HasFilterableIndex: nextProp.HasFilterableIndex,
 				HasSearchableIndex: nextProp.HasSearchableIndex,
+				HasRangeableIndex:  nextProp.HasRangeableIndex,
 			})
 		}
 		// special case to update optional length/nil indexes on
@@ -80,6 +82,7 @@ func Delta(previous, next []Property) DeltaResults {
 				Length:             0,
 				HasFilterableIndex: nextProp.HasFilterableIndex,
 				HasSearchableIndex: nextProp.HasSearchableIndex,
+				HasRangeableIndex:  nextProp.HasRangeableIndex,
 			})
 		}
 	}

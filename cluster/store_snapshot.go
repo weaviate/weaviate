@@ -14,8 +14,11 @@ package cluster
 import (
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/hashicorp/raft"
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // Snapshot returns an FSMSnapshot used to: support log compaction, to
@@ -39,27 +42,48 @@ func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 // concurrently with any other command. The FSM must discard all previous
 // state before restoring the snapshot.
 func (st *Store) Restore(rc io.ReadCloser) error {
-	st.log.Info("restoring schema from snapshot")
-	defer func() {
-		if err := rc.Close(); err != nil {
-			st.log.WithError(err).Error("restore snapshot: close reader")
+	f := func() error {
+		st.log.Info("restoring schema from snapshot")
+		defer func() {
+			if err := rc.Close(); err != nil {
+				st.log.WithError(err).Error("restore snapshot: close reader")
+			}
+		}()
+
+		if err := st.schemaManager.Restore(rc, st.cfg.Parser); err != nil {
+			st.log.WithError(err).Error("restoring schema from snapshot")
+			return fmt.Errorf("restore schema from snapshot: %w", err)
 		}
-	}()
+		st.log.Info("successfully restored schema from snapshot")
 
-	if err := st.schemaManager.Restore(rc, st.cfg.Parser); err != nil {
-		st.log.WithError(err).Error("restoring schema from snapshot")
-		return fmt.Errorf("restore schema from snapshot: %w", err)
+		if st.cfg.MetadataOnlyVoters {
+			return nil
+		}
+
+		snapIndex := lastSnapshotIndex(st.snapshotStore)
+		if st.lastAppliedIndexToDB.Load() <= snapIndex {
+			// db shall reload after snapshot applied to schema
+			st.reloadDBFromSchema()
+		}
+
+		st.log.WithFields(logrus.Fields{
+			"last_applied_index":           st.lastIndex(),
+			"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
+			"last_snapshot_index":          snapIndex,
+			"n":                            st.schemaManager.NewSchemaReader().Len(),
+		}).Info("successfully reloaded indexes from snapshot")
+
+		return nil
 	}
-	st.log.Info("successfully restored schema from snapshot")
 
-	if st.reloadDBFromSnapshot() {
-		st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).
-			Info("successfully reloaded indexes from snapshot")
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	var err error
+	g := func() {
+		err = f()
+		wg.Done()
 	}
-
-	if st.raft != nil {
-		st.lastAppliedIndex.Store(st.raft.AppliedIndex())
-	}
-
-	return nil
+	enterrors.GoWrapper(g, st.log)
+	wg.Wait()
+	return err
 }

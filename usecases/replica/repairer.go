@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -72,7 +74,7 @@ func (r *repairer) repairOne(ctx context.Context,
 	winner := votes[winnerIdx]
 	if updates.UpdateTime() != lastUTime {
 		updates, err = cl.FullRead(ctx, winner.sender, r.class, shard, id,
-			search.SelectProperties{}, additional.Properties{})
+			search.SelectProperties{}, additional.Properties{}, 9)
 		if err != nil {
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 		}
@@ -88,9 +90,18 @@ func (r *repairer) repairOne(ctx context.Context,
 		}
 		vote := vote
 		gr.Go(func() error {
+			var vectors models.Vectors
+			if updates.Object.Vectors != nil {
+				vectors = make(models.Vectors, len(updates.Object.Vectors))
+				for i, v := range updates.Object.Vectors {
+					vectors[i] = v
+				}
+			}
+
 			ups := []*objects.VObject{{
 				LatestObject:    &updates.Object.Object,
 				Vector:          updates.Object.Vector,
+				Vectors:         vectors,
 				StaleUpdateTime: vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
@@ -138,7 +149,7 @@ func (r *repairer) repairExist(ctx context.Context,
 	}
 	// fetch most recent object
 	winner := votes[winnerIdx]
-	resp, err := cl.FullRead(ctx, winner.sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{})
+	resp, err := cl.FullRead(ctx, winner.sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{}, 9)
 	if err != nil {
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 	}
@@ -152,9 +163,17 @@ func (r *repairer) repairExist(ctx context.Context,
 		}
 		vote := vote
 		gr.Go(func() error {
+			var vectors models.Vectors
+			if resp.Object.Vectors != nil {
+				vectors = make(models.Vectors, len(resp.Object.Vectors))
+				for i, v := range resp.Object.Vectors {
+					vectors[i] = v
+				}
+			}
 			ups := []*objects.VObject{{
 				LatestObject:    &resp.Object.Object,
 				Vector:          resp.Object.Vector,
+				Vectors:         vectors,
 				StaleUpdateTime: vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
@@ -276,9 +295,18 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		for j, x := range lastTimes {
 			cTime := vote.UpdateTimeAt(j)
 			if x.T != cTime && !x.Deleted && result[j] != nil && vote.Count[j] == nVotes {
+				var vectors models.Vectors
+				if result[j].Vectors != nil {
+					vectors = make(models.Vectors, len(result[j].Vectors))
+					for i, v := range result[j].Vectors {
+						vectors[i] = v
+					}
+				}
+
 				obj := objects.VObject{
 					LatestObject:    &result[j].Object,
 					Vector:          result[j].Vector,
+					Vectors:         vectors,
 					StaleUpdateTime: cTime,
 				}
 				query = append(query, &obj)

@@ -20,8 +20,8 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/models"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -82,17 +82,17 @@ func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
 	return s.schema.Restore(rc, parser)
 }
 
-func (s *SchemaManager) PreApplyFilter(req *api.ApplyRequest) error {
+func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
 	classInfo := s.schema.ClassInfo(req.Class)
 
 	// Discard restoring a class if it already exists
-	if req.Type == api.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
+	if req.Type == command.ApplyRequest_TYPE_RESTORE_CLASS && classInfo.Exists {
 		s.log.WithField("class", req.Class).Info("class already restored")
 		return fmt.Errorf("class name %s already exists", req.Class)
 	}
 
 	// Discard adding class if the name already exists or a similar one exists
-	if req.Type == api.ApplyRequest_TYPE_ADD_CLASS {
+	if req.Type == command.ApplyRequest_TYPE_ADD_CLASS {
 		if other := s.schema.ClassEqual(req.Class); other == req.Class {
 			return fmt.Errorf("class name %s already exists", req.Class)
 		} else if other != "" {
@@ -116,7 +116,10 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		migrateRangeIndexPropIfNeeded(&v.Class)
+		// an immutable copy of the sharding state has to be used to avoid conflicts
+		shardingState, _ := v.CopyShardingState()
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
 		i++
 	}
 
@@ -181,6 +184,14 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 	)
 }
 
+// ReplaceStatesNodeName it update the node name inside sharding states.
+// WARNING: this shall be used in one node cluster environments only.
+// because it will replace the shard node name if the node name got updated
+// only if the replication factor is 1, otherwise it's no-op
+func (s *SchemaManager) ReplaceStatesNodeName(new string) {
+	s.schema.replaceStatesNodeName(new)
+}
+
 // UpdateClass modifies the vectors and inverted indexes associated with a class
 // Other class properties are handled by separate functions
 func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool) error {
@@ -222,11 +233,25 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool) error {
+	var hasFrozen bool
+	tenants, err := s.schema.getTenants(cmd.Class, nil)
+	if err != nil {
+		hasFrozen = false
+	}
+
+	for _, t := range tenants {
+		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+			hasFrozen = true
+			break
+		}
+	}
+
 	return s.apply(
 		applyOp{
 			op:                    cmd.GetType().String(),
 			updateSchema:          func() error { s.schema.deleteClass(cmd.Class); return nil },
-			updateStore:           func() error { return s.db.DeleteClass(cmd.Class) },
+			updateStore:           func() error { return s.db.DeleteClass(cmd.Class, hasFrozen) },
 			schemaOnly:            schemaOnly,
 			triggerSchemaCallback: true,
 		},
@@ -285,16 +310,19 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	)
 }
 
-func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool) (n int, err error) {
+func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := &command.UpdateTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
-		return 0, fmt.Errorf("%w: %w", ErrBadRequest, err)
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return n, s.apply(
+	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { n, err = s.schema.updateTenants(cmd.Class, cmd.Version, req); return err },
+			op: cmd.GetType().String(),
+			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
+			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
+			// the DB update.
+			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},
@@ -312,6 +340,22 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, req) },
+			schemaOnly:   schemaOnly,
+		},
+	)
+}
+
+func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := &command.TenantProcessRequest{}
+	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return s.schema.updateTenantsProcess(cmd.Class, cmd.Version, req) },
+			updateStore:  func() error { return s.db.UpdateTenantsProcess(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},
 	)
@@ -360,4 +404,17 @@ func (s *SchemaManager) apply(op applyOp) error {
 		s.db.TriggerSchemaUpdateCallbacks()
 	}
 	return nil
+}
+
+// IndexRangeFilters was introduced with 1.26, so objects which were created
+// on an older version, will have this value set to nil when the instance is
+// upgraded. If we come across a property with nil IndexRangeFilters, it
+// needs to be set as false, to avoid false positive class differences on
+// comparison during class updates.
+func migrateRangeIndexPropIfNeeded(class *models.Class) {
+	for _, prop := range class.Properties {
+		if prop.IndexRangeFilters == nil {
+			prop.IndexRangeFilters = func() *bool { f := false; return &f }()
+		}
+	}
 }

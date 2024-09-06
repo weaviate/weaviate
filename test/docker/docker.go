@@ -19,6 +19,7 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 type DockerCompose struct {
@@ -51,6 +52,20 @@ func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *tim
 			if err := c.container.Stop(ctx, timeout); err != nil {
 				return fmt.Errorf("cannot stop %q: %w", c.name, err)
 			}
+			break
+		}
+	}
+	return nil
+}
+
+func (d *DockerCompose) TerminateContainer(ctx context.Context, container string) error {
+	for idx, c := range d.containers {
+		if c.name == container {
+			if err := c.container.Terminate(ctx); err != nil {
+				return fmt.Errorf("cannot stop %q: %w", c.name, err)
+			}
+			d.containers = append(d.containers[:idx], d.containers[idx+1:]...)
+			break
 		}
 	}
 	return nil
@@ -72,9 +87,17 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 
 func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
 	if nodeIndex >= len(d.containers) {
-		return nil
+		return fmt.Errorf("requested container doesn't exists at %d", nodeIndex)
 	}
-	return d.containers[nodeIndex].container.Stop(ctx, timeout)
+	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
+		return err
+	}
+
+	// sleep to make sure that the off node is detected by memberlist and marked failed
+	// it shall be used with combination of "FAST_FAILURE_DETECTION" env flag
+	time.Sleep(3 * time.Second)
+
+	return nil
 }
 
 func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
@@ -94,6 +117,15 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 		}
 		endPoints[name] = endpoint{e.port, newURI}
+
+		// wait until node is ready
+		if name != HTTP {
+			continue
+		}
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
+			return err
+		}
 	}
 	c.endpoints = endPoints
 	return nil
@@ -136,6 +168,13 @@ func (d *DockerCompose) GetWeaviateNode2() *DockerContainer {
 
 func (d *DockerCompose) GetWeaviateNode3() *DockerContainer {
 	return d.getContainerByName(Weaviate3)
+}
+
+func (d *DockerCompose) GetWeaviateNode(n int) *DockerContainer {
+	if n == 1 {
+		return d.GetWeaviate()
+	}
+	return d.getContainerByName(fmt.Sprintf("%s%d", Weaviate, n))
 }
 
 func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {

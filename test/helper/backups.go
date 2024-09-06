@@ -44,6 +44,12 @@ func CreateBackup(t *testing.T, cfg *models.BackupConfig, className, backend, ba
 	return Client(t).Backups.BackupsCreate(params, nil)
 }
 
+func ListBackup(t *testing.T, cfg *models.BackupConfig, className, backend string) (*backups.BackupsListOK, error) {
+	params := backups.NewBackupsListParams().
+		WithBackend(backend)
+	return Client(t).Backups.BackupsList(params, nil)
+}
+
 func CreateBackupStatus(t *testing.T, backend, backupID string) (*backups.BackupsCreateStatusOK, error) {
 	params := backups.NewBackupsCreateStatusParams().
 		WithBackend(backend).

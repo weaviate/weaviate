@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/willf/bloom"
 )
 
@@ -63,17 +64,30 @@ type diskIndex interface {
 	// value (or the exact value if present)
 	Seek(key []byte) (segmentindex.Node, error)
 
+	Next(key []byte) (segmentindex.Node, error)
+
 	// AllKeys in no specific order, e.g. for building a bloom filter
 	AllKeys() ([][]byte, error)
 
 	// Size of the index in bytes
 	Size() int
+
+	QuantileKeys(q int) [][]byte
 }
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, mmapContents bool,
 	useBloomFilter bool, calcCountNetAdditions bool, overwriteDerived bool,
-) (*segment, error) {
+) (_ *segment, err error) {
+	defer func() {
+		p := recover()
+		if p == nil {
+			return
+		}
+		entsentry.Recover(p)
+		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+	}()
+
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
@@ -94,11 +108,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
-	switch header.Strategy {
-	case segmentindex.StrategyReplace, segmentindex.StrategySetCollection,
-		segmentindex.StrategyMapCollection, segmentindex.StrategyRoaringSet:
-	default:
-		return nil, fmt.Errorf("unsupported strategy in segment")
+	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
+		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
 	primaryIndex, err := header.PrimaryIndex(contents)

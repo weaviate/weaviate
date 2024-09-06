@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -56,7 +57,7 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 	p.Unlock()
 }
 
-func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *backupMutex) interface{} {
+func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *shardTransfer) interface{} {
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {
 		return nil
@@ -103,8 +104,14 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
 		if err := s.merge(ctx, uuid, *doc); err != nil {
+			var code replica.StatusCode
+			if errors.Is(err, errObjectNotFound) {
+				code = replica.StatusObjectNotFound
+			} else {
+				code = replica.StatusConflict
+			}
 			resp.Errors = []replica.Error{
-				{Code: replica.StatusConflict, Msg: err.Error()},
+				{Code: code, Msg: err.Error()},
 			}
 		}
 		return resp
@@ -114,7 +121,7 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 }
 
 func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID) replica.SimpleResponse {
-	bucket, obj, idBytes, docID, err := s.canDeleteOne(ctx, uuid)
+	bucket, obj, idBytes, docID, updateTime, err := s.canDeleteOne(ctx, uuid)
 	if err != nil {
 		return replica.SimpleResponse{
 			Errors: []replica.Error{
@@ -124,7 +131,7 @@ func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid 
 	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
-		if err := s.deleteOne(ctx, bucket, obj, idBytes, docID); err != nil {
+		if err := s.deleteOne(ctx, bucket, obj, idBytes, docID, updateTime); err != nil {
 			resp.Errors = []replica.Error{
 				{Code: replica.StatusConflict, Msg: err.Error()},
 			}

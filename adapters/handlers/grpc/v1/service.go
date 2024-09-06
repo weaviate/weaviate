@@ -142,7 +142,21 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, fmt.Errorf("extract auth: %w", err)
 	}
-	objs, objOriginalIndex, objectParsingErrors := batchFromProto(req, s.schemaManager.ReadOnlyClass)
+	objs, objOriginalIndex, objectParsingErrors := BatchFromProto(req, s.schemaManager.ReadOnlyClass)
+
+	var objErrors []*pb.BatchObjectsReply_BatchError
+	for i, err := range objectParsingErrors {
+		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: err.Error()})
+	}
+
+	// If every object failed to parse, return early with the errors
+	if len(objs) == 0 {
+		result := &pb.BatchObjectsReply{
+			Took:   float32(time.Since(before).Seconds()),
+			Errors: objErrors,
+		}
+		return result, nil
+	}
 
 	replicationProperties := extractReplicationProperties(req.ConsistencyLevel)
 
@@ -151,16 +165,11 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	if err != nil {
 		return nil, err
 	}
-	var objErrors []*pb.BatchObjectsReply_BatchError
 
 	for i, obj := range response {
 		if obj.Err != nil {
 			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: obj.Err.Error()})
 		}
-	}
-
-	for i, err := range objectParsingErrors {
-		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: err.Error()})
 	}
 
 	result := &pb.BatchObjectsReply{
