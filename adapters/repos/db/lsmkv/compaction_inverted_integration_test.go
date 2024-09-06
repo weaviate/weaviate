@@ -395,7 +395,6 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 
 		c := bucket.MapCursor()
 		defer c.Close()
-
 		for k, _ := c.First(ctx); k != nil; k, _ = c.Next(ctx) {
 
 			kvs, err := bucket.MapList(ctx, k)
@@ -405,16 +404,17 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 			mkvs := make([]InvertedPair, len(kvs))
 			for i := range kvs {
 				mkvs[i] = kvs[i].toInvertedPair()
-				if len(kvs) > 0 {
-					retrieved = append(retrieved, kv{
-						key:    k,
-						values: mkvs,
-					})
-				}
 			}
 
-			assert.Equal(t, expected, retrieved)
+			if len(kvs) > 0 {
+				retrieved = append(retrieved, kv{
+					key:    k,
+					values: mkvs,
+				})
+			}
+
 		}
+		assert.Equal(t, expected, retrieved)
 	})
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
@@ -627,7 +627,7 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 
 	key := []byte("my-key")
 	mapKey := make([]byte, 8)
-	binary.BigEndian.PutUint64(mapKey, 1)
+	binary.BigEndian.PutUint64(mapKey, 0)
 
 	for size := 4; size < maxSize; size++ {
 		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {

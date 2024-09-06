@@ -704,7 +704,8 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		return nil, err
 	}
 
-	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk))
+	hasTombstones := false
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
 	for i, segment := range segmentsDisk {
 		if segment.strategy == segmentindex.StrategyInverted {
 			tombstones, err := segment.GetTombstones()
@@ -712,7 +713,25 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 				return nil, err
 			}
 			allTombstones[i] = tombstones
+			hasTombstones = true
 		}
+	}
+	if hasTombstones {
+		// check if there are any tombstones in the flushing memtable
+		if b.flushing != nil {
+			tombstones, err := b.flushing.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[len(segmentsDisk)] = tombstones
+		}
+
+		// check if there are any tombstones in the active memtable
+		tombstones, err := b.active.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[len(segmentsDisk)+1] = tombstones
 	}
 
 	for i := range disk {
@@ -744,7 +763,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 				segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
 			}
 		}
-		segments = append(segments, segmentDecoded)
+		if len(segmentDecoded) > 0 {
+			segments = append(segments, segmentDecoded)
+		}
 	}
 
 	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
@@ -757,7 +778,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
 			return nil, err
 		}
-		segments = append(segments, v)
+		if len(v) > 0 {
+			segments = append(segments, v)
+		}
 	}
 
 	// before = time.Now()
@@ -765,7 +788,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
-	segments = append(segments, v)
+	if len(v) > 0 {
+		segments = append(segments, v)
+	}
 	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
 
 	// before = time.Now()
