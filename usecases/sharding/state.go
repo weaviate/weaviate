@@ -122,11 +122,11 @@ func (p *Physical) ActivityStatus() string {
 	return schema.ActivityStatus(p.Status)
 }
 
-func InitState(id string, config config.Config, nodes cluster.NodeSelector, replFactor int64, partitioningEnabled bool) (*State, error) {
+func InitState(id string, config config.Config, nodeLocalName string, names []string, replFactor int64, partitioningEnabled bool) (*State, error) {
 	out := &State{
 		Config:              config,
 		IndexID:             id,
-		localNodeName:       nodes.LocalName(),
+		localNodeName:       nodeLocalName,
 		PartitioningEnabled: partitioningEnabled,
 	}
 	if partitioningEnabled {
@@ -134,7 +134,6 @@ func InitState(id string, config config.Config, nodes cluster.NodeSelector, repl
 		return out, nil
 	}
 
-	names := nodes.StorageCandidates()
 	if f, n := replFactor, len(names); f > int64(n) {
 		return nil, fmt.Errorf("not enough storage replicas: found %d want %d", n, f)
 	}
