@@ -526,6 +526,7 @@ case $CONFIG in
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
       go_run ./cmd/weaviate-server \
@@ -535,7 +536,7 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
-    
+
   local-offload-s3)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
