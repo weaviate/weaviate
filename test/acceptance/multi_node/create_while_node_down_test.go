@@ -39,11 +39,11 @@ func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
 		}
 	}()
 
-	testClass := articles.ParagraphsClass()
-	testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
-	testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
-
 	t.Run("class with MT Enabled", func(t *testing.T) {
+		testClass := articles.ParagraphsClass()
+		testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+		testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("stop 3rd node", func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
 	})
 
 	t.Run("class with MT disabled", func(t *testing.T) {
-		// without multi tenancy enabled
+		// without multi tenancy disabled
 		testClass = articles.ParagraphsClass()
 		testClass.Class = fmt.Sprintf("%s-MT-disabled", testClass.Class)
 		testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: false}
