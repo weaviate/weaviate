@@ -452,7 +452,11 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 
 	if len(nonEmptyMsAndProps) == 1 {
 		termResult.data = allMsAndProps[0]
-		termResult.idf = math.Log(float64(1)+(N-float64(len(termResult.data))+0.5)/(float64(len(termResult.data))+0.5)) * float64(duplicateTextBoost)
+		n := float64(len(termResult.data))
+		if filterDocIds != nil {
+			n += float64(filteredDocIDs.GetCardinality())
+		}
+		termResult.idf = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoost)
 		termResult.posPointer = 0
 		termResult.idPointer = termResult.data[0].Id
 		return termResult, nil
