@@ -131,7 +131,7 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, *sroar.Bi
 		return nil, nil, err
 	}
 
-	totalWritten += len(tombstoneBuffer)*8 + 8
+	// totalWritten += len(tombstoneBuffer)*8 + 8
 
 	return keys[:actuallyWritten], tombstones, nil
 }

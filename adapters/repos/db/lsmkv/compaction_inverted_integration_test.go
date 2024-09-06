@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
+func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []BucketOption,
 	expectedMinSize, expectedMaxSize int64,
 ) {
 	size := 100
@@ -422,12 +422,6 @@ func compactionInverted(ctx context.Context, t *testing.T, opts []BucketOption,
 		var compacted bool
 		var err error
 		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
-			if i == 1 {
-				// segment1 and segment2 merged
-				// none of them is root segment, so tombstones
-				// will not be removed regardless of keepTombstones setting
-				// assertSecondSegmentOfSize(t, bucket, 11876, 11876)
-			}
 			i++
 		}
 		require.Nil(t, err)

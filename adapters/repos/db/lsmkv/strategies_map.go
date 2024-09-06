@@ -309,7 +309,6 @@ func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool, invertedKeyLen, in
 	}
 
 	kv.Value = in[read : read+invertedValueLen]
-	read += invertedValueLen
 	return nil
 }
 

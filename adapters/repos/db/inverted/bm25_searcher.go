@@ -409,6 +409,7 @@ WordLoop:
 	}
 }
 
+/*
 func (b *BM25Searcher) getTopKHeapExaustive(limit int, results terms.Terms, averagePropLength float64, additionalExplanations bool,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
@@ -474,6 +475,7 @@ func (b *BM25Searcher) getTopKHeapExaustive(limit int, results terms.Terms, aver
 	}
 	return topKHeap
 }
+*/
 
 func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore],
 	results terms.Terms, additionalExplanations bool, allTerms []string,
