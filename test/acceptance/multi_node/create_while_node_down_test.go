@@ -43,7 +43,7 @@ func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
 	testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 	testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 
-	helper.SetupClient(compose.GetWeaviateNode2().URI())
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	t.Run("stop 3rd node", func(t *testing.T) {
 		require.Nil(t, compose.StopAt(context.Background(), 2, nil))
