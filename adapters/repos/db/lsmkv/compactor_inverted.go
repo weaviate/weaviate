@@ -78,10 +78,6 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "init")
 	}
 
-	if err != nil {
-		return errors.Wrap(err, "get tombstones")
-	}
-
 	c.offset = segmentindex.HeaderSize
 
 	err = c.writeKeyValueLen()
