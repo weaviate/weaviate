@@ -60,14 +60,16 @@ func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
 
 		t.Run("verify class exists on the 3rd node", func(t *testing.T) {
 			helper.SetupClient(compose.GetWeaviateNode3().URI())
-			helper.GetClass(t, testClass.Class)
+			require.NotNil(t, helper.GetClass(t, testClass.Class))
+		})
+
+		t.Run("delete create class", func(t *testing.T) {
+			helper.DeleteClass(t, testClass.Class)
 		})
 	})
 
 	t.Run("class with MT disabled", func(t *testing.T) {
-		// without multi tenancy disabled
 		testClass := articles.ParagraphsClass()
-		testClass.Class = fmt.Sprintf("%s-MT-disabled", testClass.Class)
 		testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: false}
 		testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 
@@ -87,7 +89,7 @@ func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
 
 		t.Run("verify class exists on the 3rd node", func(t *testing.T) {
 			helper.SetupClient(compose.GetWeaviateNode3().URI())
-			helper.GetClass(t, testClass.Class)
+			require.NotNil(t, helper.GetClass(t, testClass.Class))
 		})
 	})
 }
