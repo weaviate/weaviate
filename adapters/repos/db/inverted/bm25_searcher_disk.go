@@ -37,7 +37,7 @@ var (
 */
 
 func (b *BM25Searcher) wandDisk(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, useWandDiskForced bool,
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	/*
 		if wandDiskLastClass == "" {

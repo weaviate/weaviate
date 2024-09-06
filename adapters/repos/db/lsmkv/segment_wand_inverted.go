@@ -125,6 +125,7 @@ func (t *TermInverted) advance() {
 	t.offsetPointer += t.invertedKeyLength + t.invertedValueLength
 	t.PosPointer++
 	if t.PosPointer >= t.DocCount {
+		t.idPointer = math.MaxUint64
 		t.Exhausted = true
 	} else {
 		t.decode()
@@ -138,6 +139,7 @@ func (t *TermInverted) advanceIdOnly() {
 	t.offsetPointer += t.invertedKeyLength + t.invertedValueLength
 	t.PosPointer++
 	if t.PosPointer >= t.DocCount {
+		t.idPointer = math.MaxUint64
 		t.Exhausted = true
 	} else {
 		t.decodeIdOnly()
@@ -220,6 +222,7 @@ func (t *TermInverted) jumpAproximate(minIDBytes []byte, start uint64, end uint6
 	offsetLen := end - start
 
 	if start == t.actualEnd {
+		t.idPointer = math.MaxUint64
 		t.Exhausted = true
 		return 0
 	}

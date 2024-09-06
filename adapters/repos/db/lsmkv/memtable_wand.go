@@ -156,6 +156,7 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds, blockList help
 		}
 	}
 	if docMapPairs == nil {
+		termResult.idPointer = math.MaxUint64
 		termResult.exhausted = true
 		return termResult, nil
 	}
@@ -167,7 +168,7 @@ func (m *Memtable) CreateTerm(N float64, n float64, filterDocIds, blockList help
 	// related to #4125
 	if len(termResult.data) == 0 {
 		termResult.posPointer = 0
-		termResult.idPointer = 0
+		termResult.idPointer = math.MaxUint64
 		termResult.exhausted = true
 		return termResult, nil
 	}
@@ -220,6 +221,7 @@ func (t *TermMem) ScoreAndAdvance(averagePropLength float64, config schema.BM25C
 	// advance
 	t.posPointer++
 	if t.posPointer >= uint64(len(t.data)) {
+		t.idPointer = math.MaxUint64
 		t.exhausted = true
 	} else {
 		t.idPointer = t.data[t.posPointer].Id
@@ -232,6 +234,7 @@ func (t *TermMem) AdvanceAtLeast(minID uint64) {
 	for t.idPointer < minID {
 		t.posPointer++
 		if t.posPointer >= uint64(len(t.data)) {
+			t.idPointer = math.MaxUint64
 			t.exhausted = true
 			return
 		}

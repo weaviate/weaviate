@@ -167,22 +167,20 @@ func (b *BM25Searcher) wand(
 	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
 	useWandDisk := os.Getenv("USE_WAND_DISK") == "true"
-	useWandDiskForced := os.Getenv("USE_WAND_DISK") == "force"
 	validateWandDisk := os.Getenv("USE_WAND_DISK") == "validate"
-	validateWandDiskForced := os.Getenv("USE_WAND_DISK") == "validate-force"
-	if useWandDisk || useWandDiskForced {
-		return b.wandDisk(ctx, filterDocIds, class, params, limit, useWandDiskForced)
-	} else if validateWandDisk || validateWandDiskForced {
-		return b.validateWand(ctx, filterDocIds, class, params, limit, validateWandDiskForced)
+	if useWandDisk {
+		return b.wandDisk(ctx, filterDocIds, class, params, limit)
+	} else if validateWandDisk {
+		return b.validateWand(ctx, filterDocIds, class, params, limit)
 	} else {
 		return b.wandMem(ctx, filterDocIds, class, params, limit)
 	}
 }
 
 func (b *BM25Searcher) validateWand(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, useWandDiskForced bool,
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
 ) ([]*storobj.Object, []float32, error) {
-	objsD, scoresD, errD := b.wandDisk(ctx, filterDocIds, class, params, limit, useWandDiskForced)
+	objsD, scoresD, errD := b.wandDisk(ctx, filterDocIds, class, params, limit)
 	objsM, scoresM, errM := b.wandMem(ctx, filterDocIds, class, params, limit)
 	if errD != nil {
 		return nil, nil, errD
@@ -690,6 +688,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 	}
 	if docMapPairs == nil {
 		termResult.exhausted = true
+		termResult.idPointer = math.MaxUint64
 		return termResult, docMapPairsIndices, nil
 	}
 
@@ -709,7 +708,7 @@ func (b *BM25Searcher) createTerm(ctx context.Context, N float64, filterDocIds h
 	// related to #4125
 	if len(termResult.data) == 0 {
 		termResult.posPointer = 0
-		termResult.idPointer = 0
+		termResult.idPointer = math.MaxUint64
 		termResult.exhausted = true
 		return termResult, docMapPairsIndices, nil
 	}
@@ -741,6 +740,7 @@ func (t *termMem) ScoreAndAdvance(averagePropLength float64, config schema.BM25C
 	// advance
 	t.posPointer++
 	if t.posPointer >= uint64(len(t.data)) {
+		t.idPointer = math.MaxUint64
 		t.exhausted = true
 	} else {
 		t.idPointer = t.data[t.posPointer].Id
@@ -753,6 +753,7 @@ func (t *termMem) AdvanceAtLeast(minID uint64) {
 	for t.idPointer < minID {
 		t.posPointer++
 		if t.posPointer >= uint64(len(t.data)) {
+			t.idPointer = math.MaxUint64
 			t.exhausted = true
 			return
 		}

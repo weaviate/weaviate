@@ -87,8 +87,7 @@ func (t *Terms) findMinID(minScore float64) (uint64, int, bool) {
 	for i < len(t.T) && len(t.T) > 0 {
 		term := t.T[i]
 		if term.IsExhausted() {
-			// remove from list
-			t.T = append(t.T[:i], t.T[i+1:]...)
+			i++
 			continue
 		}
 		cumScore += term.IDF()
@@ -117,11 +116,6 @@ func (t *Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, a
 	var cumScore float64
 	for i := 0; i < len(t.T); i++ {
 		if t.T[i].IdPointer() != id || t.T[i].IsExhausted() {
-			if t.T[i].IsExhausted() {
-				// remove from list
-				t.T = append(t.T[:i], t.T[i+1:]...)
-				i--
-			}
 			continue
 		}
 		_, score, docInfo := t.T[i].ScoreAndAdvance(averagePropLength, config)
@@ -156,10 +150,10 @@ func (t *Terms) PartialSort() {
 	if len(t.T) < 2 {
 		return
 	}
-	min := t.T[0].IdPointer()
-	minIndex := 0
-	for i := 1; i < len(t.T); i++ {
-		if t.T[i].IdPointer() < min {
+	min := uint64(0)
+	minIndex := -1
+	for i := 0; i < len(t.T); i++ {
+		if minIndex == -1 || (t.T[i].IdPointer() < min && !t.T[i].IsExhausted()) {
 			min = t.T[i].IdPointer()
 			minIndex = i
 		}
