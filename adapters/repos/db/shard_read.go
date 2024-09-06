@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
@@ -258,7 +259,7 @@ func (s *Shard) readVectorByIndexIDIntoSlice(ctx context.Context, indexID uint64
 
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
-	additional additional.Properties,
+	additional additional.Properties, properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	var err error
 
@@ -313,7 +314,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher,
 			s.GetPropertyLengthTracker(), logger, s.versioner.Version())
-		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking)
+		bm25objs, bm25count, err = bm25searcher.BM25F(ctx, filterDocIds, className, limit, *keywordRanking, additional)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -329,7 +330,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties)
 	return objs, nil, err
 }
 
@@ -366,10 +367,13 @@ func (s *Shard) getIndexQueue(targetVector string) (*IndexQueue, error) {
 		}
 		return queue, nil
 	}
+	if targetVector != "" {
+		return nil, fmt.Errorf("index queue: target vector not found: %q", targetVector)
+	}
 	return s.queue, nil
 }
 
-func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination) ([]*storobj.Object, []float32, error) {
+func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
 	startTime := time.Now()
 	defer func() {
 		s.slowQueryReporter.LogIfSlow(startTime, map[string]any{
@@ -422,12 +426,24 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 				ids, dists, err = queue.SearchByVectorDistance(
 					searchVectors[i], targetDist, s.index.Config.QueryMaximumResults, allowList)
 				if err != nil {
-					return errors.Wrap(err, "vector search by distance")
+					// This should normally not fail. A failure here could indicate that more
+					// attention is required, for example because data is corrupted. That's
+					// why this error is explicitly pushed to sentry.
+					err = fmt.Errorf("vector search by distance: %w", err)
+					entsentry.CaptureException(err)
+					return err
 				}
 			} else {
 				ids, dists, err = queue.SearchByVector(searchVectors[i], limit, allowList)
 				if err != nil {
-					return errors.Wrap(err, "vector search")
+					// This should normally not fail. A failure here could indicate that more
+					// attention is required, for example because data is corrupted. That's
+					// why this error is explicitly pushed to sentry.
+					err = fmt.Errorf("vector search: %w", err)
+					// annotate for sentry so we know which collection/shard this happened on
+					entsentry.CaptureException(fmt.Errorf("collection %q shard %q: %w",
+						s.index.Config.ClassName, s.name, err))
+					return err
 				}
 			}
 			if len(ids) == 0 {
@@ -454,7 +470,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 	}
 
 	if groupBy != nil {
-		objs, dists, err := s.groupResults(ctx, idsCombined, distCombined, groupBy, additional)
+		objs, dists, err := s.groupResults(ctx, idsCombined, distCombined, groupBy, additional, properties)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -476,7 +492,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors [][]float3
 	beforeObjects := time.Now()
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional)
+	objs, err := storobj.ObjectsByDocID(bucket, idsCombined, additional, properties, s.index.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -495,7 +511,7 @@ func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, 
 			return nil, err
 		}
 		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-		return storobj.ObjectsByDocID(bucket, docIDs, additional)
+		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
 	}
 
 	if cursor == nil {
@@ -585,16 +601,19 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	}
 
 	keyBuf := bytes.NewBuffer(nil)
-	binary.Write(keyBuf, binary.LittleEndian, &docID)
+	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
+	if err != nil {
+		return "", fmt.Errorf("write doc id to buffer: %w", err)
+	}
 	docIDBytes := keyBuf.Bytes()
 	res, err := bucket.GetBySecondary(0, docIDBytes)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("get object by doc id: %w", err)
 	}
 
 	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("parse and extract property: %w", err)
 	}
 
 	return strfmt.UUID(prop[0]), nil

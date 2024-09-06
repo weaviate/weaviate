@@ -93,19 +93,21 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// schemaOnly is necessary so that on restart when we are re-applying RAFT log entries to our in-memory schema we
 	// don't update the database. This can lead to data loss for example if we drop then re-add a class.
 	// If we don't have any last applied index on start, schema only is always false.
-	schemaOnly := st.lastAppliedIndexOnStart.Load() != 0 && l.Index <= st.lastAppliedIndexOnStart.Load()
+	// we check for index !=0 to force apply of the 1st index in both db and schema
+	schemaOnly := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load() || st.cfg.MetadataOnlyVoters
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
-		if st.lastAppliedIndexOnStart.Load() != 0 && l.Index == st.lastAppliedIndexOnStart.Load() {
+		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
 				"log_index":                    l.Index,
-				"last_store_log_applied_index": st.lastAppliedIndexOnStart.Load(),
+				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Debug("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
 		}
+
 		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {
@@ -131,7 +133,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		"cmd_schema_only": schemaOnly,
 	}).Debug("server.apply")
 
-	var f func()
+	f := func() {}
 
 	switch cmd.Type {
 
@@ -172,7 +174,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 
 	case api.ApplyRequest_TYPE_UPDATE_TENANT:
 		f = func() {
-			ret.Data, ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
+			ret.Error = st.schemaManager.UpdateTenants(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_DELETE_TENANT:
@@ -181,7 +183,9 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 
 	case api.ApplyRequest_TYPE_TENANT_PROCESS:
-		ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		f = func() {
+			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		f = func() {

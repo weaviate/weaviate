@@ -449,6 +449,7 @@ func TestCRUD(t *testing.T) {
 			ClassName:  "TheBestThingClass",
 			Pagination: &filters.Pagination{Limit: 10},
 			Filters:    nil,
+			Properties: search.SelectProperties{{Name: "location"}, {Name: "stringProp"}, {Name: "phone"}},
 		}
 		res, err := repo.VectorSearch(context.Background(), params, []string{""}, [][]float32{searchVector})
 
@@ -2319,7 +2320,7 @@ func TestOverwriteObjects(t *testing.T) {
 		}
 
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.determineObjectShard(fresh.ID, "")
+		shd, err := idx.determineObjectShard(context.Background(), fresh.ID, "")
 		require.Nil(t, err)
 
 		received, err := idx.OverwriteObjects(context.Background(), shd, input)
@@ -2414,7 +2415,7 @@ func TestIndexDigestObjects(t *testing.T) {
 
 	t.Run("get digest object", func(t *testing.T) {
 		idx := repo.GetIndex(schema.ClassName(class.Class))
-		shd, err := idx.determineObjectShard(obj1.ID, "")
+		shd, err := idx.determineObjectShard(context.Background(), obj1.ID, "")
 		require.Nil(t, err)
 
 		input := []strfmt.UUID{obj1.ID, obj2.ID}

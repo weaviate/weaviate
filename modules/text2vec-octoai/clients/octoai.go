@@ -185,6 +185,7 @@ func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
 	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Octoai-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
+
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}

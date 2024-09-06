@@ -113,7 +113,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode); err != nil {
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
 		return duplicateErr(err, len(objs))
 	}
 
@@ -406,10 +406,11 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 	groupBy *searchparams.GroupBy,
 	additional additional.Properties,
 	targetCombination *dto.TargetCombination,
+	properties []string,
 ) ([]*storobj.Object, []float32, error) {
 	// new request
 	body, err := clusterapi.IndicesPayloads.SearchParams.
-		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination)
+		Marshal(vector, targetVector, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal request payload: %w", err)
 	}
@@ -426,7 +427,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
 	return resp.Objects, resp.Distributions, err
 }
 
@@ -471,7 +472,7 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
 	return resp.Result, err
 }
 

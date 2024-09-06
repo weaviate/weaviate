@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/willf/bloom"
 )
 
@@ -84,6 +85,8 @@ type diskIndex interface {
 
 	// Size of the index in bytes
 	Size() int
+
+	QuantileKeys(q int) [][]byte
 }
 
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
@@ -95,7 +98,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		if p == nil {
 			return
 		}
-
+		entsentry.Recover(p)
 		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
 	}()
 

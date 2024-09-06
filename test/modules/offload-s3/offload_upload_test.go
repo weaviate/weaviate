@@ -29,14 +29,14 @@ import (
 
 func Test_UploadS3Journey(t *testing.T) {
 	t.Run("happy path with RF 2 upload to s3 provider", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("offloading").
+			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
@@ -150,8 +150,6 @@ func Test_UploadS3Journey(t *testing.T) {
 			require.NotNil(t, err)
 		})
 
-		// sleep to give time for actual upload to happen
-
 		t.Run("verify tenant status", func(t *testing.T) {
 			assert.EventuallyWithT(t, func(at *assert.CollectT) {
 				resp, err := helper.GetTenants(t, className)
@@ -200,14 +198,14 @@ func Test_UploadS3Journey(t *testing.T) {
 	})
 
 	t.Run("node is down while RF is 3, one weaviate node is down", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("weaviate-offload").
+			WithOffloadS3("weaviate-offload", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
@@ -341,7 +339,7 @@ func Test_UploadS3Journey(t *testing.T) {
 	})
 
 	t.Run("unhappy path with RF 3, cloud provider is down", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
 		t.Log("pre-instance env setup")
@@ -349,7 +347,7 @@ func Test_UploadS3Journey(t *testing.T) {
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("offloading").
+			WithOffloadS3("offloading", "us-west-1").
 			WithWeaviateEnv("OFFLOAD_TIMEOUT", "2").
 			WithText2VecContextionary().
 			With3NodeCluster().
@@ -435,10 +433,6 @@ func Test_UploadS3Journey(t *testing.T) {
 			}
 		})
 
-		t.Run("terminate Minio", func(t *testing.T) {
-			require.Nil(t, compose.TerminateContainer(ctx, docker.MinIO))
-		})
-
 		t.Run("updating tenant status", func(t *testing.T) {
 			helper.UpdateTenants(t, className, []*models.Tenant{
 				{
@@ -458,6 +452,10 @@ func Test_UploadS3Journey(t *testing.T) {
 					break
 				}
 			}
+		})
+
+		t.Run("terminate Minio", func(t *testing.T) {
+			require.Nil(t, compose.TerminateContainer(ctx, docker.MinIO))
 		})
 
 		t.Run("verify tenant status HOT", func(xt *testing.T) {

@@ -24,11 +24,10 @@ func TestDotDistancer(t *testing.T) {
 		vec2 := []float32{3, 4, 5}
 		expectedDistance := float32(-50)
 
-		dist, ok, err := NewDotProductProvider().New(vec1).Distance(vec2)
+		dist, err := NewDotProductProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewDotProductProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewDotProductProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -39,11 +38,10 @@ func TestDotDistancer(t *testing.T) {
 		vec2 := []float32{1, 0, 2, 0, 3, 0}
 		expectedDistance := float32(0)
 
-		dist, ok, err := NewDotProductProvider().New(vec1).Distance(vec2)
+		dist, err := NewDotProductProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewDotProductProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewDotProductProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -54,11 +52,10 @@ func TestDotDistancer(t *testing.T) {
 		vec2 := []float32{-3, -4, -5}
 		expectedDistance := float32(+50)
 
-		dist, ok, err := NewDotProductProvider().New(vec1).Distance(vec2)
+		dist, err := NewDotProductProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewDotProductProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewDotProductProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -70,9 +67,8 @@ func TestDotDistancerStepbyStep(t *testing.T) {
 		vec1 := []float32{3, 4, 5}
 		vec2 := []float32{-3, -4, -5}
 
-		expectedDistance, ok, err := NewDotProductProvider().New(vec1).Distance(vec2)
+		expectedDistance, err := NewDotProductProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
 
 		distanceProvider := NewDotProductProvider()
 		sum := float32(0.0)

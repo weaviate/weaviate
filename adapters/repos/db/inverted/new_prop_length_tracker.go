@@ -18,6 +18,8 @@ import (
 	"os"
 	"sync"
 
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -69,6 +71,7 @@ func NewJsonShardMetaData(path string, logger logrus.FieldLogger) (t *JsonShardM
 	// Recover and return empty tracker on panic
 	defer func() {
 		if r := recover(); r != nil {
+			entsentry.Recover(r)
 			t.logger.Warnf("Recovered from panic in NewJsonShardMetaData, original error: %v", r)
 			t = &JsonShardMetaData{
 				data:             &ShardMetaData{make(map[string]map[int]int), make(map[string]int), make(map[string]int), 0},
