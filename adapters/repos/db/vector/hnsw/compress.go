@@ -103,6 +103,15 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			if err != nil {
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
+		} else if cfg.LASQ.Enabled {
+			var err error
+			h.compressor, err = compressionhelpers.NewHNSWLASQCompressor(
+				h.distancerProvider, 1e12, h.logger, cleanData, h.store,
+				h.allocChecker)
+			if err != nil {
+				return fmt.Errorf("compressing vectors: %w", err)
+			}
+			h.doNotRescore = true
 		}
 		h.compressor.PersistCompression(h.commitLog)
 	} else {

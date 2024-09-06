@@ -64,6 +64,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					LASQ: hnsw.LASQConfig{
+						Enabled:       hnsw.DefaultLASQEnabled,
+						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -120,6 +124,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultSQEnabled,
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
+					LASQ: hnsw.LASQConfig{
+						Enabled:       hnsw.DefaultLASQEnabled,
+						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
 					},
 				},
 				FlatUC: flat.UserConfig{
@@ -197,6 +205,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					LASQ: hnsw.LASQConfig{
+						Enabled:       hnsw.DefaultLASQEnabled,
+						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
@@ -262,6 +274,10 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					LASQ: hnsw.LASQConfig{
+						Enabled:       hnsw.DefaultLASQEnabled,
+						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
+					},
 				},
 				FlatUC: flat.UserConfig{
 					VectorCacheMaxObjects: 100,
@@ -299,6 +315,71 @@ func Test_DynamicUserConfig(t *testing.T) {
 			},
 			expectErr:    true,
 			expectErrMsg: "PQ is not currently supported for flat indices",
+		},
+		{
+			name: "lasq is enabled",
+			input: map[string]interface{}{
+				"hnsw": map[string]interface{}{
+					"lasq": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+			},
+			expected: UserConfig{
+				Distance:  common.DefaultDistanceMetric,
+				Threshold: DefaultThreshold,
+				HnswUC: hnsw.UserConfig{
+					CleanupIntervalSeconds: hnsw.DefaultCleanupIntervalSeconds,
+					MaxConnections:         hnsw.DefaultMaxConnections,
+					EFConstruction:         hnsw.DefaultEFConstruction,
+					VectorCacheMaxObjects:  common.DefaultVectorCacheMaxObjects,
+					EF:                     hnsw.DefaultEF,
+					Skip:                   hnsw.DefaultSkip,
+					FlatSearchCutoff:       hnsw.DefaultFlatSearchCutoff,
+					DynamicEFMin:           hnsw.DefaultDynamicEFMin,
+					DynamicEFMax:           hnsw.DefaultDynamicEFMax,
+					DynamicEFFactor:        hnsw.DefaultDynamicEFFactor,
+					Distance:               common.DefaultDistanceMetric,
+					PQ: hnsw.PQConfig{
+						Enabled:       hnsw.DefaultPQEnabled,
+						Segments:      hnsw.DefaultPQSegments,
+						Centroids:     hnsw.DefaultPQCentroids,
+						TrainingLimit: hnsw.DefaultPQTrainingLimit,
+						Encoder: hnsw.PQEncoder{
+							Type:         hnsw.DefaultPQEncoderType,
+							Distribution: hnsw.DefaultPQEncoderDistribution,
+						},
+					},
+					SQ: hnsw.SQConfig{
+						Enabled:       hnsw.DefaultSQEnabled,
+						TrainingLimit: hnsw.DefaultSQTrainingLimit,
+						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
+					LASQ: hnsw.LASQConfig{
+						Enabled:       true,
+						TrainingLimit: hnsw.DefaultLASQTrainingLimit,
+					},
+				},
+				FlatUC: flat.UserConfig{
+					VectorCacheMaxObjects: common.DefaultVectorCacheMaxObjects,
+					Distance:              common.DefaultDistanceMetric,
+					PQ: flat.CompressionUserConfig{
+						Enabled:      flat.DefaultCompressionEnabled,
+						RescoreLimit: flat.DefaultCompressionRescore,
+						Cache:        flat.DefaultVectorCache,
+					},
+					BQ: flat.CompressionUserConfig{
+						Enabled:      flat.DefaultCompressionEnabled,
+						RescoreLimit: flat.DefaultCompressionRescore,
+						Cache:        flat.DefaultVectorCache,
+					},
+					SQ: flat.CompressionUserConfig{
+						Enabled:      flat.DefaultCompressionEnabled,
+						RescoreLimit: flat.DefaultCompressionRescore,
+						Cache:        flat.DefaultVectorCache,
+					},
+				},
+			},
 		},
 	}
 
