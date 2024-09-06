@@ -54,6 +54,8 @@ func main() {
 		s3module.DataPath = opts.Query.DataPath
 		s3module.Endpoint = opts.Query.S3Endpoint
 
+		// This functionality is already in `go-client` of weaviate.
+		// TODO(kavi): Find a way to share this functionality in both go-client and in querytenant.
 		tenantInfo := querytenant.NewTenantInfo(opts.Query.SchemaAddr, querytenant.DefaultSchemaPath)
 
 		a := query.NewAPI(
