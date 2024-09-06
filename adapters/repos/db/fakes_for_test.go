@@ -119,7 +119,8 @@ func singleShardState() *sharding.State {
 		panic(err)
 	}
 
-	s, err := sharding.InitState("test-index", config, mocks.NewMockNodeSelector("node1"), 1, false)
+	selector := mocks.NewMockNodeSelector("node1")
+	s, err := sharding.InitState("test-index", config, selector.LocalName(), selector.StorageCandidates(), 1, false)
 	if err != nil {
 		panic(err)
 	}
@@ -135,8 +136,8 @@ func multiShardState() *sharding.State {
 		panic(err)
 	}
 
-	s, err := sharding.InitState("multi-shard-test-index", config,
-		mocks.NewMockNodeSelector("node1"), 1, false)
+	selector := mocks.NewMockNodeSelector("node1")
+	s, err := sharding.InitState("multi-shard-test-index", config, selector.LocalName(), selector.StorageCandidates(), 1, false)
 	if err != nil {
 		panic(err)
 	}
