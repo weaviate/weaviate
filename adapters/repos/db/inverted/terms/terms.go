@@ -14,7 +14,6 @@ package terms
 import (
 	"context"
 	"encoding/binary"
-	"fmt"
 	"math"
 	"sort"
 
@@ -305,7 +304,6 @@ func (t *Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, a
 		}
 		term := t.T[i]
 		_, score, docInfo := term.ScoreAndAdvance(averagePropLength, config)
-		fmt.Printf("score: %f, id: %d, term: %s idf: %f %f %f %d\n", score, id, term.QueryTerm, term.Idf, docInfo.Frequency, docInfo.PropLength, docInfo.Id)
 		if additionalExplanations {
 			docInfos[term.QueryTermIndex] = &docInfo
 		}
