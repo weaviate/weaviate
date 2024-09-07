@@ -69,9 +69,7 @@ func (h *hnsw) flatSearch(queryVector []float32, k, limit int,
 	}
 
 	if h.shouldRescore() {
-		compressorDistancer, fn := h.compressor.NewDistancer(queryVector)
-		h.rescore(results, k, compressorDistancer)
-		fn()
+		h.rescore(results, k, queryVector)
 	}
 
 	ids := make([]uint64, results.Len())
