@@ -41,7 +41,9 @@ type indexCycleCallbacks struct {
 func (index *Index) initCycleCallbacks() {
 	vectorTombstoneCleanupIntervalSeconds := hnsw.DefaultCleanupIntervalSeconds
 	if hnswUserConfig, ok := index.vectorIndexUserConfig.(hnsw.UserConfig); ok {
-		vectorTombstoneCleanupIntervalSeconds = hnswUserConfig.CleanupIntervalSeconds
+		// vectorTombstoneCleanupIntervalSeconds = hnswUserConfig.CleanupIntervalSeconds
+		_ = hnswUserConfig
+		vectorTombstoneCleanupIntervalSeconds = 12 * 60 * 60 // 12 hours
 	}
 
 	id := func(elems ...string) string {
