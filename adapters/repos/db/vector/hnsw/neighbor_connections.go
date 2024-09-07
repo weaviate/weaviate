@@ -313,25 +313,24 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 	neighbor.Lock()
 	defer neighbor.Unlock()
+
 	if level > neighbor.level {
 		// upgrade neighbor level if the level is out of sync due to a delete re-assign
 		neighbor.upgradeToLevelNoLock(level)
 	}
 	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
+	for _, x := range currentConnections {
+		if x == n.node.id {
+			return nil
+		}
+	}
+
 	maximumConnections := n.maximumConnections(level)
 	if len(currentConnections) < maximumConnections {
-		alreadyConnected := false
-		for _, x := range currentConnections {
-			if x == n.node.id {
-				alreadyConnected = true
-			}
-		}
-		if !alreadyConnected {
-			neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
-			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
-				return err
-			}
+		neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
+		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
+			return err
 		}
 	} else {
 		// we need to run the heuristic
