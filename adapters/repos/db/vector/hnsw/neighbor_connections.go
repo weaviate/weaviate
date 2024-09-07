@@ -112,7 +112,7 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
+func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited *visited.ListSet, level, top int) error {
 	if top <= 0 {
 		return nil
 	}
@@ -203,9 +203,10 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
-		n.graph.pools.visitedListsLock.RLock()
-		visited := n.graph.pools.visitedLists.Borrow()
-		n.graph.pools.visitedListsLock.RUnlock()
+		n.graph.RLock()
+		nodesSize := len(n.graph.nodes)
+		n.graph.RUnlock()
+		visited := n.graph.pools.visitedLists.Borrow(nodesSize)
 		n.node.Lock()
 		connections := make([]uint64, len(n.node.connections[level]))
 		copy(connections, n.node.connections[level])
@@ -228,15 +229,11 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 			visited.Visit(id)
 			err := n.processRecursively(id, results, visited, level, top)
 			if err != nil {
-				n.graph.pools.visitedListsLock.RLock()
 				n.graph.pools.visitedLists.Return(visited)
-				n.graph.pools.visitedListsLock.RUnlock()
 				return err
 			}
 		}
-		n.graph.pools.visitedListsLock.RLock()
 		n.graph.pools.visitedLists.Return(visited)
-		n.graph.pools.visitedListsLock.RUnlock()
 		// use dynamic max connections only during tombstone cleanup
 		maxConnections = n.maximumConnections(level)
 	} else {
