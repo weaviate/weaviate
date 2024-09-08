@@ -15,8 +15,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 )
 
@@ -25,7 +29,9 @@ const (
 
 	// NOTE(kavi): using fixed nodeName that offloaded tenant under that prefix on object storage.
 	// TODO(kavi): Make it dynamic.
-	nodeName = "weaviate-0"
+	nodeName                = "weaviate-0"
+	defaultLSMObjectsBucket = "objects"
+	defaultLSMRoot          = "lsm"
 )
 
 var ErrInvalidTenant = errors.New("invalid tenant status")
@@ -64,6 +70,14 @@ func NewAPI(
 
 // Search serves vector search over the offloaded tenant on object storage.
 func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, error) {
+	// Expectations
+	// 0. Check if tenant status == FROZEN
+	// 1. Build local path `/<datapath>/<collection>/<tenant>` from search request
+	// 2. If it doesn't exist, fetch from object store to same path as above
+	// 3. If it doesn't exist on object store, return 404
+	// 4. Once in the local disk, load the index
+	// 5. Searve the search.
+
 	info, err := a.tenant.TenantStatus(ctx, req.Collection, req.Tenant)
 	if err != nil {
 		return nil, err
@@ -79,14 +93,28 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, err
 	}
 
-	// Expectations
-	// 0. Check if tenant status == FROZEN
-	// 1. Build local path `/<datapath>/<collection>/<tenant>` from search request
-	// 2. If it doesn't exist, fetch from object store to same path as above
-	// 3. If it doesn't exist on object store, return 404
-	// 4. Once in the local disk, load the index
-	// 5. Searve the search.
-	return &SearchResponse{}, nil
+	// TODO(kavi): Use proper `path.Join`
+	localPath := fmt.Sprintf("%s/%s/%s/%s", a.offload.DataPath, strings.ToLower(req.Collection), strings.ToLower(req.Tenant), defaultLSMRoot)
+	store, err := lsmkv.New(localPath, localPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
+	}
+
+	if err := store.CreateOrLoadBucket(ctx, defaultLSMObjectsBucket); err != nil {
+		return nil, fmt.Errorf("failed to load objects bucket in store: %w", err)
+	}
+
+	bkt := store.Bucket(defaultLSMObjectsBucket)
+
+	var resp SearchResponse
+
+	if err := bkt.IterateObjects(ctx, func(object *storobj.Object) error {
+		resp.objects = append(resp.objects, object)
+		return nil
+	}); err != nil {
+	}
+
+	return &resp, nil
 }
 
 type SearchRequest struct {
@@ -95,5 +123,5 @@ type SearchRequest struct {
 }
 
 type SearchResponse struct {
-	IDs []string
+	objects []*storobj.Object
 }
