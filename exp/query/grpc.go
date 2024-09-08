@@ -51,5 +51,15 @@ func requestFromProto(req *protocol.SearchRequest) *SearchRequest {
 }
 
 func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
-	return &protocol.SearchReply{}
+	var resp protocol.SearchReply
+
+	// TODO(kavi): copy rest of the fields accordingly.
+	for _, v := range res.objects {
+		resp.Results = append(resp.Results, &protocol.SearchResult{
+			Metadata: &protocol.MetadataResult{
+				Id: v.ID().String(),
+			},
+		})
+	}
+	return &resp
 }
