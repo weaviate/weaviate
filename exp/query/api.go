@@ -112,6 +112,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		resp.objects = append(resp.objects, object)
 		return nil
 	}); err != nil {
+		return nil, fmt.Errorf("failed to iterate objects in store: %w", err)
 	}
 
 	return &resp, nil
