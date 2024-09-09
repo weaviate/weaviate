@@ -231,6 +231,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			methodName: "DeleteObjects",
 			additionalArgs: []interface{}{
 				&models.BatchDeleteMatch{},
+				(*int64)(nil),
 				(*bool)(nil),
 				(*string)(nil),
 				&additional.ReplicationProperties{},
