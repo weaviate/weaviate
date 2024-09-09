@@ -71,7 +71,6 @@ type Value struct {
 	unknownFields protoimpl.UnknownFields
 
 	// Types that are assignable to Kind:
-	//
 	//	*Value_NumberValue
 	//	*Value_StringValue
 	//	*Value_BoolValue
@@ -207,7 +206,7 @@ func (x *Value) GetNullValue() structpb.NullValue {
 	if x, ok := x.GetKind().(*Value_NullValue); ok {
 		return x.NullValue
 	}
-	return structpb.NullValue(0)
+	return structpb.NullValue_NULL_VALUE
 }
 
 type isValue_Kind interface {
@@ -583,7 +582,7 @@ func file_v1_properties_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_properties_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
-var file_v1_properties_proto_goTypes = []any{
+var file_v1_properties_proto_goTypes = []interface{}{
 	(*Properties)(nil),      // 0: weaviate.v1.Properties
 	(*Value)(nil),           // 1: weaviate.v1.Value
 	(*ListValue)(nil),       // 2: weaviate.v1.ListValue
@@ -614,7 +613,7 @@ func file_v1_properties_proto_init() {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_v1_properties_proto_msgTypes[0].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Properties); i {
 			case 0:
 				return &v.state
@@ -626,7 +625,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[1].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Value); i {
 			case 0:
 				return &v.state
@@ -638,7 +637,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[2].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ListValue); i {
 			case 0:
 				return &v.state
@@ -650,7 +649,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[3].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GeoCoordinate); i {
 			case 0:
 				return &v.state
@@ -662,7 +661,7 @@ func file_v1_properties_proto_init() {
 				return nil
 			}
 		}
-		file_v1_properties_proto_msgTypes[4].Exporter = func(v any, i int) any {
+		file_v1_properties_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*PhoneNumber); i {
 			case 0:
 				return &v.state
@@ -675,7 +674,7 @@ func file_v1_properties_proto_init() {
 			}
 		}
 	}
-	file_v1_properties_proto_msgTypes[1].OneofWrappers = []any{
+	file_v1_properties_proto_msgTypes[1].OneofWrappers = []interface{}{
 		(*Value_NumberValue)(nil),
 		(*Value_StringValue)(nil),
 		(*Value_BoolValue)(nil),
