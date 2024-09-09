@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -61,10 +62,11 @@ func TestBatchDeleteRequest(t *testing.T) {
 				Filters:    simpleFilterInput,
 			},
 			out: objects.BatchDeleteParams{
-				ClassName: schema.ClassName(collection),
-				DryRun:    false,
-				Output:    "minimal",
-				Filters:   simpleFilterOutput,
+				ClassName:    schema.ClassName(collection),
+				DeletionTime: time.UnixMilli(0),
+				DryRun:       false,
+				Output:       "minimal",
+				Filters:      simpleFilterOutput,
 			},
 			error: nil,
 		},
@@ -86,10 +88,11 @@ func TestBatchDeleteRequest(t *testing.T) {
 				DryRun:     true,
 			},
 			out: objects.BatchDeleteParams{
-				ClassName: schema.ClassName(collection),
-				DryRun:    true,
-				Output:    "minimal",
-				Filters:   simpleFilterOutput,
+				ClassName:    schema.ClassName(collection),
+				DeletionTime: time.UnixMilli(0),
+				DryRun:       true,
+				Output:       "minimal",
+				Filters:      simpleFilterOutput,
 			},
 			error: nil,
 		},
@@ -102,10 +105,11 @@ func TestBatchDeleteRequest(t *testing.T) {
 				Verbose:    true,
 			},
 			out: objects.BatchDeleteParams{
-				ClassName: schema.ClassName(collection),
-				DryRun:    false,
-				Output:    "verbose",
-				Filters:   simpleFilterOutput,
+				ClassName:    schema.ClassName(collection),
+				DeletionTime: time.UnixMilli(0),
+				DryRun:       false,
+				Output:       "verbose",
+				Filters:      simpleFilterOutput,
 			},
 			error: nil,
 		},
