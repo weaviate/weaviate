@@ -335,7 +335,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorIndexTombstoneUnexpected: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "vector_index_tombstone_unexpected_total",
 			Help: "Total number of unexpected tombstones that were found, for example because a vector was not found for an existing id in the index",
-		}, []string{"class_name", "shard_name"}),
+		}, []string{"class_name", "shard_name", "operation"}),
 		VectorIndexOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_operations",
 			Help: "Total number of mutating operations on the vector index",
