@@ -22,7 +22,9 @@ export DISABLE_TELEMETRY=true # disable telemetry for local development
 
 function go_run() {
   GIT_HASH=$(git rev-parse --short HEAD)
-  go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" "$@"
+   go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH \
+   -X github.com/weaviate/weaviate/usecases/config.IMAGE_TAG=localhost" \
+   "$@"
 }
 
 case $CONFIG in
@@ -69,6 +71,7 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
+      RAFT_FORCE_ONE_NODE_RECOVERY="true" \
       RAFT_BOOTSTRAP_EXPECT=3 \
       go_run ./cmd/weaviate-server \
         --scheme http \
@@ -504,6 +507,28 @@ case $CONFIG in
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+
+  local-single-offload-node)
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      PERSISTENCE_DATA_PATH="./data-weaviate-0" \
+      BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
+      ENABLE_MODULES="backup-filesystem,offload-s3" \
+      PROMETHEUS_MONITORING_PORT="2112" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RAFT_BOOTSTRAP_EXPECT=1 \
+      OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
+      AWS_ACCESS_KEY_ID="aws_access_key"\
+      AWS_SECRET_KEY="aws_secret_key"\
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

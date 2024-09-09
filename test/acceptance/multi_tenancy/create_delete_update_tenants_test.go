@@ -12,15 +12,19 @@
 package test
 
 import (
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
+	eschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
+	uschema "github.com/weaviate/weaviate/usecases/schema"
 )
 
 var verbose = verbosity.OutputVerbose
@@ -88,14 +92,16 @@ func TestCreateTenants(t *testing.T) {
 		assert.ElementsMatch(t, expectedTenants, foundTenants)
 	})
 
-	t.Run("Create duplicate tenant once", func(Z *testing.T) {
+	t.Run("Create duplicate tenant once", func(t *testing.T) {
 		defer func() {
 			helper.DeleteClass(t, testClass.Class)
 		}()
 		helper.CreateClass(t, &testClass)
 		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}, {Name: "DoubleTenant"}})
-		require.Nil(t, err)
+		require.NotNil(t, err)
 
+		err = helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{{Name: "DoubleTenant"}})
+		require.Nil(t, err)
 		// only added once
 		respGet, errGet := helper.GetTenants(t, testClass.Class)
 		require.Nil(t, errGet)
@@ -132,6 +138,62 @@ func TestCreateTenants(t *testing.T) {
 				require.NotNil(t, err)
 			})
 		}
+	})
+
+	t.Run("Create and update more than 100 tenant", func(Z *testing.T) {
+		expectedTenants := make([]string, 101)
+
+		for idx := 0; idx < 101; idx++ {
+			expectedTenants[idx] = fmt.Sprintf("Tenant%d", idx)
+		}
+
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+
+		helper.CreateClass(t, &testClass)
+
+		tenants := make([]*models.Tenant, len(expectedTenants))
+
+		for i := range tenants {
+			tenants[i] = &models.Tenant{
+				Name:           expectedTenants[i],
+				ActivityStatus: models.TenantActivityStatusCOLD,
+			}
+		}
+
+		err := helper.CreateTenantsReturnError(t, testClass.Class, tenants)
+		require.Nil(t, err)
+
+		err = helper.UpdateTenantsReturnError(t, testClass.Class, tenants)
+		require.NotNil(t, err)
+		ee := &eschema.TenantsUpdateUnprocessableEntity{}
+		require.True(t, errors.As(err, &ee))
+		require.Equal(t, uschema.ErrMsgMaxAllowedTenants, ee.Payload.Error[0].Message)
+	})
+
+	t.Run("Create same tenant with different status", func(Z *testing.T) {
+		defer func() {
+			helper.DeleteClass(t, testClass.Class)
+		}()
+
+		helper.CreateClass(t, &testClass)
+
+		err := helper.CreateTenantsReturnError(t, testClass.Class, []*models.Tenant{
+			{
+				Name:           "Tenant1",
+				ActivityStatus: models.TenantActivityStatusCOLD,
+			},
+			{
+				Name:           "Tenant1",
+				ActivityStatus: models.TenantActivityStatusHOT,
+			},
+		})
+		require.NotNil(t, err)
+		ee := &eschema.TenantsCreateUnprocessableEntity{}
+		as := errors.As(err, &ee)
+		require.True(t, as)
+		require.Contains(t, ee.Payload.Error[0].Message, "existed multiple times")
 	})
 }
 

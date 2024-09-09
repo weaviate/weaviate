@@ -72,7 +72,7 @@ func createSingleNodeEnvironmentWithEnabledApiBasedModules(ctx context.Context) 
 
 func createClusterEnvironment(ctx context.Context) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules().
-		WithWeaviateCluster(2).
+		WithWeaviateCluster(3).
 		Start(ctx)
 	return
 }
@@ -93,6 +93,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithGenerativeAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeAnyscale().
 		WithGenerativeAnthropic(os.Getenv("ANTHROPIC_APIKEY")).
+		WithGenerativeFriendliAI(os.Getenv("FRIENDLI_TOKEN")).
 		WithQnAOpenAI().
 		WithRerankerCohere().
 		WithRerankerVoyageAI()

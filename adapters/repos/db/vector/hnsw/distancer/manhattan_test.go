@@ -24,11 +24,10 @@ func TestManhattanDistancer(t *testing.T) {
 		vec2 := []float32{3, 4, 5}
 		expectedDistance := float32(0)
 
-		dist, ok, err := NewManhattanProvider().New(vec1).Distance(vec2)
+		dist, err := NewManhattanProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewManhattanProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewManhattanProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -40,11 +39,10 @@ func TestManhattanDistancer(t *testing.T) {
 		// distance will be abs(3-1.5) + abs(4-2) + abs(5-2.5) = 1.5 + 2 + 2.5 = 6
 		expectedDistance := float32(6)
 
-		dist, ok, err := NewManhattanProvider().New(vec1).Distance(vec2)
+		dist, err := NewManhattanProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewManhattanProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewManhattanProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -56,11 +54,10 @@ func TestManhattanDistancer(t *testing.T) {
 		// distance will be calculated as abs(10-13) + abs(11-15) = 3 + 4 = 7
 		expectedDistance := float32(7)
 
-		dist, ok, err := NewManhattanProvider().New(vec1).Distance(vec2)
+		dist, err := NewManhattanProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
-		control, ok, err := NewManhattanProvider().SingleDist(vec1, vec2)
-		require.True(t, ok)
+
+		control, err := NewManhattanProvider().SingleDist(vec1, vec2)
 		require.Nil(t, err)
 		assert.Equal(t, control, dist)
 		assert.Equal(t, expectedDistance, dist)
@@ -72,9 +69,8 @@ func TestManhattanDistancerStepbyStep(t *testing.T) {
 		vec1 := []float32{3, 4, 5}
 		vec2 := []float32{1.5, 2, 2.5}
 
-		expectedDistance, ok, err := NewManhattanProvider().New(vec1).Distance(vec2)
+		expectedDistance, err := NewManhattanProvider().New(vec1).Distance(vec2)
 		require.Nil(t, err)
-		require.True(t, ok)
 
 		distanceProvider := NewManhattanProvider()
 		sum := float32(0.0)

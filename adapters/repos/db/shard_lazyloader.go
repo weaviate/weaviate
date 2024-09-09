@@ -329,10 +329,10 @@ func (l *LazyLoadShard) drop() error {
 				idx.vectorIndexUserConfig, idx.vectorIndexUserConfigs)
 		}
 
-		// cleanup queue
+		// cleanup index checkpoints
 		if l.shardOpts.indexCheckpoints != nil {
-			if err := l.shardOpts.indexCheckpoints.Drop(); err != nil {
-				return fmt.Errorf("delete checkpoint: %w", err)
+			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
+				return fmt.Errorf("delete shard index checkpoints: %w", err)
 			}
 		}
 
@@ -347,9 +347,16 @@ func (l *LazyLoadShard) drop() error {
 	return l.shard.drop()
 }
 
-func (l *LazyLoadShard) createPropertyIndex(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) error {
+func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.DebugResetVectorIndex(ctx, targetVector)
+}
+
+func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
 	l.mustLoad()
-	return l.shard.createPropertyIndex(ctx, eg, props...)
+	l.shard.initPropertyBuckets(ctx, eg, props...)
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context) error {
@@ -427,6 +434,16 @@ func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, s
 		return nil, err
 	}
 	return l.shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
+}
+
+func (l *LazyLoadShard) PreloadQueue(targetVector string) error {
+	l.mustLoad()
+	return l.shard.PreloadQueue(targetVector)
+}
+
+func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RepairIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {

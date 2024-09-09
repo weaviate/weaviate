@@ -14,6 +14,7 @@ package v1
 import (
 	"fmt"
 
+	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/go-openapi/strfmt"
@@ -25,11 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	additional2 "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
@@ -226,6 +225,18 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			vector = hs.Vector
 		}
 
+		var distance float32
+		withDistance := false
+		if hs.Threshold != nil {
+			withDistance = true
+			switch hs.Threshold.(type) {
+			case *pb.Hybrid_VectorDistance:
+				distance = hs.Threshold.(*pb.Hybrid_VectorDistance).VectorDistance
+			default:
+				return dto.GetParams{}, fmt.Errorf("unknown value type %v", hs.Threshold)
+			}
+		}
+
 		nearTxt, err := extractNearText(out.ClassName, out.Pagination.Limit, req.HybridSearch.NearText, targetVectors)
 		if err != nil {
 			return dto.GetParams{}, err
@@ -239,6 +250,8 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 			Alpha:           float64(hs.Alpha),
 			FusionAlgorithm: fusionType,
 			TargetVectors:   targetVectors,
+			Distance:        distance,
+			WithDistance:    withDistance,
 		}
 
 		if nearVec != nil {
@@ -812,6 +825,12 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 		Vectors:            prop.Vectors,
 	}
 
+	if vectorSearch && configvalidation.CheckCertaintyCompatibility(class, targetVectors) != nil {
+		props.Certainty = false
+	} else {
+		props.Certainty = prop.Certainty
+	}
+
 	// return all named vectors if vector is true
 	if prop.Vector && len(class.VectorConfig) > 0 {
 		props.Vectors = make([]string, 0, len(class.VectorConfig))
@@ -819,24 +838,6 @@ func extractAdditionalPropsFromMetadata(class *models.Class, prop *pb.MetadataRe
 			props.Vectors = append(props.Vectors, vectorName)
 		}
 
-	}
-
-	if vectorSearch {
-		vectorIndex, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
-		if err != nil {
-			return props, errors.Wrap(err, "get vector index config from class")
-		}
-
-		certainty := false
-		for _, conf := range vectorIndex {
-			if conf.DistanceName() == common.DistanceCosine && prop.Certainty {
-				certainty = true
-			} else {
-				certainty = false
-				break // all vector indexes must be cosine for certainty
-			}
-		}
-		props.Certainty = certainty
 	}
 
 	return props, nil

@@ -9,15 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package configbase
+package clients
 
-import "strings"
-
-func Enabled(value string) bool {
-	switch strings.ToLower(value) {
-	case "on", "enabled", "1", "true":
-		return true
-	default:
-		return false
-	}
+func (v *databricks) MetaInfo() (map[string]interface{}, error) {
+	return map[string]interface{}{
+		"name":              "Generative Search - Databricks",
+		"documentationHref": "https://docs.databricks.com/en/machine-learning/foundation-models/api-reference.html#completion-task",
+	}, nil
 }
