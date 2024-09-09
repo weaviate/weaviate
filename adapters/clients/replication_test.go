@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -151,7 +152,7 @@ func TestReplicationDeleteObject(t *testing.T) {
 	ctx := context.Background()
 	uuid := UUID1
 	deletionTime := time.Now()
-	path := "/replicas/indices/C1/shards/S1/objects/" + uuid.String()
+	path := fmt.Sprintf("/replicas/indices/C1/shards/S1/objects/%s/%d", uuid.String(), deletionTime.UnixMilli())
 	fs := newFakeReplicationServer(t, http.MethodDelete, path)
 	ts := fs.server(t)
 	defer ts.Close()
