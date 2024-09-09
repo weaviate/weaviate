@@ -9,8 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build cuvs
-
 package cuvs_index
 
 import (

@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"time"
 
 	"io"
 	"sync"
@@ -108,6 +107,10 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 
 	cuvsIndexParams, err := cagra.CreateIndexParams()
 
+	cuvsIndexParams.SetGraphDegree(32)
+	cuvsIndexParams.SetIntermediateGraphDegree(32)
+	cuvsIndexParams.SetBuildAlgo(cagra.NnDescent)
+
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +133,8 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		idCuvsIdMap:     make(map[uint32]uint64),
 	}
 
-	index.searchBatcher = NewSearchBatcher(index, 16, 5000*time.Microsecond)
+	// index.searchBatcher = NewSearchBatcher(index, 512, 40000*time.Microsecond)
+	index.searchBatcher = nil
 
 	// if err := index.initBuckets(context.Background()); err != nil {
 	// 	return nil, fmt.Errorf("init cuvs index buckets: %w", err)
@@ -267,7 +271,7 @@ func AddWithRebuild(index *cuvs_index, id []uint64, vector [][]float32) error {
 
 	// index.dlpackTensor.Expand(index.cuvsResource, vector)
 	if index.dlpackTensor == nil {
-		tensor, err := cuvs.NewTensor(false, vector)
+		tensor, err := cuvs.NewTensor(false, vector, true)
 		if err != nil {
 			return err
 		}
@@ -305,7 +309,7 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 	// id = id[:64]
 	// vector = vector[:64]
 
-	tensor, err := cuvs.NewTensor(true, vector)
+	tensor, err := cuvs.NewTensor(true, vector, false)
 	if err != nil {
 		return err
 	}
@@ -326,7 +330,7 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 		ReturnDataset[i] = make([]float32, len(vector[0]))
 	}
 
-	returnTensor, err := cuvs.NewTensor(true, ReturnDataset)
+	returnTensor, err := cuvs.NewTensor(true, ReturnDataset, false)
 	if err != nil {
 		return err
 	}
@@ -367,7 +371,10 @@ func (index *cuvs_index) Delete(ids ...uint64) error {
 }
 
 func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error) {
-	return index.searchBatcher.SearchByVector(context.Background(), vector, k, allow)
+	if index.searchBatcher != nil {
+		return index.searchBatcher.SearchByVector(context.Background(), vector, k, allow)
+
+	}
 	// index.Lock()
 	// defer index.Unlock()
 	// start := time.Now()
@@ -398,7 +405,7 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	// fmt.Printf("ToDevice duration: %v\n", toDeviceDuration)
 
 	// queriesStart := time.Now()
-	queries, err := cuvs.NewTensor(true, [][]float32{vector})
+	queries, err := cuvs.NewTensor(true, [][]float32{vector}, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -406,28 +413,38 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	// fmt.Printf("NewTensor for queries duration: %v\n", queriesDuration)
 
 	// neighborsStart := time.Now()
-	// neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(1), int64(k)}, false)
-	NeighborsDataset := make([][]uint32, 1)
-	for i := range NeighborsDataset {
-		NeighborsDataset[i] = make([]uint32, k)
-	}
-	DistancesDataset := make([][]float32, 1)
-	for i := range DistancesDataset {
-		DistancesDataset[i] = make([]float32, k)
-	}
-
-	neighbors, err := cuvs.NewTensor(true, NeighborsDataset)
+	// index.cuvsResource.Sync()
+	// queries, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(1), int64(len(vector))}, false)
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
+	neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(1), int64(k)}, false)
 	if err != nil {
 		return nil, nil, err
 	}
+	distances, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(1), int64(k)}, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	// NeighborsDataset := make([][]uint32, 1)
+	// for i := range NeighborsDataset {
+	// 	NeighborsDataset[i] = make([]uint32, k)
+	// }
+	// DistancesDataset := make([][]float32, 1)
+	// for i := range DistancesDataset {
+	// 	DistancesDataset[i] = make([]float32, k)
+	// }
+
+	// neighbors, err := cuvs.NewTensor(true, NeighborsDataset, false)
+
 	// neighborsDuration := time.Since(neighborsStart)
 	// fmt.Printf("NewTensorOnDevice for neighbors duration: %v\n", neighborsDuration)
 
 	// distancesStart := time.Now()
-	distances, err := cuvs.NewTensor(true, DistancesDataset)
-	if err != nil {
-		return nil, nil, err
-	}
+	// distances, err := cuvs.NewTensor(true, DistancesDataset, false)
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
 	// distancesDuration := time.Since(distancesStart)
 	// fmt.Printf("NewTensorOnDevice for distances duration: %v\n", distancesDuration)
 
@@ -437,14 +454,14 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 		return nil, nil, err
 	}
 
-	_, err = neighbors.ToDevice(index.cuvsResource)
-	if err != nil {
-		return nil, nil, err
-	}
-	_, err = distances.ToDevice(index.cuvsResource)
-	if err != nil {
-		return nil, nil, err
-	}
+	// _, err = neighbors.ToDevice(index.cuvsResource)
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
+	// _, err = distances.ToDevice(index.cuvsResource)
+	// if err != nil {
+	// 	return nil, nil, err
+	// }
 
 	// queriesToDeviceDuration := time.Since(queriesToDeviceStart)
 	// fmt.Printf("Queries ToDevice duration: %v\n", queriesToDeviceDuration)
@@ -453,6 +470,8 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	// paramsStart := time.Now()
 	params, err := cagra.CreateSearchParams()
 	params.SetAlgo(cagra.SearchAlgoMultiCta)
+	params.SetItopkSize(256)
+
 	// params.SetHashmapMode(cagra.HashmapModeSmall)
 	// params.SetMaxQueries(1)
 	// paramsDuration := time.Since(paramsStart)
@@ -461,15 +480,28 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 
 	// dummyTensor.ToHost(index.cuvsResource)
 	// searchStart := time.Now()
+	// index.cuvsResource.Sync()
 	cagra.SearchIndex(*index.cuvsResource, params, index.cuvsIndex, &queries, &neighbors, &distances)
+
 	// index.cuvsResource.Sync()
 	// searchDuration := time.Since(searchStart)
 	// fmt.Printf("SearchIndex duration: %v\n", searchDuration)
 	// wait 200 microseconds
 	// time.Sleep(200 * time.Microsecond)
 	// toHostStart := time.Now()
-	distances.ToHost(index.cuvsResource)
-	neighbors.ToHost(index.cuvsResource)
+	_, err = neighbors.ToHost(index.cuvsResource)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	_, err = distances.ToHost(index.cuvsResource)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// index.cuvsResource.Sync()
 
 	// toHostDuration := time.Since(toHostStart)
 	// fmt.Printf("ToHost duration: %v\n", toHostDuration)
@@ -487,9 +519,11 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 
 	// resultProcessingStart := time.Now()
 	neighborsResultSlice := make([]uint64, k)
+	// index.Lock()
 	for i := range neighborsSlice[0] {
 		neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
 	}
+	// index.Unlock()
 	// resultProcessingDuration := time.Since(resultProcessingStart)
 	// fmt.Printf("Result processing duration: %v\n", resultProcessingDuration)
 
@@ -504,48 +538,24 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 }
 
 func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow helpers.AllowList) ([][]uint64, [][]float32, error) {
-	// index.Lock()
-	// defer index.Unlock()
+	index.Lock()
+	defer index.Unlock()
 
 	for v := range vector {
 		vector[v] = Normalize_Temp(vector[v])
 	}
 
-	tensor, err := cuvs.NewTensor(false, vector)
+	queries, err := cuvs.NewTensor(true, vector, false)
 
 	if err != nil {
 		return nil, nil, err
 	}
 
-	_, err = tensor.ToDevice(index.cuvsResource)
-
+	neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(len(vector)), int64(k)}, false)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	queries, err := cuvs.NewTensor(true, vector)
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	NeighborsDataset := make([][]uint32, len(vector))
-	for i := range NeighborsDataset {
-		NeighborsDataset[i] = make([]uint32, k)
-	}
-	DistancesDataset := make([][]float32, len(vector))
-	for i := range DistancesDataset {
-		DistancesDataset[i] = make([]float32, k)
-	}
-
-	neighbors, err := cuvs.NewTensor(true, NeighborsDataset)
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	distances, err := cuvs.NewTensor(true, DistancesDataset)
-
+	distances, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(len(vector)), int64(k)}, false)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -556,23 +566,15 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 		return nil, nil, err
 	}
 
-	_, err = neighbors.ToDevice(index.cuvsResource)
-
-	if err != nil {
-		return nil, nil, err
-	}
-	_, err = distances.ToDevice(index.cuvsResource)
-
-	if err != nil {
-		return nil, nil, err
-	}
-
 	params, err := cagra.CreateSearchParams()
 
+	// index.cuvsResource.Sync()
 	cagra.SearchIndex(*index.cuvsResource, params, index.cuvsIndex, &queries, &neighbors, &distances)
 
+	// index.cuvsResource.Sync()
 	neighbors.ToHost(index.cuvsResource)
 	distances.ToHost(index.cuvsResource)
+	// index.cuvsResource.Sync()
 
 	neighborsSlice, err := neighbors.GetArray()
 
@@ -587,12 +589,14 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 	}
 
 	neighborsResultSlice := make([][]uint64, len(vector))
+	// index.Lock()
 	for j := range neighborsSlice {
 		neighborsResultSlice[j] = make([]uint64, k)
 		for i := range neighborsSlice[j] {
 			neighborsResultSlice[j][i] = index.idCuvsIdMap[neighborsSlice[j][i]]
 		}
 	}
+	// index.Unlock()
 
 	return neighborsResultSlice, distancesSlice, nil
 

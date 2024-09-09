@@ -19,14 +19,12 @@ import (
 	"log"
 	"math"
 	"os"
-	"runtime/pprof"
 	"testing"
 	"time"
 
 	cuvs "github.com/rapidsai/cuvs/go"
 	"github.com/sirupsen/logrus/hooks/test"
 	cuvsEnt "github.com/weaviate/weaviate/entities/vectorindex/cuvs"
-	"golang.org/x/exp/rand"
 
 	"github.com/weaviate/hdf5"
 )
@@ -67,7 +65,9 @@ func TestBench(t *testing.T) {
 		panic(err)
 	}
 
-	file, err := hdf5.OpenFile("/home/ajit/datasets/sift-128-euclidean.hdf5", hdf5.F_ACC_RDONLY)
+	// file, err := hdf5.OpenFile("/home/ajit/datasets/sift-128-euclidean.hdf5", hdf5.F_ACC_RDONLY)
+	file, err := hdf5.OpenFile("/home/ajit/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
+	// file, err := hdf5.OpenFile("/home/ajit/datasets/fashion-mnist-784-euclidean.hdf5", hdf5.F_ACC_RDONLY)
 	if err != nil {
 		t.Fatalf("Error opening file: %v\n", err)
 	}
@@ -90,10 +90,10 @@ func TestBench(t *testing.T) {
 	defer f.Close()
 
 	// Start CPU profiling
-	if err := pprof.StartCPUProfile(f); err != nil {
-		log.Fatal("could not start CPU profile: ", err)
-	}
-	defer pprof.StopCPUProfile()
+	// if err := pprof.StartCPUProfile(f); err != nil {
+	// 	log.Fatal("could not start CPU profile: ", err)
+	// }
+	// defer pprof.StopCPUProfile()
 
 	QueryVectors(index, testdataset, t)
 
@@ -113,12 +113,12 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 	rows := dims[0]
 	dimensions := dims[1]
 
-	// rows = uint(1_000_000)
-	rows = uint(1_000)
+	rows = uint(990_000)
+	// rows = uint(1_000)
 
 	// batchSize := uint(30_000)
-	// batchSize := uint(1_000_000)
-	batchSize := uint(1_000)
+	batchSize := uint(990_000)
+	// batchSize := uint(1_000)
 
 	// Handle offsetting the data for product quantization
 	// i := uint(0)
@@ -197,16 +197,16 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 		// 	ids[i] = uint64(i)
 		// }
 
-		NDataPoints := batchSize
-		NFeatures := 128
+		// NDataPoints := batchSize
+		// NFeatures := 1536
 
-		TestDataset := make([][]float32, NDataPoints)
-		for i := range TestDataset {
-			TestDataset[i] = make([]float32, NFeatures)
-			for j := range TestDataset[i] {
-				TestDataset[i][j] = rand.Float32()
-			}
-		}
+		// TestDataset := make([][]float32, NDataPoints)
+		// for i := range TestDataset {
+		// 	TestDataset[i] = make([]float32, NFeatures)
+		// 	for j := range TestDataset[i] {
+		// 		TestDataset[i][j] = rand.Float32()
+		// 	}
+		// }
 
 		// neatly print chunkData
 		// for i := range chunkData {
@@ -217,11 +217,11 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 		// 	}
 		// }
 
-		for i := range TestDataset {
-			for j := range TestDataset[i] {
-				TestDataset[i][j] = chunkData[i][j]
-			}
-		}
+		// for i := range TestDataset {
+		// 	for j := range TestDataset[i] {
+		// 		TestDataset[i][j] = chunkData[i][j]
+		// 	}
+		// }
 
 		for i := range chunkData {
 			for j := range chunkData[i] {
@@ -246,14 +246,9 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 		// }
 
 		println("chunk data vector len: ", len(chunkData[0]))
-		if len(chunkData[0]) != 128 {
-			panic("chunk data vector len is not 128")
-		}
 
 		for i := range chunkData {
-			if len(chunkData[i]) != 128 {
-				log.Printf("Invalid vector length: %d", len(chunkData[i]))
-			}
+
 			for j := range chunkData[i] {
 				if math.IsNaN(float64(chunkData[i][j])) || math.IsInf(float64(chunkData[i][j]), 0) {
 					log.Printf("Invalid value at [%d][%d]: %f", i, j, chunkData[i][j])
@@ -272,18 +267,18 @@ func LoadVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 			}
 		}
 
-		minVal, maxVal := float32(math.Inf(1)), float32(math.Inf(-1))
-		for _, vec := range TestDataset {
-			for _, val := range vec {
-				if val < minVal {
-					minVal = val
-				}
-				if val > maxVal {
-					maxVal = val
-				}
-			}
-		}
-		log.Printf("TestDataset range: [%f, %f]", minVal, maxVal)
+		// minVal, maxVal := float32(math.Inf(1)), float32(math.Inf(-1))
+		// for _, vec := range TestDataset {
+		// 	for _, val := range vec {
+		// 		if val < minVal {
+		// 			minVal = val
+		// 		}
+		// 		if val > maxVal {
+		// 			maxVal = val
+		// 		}
+		// 	}
+		// }
+		// log.Printf("TestDataset range: [%f, %f]", minVal, maxVal)
 
 		err := index.AddBatch(context.Background(), ids, chunkData)
 		if err != nil {

@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package cuvs_index
 
 import (
@@ -50,7 +61,7 @@ func (sb *SearchBatcher) run() {
 			sb.mu.Lock()
 			sb.pendingRequests = append(sb.pendingRequests, req)
 			// println("append")
-			// println(len(sb.pendingRequests))
+			println(len(sb.pendingRequests))
 			if len(sb.pendingRequests) == 1 {
 				sb.timer = time.AfterFunc(sb.maxWaitTime, func() {
 					sb.mu.Lock()
@@ -60,11 +71,12 @@ func (sb *SearchBatcher) run() {
 				})
 			}
 			if len(sb.pendingRequests) >= sb.batchSize {
+				// fmt.Println("max batch, batching with batch size", len(sb.pendingRequests))
 				if sb.timer != nil {
 					sb.timer.Stop()
 				}
 				// print "batching with batch size"
-				fmt.Println("max batch, batching with batch size", len(sb.pendingRequests))
+
 				sb.processBatch()
 			}
 			sb.mu.Unlock()
