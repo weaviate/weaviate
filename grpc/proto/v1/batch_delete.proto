@@ -15,7 +15,7 @@ message BatchDeleteRequest {
   bool dry_run = 4;
   optional ConsistencyLevel consistency_level = 5;
   optional string tenant = 6;
-  int64 deletionTimeUnixMilli = 7;
+  int64 deletion_time_unix_milli = 7;
 }
 
 message BatchDeleteReply {

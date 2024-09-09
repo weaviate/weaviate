@@ -28,7 +28,7 @@ type BatchDeleteRequest struct {
 	DryRun                bool              `protobuf:"varint,4,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	ConsistencyLevel      *ConsistencyLevel `protobuf:"varint,5,opt,name=consistency_level,json=consistencyLevel,proto3,enum=weaviate.v1.ConsistencyLevel,oneof" json:"consistency_level,omitempty"`
 	Tenant                *string           `protobuf:"bytes,6,opt,name=tenant,proto3,oneof" json:"tenant,omitempty"`
-	DeletionTimeUnixMilli int64             `protobuf:"varint,7,opt,name=deletionTimeUnixMilli,proto3" json:"deletionTimeUnixMilli,omitempty"`
+	DeletionTimeUnixMilli int64             `protobuf:"varint,7,opt,name=deletion_time_unix_milli,json=deletionTimeUnixMilli,proto3" json:"deletion_time_unix_milli,omitempty"`
 }
 
 func (x *BatchDeleteRequest) Reset() {
