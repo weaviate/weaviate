@@ -123,6 +123,13 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
+	for nodesDeleted := range res.NodesDeleted {
+		if err := c.DeleteNode(nodesDeleted); err != nil {
+			return errors.Wrapf(err,
+				"write deleted node %d to commit log", nodesDeleted)
+		}
+	}
+
 	if err := c.newLog.Flush(); err != nil {
 		return errors.Wrap(err, "close new commit log")
 	}
@@ -188,6 +195,14 @@ func (c *MemoryCondensor) AddNode(node *vertex) error {
 	ec.Add(c.writeCommitType(c.newLog, AddNode))
 	ec.Add(c.writeUint64(c.newLog, node.id))
 	ec.Add(c.writeUint16(c.newLog, uint16(node.level)))
+
+	return ec.ToError()
+}
+
+func (c *MemoryCondensor) DeleteNode(id uint64) error {
+	ec := &errorcompounder.ErrorCompounder{}
+	ec.Add(c.writeCommitType(c.newLog, DeleteNode))
+	ec.Add(c.writeUint64(c.newLog, id))
 
 	return ec.ToError()
 }
