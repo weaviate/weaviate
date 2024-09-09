@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -47,7 +48,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingExists(ctx context.Context, shardName string,
 		id strfmt.UUID) (bool, error)
 	IncomingDeleteObject(ctx context.Context, shardName string,
-		id strfmt.UUID) error
+		id strfmt.UUID, deletionTime time.Time) error
 	IncomingMergeObject(ctx context.Context, shardName string,
 		mergeDoc objects.MergeDocument) error
 	IncomingMultiGetObjects(ctx context.Context, shardName string,
@@ -64,7 +65,7 @@ type RemoteIndexIncomingRepo interface {
 	IncomingFindUUIDs(ctx context.Context, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	IncomingDeleteObjectBatch(ctx context.Context, shardName string,
-		uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects
 	IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error)
 	IncomingGetShardStatus(ctx context.Context, shardName string) (string, error)
 	IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string) error
@@ -149,14 +150,14 @@ func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 }
 
 func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
-	shardName string, id strfmt.UUID,
+	shardName string, id strfmt.UUID, deletionTime time.Time,
 ) error {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
 		return errors.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingDeleteObject(ctx, shardName, id)
+	return index.IncomingDeleteObject(ctx, shardName, id, deletionTime)
 }
 
 func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
@@ -218,7 +219,7 @@ func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardN
 }
 
 func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) objects.BatchSimpleObjects {
 	index := rii.repo.GetIndexForIncoming(schema.ClassName(indexName))
 	if index == nil {
@@ -226,7 +227,7 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	return index.IncomingDeleteObjectBatch(ctx, shardName, uuids, dryRun)
+	return index.IncomingDeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun)
 }
 
 func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,

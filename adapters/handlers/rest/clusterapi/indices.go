@@ -19,6 +19,8 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -102,7 +104,7 @@ type shards interface {
 	Exists(ctx context.Context, indexName, shardName string,
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, indexName, shardName string,
-		id strfmt.UUID) error
+		id strfmt.UUID, deletionTime time.Time) error
 	MergeObject(ctx context.Context, indexName, shardName string,
 		mergeDoc objects.MergeDocument) error
 	MultiGetObjects(ctx context.Context, indexName, shardName string,
@@ -118,7 +120,7 @@ type shards interface {
 	FindUUIDs(ctx context.Context, indexName, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, indexName, shardName string,
-		uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, indexName, shardName,
@@ -496,16 +498,26 @@ func (i *indices) checkExists(w http.ResponseWriter, r *http.Request,
 func (i *indices) deleteObject() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpObject.FindStringSubmatch(r.URL.Path)
-		if len(args) != 4 {
+		if len(args) < 4 || len(args) > 5 {
 			http.Error(w, "invalid URI", http.StatusBadRequest)
 			return
 		}
 
 		index, shard, id := args[1], args[2], args[3]
 
+		var deletionTime time.Time
+
+		if len(args) == 5 {
+			deletionTimeUnixMilli, err := strconv.ParseInt(args[4], 10, 64)
+			if err != nil {
+				http.Error(w, "invalid URI", http.StatusBadRequest)
+			}
+			deletionTime = time.UnixMilli(deletionTimeUnixMilli)
+		}
+
 		defer r.Body.Close()
 
-		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id))
+		err := i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), deletionTime)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -953,7 +965,7 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		uuids, dryRun, err := IndicesPayloads.BatchDeleteParams.
+		uuids, deletionTimeUnix, dryRun, err := IndicesPayloads.BatchDeleteParams.
 			Unmarshal(reqPayload)
 		if err != nil {
 			http.Error(w, "unmarshal find doc ids params from json: "+err.Error(),
@@ -961,7 +973,7 @@ func (i *indices) deleteObjects() http.Handler {
 			return
 		}
 
-		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, dryRun)
+		results := i.shards.DeleteObjectBatch(r.Context(), index, shard, uuids, deletionTimeUnix, dryRun)
 
 		resBytes, err := IndicesPayloads.BatchDeleteResults.Marshal(results)
 		if err != nil {

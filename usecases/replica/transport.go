@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -172,13 +173,13 @@ type wClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
 		obj *storobj.Object) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
-		id strfmt.UUID) (SimpleResponse, error)
+		id strfmt.UUID, deletionTime time.Time) (SimpleResponse, error)
 	PutObjects(ctx context.Context, host, index, shard, requestID string,
 		objs []*storobj.Object) (SimpleResponse, error)
 	MergeObject(ctx context.Context, host, index, shard, requestID string,
 		mergeDoc *objects.MergeDocument) (SimpleResponse, error)
 	DeleteObjects(ctx context.Context, host, index, shard, requestID string,
-		uuids []strfmt.UUID, dryRun bool) (SimpleResponse, error)
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) (SimpleResponse, error)
 	AddReferences(ctx context.Context, host, index, shard, requestID string,
 		refs []objects.BatchReference) (SimpleResponse, error)
 	Commit(ctx context.Context, host, index, shard, requestID string, resp interface{}) error

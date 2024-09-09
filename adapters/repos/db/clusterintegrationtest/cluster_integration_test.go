@@ -598,7 +598,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			}
 
 			node := nodes[rnd.Intn(len(nodes))]
-			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, nil, "")
+			err := node.repo.DeleteObject(context.Background(), distributedClass, obj.ID, time.Now(), nil, "")
 			require.Nil(t, err)
 		}
 	})

@@ -13,6 +13,7 @@ package replica
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -28,9 +29,9 @@ type RemoteIncomingRepo interface {
 	ReplicateUpdate(ctx context.Context, indexName,
 		shardName, requestID string, mergeDoc *objects.MergeDocument) SimpleResponse
 	ReplicateDeletion(ctx context.Context, indexName,
-		shardName, requestID string, uuid strfmt.UUID) SimpleResponse
+		shardName, requestID string, uuid strfmt.UUID, deletionTime time.Time) SimpleResponse
 	ReplicateDeletions(ctx context.Context, indexName,
-		shardName, requestID string, uuids []strfmt.UUID, dryRun bool) SimpleResponse
+		shardName, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) SimpleResponse
 	ReplicateReferences(ctx context.Context, indexName,
 		shardName, requestID string, refs []objects.BatchReference) SimpleResponse
 	CommitReplication(indexName,
@@ -77,15 +78,15 @@ func (rri *RemoteReplicaIncoming) ReplicateUpdate(ctx context.Context, indexName
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletion(ctx context.Context, indexName,
-	shardName, requestID string, uuid strfmt.UUID,
+	shardName, requestID string, uuid strfmt.UUID, deletionTime time.Time,
 ) SimpleResponse {
-	return rri.repo.ReplicateDeletion(ctx, indexName, shardName, requestID, uuid)
+	return rri.repo.ReplicateDeletion(ctx, indexName, shardName, requestID, uuid, deletionTime)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateDeletions(ctx context.Context, indexName,
-	shardName, requestID string, uuids []strfmt.UUID, dryRun bool,
+	shardName, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) SimpleResponse {
-	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, uuids, dryRun)
+	return rri.repo.ReplicateDeletions(ctx, indexName, shardName, requestID, uuids, deletionTime, dryRun)
 }
 
 func (rri *RemoteReplicaIncoming) ReplicateReferences(ctx context.Context, indexName,

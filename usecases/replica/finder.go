@@ -108,7 +108,11 @@ func (f *Finder) GetOne(ctx context.Context,
 			if len(xs) == 1 {
 				x = xs[0]
 			}
-			r := objects.Replica{ID: id, Deleted: x.Deleted}
+			r := objects.Replica{
+				ID:                      id,
+				Deleted:                 x.Deleted,
+				LastUpdateTimeUnixMilli: x.UpdateTime,
+			}
 			return findOneReply{host, x.Version, r, x.UpdateTime, true}, err
 		}
 	}

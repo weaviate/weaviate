@@ -32,7 +32,7 @@ import (
 type ReplicationConfig struct {
 
 	// Conflict resolution strategy for deleted objects
-	// Enum: [NoAutomatedResolution DeleteOnConflict]
+	// Enum: [NoAutomatedResolution DeleteOnConflict TimeBasedResolution]
 	DeletionStrategy string `json:"deletionStrategy,omitempty"`
 
 	// Number of times a class is replicated
@@ -57,7 +57,7 @@ var replicationConfigTypeDeletionStrategyPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["NoAutomatedResolution","DeleteOnConflict"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["NoAutomatedResolution","DeleteOnConflict","TimeBasedResolution"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -72,6 +72,9 @@ const (
 
 	// ReplicationConfigDeletionStrategyDeleteOnConflict captures enum value "DeleteOnConflict"
 	ReplicationConfigDeletionStrategyDeleteOnConflict string = "DeleteOnConflict"
+
+	// ReplicationConfigDeletionStrategyTimeBasedResolution captures enum value "TimeBasedResolution"
+	ReplicationConfigDeletionStrategyTimeBasedResolution string = "TimeBasedResolution"
 )
 
 // prop value enum

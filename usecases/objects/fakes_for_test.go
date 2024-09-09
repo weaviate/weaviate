@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -237,9 +238,9 @@ func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *a
 }
 
 func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
-	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
+	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string,
 ) error {
-	args := f.Called(className, id)
+	args := f.Called(className, id, deletionTime)
 	return args.Error(0)
 }
 

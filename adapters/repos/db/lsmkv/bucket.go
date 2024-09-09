@@ -602,49 +602,69 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // There are 3 different locations that we need to check for the key
 // in this order: active memtable, flushing memtable, and disk
 // segment
-func (b *Bucket) WasDeleted(key []byte) (bool, error) {
+func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 	if !b.keepTombstones {
-		return false, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
+		return false, time.Time{}, fmt.Errorf("Bucket requires option `keepTombstones` set to check deleted keys")
 	}
 
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
 	_, err := b.active.get(key)
-	switch err {
-	case nil:
-		return false, nil
-	case lsmkv.Deleted:
-		return true, nil
-	case lsmkv.NotFound:
-		// We can still check flushing and disk
-	default:
-		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	if err == nil {
+		return false, time.Time{}, nil
 	}
+	if errors.Is(err, lsmkv.Deleted) {
+		errDeleted, ok := err.(lsmkv.ErrDeleted)
+		if ok {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	// can still check flushing and disk
 
 	if b.flushing != nil {
 		_, err := b.flushing.get(key)
-		switch err {
-		case nil:
-			return false, nil
-		case lsmkv.Deleted:
-			return true, nil
-		case lsmkv.NotFound:
-			// We can still check disk
-		default:
-			return false, fmt.Errorf("unsupported bucket error: %w", err)
+		if err == nil {
+			return false, time.Time{}, nil
 		}
+		if errors.Is(err, lsmkv.Deleted) {
+			errDeleted, ok := err.(lsmkv.ErrDeleted)
+			if ok {
+				return true, errDeleted.DeletionTime(), nil
+			} else {
+				return true, time.Time{}, nil
+			}
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
+			return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+		}
+
+		// can still check disk
 	}
 
 	_, err = b.disk.getErrDeleted(key)
-	switch err {
-	case nil, lsmkv.NotFound:
-		return false, nil
-	case lsmkv.Deleted:
-		return true, nil
-	default:
-		return false, fmt.Errorf("unsupported bucket error: %w", err)
+	if err == nil {
+		return false, time.Time{}, nil
 	}
+	if errors.Is(err, lsmkv.Deleted) {
+		errDeleted, ok := err.(lsmkv.ErrDeleted)
+		if ok {
+			return true, errDeleted.DeletionTime(), nil
+		} else {
+			return true, time.Time{}, nil
+		}
+	}
+	if !errors.Is(err, lsmkv.NotFound) {
+		return false, time.Time{}, fmt.Errorf("unsupported bucket error: %w", err)
+	}
+
+	return false, time.Time{}, nil
 }
 
 type MapListOptionConfig struct {
@@ -808,6 +828,17 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.setTombstone(key, opts...)
+}
+
+func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	if !b.keepTombstones {
+		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
+	}
+
+	return b.active.setTombstoneWith(key, deletionTime, opts...)
 }
 
 // meant to be called from situations where a lock is already held, does not
