@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -93,8 +94,9 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, err
 	}
 
-	// TODO(kavi): Use proper `path.Join`
-	localPath := fmt.Sprintf("%s/%s/%s/%s", a.offload.DataPath, strings.ToLower(req.Collection), strings.ToLower(req.Tenant), defaultLSMRoot)
+	localPath := path.Join(a.offload.DataPath, strings.ToLower(req.Collection), strings.ToLower(req.Tenant), defaultLSMRoot)
+
+	// TODO(kavi): Avoid creating store every time?
 	store, err := lsmkv.New(localPath, localPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
@@ -121,6 +123,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 type SearchRequest struct {
 	Collection string
 	Tenant     string
+	// TODO(kavi): Add fields to do filter based search
 }
 
 type SearchResponse struct {
