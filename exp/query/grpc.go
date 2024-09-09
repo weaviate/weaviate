@@ -59,7 +59,12 @@ func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
 			Metadata: &protocol.MetadataResult{
 				Id: v.ID().String(),
 			},
+			Properties: &protocol.PropertiesResult{
+				TargetCollection: v.Object.Class,
+			},
 		})
+		for _, prop := range v.Object.Properties {
+		}
 	}
 	return &resp
 }
