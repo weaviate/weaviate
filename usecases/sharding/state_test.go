@@ -31,7 +31,7 @@ func TestState(t *testing.T) {
 	require.Nil(t, err)
 
 	nodes := mocks.NewMockNodeSelector("node1", "node2")
-	state, err := InitState("my-index", cfg, nodes, 1, false)
+	state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
 	require.Nil(t, err)
 
 	physicalCount := map[string]int{}
@@ -149,7 +149,7 @@ func TestInitState(t *testing.T) {
 				}, 3)
 				require.Nil(t, err)
 
-				state, err := InitState("my-index", cfg, nodes, int64(test.replicationFactor), false)
+				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), int64(test.replicationFactor), false)
 				if !test.ok {
 					require.NotNil(t, err)
 					return
@@ -285,7 +285,7 @@ func TestAddPartition(t *testing.T) {
 	require.Nil(t, err)
 
 	nodes := mocks.NewMockNodeSelector("node1", "node2")
-	s, err := InitState("my-index", cfg, nodes, 1, true)
+	s, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, true)
 	require.Nil(t, err)
 
 	s.AddPartition("A", nodes1, models.TenantActivityStatusHOT)

@@ -117,7 +117,7 @@ func (f *fakeSchemaManager) ClassInfo(class string) (ci clusterSchema.ClassInfo)
 }
 
 func (f *fakeSchemaManager) StorageCandidates() []string {
-	return []string{}
+	return []string{"node-1"}
 }
 
 func (f *fakeSchemaManager) ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error) {
