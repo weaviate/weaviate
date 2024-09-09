@@ -140,7 +140,7 @@ func (c *replicationClient) DeleteObject(ctx context.Context, host, index,
 ) (replica.SimpleResponse, error) {
 	var resp replica.SimpleResponse
 
-	uuidTs := fmt.Sprintf("%s/%s", uuid.String(), deletionTime.UnixMilli())
+	uuidTs := fmt.Sprintf("%s/%d", uuid.String(), deletionTime.UnixMilli())
 
 	req, err := newHttpReplicaRequest(ctx, http.MethodDelete, host, index, shard, requestID, uuidTs, nil)
 	if err != nil {
