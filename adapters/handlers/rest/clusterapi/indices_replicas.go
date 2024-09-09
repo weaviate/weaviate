@@ -19,9 +19,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -99,6 +101,10 @@ func (i *replicatedIndices) Indices() http.Handler {
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		if entcfg.Enabled(os.Getenv("MAINTENANCE_MODE")) {
+			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
+			return
+		}
 		switch {
 		case regxObjectsDigest.MatchString(path):
 			if r.Method == http.MethodGet {

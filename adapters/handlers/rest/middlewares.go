@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -219,8 +221,10 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 		if r.URL.String() == "/v1/.well-known/ready" {
 			code := http.StatusServiceUnavailable
-			if state.ClusterService.Ready() && state.Cluster.ClusterHealthScore() == 0 {
-				code = http.StatusOK
+			if !entcfg.Enabled(os.Getenv("MAINTENANCE_MODE")) {
+				if state.ClusterService.Ready() && state.Cluster.ClusterHealthScore() == 0 {
+					code = http.StatusOK
+				}
 			}
 			w.WriteHeader(code)
 			return
