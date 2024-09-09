@@ -404,8 +404,6 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 	h.RLock()
 	size := len(h.nodes)
 	h.RUnlock()
-	h.resetLock.Lock()
-	defer h.resetLock.Unlock()
 
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(h.logger, h.shutdownCtx)
 	ctx, cancel := context.WithCancel(ctx)
@@ -434,12 +432,14 @@ func (h *hnsw) reassignNeighborsOf(deleteList helpers.AllowList, breakCleanUpTom
 						continue
 					}
 					h.shardedNodeLocks.RUnlock(deletedID)
+					h.resetLock.RLock()
 					if h.getEntrypoint() != deletedID {
 						if _, err := h.reassignNeighbor(deletedID, deleteList, breakCleanUpTombstonedNodes); err != nil {
 							h.logger.WithError(err).WithField("action", "hnsw_tombstone_cleanup_error").
 								Errorf("class %s: shard %s: reassign neighbor", h.className, h.shardName)
 						}
 					}
+					h.resetLock.RUnlock()
 				}
 			}
 		})
