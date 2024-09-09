@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -26,7 +27,7 @@ import (
 
 // DeleteObjects deletes objects in batch based on the match filter
 func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	match *models.BatchDeleteMatch, deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	err := b.authorizer.Authorize(principal, "delete", "batch/objects")
@@ -43,7 +44,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
-	return b.deleteObjects(ctx, principal, match, dryRun, output, repl, tenant)
+	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
 }
 
 // DeleteObjectsFromGRPC deletes objects in batch based on the match filter
@@ -69,10 +70,10 @@ func (b *BatchManager) DeleteObjectsFromGRPC(ctx context.Context, principal *mod
 }
 
 func (b *BatchManager) deleteObjects(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	match *models.BatchDeleteMatch, deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
-	params, err := b.validateBatchDelete(ctx, principal, match, dryRun, output)
+	params, err := b.validateBatchDelete(ctx, principal, match, deletionTimeUnixMilli, dryRun, output)
 	if err != nil {
 		return nil, NewErrInvalidUserInput("validate: %v", err)
 	}
@@ -89,9 +90,10 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 	result BatchDeleteResult,
 ) (*BatchDeleteResponse, error) {
 	response := &BatchDeleteResponse{
-		Match:  match,
-		Output: output,
-		DryRun: result.DryRun,
+		Match:        match,
+		Output:       output,
+		DeletionTime: result.DeletionTime,
+		DryRun:       result.DryRun,
 		Result: BatchDeleteResult{
 			Matches: result.Matches,
 			Limit:   result.Limit,
@@ -102,7 +104,7 @@ func (b *BatchManager) toResponse(match *models.BatchDeleteMatch, output string,
 }
 
 func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *models.Principal,
-	match *models.BatchDeleteMatch, dryRun *bool, output *string,
+	match *models.BatchDeleteMatch, deletionTimeUnixMilli *int64, dryRun *bool, output *string,
 ) (*BatchDeleteParams, error) {
 	if match == nil {
 		return nil, errors.New("empty match clause")
@@ -137,6 +139,11 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, fmt.Errorf("invalid where filter: %s", err)
 	}
 
+	var deletionTime time.Time
+	if deletionTimeUnixMilli != nil {
+		deletionTime = time.UnixMilli(*deletionTimeUnixMilli)
+	}
+
 	dryRunParam := false
 	if dryRun != nil {
 		dryRunParam = *dryRun
@@ -148,10 +155,11 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	}
 
 	params := &BatchDeleteParams{
-		ClassName: schema.ClassName(class.Class),
-		Filters:   filter,
-		DryRun:    dryRunParam,
-		Output:    outputParam,
+		ClassName:    schema.ClassName(class.Class),
+		Filters:      filter,
+		DeletionTime: deletionTime,
+		DryRun:       dryRunParam,
+		Output:       outputParam,
 	}
 	return params, nil
 }

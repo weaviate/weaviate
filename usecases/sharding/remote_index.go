@@ -18,6 +18,7 @@ import (
 	"io"
 	"math/rand"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -73,7 +74,7 @@ type RemoteIndexClient interface {
 	Exists(ctx context.Context, hostname, indexName, shardName string,
 		id strfmt.UUID) (bool, error)
 	DeleteObject(ctx context.Context, hostname, indexName, shardName string,
-		id strfmt.UUID) error
+		id strfmt.UUID, deletionTime time.Time) error
 	MergeObject(ctx context.Context, hostname, indexName, shardName string,
 		mergeDoc objects.MergeDocument) error
 	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
@@ -89,7 +90,7 @@ type RemoteIndexClient interface {
 	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-		uuids []strfmt.UUID, dryRun bool) objects.BatchSimpleObjects
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects
 	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string) (int64, error)
 	GetShardStatus(ctx context.Context, hostName, indexName, shardName string) (string, error)
 	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
@@ -178,7 +179,7 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
-	id strfmt.UUID,
+	id strfmt.UUID, deletionTime time.Time,
 ) error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -190,7 +191,7 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 		return fmt.Errorf("resolve node name %q to host", owner)
 	}
 
-	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id)
+	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id, deletionTime)
 }
 
 func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
@@ -342,7 +343,7 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 }
 
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) objects.BatchSimpleObjects {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
@@ -356,7 +357,7 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, dryRun)
+	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, deletionTime, dryRun)
 }
 
 func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {

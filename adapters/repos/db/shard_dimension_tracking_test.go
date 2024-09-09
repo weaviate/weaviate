@@ -19,6 +19,7 @@ import (
 	"log"
 	"math/rand"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -258,7 +259,7 @@ func Test_DimensionTracking(t *testing.T) {
 		quantDimBefore := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
 		for i := 0; i < 10; i++ {
 			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			err := repo.DeleteObject(context.Background(), "Test", id, nil, "")
+			err := repo.DeleteObject(context.Background(), "Test", id, time.Now(), nil, "")
 			require.Nil(t, err)
 		}
 		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")

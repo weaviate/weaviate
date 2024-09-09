@@ -18,6 +18,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -40,9 +41,9 @@ type Replicator interface {
 	ReplicateUpdate(ctx context.Context, shard, requestID string,
 		doc *objects.MergeDocument) replica.SimpleResponse
 	ReplicateDeletion(ctx context.Context, shardName, requestID string,
-		uuid strfmt.UUID) replica.SimpleResponse
+		uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse
 	ReplicateDeletions(ctx context.Context, shardName, requestID string,
-		uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) replica.SimpleResponse
 	ReplicateReferences(ctx context.Context, shard, requestID string,
 		refs []objects.BatchReference) replica.SimpleResponse
 	CommitReplication(shard,
@@ -85,25 +86,25 @@ func (db *DB) ReplicateUpdate(ctx context.Context, class,
 }
 
 func (db *DB) ReplicateDeletion(ctx context.Context, class,
-	shard, requestID string, uuid strfmt.UUID,
+	shard, requestID string, uuid strfmt.UUID, deletionTime time.Time,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateDeletion(ctx, shard, requestID, uuid)
+	return index.ReplicateDeletion(ctx, shard, requestID, uuid, deletionTime)
 }
 
 func (db *DB) ReplicateDeletions(ctx context.Context, class,
-	shard, requestID string, uuids []strfmt.UUID, dryRun bool,
+	shard, requestID string, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) replica.SimpleResponse {
 	index, pr := db.replicatedIndex(class)
 	if pr != nil {
 		return *pr
 	}
 
-	return index.ReplicateDeletions(ctx, shard, requestID, uuids, dryRun)
+	return index.ReplicateDeletions(ctx, shard, requestID, uuids, deletionTime, dryRun)
 }
 
 func (db *DB) ReplicateReferences(ctx context.Context, class,
@@ -185,12 +186,12 @@ func (i *Index) ReplicateUpdate(ctx context.Context, shard, requestID string, do
 	return localShard.prepareMergeObject(ctx, requestID, doc)
 }
 
-func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID) replica.SimpleResponse {
+func (i *Index) ReplicateDeletion(ctx context.Context, shard, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
 	}
-	return localShard.prepareDeleteObject(ctx, requestID, uuid)
+	return localShard.prepareDeleteObject(ctx, requestID, uuid, deletionTime)
 }
 
 func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, objects []*storobj.Object) replica.SimpleResponse {
@@ -201,12 +202,14 @@ func (i *Index) ReplicateObjects(ctx context.Context, shard, requestID string, o
 	return localShard.preparePutObjects(ctx, requestID, objects)
 }
 
-func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string, uuids []strfmt.UUID, dryRun bool) replica.SimpleResponse {
+func (i *Index) ReplicateDeletions(ctx context.Context, shard, requestID string,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
+) replica.SimpleResponse {
 	localShard, pr := i.writableShard(shard)
 	if pr != nil {
 		return *pr
 	}
-	return localShard.prepareDeleteObjects(ctx, requestID, uuids, dryRun)
+	return localShard.prepareDeleteObjects(ctx, requestID, uuids, deletionTime, dryRun)
 }
 
 func (i *Index) ReplicateReferences(ctx context.Context, shard, requestID string, refs []objects.BatchReference) replica.SimpleResponse {

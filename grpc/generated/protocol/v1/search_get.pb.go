@@ -3067,54 +3067,51 @@ func file_v1_search_get_proto_rawDescGZIP() []byte {
 	return file_v1_search_get_proto_rawDescData
 }
 
-var (
-	file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-	file_v1_search_get_proto_msgTypes  = make([]protoimpl.MessageInfo, 29)
-	file_v1_search_get_proto_goTypes   = []interface{}{
-		(Hybrid_FusionType)(0),          // 0: weaviate.v1.Hybrid.FusionType
-		(*SearchRequest)(nil),           // 1: weaviate.v1.SearchRequest
-		(*GroupBy)(nil),                 // 2: weaviate.v1.GroupBy
-		(*SortBy)(nil),                  // 3: weaviate.v1.SortBy
-		(*GenerativeSearch)(nil),        // 4: weaviate.v1.GenerativeSearch
-		(*MetadataRequest)(nil),         // 5: weaviate.v1.MetadataRequest
-		(*PropertiesRequest)(nil),       // 6: weaviate.v1.PropertiesRequest
-		(*ObjectPropertiesRequest)(nil), // 7: weaviate.v1.ObjectPropertiesRequest
-		(*Hybrid)(nil),                  // 8: weaviate.v1.Hybrid
-		(*NearTextSearch)(nil),          // 9: weaviate.v1.NearTextSearch
-		(*NearImageSearch)(nil),         // 10: weaviate.v1.NearImageSearch
-		(*NearAudioSearch)(nil),         // 11: weaviate.v1.NearAudioSearch
-		(*NearVideoSearch)(nil),         // 12: weaviate.v1.NearVideoSearch
-		(*NearDepthSearch)(nil),         // 13: weaviate.v1.NearDepthSearch
-		(*NearThermalSearch)(nil),       // 14: weaviate.v1.NearThermalSearch
-		(*NearIMUSearch)(nil),           // 15: weaviate.v1.NearIMUSearch
-		(*BM25)(nil),                    // 16: weaviate.v1.BM25
-		(*RefPropertiesRequest)(nil),    // 17: weaviate.v1.RefPropertiesRequest
-		(*NearVector)(nil),              // 18: weaviate.v1.NearVector
-		(*NearObject)(nil),              // 19: weaviate.v1.NearObject
-		(*Rerank)(nil),                  // 20: weaviate.v1.Rerank
-		(*SearchReply)(nil),             // 21: weaviate.v1.SearchReply
-		(*RerankReply)(nil),             // 22: weaviate.v1.RerankReply
-		(*GenerativeReply)(nil),         // 23: weaviate.v1.GenerativeReply
-		(*GroupByResult)(nil),           // 24: weaviate.v1.GroupByResult
-		(*SearchResult)(nil),            // 25: weaviate.v1.SearchResult
-		(*MetadataResult)(nil),          // 26: weaviate.v1.MetadataResult
-		(*PropertiesResult)(nil),        // 27: weaviate.v1.PropertiesResult
-		(*RefPropertiesResult)(nil),     // 28: weaviate.v1.RefPropertiesResult
-		(*NearTextSearch_Move)(nil),     // 29: weaviate.v1.NearTextSearch.Move
-		(ConsistencyLevel)(0),           // 30: weaviate.v1.ConsistencyLevel
-		(*Filters)(nil),                 // 31: weaviate.v1.Filters
-		(*Vectors)(nil),                 // 32: weaviate.v1.Vectors
-		(*structpb.Struct)(nil),         // 33: google.protobuf.Struct
-		(*NumberArrayProperties)(nil),   // 34: weaviate.v1.NumberArrayProperties
-		(*IntArrayProperties)(nil),      // 35: weaviate.v1.IntArrayProperties
-		(*TextArrayProperties)(nil),     // 36: weaviate.v1.TextArrayProperties
-		(*BooleanArrayProperties)(nil),  // 37: weaviate.v1.BooleanArrayProperties
-		(*ObjectProperties)(nil),        // 38: weaviate.v1.ObjectProperties
-		(*ObjectArrayProperties)(nil),   // 39: weaviate.v1.ObjectArrayProperties
-		(*Properties)(nil),              // 40: weaviate.v1.Properties
-	}
-)
-
+var file_v1_search_get_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_v1_search_get_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_v1_search_get_proto_goTypes = []any{
+	(Hybrid_FusionType)(0),          // 0: weaviate.v1.Hybrid.FusionType
+	(*SearchRequest)(nil),           // 1: weaviate.v1.SearchRequest
+	(*GroupBy)(nil),                 // 2: weaviate.v1.GroupBy
+	(*SortBy)(nil),                  // 3: weaviate.v1.SortBy
+	(*GenerativeSearch)(nil),        // 4: weaviate.v1.GenerativeSearch
+	(*MetadataRequest)(nil),         // 5: weaviate.v1.MetadataRequest
+	(*PropertiesRequest)(nil),       // 6: weaviate.v1.PropertiesRequest
+	(*ObjectPropertiesRequest)(nil), // 7: weaviate.v1.ObjectPropertiesRequest
+	(*Hybrid)(nil),                  // 8: weaviate.v1.Hybrid
+	(*NearTextSearch)(nil),          // 9: weaviate.v1.NearTextSearch
+	(*NearImageSearch)(nil),         // 10: weaviate.v1.NearImageSearch
+	(*NearAudioSearch)(nil),         // 11: weaviate.v1.NearAudioSearch
+	(*NearVideoSearch)(nil),         // 12: weaviate.v1.NearVideoSearch
+	(*NearDepthSearch)(nil),         // 13: weaviate.v1.NearDepthSearch
+	(*NearThermalSearch)(nil),       // 14: weaviate.v1.NearThermalSearch
+	(*NearIMUSearch)(nil),           // 15: weaviate.v1.NearIMUSearch
+	(*BM25)(nil),                    // 16: weaviate.v1.BM25
+	(*RefPropertiesRequest)(nil),    // 17: weaviate.v1.RefPropertiesRequest
+	(*NearVector)(nil),              // 18: weaviate.v1.NearVector
+	(*NearObject)(nil),              // 19: weaviate.v1.NearObject
+	(*Rerank)(nil),                  // 20: weaviate.v1.Rerank
+	(*SearchReply)(nil),             // 21: weaviate.v1.SearchReply
+	(*RerankReply)(nil),             // 22: weaviate.v1.RerankReply
+	(*GenerativeReply)(nil),         // 23: weaviate.v1.GenerativeReply
+	(*GroupByResult)(nil),           // 24: weaviate.v1.GroupByResult
+	(*SearchResult)(nil),            // 25: weaviate.v1.SearchResult
+	(*MetadataResult)(nil),          // 26: weaviate.v1.MetadataResult
+	(*PropertiesResult)(nil),        // 27: weaviate.v1.PropertiesResult
+	(*RefPropertiesResult)(nil),     // 28: weaviate.v1.RefPropertiesResult
+	(*NearTextSearch_Move)(nil),     // 29: weaviate.v1.NearTextSearch.Move
+	(ConsistencyLevel)(0),           // 30: weaviate.v1.ConsistencyLevel
+	(*Filters)(nil),                 // 31: weaviate.v1.Filters
+	(*Vectors)(nil),                 // 32: weaviate.v1.Vectors
+	(*structpb.Struct)(nil),         // 33: google.protobuf.Struct
+	(*NumberArrayProperties)(nil),   // 34: weaviate.v1.NumberArrayProperties
+	(*IntArrayProperties)(nil),      // 35: weaviate.v1.IntArrayProperties
+	(*TextArrayProperties)(nil),     // 36: weaviate.v1.TextArrayProperties
+	(*BooleanArrayProperties)(nil),  // 37: weaviate.v1.BooleanArrayProperties
+	(*ObjectProperties)(nil),        // 38: weaviate.v1.ObjectProperties
+	(*ObjectArrayProperties)(nil),   // 39: weaviate.v1.ObjectArrayProperties
+	(*Properties)(nil),              // 40: weaviate.v1.Properties
+}
 var file_v1_search_get_proto_depIdxs = []int32{
 	30, // 0: weaviate.v1.SearchRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
 	6,  // 1: weaviate.v1.SearchRequest.properties:type_name -> weaviate.v1.PropertiesRequest
@@ -3177,7 +3174,7 @@ func file_v1_search_get_proto_init() {
 	file_v1_base_proto_init()
 	file_v1_properties_proto_init()
 	if !protoimpl.UnsafeEnabled {
-		file_v1_search_get_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[0].Exporter = func(v any, i int) any {
 			switch v := v.(*SearchRequest); i {
 			case 0:
 				return &v.state
@@ -3189,7 +3186,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[1].Exporter = func(v any, i int) any {
 			switch v := v.(*GroupBy); i {
 			case 0:
 				return &v.state
@@ -3201,7 +3198,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[2].Exporter = func(v any, i int) any {
 			switch v := v.(*SortBy); i {
 			case 0:
 				return &v.state
@@ -3213,7 +3210,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[3].Exporter = func(v any, i int) any {
 			switch v := v.(*GenerativeSearch); i {
 			case 0:
 				return &v.state
@@ -3225,7 +3222,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[4].Exporter = func(v any, i int) any {
 			switch v := v.(*MetadataRequest); i {
 			case 0:
 				return &v.state
@@ -3237,7 +3234,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[5].Exporter = func(v any, i int) any {
 			switch v := v.(*PropertiesRequest); i {
 			case 0:
 				return &v.state
@@ -3249,7 +3246,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[6].Exporter = func(v any, i int) any {
 			switch v := v.(*ObjectPropertiesRequest); i {
 			case 0:
 				return &v.state
@@ -3261,7 +3258,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[7].Exporter = func(v any, i int) any {
 			switch v := v.(*Hybrid); i {
 			case 0:
 				return &v.state
@@ -3273,7 +3270,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[8].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[8].Exporter = func(v any, i int) any {
 			switch v := v.(*NearTextSearch); i {
 			case 0:
 				return &v.state
@@ -3285,7 +3282,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[9].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[9].Exporter = func(v any, i int) any {
 			switch v := v.(*NearImageSearch); i {
 			case 0:
 				return &v.state
@@ -3297,7 +3294,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[10].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[10].Exporter = func(v any, i int) any {
 			switch v := v.(*NearAudioSearch); i {
 			case 0:
 				return &v.state
@@ -3309,7 +3306,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[11].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[11].Exporter = func(v any, i int) any {
 			switch v := v.(*NearVideoSearch); i {
 			case 0:
 				return &v.state
@@ -3321,7 +3318,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[12].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[12].Exporter = func(v any, i int) any {
 			switch v := v.(*NearDepthSearch); i {
 			case 0:
 				return &v.state
@@ -3333,7 +3330,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[13].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[13].Exporter = func(v any, i int) any {
 			switch v := v.(*NearThermalSearch); i {
 			case 0:
 				return &v.state
@@ -3345,7 +3342,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[14].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[14].Exporter = func(v any, i int) any {
 			switch v := v.(*NearIMUSearch); i {
 			case 0:
 				return &v.state
@@ -3357,7 +3354,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[15].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[15].Exporter = func(v any, i int) any {
 			switch v := v.(*BM25); i {
 			case 0:
 				return &v.state
@@ -3369,7 +3366,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[16].Exporter = func(v any, i int) any {
 			switch v := v.(*RefPropertiesRequest); i {
 			case 0:
 				return &v.state
@@ -3381,7 +3378,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[17].Exporter = func(v any, i int) any {
 			switch v := v.(*NearVector); i {
 			case 0:
 				return &v.state
@@ -3393,7 +3390,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[18].Exporter = func(v any, i int) any {
 			switch v := v.(*NearObject); i {
 			case 0:
 				return &v.state
@@ -3405,7 +3402,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[19].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[19].Exporter = func(v any, i int) any {
 			switch v := v.(*Rerank); i {
 			case 0:
 				return &v.state
@@ -3417,7 +3414,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[20].Exporter = func(v any, i int) any {
 			switch v := v.(*SearchReply); i {
 			case 0:
 				return &v.state
@@ -3429,7 +3426,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[21].Exporter = func(v any, i int) any {
 			switch v := v.(*RerankReply); i {
 			case 0:
 				return &v.state
@@ -3441,7 +3438,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[22].Exporter = func(v any, i int) any {
 			switch v := v.(*GenerativeReply); i {
 			case 0:
 				return &v.state
@@ -3453,7 +3450,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[23].Exporter = func(v any, i int) any {
 			switch v := v.(*GroupByResult); i {
 			case 0:
 				return &v.state
@@ -3465,7 +3462,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[24].Exporter = func(v any, i int) any {
 			switch v := v.(*SearchResult); i {
 			case 0:
 				return &v.state
@@ -3477,7 +3474,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[25].Exporter = func(v any, i int) any {
 			switch v := v.(*MetadataResult); i {
 			case 0:
 				return &v.state
@@ -3489,7 +3486,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[26].Exporter = func(v any, i int) any {
 			switch v := v.(*PropertiesResult); i {
 			case 0:
 				return &v.state
@@ -3501,7 +3498,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[27].Exporter = func(v any, i int) any {
 			switch v := v.(*RefPropertiesResult); i {
 			case 0:
 				return &v.state
@@ -3513,7 +3510,7 @@ func file_v1_search_get_proto_init() {
 				return nil
 			}
 		}
-		file_v1_search_get_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
+		file_v1_search_get_proto_msgTypes[28].Exporter = func(v any, i int) any {
 			switch v := v.(*NearTextSearch_Move); i {
 			case 0:
 				return &v.state
@@ -3526,20 +3523,20 @@ func file_v1_search_get_proto_init() {
 			}
 		}
 	}
-	file_v1_search_get_proto_msgTypes[0].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[8].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[9].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[10].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[11].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[12].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[13].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[14].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[17].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[18].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[19].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[20].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[23].OneofWrappers = []interface{}{}
-	file_v1_search_get_proto_msgTypes[25].OneofWrappers = []interface{}{}
+	file_v1_search_get_proto_msgTypes[0].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[8].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[9].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[10].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[11].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[12].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[13].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[14].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[17].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[18].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[19].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[20].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[23].OneofWrappers = []any{}
+	file_v1_search_get_proto_msgTypes[25].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

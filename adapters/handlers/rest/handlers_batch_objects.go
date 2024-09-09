@@ -163,7 +163,7 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	tenant := getTenant(params.Tenant)
 
 	res, err := h.manager.DeleteObjects(params.HTTPRequest.Context(), principal,
-		params.Body.Match, params.Body.DryRun, params.Body.Output, repl, tenant)
+		params.Body.Match, params.Body.DeletionTimeUnixMilli, params.Body.DryRun, params.Body.Output, repl, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
@@ -218,13 +218,16 @@ func (h *batchObjectHandlers) objectsDeleteResponse(input *objects.BatchDeleteRe
 		})
 	}
 
+	deletionTimeUnixMilli := input.DeletionTime.UnixMilli()
+
 	response := &models.BatchDeleteResponse{
 		Match: &models.BatchDeleteResponseMatch{
 			Class: input.Match.Class,
 			Where: input.Match.Where,
 		},
-		DryRun: &input.DryRun,
-		Output: &output,
+		DeletionTimeUnixMilli: &deletionTimeUnixMilli,
+		DryRun:                &input.DryRun,
+		Output:                &output,
 		Results: &models.BatchDeleteResponseResults{
 			Matches:    input.Result.Matches,
 			Limit:      input.Result.Limit,

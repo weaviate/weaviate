@@ -3365,6 +3365,12 @@ func init() {
     "BatchDelete": {
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",
@@ -3397,6 +3403,12 @@ func init() {
       "description": "Delete Objects response.",
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",
@@ -8647,6 +8659,12 @@ func init() {
     "BatchDelete": {
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",
@@ -8695,6 +8713,12 @@ func init() {
       "description": "Delete Objects response.",
       "type": "object",
       "properties": {
+        "deletionTimeUnixMilli": {
+          "description": "Timestamp of deletion in milliseconds since epoch UTC.",
+          "type": "integer",
+          "format": "int64",
+          "x-nullable": true
+        },
         "dryRun": {
           "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
           "type": "boolean",

@@ -29,6 +29,9 @@ import (
 // swagger:model BatchDelete
 type BatchDelete struct {
 
+	// Timestamp of deletion in milliseconds since epoch UTC.
+	DeletionTimeUnixMilli *int64 `json:"deletionTimeUnixMilli,omitempty"`
+
 	// If true, objects will not be deleted yet, but merely listed. Defaults to false.
 	DryRun *bool `json:"dryRun,omitempty"`
 
