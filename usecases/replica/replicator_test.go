@@ -53,7 +53,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	t.Run("DeleteObject", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		err := rep.DeleteObject(ctx, "S", "id", All)
+		err := rep.DeleteObject(ctx, "S", "id", time.Now(), All)
 		assert.ErrorIs(t, err, errReplicas)
 		f.assertLogErrorContains(t, errNoReplicaFound.Error())
 	})
@@ -72,7 +72,7 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 	t.Run("DeleteObjects", func(t *testing.T) {
 		f := newFakeFactory("C1", "S", []string{})
 		rep := f.newReplicator()
-		xs := rep.DeleteObjects(ctx, "S", []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}, false, All)
+		xs := rep.DeleteObjects(ctx, "S", []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}, time.Now(), false, All)
 		assert.Equal(t, 3, len(xs))
 		for _, x := range xs {
 			assert.ErrorIs(t, x.Err, errReplicas)
@@ -274,7 +274,7 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			client.On("Abort", mock.Anything, n, "C1", shard, anyVal).Return(resp, nil)
 		}
 
-		err := rep.DeleteObject(ctx, shard, uuid, All)
+		err := rep.DeleteObject(ctx, shard, uuid, time.Now(), All)
 		assert.NotNil(t, err)
 		assert.ErrorIs(t, err, errReplicas)
 	})
@@ -288,9 +288,9 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			client.On("DeleteObject", mock.Anything, n, cls, shard, anyVal, uuid).Return(resp, nil)
 			client.On("Commit", ctx, n, "C1", shard, anyVal, anyVal).Return(nil)
 		}
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, All))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), All))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), Quorum))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), One))
 	})
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
 		factory := newFakeFactory("C1", shard, nodes)
@@ -314,9 +314,9 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			}
 		}
 
-		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, All))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One))
+		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), All))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), Quorum))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), One))
 	})
 
 	t.Run("SuccessWithConsistencyQuorum", func(t *testing.T) {
@@ -341,9 +341,9 @@ func TestReplicatorDeleteObject(t *testing.T) {
 			}
 		}
 
-		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, All))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, Quorum))
-		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, One))
+		assert.NotNil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), All))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), Quorum))
+		assert.Nil(t, rep.DeleteObject(ctx, shard, uuid, time.Now(), One))
 	})
 }
 
@@ -364,7 +364,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 		for _, n := range nodes {
 			client.On("Abort", mock.Anything, n, "C1", shard, anyVal).Return(SimpleResponse{}, nil)
 		}
-		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, false, All)
+		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, All)
 		assert.Equal(t, len(result), 2)
 		for _, r := range result {
 			assert.ErrorIs(t, r.Err, errReplicas)
@@ -379,7 +379,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, false).Return(SimpleResponse{}, nil)
 			client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(errAny)
 		}
-		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, false, All)
+		result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, All)
 		assert.Equal(t, len(result), 2)
 	})
 	t.Run("PartialSuccess", func(t *testing.T) {
@@ -397,7 +397,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 				}
 			}
 		}
-		result := rep.DeleteObjects(ctx, shard, docIDs, false, All)
+		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, All)
 		assert.Equal(t, len(result), 2)
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: &Error{Msg: "e1"}}, result[1])
@@ -417,7 +417,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 				}
 			}
 		}
-		result := rep.DeleteObjects(ctx, shard, docIDs, false, All)
+		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, All)
 		assert.Equal(t, len(result), 2)
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "1", Err: nil}, result[0])
 		assert.Equal(t, objects.BatchSimpleObject{UUID: "2", Err: nil}, result[1])
@@ -437,7 +437,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 				Batch: []UUID2Error{{UUID: "1"}, {UUID: "2"}},
 			}
 		}
-		result := rep.DeleteObjects(ctx, shard, docIDs, false, One)
+		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, One)
 		assert.Equal(t, len(result), 2)
 		assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
 	})
@@ -465,7 +465,7 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 				Batch: []UUID2Error{{UUID: "1"}, {UUID: "2", Error: Error{Msg: "e2"}}},
 			}
 		}
-		result := rep.DeleteObjects(ctx, shard, docIDs, false, Quorum)
+		result := rep.DeleteObjects(ctx, shard, docIDs, time.Now(), false, Quorum)
 		assert.Equal(t, len(result), 2)
 		assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
 	})

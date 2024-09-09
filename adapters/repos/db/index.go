@@ -1622,7 +1622,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 }
 
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
-	replProps *additional.ReplicationProperties, tenant string,
+	deletionTime time.Time, replProps *additional.ReplicationProperties, tenant string,
 ) error {
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
@@ -1638,7 +1638,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 			replProps = defaultConsistency()
 		}
 		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
-		if err := i.replicator.DeleteObject(ctx, shardName, id, cl); err != nil {
+		if err := i.replicator.DeleteObject(ctx, shardName, id, deletionTime, cl); err != nil {
 			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}
 		return nil
@@ -1646,7 +1646,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 
 	// no replication, remote shard
 	if i.localShard(shardName) == nil {
-		if err := i.remote.DeleteObject(ctx, shardName, id); err != nil {
+		if err := i.remote.DeleteObject(ctx, shardName, id, deletionTime); err != nil {
 			return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
 		}
 		return nil
@@ -1657,7 +1657,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	defer i.backupMutex.RUnlock()
 	err = errShardNotFound
 	if shard := i.localShard(shardName); shard != nil {
-		err = shard.DeleteObject(ctx, id)
+		err = shard.DeleteObject(ctx, id, deletionTime)
 	}
 	if err != nil {
 		return fmt.Errorf("delete local object: shard=%q: %w", shardName, err)
@@ -1666,7 +1666,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 }
 
 func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
-	id strfmt.UUID,
+	id strfmt.UUID, deletionTime time.Time,
 ) error {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
@@ -1674,7 +1674,7 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 	if shard == nil {
 		return errShardNotFound
 	}
-	return shard.DeleteObject(ctx, id)
+	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
 func (i *Index) localShard(name string) ShardLike {
@@ -2107,7 +2107,7 @@ func (i *Index) IncomingFindUUIDs(ctx context.Context, shardName string,
 }
 
 func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]strfmt.UUID,
-	dryRun bool, replProps *additional.ReplicationProperties,
+	deletionTime time.Time, dryRun bool, replProps *additional.ReplicationProperties,
 ) (objects.BatchSimpleObjects, error) {
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "delete_from_shards_total")
@@ -2131,14 +2131,14 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
-				objs = i.replicator.DeleteObjects(ctx, shardName, uuids,
+				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
 					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel))
 			} else if i.localShard(shardName) == nil {
-				objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, dryRun)
+				objs = i.remote.DeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun)
 			} else {
 				i.backupMutex.RLockGuard(func() error {
 					if shard := i.localShard(shardName); shard != nil {
-						objs = shard.DeleteObjectBatch(ctx, uuids, dryRun)
+						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 					} else {
 						objs = objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: errShardNotFound}}
 					}
@@ -2162,7 +2162,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 }
 
 func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
-	uuids []strfmt.UUID, dryRun bool,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) objects.BatchSimpleObjects {
 	i.backupMutex.RLock()
 	defer i.backupMutex.RUnlock()
@@ -2173,7 +2173,7 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		}
 	}
 
-	return shard.DeleteObjectBatch(ctx, uuids, dryRun)
+	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 }
 
 func defaultConsistency(l ...replica.ConsistencyLevel) *additional.ReplicationProperties {

@@ -197,16 +197,17 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// delete the DocIDs in given shards
-	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DryRun, repl)
+	deletedObjects, err := idx.batchDeleteObjects(ctx, toDelete, params.DeletionTime, params.DryRun, repl)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot delete objects")
 	}
 
 	result := objects.BatchDeleteResult{
-		Matches: matches,
-		Limit:   db.config.QueryMaximumResults,
-		DryRun:  params.DryRun,
-		Objects: deletedObjects,
+		Matches:      matches,
+		Limit:        db.config.QueryMaximumResults,
+		DeletionTime: params.DeletionTime,
+		DryRun:       params.DryRun,
+		Objects:      deletedObjects,
 	}
 	return result, nil
 }
