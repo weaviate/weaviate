@@ -282,7 +282,7 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object, ref objects.BatchRef
 		refs = parsed
 	}
 
-	a := inverted.NewAnalyzer(nil)
+	a := inverted.NewAnalyzer(nil, b.shard.ForcedHasRangeableIndex)
 
 	countItems, err := a.RefCount(refs)
 	if err != nil {
@@ -295,17 +295,20 @@ func (b *referencesBatcher) analyzeRef(obj *storobj.Object, ref objects.BatchRef
 	}
 
 	return []inverted.Property{{
-		Name:               helpers.MetaCountProp(ref.From.Property.String()),
-		Items:              countItems,
-		HasFilterableIndex: inverted.HasFilterableIndexMetaCount && inverted.HasAnyInvertedIndex(prop),
-		HasSearchableIndex: inverted.HasSearchableIndexMetaCount && inverted.HasAnyInvertedIndex(prop),
-		HasRangeableIndex:  inverted.HasRangeableIndexMetaCount && inverted.HasAnyInvertedIndex(prop),
+		Name:  helpers.MetaCountProp(ref.From.Property.String()),
+		Items: countItems,
+		HasFilterableIndex: inverted.HasFilterableIndexMetaCount &&
+			(inverted.HasAnyInvertedIndex(prop) || b.shard.ForcedHasRangeableIndex(prop)),
+		HasSearchableIndex: inverted.HasSearchableIndexMetaCount &&
+			(inverted.HasAnyInvertedIndex(prop) || b.shard.ForcedHasRangeableIndex(prop)),
+		HasRangeableIndex: inverted.HasRangeableIndexMetaCount &&
+			(inverted.HasAnyInvertedIndex(prop) || b.shard.ForcedHasRangeableIndex(prop)),
 	}, {
 		Name:               ref.From.Property.String(),
 		Items:              valueItems,
 		HasFilterableIndex: inverted.HasFilterableIndex(prop),
 		HasSearchableIndex: inverted.HasSearchableIndex(prop),
-		HasRangeableIndex:  inverted.HasRangeableIndex(prop),
+		HasRangeableIndex:  inverted.HasRangeableIndex(prop) || b.shard.ForcedHasRangeableIndex(prop),
 	}}, nil
 }
 

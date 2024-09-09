@@ -68,7 +68,7 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			return nil, fmt.Errorf("prop %q has no datatype", prop.Name)
 		}
 
-		if !HasAnyInvertedIndex(prop) {
+		if !(HasAnyInvertedIndex(prop) || a.isForcedHasRangeable(prop)) {
 			continue
 		}
 
@@ -207,7 +207,7 @@ func (a *Analyzer) analyzeArrayProp(prop *models.Property, values []any) (*Prope
 	var items []Countable
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop) || a.isForcedHasRangeable(prop)
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeTextArray:
@@ -349,7 +349,7 @@ func (a *Analyzer) analyzePrimitiveProp(prop *models.Property, value any) (*Prop
 	propertyLength := -1 // will be overwritten for string/text, signals not to add the other types.
 	hasFilterableIndex := HasFilterableIndex(prop)
 	hasSearchableIndex := HasSearchableIndex(prop)
-	hasRangeableIndex := HasRangeableIndex(prop)
+	hasRangeableIndex := HasRangeableIndex(prop) || a.isForcedHasRangeable(prop)
 
 	switch dt := schema.DataType(prop.DataType[0]); dt {
 	case schema.DataTypeText:
@@ -520,7 +520,7 @@ func (a *Analyzer) analyzeRefPropCount(prop *models.Property,
 		Length:             len(value),
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
-		HasRangeableIndex:  HasRangeableIndex(prop),
+		HasRangeableIndex:  HasRangeableIndex(prop) || a.isForcedHasRangeable(prop),
 	}, nil
 }
 
@@ -537,7 +537,7 @@ func (a *Analyzer) analyzeRefProp(prop *models.Property,
 		Items:              items,
 		HasFilterableIndex: HasFilterableIndex(prop),
 		HasSearchableIndex: HasSearchableIndex(prop),
-		HasRangeableIndex:  HasRangeableIndex(prop),
+		HasRangeableIndex:  HasRangeableIndex(prop) || a.isForcedHasRangeable(prop),
 	}, nil
 }
 

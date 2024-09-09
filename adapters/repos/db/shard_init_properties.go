@@ -54,7 +54,7 @@ func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Cl
 
 func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
 	for _, prop := range props {
-		if !inverted.HasAnyInvertedIndex(prop) {
+		if !(inverted.HasAnyInvertedIndex(prop) || s.ForcedHasRangeableIndex(prop)) {
 			continue
 		}
 
@@ -92,6 +92,12 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		return storagestate.ErrStatusReadOnly
 	}
 
+	forcedHasRangeableIndex := s.ForcedHasRangeableIndex(prop)
+	createOrLoadBucket := s.store.CreateOrLoadBucket
+	if forcedHasRangeableIndex {
+		createOrLoadBucket = s.store.CreateOrLoadBucketNoCompaction
+	}
+
 	bucketOpts := []lsmkv.BucketOption{
 		s.memtableDirtyConfig(),
 		s.dynamicMemtableSizing(),
@@ -114,7 +120,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			}
 		}
 
-		if err := s.store.CreateOrLoadBucket(ctx,
+		if err := createOrLoadBucket(ctx,
 			helpers.BucketFromPropNameLSM(prop.Name),
 			append(bucketOpts, lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))...,
 		); err != nil {
@@ -136,14 +142,19 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		}
 	}
 
-	if inverted.HasRangeableIndex(prop) {
-		if err := s.store.CreateOrLoadBucket(ctx,
+	if inverted.HasRangeableIndex(prop) || forcedHasRangeableIndex {
+		opts := append(bucketOpts,
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithUseBloomFilter(false),
+			lsmkv.WithCalcCountNetAdditions(false),
+		)
+		if forcedHasRangeableIndex {
+			opts = append(opts, lsmkv.WithKeepTombstones(true))
+		}
+
+		if err := createOrLoadBucket(ctx,
 			helpers.BucketRangeableFromPropNameLSM(prop.Name),
-			append(bucketOpts,
-				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
-				lsmkv.WithUseBloomFilter(false),
-				lsmkv.WithCalcCountNetAdditions(false),
-			)...,
+			opts...,
 		); err != nil {
 			return err
 		}
