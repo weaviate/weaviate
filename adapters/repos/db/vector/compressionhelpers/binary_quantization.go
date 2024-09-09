@@ -54,3 +54,7 @@ func (bq BinaryQuantizer) DistanceBetweenCompressedVectors(x, y []uint64) (float
 	}
 	return total, nil
 }
+
+func (bq BinaryQuantizer) BinaryDistanceBetweenCompressedVectors(x []byte, y []uint64) (int, error) {
+	return -1, nil
+}

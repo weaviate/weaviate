@@ -49,9 +49,9 @@ func NewReproduceWithHammingObjective(nbits int, disWeightFactor float64) Reprod
 	}
 }
 
-func (r ReproduceWithHammingObjective) GetN() int {
+/*func (r ReproduceWithHammingObjective) GetN() int {
 	return r.N
-}
+}*/
 
 func (r ReproduceWithHammingObjective) DisWeight(x float64) float64 {
 	return math.Exp(-r.DisWeightFactor * x)
@@ -88,7 +88,7 @@ func (r ReproduceWithHammingObjective) ComputeCost(perm []int) float64 {
 		for j := 0; j < n; j++ {
 			wanted := r.TargetDis[i*n+j]
 			w := r.Weights[i*n+j]
-			actual := HammingDis(perm[i], perm[j])
+			actual := hammingDis(perm[i], perm[j])
 			cost += w * Sqr(wanted-actual)
 		}
 	}
@@ -105,9 +105,9 @@ func (r ReproduceWithHammingObjective) CostUpdate(perm []int, iw, jw int) float6
 			for j := 0; j < n; j++ {
 				wanted := r.TargetDis[i*n+j]
 				w := r.Weights[i*n+j]
-				actual := HammingDis(perm[i], perm[j])
+				actual := hammingDis(perm[i], perm[j])
 				deltaCost -= w * Sqr(wanted-actual)
-				newActual := HammingDis(
+				newActual := hammingDis(
 					perm[jw],
 					perm[ConditionalSwap(j, iw, jw)],
 				)
@@ -117,9 +117,9 @@ func (r ReproduceWithHammingObjective) CostUpdate(perm []int, iw, jw int) float6
 			for j := 0; j < n; j++ {
 				wanted := r.TargetDis[i*n+j]
 				w := r.Weights[i*n+j]
-				actual := HammingDis(perm[i], perm[j])
+				actual := hammingDis(perm[i], perm[j])
 				deltaCost -= w * Sqr(wanted-actual)
-				newActual := HammingDis(
+				newActual := hammingDis(
 					perm[iw],
 					perm[ConditionalSwap(j, iw, jw)],
 				)
@@ -130,18 +130,18 @@ func (r ReproduceWithHammingObjective) CostUpdate(perm []int, iw, jw int) float6
 				j := iw
 				wanted := r.TargetDis[i*n+j]
 				w := r.Weights[i*n+j]
-				actual := HammingDis(perm[i], perm[j])
+				actual := hammingDis(perm[i], perm[j])
 				deltaCost -= w * Sqr(wanted-actual)
-				newActual := HammingDis(perm[i], perm[jw])
+				newActual := hammingDis(perm[i], perm[jw])
 				deltaCost += w * Sqr(wanted-newActual)
 			}
 			{
 				j := jw
 				wanted := r.TargetDis[i*n+j]
 				w := r.Weights[i*n+j]
-				actual := HammingDis(perm[i], perm[j])
+				actual := hammingDis(perm[i], perm[j])
 				deltaCost -= w * Sqr(wanted-actual)
-				newActual := HammingDis(perm[i], perm[iw])
+				newActual := hammingDis(perm[i], perm[iw])
 				deltaCost += w * Sqr(wanted-newActual)
 			}
 		}
@@ -172,11 +172,9 @@ func popCount(x uint64) int {
 	return count
 }
 
-func HammingDis(x, y int) float64 {
+func hammingDis(x, y int) float64 {
 	return float64(popCount(uint64(x) ^ uint64(y)))
 }
-
-//type RandomGenerator struct{}
 
 type SimulatedAnnealingOptimizer struct {
 	Obj        ReproduceWithHammingObjective
@@ -188,7 +186,7 @@ type SimulatedAnnealingOptimizer struct {
 func NewSimulatedAnnealingOptimizer(obj ReproduceWithHammingObjective, p SimulatedAnnealingParameters) SimulatedAnnealingOptimizer {
 	return SimulatedAnnealingOptimizer{
 		Obj:        obj,
-		N:          obj.GetN(),
+		N:          obj.N,
 		InitCost:   0.0,
 		Parameters: p,
 	}
@@ -293,9 +291,7 @@ func NewPolysemousTraining() PolysemousTraining {
 	}
 }
 
-/* START TBD */
 func (pq *ProductQuantizer) GetMthCentroids(m int) []float32 {
-	// Placeholder implementation.
 	res := make([]float32, 0)
 	for i := 0; i < pq.ks; i++ {
 		centroid := pq.kms[m].Centroid(byte(i))
@@ -306,21 +302,16 @@ func (pq *ProductQuantizer) GetMthCentroids(m int) []float32 {
 }
 
 func (pq *ProductQuantizer) SetCentroids(centroids []float32) {
-	// Placeholder implementation.
 	for m := 0; m < pq.m; m++ {
 		pq.kms[m].Add(centroids[m*pq.ks*pq.ds : (m+1)*pq.ks*pq.ds])
 	}
 }
 
-/* END TBD*/
+/*func (pt *PolysemousTraining) OptimizePQForHamming(pq *ProductQuantizer) {
+	pt.optimizeReproduceDistances(pq)
+}*/
 
 func (pt *PolysemousTraining) OptimizePQForHamming(pq *ProductQuantizer) {
-
-	pt.optimizeReproduceDistances(pq)
-
-}
-
-func (pt *PolysemousTraining) optimizeReproduceDistances(pq *ProductQuantizer) {
 
 	var finalCentroids []float32
 
@@ -348,7 +339,7 @@ func (pt *PolysemousTraining) optimizeReproduceDistances(pq *ProductQuantizer) {
 
 		optim := NewSimulatedAnnealingOptimizer(obj, pt.SimulatedAnnealingParams)
 
-		_ = optim.RunOptimization(perm, m)
+		optim.RunOptimization(perm, m)
 
 		centroidsCopy := append([]float32(nil), centroids...)
 

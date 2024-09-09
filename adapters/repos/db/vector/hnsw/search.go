@@ -257,8 +257,20 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			visited.Visit(neighborID)
 			var distance float32
 			var err error
+
 			if h.compressed.Load() {
-				distance, err = compressorDistancer.DistanceToNode(neighborID)
+				if h.ef != -1 {
+					hd := h.compressor.Manager(neighborID, compressorDistancer)
+					if hd > 25 {
+						distance = 1e30
+						err = nil
+					} else {
+						distance, err = compressorDistancer.DistanceToNode(neighborID)
+					}
+				} else {
+					distance, err = compressorDistancer.DistanceToNode(neighborID)
+				}
+				//distance, err = compressorDistancer.DistanceToNode(neighborID)
 			} else {
 				distance, err = h.distanceToFloatNode(floatDistancer, neighborID)
 			}

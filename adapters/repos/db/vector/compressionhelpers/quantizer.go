@@ -16,10 +16,12 @@ import "encoding/binary"
 type quantizerDistancer[T byte | uint64] interface {
 	Distance(x []T) (float32, error)
 	DistanceToFloat(x []float32) (float32, error)
+	GetCompressed() []byte
 }
 
 type quantizer[T byte | uint64] interface {
 	DistanceBetweenCompressedVectors(x, y []T) (float32, error)
+	BinaryDistanceBetweenCompressedVectors(x []byte, y []T) (int, error)
 	Encode(vec []float32) []T
 	NewQuantizerDistancer(a []float32) quantizerDistancer[T]
 	NewCompressedQuantizerDistancer(a []T) quantizerDistancer[T]
@@ -93,6 +95,10 @@ func (bq *BinaryQuantizer) NewCompressedQuantizerDistancer(a []uint64) quantizer
 		bq:         bq,
 		compressed: a,
 	}
+}
+
+func (d *BQDistancer) GetCompressed() []byte {
+	return nil
 }
 
 func (d *BQDistancer) Distance(x []uint64) (float32, error) {

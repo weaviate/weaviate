@@ -310,6 +310,45 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float
 	return pq.distance.Wrap(dist), nil
 }
 
+func popCounter(x byte) int {
+	count := 0
+	for x > 0 {
+		count += int(x & 1)
+		x >>= 1
+	}
+	return count
+}
+
+func (pq *ProductQuantizer) BinaryDistanceBetweenCompressedVectors(x, y []byte) (int, error) {
+	if len(x) != pq.m || len(y) != pq.m {
+		return 0, fmt.Errorf("inconsistent compressed vectors lengths")
+	}
+
+	dist := 0
+	/*for segment := range x {
+		dist += bits.OnesCount8(x[segment] ^ y[segment])
+	}*/
+	for i := 0; i < pq.m; i++ {
+		dist += popCounter(x[i] ^ y[i])
+	}
+
+	return dist, nil
+}
+
+/*func (pq *ProductQuantizer) BinaryDistanceBetweenCompressedVectors(x, y []byte) (int, error) {
+	if len(x) != pq.m || len(y) != pq.m {
+		return 0, fmt.Errorf("inconsistent compressed vectors lengths")
+	}
+
+	dist := 0
+	for i := 0; i < pq.m; i++ {
+		// XOR the bytes and count the number of set bits (Hamming distance)
+		dist += bits.OnesCount8(x[i] ^ y[i])
+	}
+
+	return dist, nil
+}*/
+
 type PQDistancer struct {
 	x          []float32
 	pq         *ProductQuantizer
@@ -338,6 +377,10 @@ func (pq *ProductQuantizer) NewCompressedQuantizerDistancer(a []byte) quantizerD
 
 func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
 	pq.dlutPool.Return(d.lut)
+}
+
+func (d *PQDistancer) GetCompressed() []byte {
+	return d.compressed
 }
 
 func (d *PQDistancer) Distance(x []byte) (float32, error) {

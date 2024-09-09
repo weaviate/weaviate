@@ -130,6 +130,10 @@ type SQDistancer struct {
 	compressed []byte
 }
 
+func (d *SQDistancer) GetCompressed() []byte {
+	return d.compressed
+}
+
 func (sq *ScalarQuantizer) NewDistancer(a []float32) *SQDistancer {
 	sum := float32(0)
 	sum2 := float32(0)
@@ -191,4 +195,8 @@ func (sq *ScalarQuantizer) PersistCompression(logger CommitLogger) {
 
 func (sq *ScalarQuantizer) norm(code []byte) uint32 {
 	return binary.BigEndian.Uint32(code[len(code)-8:])
+}
+
+func (sq *ScalarQuantizer) BinaryDistanceBetweenCompressedVectors(x, y []byte) (int, error) {
+	return -1, nil
 }

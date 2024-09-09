@@ -31,6 +31,7 @@ import (
 type CompressorDistancer interface {
 	DistanceToNode(id uint64) (float32, error)
 	DistanceToFloat(vec []float32) (float32, error)
+	GetCompressed() []byte
 }
 
 type ReturnDistancerFn func()
@@ -49,12 +50,14 @@ type VectorCompressor interface {
 	Preload(id uint64, vector []float32)
 	Prefetch(id uint64)
 	PrefillCache()
+	Manager(id uint64, compressor CompressorDistancer) int
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
 	NewCompressedDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
 	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
+	//GetCompressed() []byte
 
 	PersistCompression(CommitLogger)
 }
@@ -115,6 +118,10 @@ func (compressor *quantizedVectorsCompressor[T]) DistanceBetweenCompressedVector
 	return compressor.quantizer.DistanceBetweenCompressedVectors(x, y)
 }
 
+func (compressor *quantizedVectorsCompressor[T]) BinaryDistanceBetweenCompressedVectors(x []byte, y []T) (int, error) {
+	return compressor.quantizer.BinaryDistanceBetweenCompressedVectors(x, y)
+}
+
 func (compressor *quantizedVectorsCompressor[T]) compressedVectorFromID(ctx context.Context, id uint64) ([]T, error) {
 	compressedVector, err := compressor.cache.Get(ctx, id)
 	if err != nil {
@@ -153,6 +160,11 @@ func (compressor *quantizedVectorsCompressor[T]) getCompressedVectorForID(ctx co
 	}
 
 	return compressor.quantizer.FromCompressedBytes(compressedVector), nil
+}
+
+func (compressor *quantizedCompressorDistancer[T]) GetCompressed() []byte {
+	d := compressor.distancer.GetCompressed()
+	return d
 }
 
 func (compressor *quantizedVectorsCompressor[T]) NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn) {
@@ -279,6 +291,14 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 
 func (compressor *quantizedVectorsCompressor[T]) PersistCompression(logger CommitLogger) {
 	compressor.quantizer.PersistCompression(logger)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) Manager(id uint64, distancer CompressorDistancer) int {
+	compressedQuery := distancer.GetCompressed()
+	compressedVector, _ := compressor.compressedVectorFromID(context.Background(), id)
+	hd, _ := compressor.BinaryDistanceBetweenCompressedVectors(compressedQuery, compressedVector)
+
+	return hd
 }
 
 func NewHNSWPQCompressor(
