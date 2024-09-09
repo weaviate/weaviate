@@ -427,7 +427,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
 			continue
 		}
 		if err != nil {
@@ -481,7 +481,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -497,7 +497,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -528,7 +528,7 @@ func (h *hnsw) distBetweenNodeAndVec(node uint64, vecB []float32) (float32, erro
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
