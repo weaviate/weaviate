@@ -331,6 +331,9 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 						return err
 					}
 					for hasJobs.Load() {
+						if err := ctx.Err(); err != nil {
+							return err
+						}
 						chunk := atomic.AddInt32(&lastChunk, 1)
 						shards, err := u.compress(ctx, desc.Name, chunk, sender)
 						if err != nil {
@@ -376,13 +379,15 @@ func (u *uploader) compress(ctx context.Context,
 		defer zip.Close()
 		lastShardSize := int64(0)
 		for shard := range ch {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if _, err := zip.WriteShard(ctx, shard); err != nil {
 				return err
 			}
 			shard.Chunk = chunk
 			shards = append(shards, shard.Name)
 			shard.ClearTemporary()
-
 			zip.gzw.Flush() // flush new shard
 			lastShardSize = zip.lastWritten() - lastShardSize
 			if zip.lastWritten()+lastShardSize > maxSize {

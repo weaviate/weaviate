@@ -309,12 +309,13 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, backupID st
 			}
 		}
 
-		listresp, err = helper.ListBackup(t, className, backend)
-		helper.AssertRequestOk(t, listresp, err, nil)
-
-		require.Equal(t, backupID, listresp.Payload[0].ID)
-		require.Equal(t, models.BackupListResponseItems0StatusCANCELED, listresp.Payload[0].Status)
-		require.Equal(t, []string{className}, listresp.Payload[0].Classes)
+		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
+		helper.AssertRequestOk(t, resp, err, func() {
+			require.NotNil(t, statusResp)
+			require.NotNil(t, statusResp.Payload)
+			require.NotNil(t, statusResp.Payload.Status)
+			require.Equal(t, string(backup.Cancelled), *statusResp.Payload.Status)
+		})
 	})
 }
 
