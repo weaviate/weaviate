@@ -57,7 +57,6 @@ type VectorCompressor interface {
 	NewCompressedDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
 	NewDistancerFromID(id uint64) (CompressorDistancer, error)
 	NewBag() CompressionDistanceBag
-	//GetCompressed() []byte
 
 	PersistCompression(CommitLogger)
 }

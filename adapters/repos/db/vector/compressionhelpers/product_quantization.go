@@ -15,7 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/bits"
 	"sync"
+	"time"
+	"unsafe"
 
 	"github.com/sirupsen/logrus"
 
@@ -310,14 +313,14 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float
 	return pq.distance.Wrap(dist), nil
 }
 
-func popCounter(x byte) int {
+/*func popCounter(x byte) int {
 	count := 0
 	for x > 0 {
 		count += int(x & 1)
 		x >>= 1
 	}
 	return count
-}
+}*/
 
 func (pq *ProductQuantizer) BinaryDistanceBetweenCompressedVectors(x, y []byte) (int, error) {
 	if len(x) != pq.m || len(y) != pq.m {
@@ -325,29 +328,15 @@ func (pq *ProductQuantizer) BinaryDistanceBetweenCompressedVectors(x, y []byte) 
 	}
 
 	dist := 0
-	/*for segment := range x {
-		dist += bits.OnesCount8(x[segment] ^ y[segment])
-	}*/
-	for i := 0; i < pq.m; i++ {
-		dist += popCounter(x[i] ^ y[i])
+	n := len(x) / 8
+	for i := 0; i < n; i++ {
+		aBlock := *(*uint64)(unsafe.Pointer(&x[i*8]))
+		bBlock := *(*uint64)(unsafe.Pointer(&y[i*8]))
+		dist += bits.OnesCount64(aBlock ^ bBlock)
 	}
 
 	return dist, nil
 }
-
-/*func (pq *ProductQuantizer) BinaryDistanceBetweenCompressedVectors(x, y []byte) (int, error) {
-	if len(x) != pq.m || len(y) != pq.m {
-		return 0, fmt.Errorf("inconsistent compressed vectors lengths")
-	}
-
-	dist := 0
-	for i := 0; i < pq.m; i++ {
-		// XOR the bytes and count the number of set bits (Hamming distance)
-		dist += bits.OnesCount8(x[i] ^ y[i])
-	}
-
-	return dist, nil
-}*/
 
 type PQDistancer struct {
 	x          []float32
@@ -445,8 +434,11 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 			return errorResult
 		}
 	}
+	// start timer
+	timer := time.Now()
 	polyTraining := NewPolysemousTraining()
 	polyTraining.OptimizePQForHamming(pq)
+	pq.logger.WithField("duration", time.Since(timer)).Debug("Optimized PQ for Hamming")
 	pq.buildGlobalDistances()
 	return nil
 }

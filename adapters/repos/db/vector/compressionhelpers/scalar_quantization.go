@@ -198,5 +198,5 @@ func (sq *ScalarQuantizer) norm(code []byte) uint32 {
 }
 
 func (sq *ScalarQuantizer) BinaryDistanceBetweenCompressedVectors(x, y []byte) (int, error) {
-	return -1, nil
+	return 0, nil
 }
