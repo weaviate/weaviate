@@ -31,3 +31,12 @@ var dotByteImpl func(a, b []uint8) uint32 = func(a, b []byte) uint32 {
 
 	return sum
 }
+
+var LAQDotImpl func(x []float32, y []byte) float32 = func(x []float32, y []byte) float32 {
+	sum := float32(0)
+	for i := range x {
+		sum += x[i] * float32(y[i])
+	}
+	panic(sum)
+	return sum
+}

@@ -28,7 +28,7 @@ import (
 )
 
 func Test_NoRaceRandomLASQDistanceByteToByte(t *testing.T) {
-	distancers := []distancer.Provider{distancer.NewL2SquaredProvider()}
+	distancers := []distancer.Provider{distancer.NewL2SquaredProvider(), distancer.NewDotProductProvider()}
 	vSize := 100
 	qSize := 10
 	dims := 150
@@ -80,5 +80,68 @@ func Test_NoRaceRandomLASQDistanceByteToByte(t *testing.T) {
 		latency := float32(ellapsed.Microseconds()) / float32(len(queries))
 		fmt.Println(distancer.Type(), recall, latency)
 		assert.GreaterOrEqual(t, recall, float32(0.98), distancer.Type())
+	}
+}
+
+func BenchmarkLASQDotSpeed(b *testing.B) {
+	vSize := 100
+	dims := 1536
+	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
+	lasq := compressionhelpers.NewLocallyAdaptiveScalarQuantizer(data, distancer.NewDotProductProvider())
+	v1 := lasq.Encode(data[0])
+	v2 := lasq.Encode(data[1])
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lasq.DistanceBetweenCompressedVectors(v1, v2)
+	}
+}
+
+func BenchmarkFloatDotSpeed(b *testing.B) {
+	vSize := 2
+	dims := 1536
+	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
+	l2Dist := distancer.NewDotProductProvider()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		l2Dist.SingleDist(data[0], data[1])
+	}
+}
+
+func BenchmarkLASQL2Speed(b *testing.B) {
+	vSize := 100
+	dims := 1536
+	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
+	lasq := compressionhelpers.NewLocallyAdaptiveScalarQuantizer(data, distancer.NewL2SquaredProvider())
+	v1 := lasq.Encode(data[1])
+	v2 := lasq.Encode(data[2])
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lasq.DistanceBetweenCompressedVectors(v1, v2)
+		//compressionhelpers.DotByteImpl(v1[:dims], v2[:dims])
+	}
+}
+
+func BenchmarkSQL2Speed(b *testing.B) {
+	vSize := 100
+	dims := 1536
+	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
+	sq := compressionhelpers.NewScalarQuantizer(data, distancer.NewL2SquaredProvider())
+	v1 := sq.Encode(data[1])
+	v2 := sq.Encode(data[2])
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sq.DistanceBetweenCompressedVectors(v1, v2)
+		//compressionhelpers.DotByteImpl(v1[:dims], v2[:dims])
+	}
+}
+
+func BenchmarkFloatL2Speed(b *testing.B) {
+	vSize := 2
+	dims := 1536
+	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
+	l2Dist := distancer.NewL2SquaredProvider()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		l2Dist.SingleDist(data[0], data[1])
 	}
 }
