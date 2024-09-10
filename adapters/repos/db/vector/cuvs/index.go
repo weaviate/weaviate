@@ -523,6 +523,11 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	for i := range neighborsSlice[0] {
 		neighborsResultSlice[i] = index.idCuvsIdMap[neighborsSlice[0][i]]
 	}
+
+	// distances.Close()
+	// neighbors.Close()
+	// queries.Close()
+
 	// index.Unlock()
 	// resultProcessingDuration := time.Since(resultProcessingStart)
 	// fmt.Printf("Result processing duration: %v\n", resultProcessingDuration)

@@ -65,6 +65,8 @@ func TestBench(t *testing.T) {
 		panic(err)
 	}
 
+	index.PostStartup()
+
 	// file, err := hdf5.OpenFile("/home/ajit/datasets/sift-128-euclidean.hdf5", hdf5.F_ACC_RDONLY)
 	file, err := hdf5.OpenFile("/home/ajit/datasets/dbpedia-openai-1000k-angular.hdf5", hdf5.F_ACC_RDONLY)
 	// file, err := hdf5.OpenFile("/home/ajit/datasets/fashion-mnist-784-euclidean.hdf5", hdf5.F_ACC_RDONLY)
