@@ -227,13 +227,38 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 
-	_, err := coordBackend(s.backends, backend, backupID)
+	store, err := coordBackend(s.backends, backend, backupID)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return backup.NewErrUnprocessable(err)
 	}
 
-	return fmt.Errorf("not implemented")
+	if err := validateID(backupID); err != nil {
+		return err
+	}
+
+	if err := store.Initialize(ctx); err != nil {
+		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+	}
+
+	meta, _ := store.Meta(ctx, GlobalBackupFile)
+	if meta != nil && meta.Status == backup.Cancelled {
+		return nil
+	}
+
+	nodes, err := s.backupper.Nodes(ctx, &Request{
+		Method:  OpCreate,
+		Backend: backend,
+		ID:      backupID,
+		Classes: s.backupper.selector.ListClasses(ctx),
+	})
+	if err != nil {
+		return err
+	}
+	s.backupper.abortAll(ctx,
+		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend}, nodes)
+
+	return nil
 }
 
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string) (*models.BackupListResponse, error) {
@@ -305,8 +330,8 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	destPath := store.HomeDir()
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	_, err := store.Meta(ctx, GlobalBackupFile)
-	if err == nil {
+	meta, err := store.Meta(ctx, GlobalBackupFile)
+	if err == nil && meta.Status != backup.Cancelled {
 		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
 	if _, ok := err.(backup.ErrNotFound); !ok {
