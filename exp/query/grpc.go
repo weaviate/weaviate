@@ -44,10 +44,14 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 }
 
 func requestFromProto(req *protocol.SearchRequest) *SearchRequest {
-	return &SearchRequest{
+	sr := &SearchRequest{
 		Collection: req.Collection,
 		Tenant:     req.Tenant,
 	}
+	if req.NearText != nil {
+		sr.NearText = req.NearText.Query
+	}
+	return sr
 }
 
 func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
