@@ -38,7 +38,12 @@ func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
 		// at least 2 buffers needs to be used by cursor not to overwrite data before they are consumed.
 		segmentCursor = roaringsetrange.NewSegmentCursorPread(sectionReader, 2)
 	}
-	return roaringsetrange.NewSegmentReader(roaringsetrange.NewGaplessSegmentCursor(segmentCursor))
+
+	concurrency := 4
+	if concurrency > _NUMCPU {
+		concurrency = _NUMCPU
+	}
+	return roaringsetrange.NewSegmentReaderConcurrent(roaringsetrange.NewGaplessSegmentCursor(segmentCursor), concurrency)
 }
 
 func (s *segment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
