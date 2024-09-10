@@ -87,7 +87,7 @@ func (z *zip) WriteShard(ctx context.Context, sd *backup.ShardDescriptor) (writt
 			name: filepath.Base(x.relPath),
 			size: len(x.data),
 		}
-		if n, err = z.writeOne(info, x.relPath, bytes.NewReader(x.data)); err != nil {
+		if n, err = z.writeOne(ctx, info, x.relPath, bytes.NewReader(x.data)); err != nil {
 			return written, err
 		}
 		written += n
@@ -108,7 +108,7 @@ func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int
 		if err := ctx.Err(); err != nil {
 			return written, err
 		}
-		n, err := z.WriteRegular(relPath)
+		n, err := z.WriteRegular(ctx, relPath)
 		if err != nil {
 			return written, err
 		}
@@ -117,7 +117,10 @@ func (z *zip) WriteRegulars(ctx context.Context, relPaths []string) (written int
 	return written, nil
 }
 
-func (z *zip) WriteRegular(relPath string) (written int64, err error) {
+func (z *zip) WriteRegular(ctx context.Context, relPath string) (written int64, err error) {
+	if err := ctx.Err(); err != nil {
+		return written, err
+	}
 	// open file for read
 	absPath := filepath.Join(z.sourcePath, relPath)
 	info, err := os.Stat(absPath)
@@ -133,10 +136,13 @@ func (z *zip) WriteRegular(relPath string) (written int64, err error) {
 	}
 	defer f.Close()
 
-	return z.writeOne(info, relPath, f)
+	return z.writeOne(ctx, info, relPath, f)
 }
 
-func (z *zip) writeOne(info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
+func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r io.Reader) (written int64, err error) {
+	if err := ctx.Err(); err != nil {
+		return written, err
+	}
 	// write info header
 	header, err := tar.FileInfoHeader(info, info.Name())
 	if err != nil {
