@@ -23,18 +23,12 @@ const (
 	codesLasq = 255.0
 )
 
-var LAQDotImpl func(x []float32, y []byte) float32 = func(x []float32, y []byte) float32 {
-	sum := float32(0)
-	for i := range x {
-		sum += x[i] * float32(y[i])
-	}
-	return sum
-}
-
 type LaScalarQuantizer struct {
 	distancer distancer.Provider
 	dims      int
 	means     []float32
+	normMu    float32
+	normMu2   float32
 }
 
 type LASQData struct {
@@ -50,13 +44,19 @@ func NewLocallyAdaptiveScalarQuantizer(data [][]float32, distance distancer.Prov
 			means[i] += v[i]
 		}
 	}
+	mu := float32(0)
+	mu2 := float32(0)
 	for i := range data[0] {
 		means[i] /= float32(len(data))
+		mu += means[i]
+		mu2 += means[i] * means[i]
 	}
 	return &LaScalarQuantizer{
 		distancer: distance,
 		dims:      dims,
 		means:     means,
+		normMu:    mu,
+		normMu2:   mu2,
 	}
 }
 
@@ -128,6 +128,10 @@ func (lasq *LaScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (fl
 	switch lasq.distancer.Type() {
 	case "l2-squared":
 		return ax2*normX2 + ay2*normY2 + 2*ax*bDiff*normX - 2*ay*bDiff*normY - 2*ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + float32(lasq.dims)*bDiff*bDiff, nil
+	case "dot":
+		return -(ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + ax*LAQDotImpl(lasq.means, x[:lasq.dims]) + ay*LAQDotImpl(lasq.means, y[:lasq.dims])), nil
+	case "cosine-dot":
+		return 1 - (ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + ax*LAQDotImpl(lasq.means, x[:lasq.dims]) + ay*LAQDotImpl(lasq.means, y[:lasq.dims])), nil
 	}
 	return 0, errors.Errorf("Distance not supported yet %s", lasq.distancer)
 }
