@@ -46,6 +46,11 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 		})
 		assert.NotNil(t, err)
 	})
+
+	t.Run("ValidateEmptyID-Cancellation", func(t *testing.T) {
+		assert.NotNil(t, s.Cancel(ctx, nil, backendName, ""))
+	})
+
 	t.Run("ValidateID", func(t *testing.T) {
 		_, err := s.Backup(ctx, nil, &BackupRequest{
 			Backend: backendName,
@@ -54,6 +59,11 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 		})
 		assert.NotNil(t, err)
 	})
+
+	t.Run("ValidateID-Cancellation", func(t *testing.T) {
+		assert.NotNil(t, s.Cancel(ctx, nil, backendName, "A*:"))
+	})
+
 	t.Run("IncludeExclude", func(t *testing.T) {
 		_, err := s.Backup(ctx, nil, &BackupRequest{
 			Backend: backendName,
