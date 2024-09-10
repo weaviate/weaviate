@@ -36,7 +36,7 @@ var (
 )
 
 type ClassSettings interface {
-	MaxTokens() float64
+	MaxTokens() *int
 	Temperature() float64
 	TopP() float64
 	TopK() int
@@ -64,7 +64,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0")
 	}
 
-	maxTokens := ic.getFloatProperty(maxTokensProperty, &DefaultDatabricksMaxTokens)
+	maxTokens := ic.getIntProperty(maxTokensProperty, nil)
 	if maxTokens != nil && *maxTokens <= 0 {
 		return errors.Errorf("Wrong maxTokens configuration, values should be greater than zero or nil")
 	}
@@ -103,8 +103,8 @@ func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
-func (ic *classSettings) MaxTokens() float64 {
-	return *ic.getFloatProperty(maxTokensProperty, &DefaultDatabricksMaxTokens)
+func (ic *classSettings) MaxTokens() *int {
+	return ic.getIntProperty(maxTokensProperty, nil)
 }
 
 func (ic *classSettings) Temperature() float64 {

@@ -182,10 +182,6 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 }
 
 func addTestClass(t *testing.T, className string, multiTenant bool) {
-	// TODO shall be removed with the DB is idempotent
-	// delete class before trying to create in case it was existing.
-	helper.DeleteClass(t, className)
-
 	class := &models.Class{
 		Class: className,
 		ModuleConfig: map[string]interface{}{
