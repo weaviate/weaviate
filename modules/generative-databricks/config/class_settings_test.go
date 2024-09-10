@@ -22,10 +22,12 @@ import (
 )
 
 func Test_classSettings_Validate(t *testing.T) {
+	maxTokens42 := 42
+
 	tests := []struct {
 		name            string
 		cfg             moduletools.ClassConfig
-		wantMaxTokens   float64
+		wantMaxTokens   *int
 		wantTemperature float64
 		wantTopP        float64
 		wantTopK        int
@@ -39,7 +41,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"endpoint": "https://foo.bar.com",
 				},
 			},
-			wantMaxTokens:   8192,
+			wantMaxTokens:   nil,
 			wantTemperature: 1.0,
 			wantTopP:        1,
 			wantTopK:        math.MaxInt64,
@@ -57,7 +59,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"topK":        1,
 				},
 			},
-			wantMaxTokens:   42,
+			wantMaxTokens:   &maxTokens42,
 			wantTemperature: 0.5,
 			wantTopP:        3,
 			wantTopK:        1,
