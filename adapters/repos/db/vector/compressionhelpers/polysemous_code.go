@@ -87,7 +87,7 @@ func (r ReproduceWithHammingObjective) ComputeCost(perm []int) float64 {
 			wanted := r.TargetDis[i*n+j]
 			w := r.Weights[i*n+j]
 			actual := float64(bits.OnesCount(uint(perm[i] ^ perm[j])))
-			cost += w * Sqr(wanted-actual)
+			cost += w * sqr(wanted-actual)
 		}
 	}
 
@@ -104,18 +104,18 @@ func (r ReproduceWithHammingObjective) CostUpdate(perm []int, iw, jw int) float6
 				wanted := r.TargetDis[i*n+j]
 				w := r.Weights[i*n+j]
 				actual := float64(bits.OnesCount(uint(perm[i] ^ perm[j])))
-				deltaCost -= w * Sqr(wanted-actual)
+				deltaCost -= w * sqr(wanted-actual)
 				newActual := float64(bits.OnesCount(uint(perm[jw] ^ perm[ConditionalSwap(j, iw, jw)])))
-				deltaCost += w * Sqr(wanted-newActual)
+				deltaCost += w * sqr(wanted-newActual)
 			}
 		} else if i == jw {
 			for j := 0; j < n; j++ {
 				wanted := r.TargetDis[i*n+j]
 				w := r.Weights[i*n+j]
 				actual := float64(bits.OnesCount(uint(perm[i] ^ perm[j])))
-				deltaCost -= w * Sqr(wanted-actual)
+				deltaCost -= w * sqr(wanted-actual)
 				newActual := float64(bits.OnesCount(uint(perm[i] ^ perm[ConditionalSwap(j, iw, jw)])))
-				deltaCost += w * Sqr(wanted-newActual)
+				deltaCost += w * sqr(wanted-newActual)
 			}
 		} else {
 			{
@@ -123,18 +123,18 @@ func (r ReproduceWithHammingObjective) CostUpdate(perm []int, iw, jw int) float6
 				wanted := r.TargetDis[i*n+j]
 				w := r.Weights[i*n+j]
 				actual := float64(bits.OnesCount(uint(perm[i] ^ perm[j])))
-				deltaCost -= w * Sqr(wanted-actual)
+				deltaCost -= w * sqr(wanted-actual)
 				newActual := float64(bits.OnesCount(uint(perm[i] ^ perm[jw])))
-				deltaCost += w * Sqr(wanted-newActual)
+				deltaCost += w * sqr(wanted-newActual)
 			}
 			{
 				j := jw
 				wanted := r.TargetDis[i*n+j]
 				w := r.Weights[i*n+j]
 				actual := float64(bits.OnesCount(uint(perm[i] ^ perm[j])))
-				deltaCost -= w * Sqr(wanted-actual)
+				deltaCost -= w * sqr(wanted-actual)
 				newActual := float64(bits.OnesCount(uint(perm[i] ^ perm[iw])))
-				deltaCost += w * Sqr(wanted-newActual)
+				deltaCost += w * sqr(wanted-newActual)
 			}
 		}
 	}
@@ -151,7 +151,7 @@ func ConditionalSwap(j, iw, jw int) int {
 	return j
 }
 
-func Sqr(x float64) float64 {
+func sqr(x float64) float64 {
 	return x * x
 }
 
@@ -162,7 +162,10 @@ type SimulatedAnnealingOptimizer struct {
 	Parameters SimulatedAnnealingParameters
 }
 
-func NewSimulatedAnnealingOptimizer(obj ReproduceWithHammingObjective, p SimulatedAnnealingParameters) SimulatedAnnealingOptimizer {
+func NewSimulatedAnnealingOptimizer(nbits int, p SimulatedAnnealingParameters, disWeightFactor float64, disTable []float64) SimulatedAnnealingOptimizer {
+
+	obj := NewReproduceWithHammingObjective(nbits, disWeightFactor)
+	obj.SetAffineTargetDis(disTable)
 	return SimulatedAnnealingOptimizer{
 		Obj:        obj,
 		N:          obj.N,
@@ -253,19 +256,17 @@ func (sao *SimulatedAnnealingOptimizer) RunOptimization(bestPerm []int, m int) f
 		}(it)
 	}
 
-	// Wait for all Goroutines to finish
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
 
-	// Process the results from the channel
 	for result := range results {
 		mu.Lock()
 		if result.cost < minCost {
 			copy(bestPerm, result.perm)
 			minCost = result.cost
-			fmt.Println("Segment:", m, " updated permutation, this is the new cost ", minCost)
+			//fmt.Println("Segment:", m, " updated permutation, this is the new cost ", minCost)
 		}
 		mu.Unlock()
 	}
@@ -273,45 +274,11 @@ func (sao *SimulatedAnnealingOptimizer) RunOptimization(bestPerm []int, m int) f
 	return minCost
 }
 
-/*func (sao *SimulatedAnnealingOptimizer) RunOptimization(bestPerm []int, m int) float64 {
-	minCost := 1e30
-
-	for it := 0; it < sao.Parameters.NRedo; it++ {
-		perm := make([]int, sao.N)
-		for i := 0; i < sao.N; i++ {
-			perm[i] = i
-		}
-		if sao.Parameters.InitRandom {
-			for i := 0; i < sao.N; i++ {
-				j := i + rand.Intn(sao.N-i)
-				perm[i], perm[j] = perm[j], perm[i]
-			}
-		}
-		cost := sao.Optimize(perm)
-
-		if sao.Parameters.Verbose > 1 {
-			fmt.Printf("    optimization run %d: cost=%f %s\n", it, cost, func() string {
-				if cost < minCost {
-					return "keep"
-				}
-				return ""
-			}())
-		}
-		if cost < minCost {
-			copy(bestPerm, perm)
-			minCost = cost
-			fmt.Println("Segment:", m, " updated permutation, this is the new cost ", minCost)
-		}
-	}
-	return minCost
-}*/
-
-func fvecL2Sqr(x, y []float32, d int) float32 {
+func euclideanDistance(x, y []float32) float32 {
 	var res float32 = 0.0
 
-	for i := 0; i < d; i++ {
-		tmp := x[i] - y[i]
-		res += tmp * tmp
+	for i := 0; i < len(x); i++ {
+		res += (x[i] - y[i]) * (x[i] - y[i])
 	}
 
 	return res
@@ -335,7 +302,6 @@ func (pq *ProductQuantizer) GetMthCentroids(m int) []float32 {
 		centroid := pq.kms[m].Centroid(byte(i))
 		res = append(res, centroid...)
 	}
-
 	return res
 }
 
@@ -347,22 +313,21 @@ func (pq *ProductQuantizer) SetCentroids(centroids []float32) {
 
 func (pt *PolysemousTraining) OptimizePQForHamming(pq *ProductQuantizer) {
 	finalCentroids := make([]float32, pq.m*pq.ks*pq.ds)
-	var mu sync.Mutex     // Mutex to protect concurrent access to finalCentroids
-	var wg sync.WaitGroup // WaitGroup to wait for all goroutines to finish
+	var mu sync.Mutex
+	var wg sync.WaitGroup
 
 	// Function to optimize for a single m, to be run concurrently
 	worker := func(m int) {
-		defer wg.Done() // Signal that this goroutine is done
+		defer wg.Done()
 		var disTable []float64
 
 		centroids := pq.GetMthCentroids(m)
 
 		for i := 0; i < pq.ks; i++ {
 			for j := 0; j < pq.ks; j++ {
-				disTable = append(disTable, float64(fvecL2Sqr(
+				disTable = append(disTable, float64(euclideanDistance(
 					centroids[i*pq.ds:(i+1)*pq.ds],
 					centroids[j*pq.ds:(j+1)*pq.ds],
-					pq.ds,
 				)))
 			}
 		}
@@ -370,9 +335,7 @@ func (pt *PolysemousTraining) OptimizePQForHamming(pq *ProductQuantizer) {
 		perm := make([]int, pq.ks)
 
 		nbits := int(math.Ceil(math.Log2(float64(pq.ks))))
-		obj := NewReproduceWithHammingObjective(nbits, pt.DisWeightFactor)
-		obj.SetAffineTargetDis(disTable)
-		optim := NewSimulatedAnnealingOptimizer(obj, pt.SimulatedAnnealingParams)
+		optim := NewSimulatedAnnealingOptimizer(nbits, pt.SimulatedAnnealingParams, pt.DisWeightFactor, disTable)
 		optim.RunOptimization(perm, m)
 		centroidsCopy := append([]float32(nil), centroids...)
 
@@ -380,19 +343,16 @@ func (pt *PolysemousTraining) OptimizePQForHamming(pq *ProductQuantizer) {
 			copy(centroids[perm[i]*pq.ds:(perm[i]+1)*pq.ds], centroidsCopy[i*pq.ds:(i+1)*pq.ds])
 		}
 
-		// Lock before appending to finalCentroids
 		mu.Lock()
 		copy(finalCentroids[m*pq.ks*pq.ds:(m+1)*pq.ks*pq.ds], centroids)
 		mu.Unlock()
 	}
-	// Launch a goroutine for each value of m
+
 	for m := 0; m < pq.m; m++ {
-		wg.Add(1)    // Increment the WaitGroup counter
-		go worker(m) // Run the worker in a separate goroutine
+		wg.Add(1)
+		go worker(m)
 	}
-	// Wait for all workers to finish
+
 	wg.Wait()
-	// Set the final centroids
-	fmt.Println("Final centroids: ", len(finalCentroids))
 	pq.SetCentroids(finalCentroids)
 }
