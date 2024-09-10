@@ -93,7 +93,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
 	}
 
-	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit)
+	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
@@ -106,7 +106,7 @@ func (b *BM25Searcher) GetPropertyLengthTracker() *JsonShardMetaData {
 }
 
 func (b *BM25Searcher) wand(
-	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int,
+	ctx context.Context, filterDocIds helpers.AllowList, class *models.Class, params searchparams.KeywordRanking, limit int, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	N := float64(b.store.Bucket(helpers.ObjectsBucketLSM).Count())
 
@@ -266,7 +266,7 @@ func (b *BM25Searcher) wand(
 	}
 
 	topKHeap := b.getTopKHeap(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
-	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allRequests)
+	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allRequests, additional)
 }
 
 func (b *BM25Searcher) removeStopwordsFromQueryTerms(queryTerms []string,
@@ -296,7 +296,7 @@ WordLoop:
 	}
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool, allRequests []termListRequest,
+func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool, allRequests []termListRequest, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	scores := make([]float32, 0, topKHeap.Len())
@@ -309,7 +309,7 @@ func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.Doc
 		explanations = append(explanations, res.Value)
 	}
 
-	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional.Properties{}, b.logger)
+	objs, err := storobj.ObjectsByDocID(objectsBucket, ids, additional, b.logger)
 	if err != nil {
 		return objs, nil, errors.Errorf("objects loading")
 	}
