@@ -521,7 +521,7 @@ func (h *hnsw) reassignNeighbor(
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "reassignNeighbor")
 			return true, nil
 		} else {
 			// not a typed error, we can recover from, return with err
