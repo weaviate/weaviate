@@ -23,4 +23,6 @@ type Config struct {
 	// We need this, to make it work with existing query helpers, where we assume we serve query from
 	// local disk. This will go away eventually once we start reading from object store into memory directly.
 	DataPath string `long:"datapath" description:"place to look for tenant data after downloading it from object storage" default:"/tmp"`
+
+	VectorizerAddr string `long:"vectorize-addr" description:"vectorizer address to be used to vectorize near-text query" default:"0.0.0.0:9999"`
 }

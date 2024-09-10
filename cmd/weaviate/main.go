@@ -21,6 +21,8 @@ import (
 	"github.com/weaviate/weaviate/exp/querytenant"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -58,12 +60,22 @@ func main() {
 		// TODO(kavi): Find a way to share this functionality in both go-client and in querytenant.
 		tenantInfo := querytenant.NewTenantInfo(opts.Query.SchemaAddr, querytenant.DefaultSchemaPath)
 
+		vclient, err := client.NewClient(opts.Query.VectorizerAddr, log)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"cause": err,
+				"addrs": opts.Query.VectorizerAddr,
+			}).Fatal("failed to talk to vectorizer")
+		}
+
 		a := query.NewAPI(
 			tenantInfo,
 			s3module,
+			vectorizer.New(vclient),
 			&opts.Query,
 			log,
 		)
+
 		grpcQuerier := query.NewGRPC(a, log)
 		listener, err := net.Listen("tcp", opts.Query.GRPCListenAddr)
 		if err != nil {
