@@ -660,7 +660,6 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	}
 
 	segments := [][]MapPair{}
-	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil {
 		if err != nil && err != lsmkv.NotFound {
@@ -682,11 +681,6 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		segments = append(segments, segmentDecoded)
 	}
 
-	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
-
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil {
@@ -698,7 +692,6 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		segments = append(segments, v)
 	}
 
-	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil {
 		if err != nil && err != lsmkv.NotFound {
@@ -706,12 +699,6 @@ func (b *Bucket) MapList(key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 		}
 	}
 	segments = append(segments, v)
-	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	// defer func() {
-	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
-	// }()
 
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
@@ -1075,7 +1062,6 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
@@ -1095,11 +1081,6 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		segments = append(segments, segmentDecoded)
 	}
 
-	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
-
 	if b.flushing != nil {
 		mem, err := b.flushing.getMap(key)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
@@ -1114,7 +1095,6 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		segments = append(segments, docPointers)
 	}
 
-	// before = time.Now()
 	mem, err := b.active.getMap(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
@@ -1126,12 +1106,6 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		}
 	}
 	segments = append(segments, docPointers)
-	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	// defer func() {
-	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
-	// }()
 
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
