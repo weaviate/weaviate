@@ -69,6 +69,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
 		}),
+		BackupsBackupsCancelHandler: backups.BackupsCancelHandlerFunc(func(params backups.BackupsCancelParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation backups.BackupsCancel has not yet been implemented")
+		}),
 		BackupsBackupsCreateHandler: backups.BackupsCreateHandlerFunc(func(params backups.BackupsCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation backups.BackupsCreate has not yet been implemented")
 		}),
@@ -273,6 +276,8 @@ type WeaviateAPI struct {
 
 	// WellKnownGetWellKnownOpenidConfigurationHandler sets the operation handler for the get well known openid configuration operation
 	WellKnownGetWellKnownOpenidConfigurationHandler well_known.GetWellKnownOpenidConfigurationHandler
+	// BackupsBackupsCancelHandler sets the operation handler for the backups cancel operation
+	BackupsBackupsCancelHandler backups.BackupsCancelHandler
 	// BackupsBackupsCreateHandler sets the operation handler for the backups create operation
 	BackupsBackupsCreateHandler backups.BackupsCreateHandler
 	// BackupsBackupsCreateStatusHandler sets the operation handler for the backups create status operation
@@ -459,6 +464,9 @@ func (o *WeaviateAPI) Validate() error {
 
 	if o.WellKnownGetWellKnownOpenidConfigurationHandler == nil {
 		unregistered = append(unregistered, "well_known.GetWellKnownOpenidConfigurationHandler")
+	}
+	if o.BackupsBackupsCancelHandler == nil {
+		unregistered = append(unregistered, "backups.BackupsCancelHandler")
 	}
 	if o.BackupsBackupsCreateHandler == nil {
 		unregistered = append(unregistered, "backups.BackupsCreateHandler")
@@ -714,6 +722,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/.well-known/openid-configuration"] = well_known.NewGetWellKnownOpenidConfiguration(o.context, o.WellKnownGetWellKnownOpenidConfigurationHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/backups/{backend}/{id}"] = backups.NewBackupsCancel(o.context, o.BackupsBackupsCancelHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
