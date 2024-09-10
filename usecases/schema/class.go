@@ -133,7 +133,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 
 	shardState, err := sharding.InitState(cls.Class,
 		cls.ShardingConfig.(shardingcfg.Config),
-		h.clusterState, cls.ReplicationConfig.Factor,
+		h.clusterState.LocalName(), h.schemaManager.StorageCandidates(), cls.ReplicationConfig.Factor,
 		schema.MultiTenancyEnabled(cls))
 	if err != nil {
 		return nil, 0, fmt.Errorf("init sharding state: %w", err)
