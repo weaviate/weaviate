@@ -1422,7 +1422,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		require.Nil(t, err)
 
 		nodes := mocks.NewMockNodeSelector("node1", "node2")
-		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 1, false)
+		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
 		require.Nil(t, err)
 
 		shardingBytes, err := shardingState.JSON()
@@ -1452,7 +1452,7 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		require.Nil(t, err)
 
 		nodes := mocks.NewMockNodeSelector("node1", "node2")
-		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes, 2, false)
+		shardingState, err := sharding.InitState(classRaw.Class, shardingConfig, nodes.LocalName(), nodes.StorageCandidates(), 2, false)
 		require.Nil(t, err)
 
 		shardingBytes, err := shardingState.JSON()

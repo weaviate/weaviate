@@ -39,27 +39,58 @@ func TestCreateClassWhileOneNodeIsDown(t *testing.T) {
 		}
 	}()
 
-	testClass := articles.ParagraphsClass()
-	testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
-	testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+	t.Run("class with MT Enabled", func(t *testing.T) {
+		testClass := articles.ParagraphsClass()
+		testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+		testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 
-	helper.SetupClient(compose.GetWeaviateNode2().URI())
+		helper.SetupClient(compose.GetWeaviate().URI())
 
-	t.Run("stop 3rd node", func(t *testing.T) {
-		require.Nil(t, compose.StopAt(context.Background(), 2, nil))
+		t.Run("stop 3rd node", func(t *testing.T) {
+			require.Nil(t, compose.StopAt(context.Background(), 2, nil))
+		})
+
+		t.Run("create class", func(t *testing.T) {
+			helper.CreateClass(t, testClass)
+		})
+
+		t.Run("bring 3rd node back up", func(t *testing.T) {
+			require.Nil(t, compose.StartAt(context.Background(), 2))
+		})
+
+		t.Run("verify class exists on the 3rd node", func(t *testing.T) {
+			helper.SetupClient(compose.GetWeaviateNode3().URI())
+			require.NotNil(t, helper.GetClass(t, testClass.Class))
+		})
+
+		t.Run("delete create class", func(t *testing.T) {
+			helper.DeleteClass(t, testClass.Class)
+		})
 	})
 
-	t.Run("create class", func(t *testing.T) {
-		helper.CreateClass(t, testClass)
-	})
+	t.Run("class with MT disabled", func(t *testing.T) {
+		testClass := articles.ParagraphsClass()
+		testClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: false}
+		testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 
-	t.Run("bring 3rd node back up", func(t *testing.T) {
-		require.Nil(t, compose.StartAt(context.Background(), 2))
-	})
+		helper.SetupClient(compose.GetWeaviate().URI())
 
-	t.Run("verify class exists on the 3rd node", func(t *testing.T) {
-		helper.SetupClient(compose.GetWeaviateNode3().URI())
-		helper.GetClass(t, testClass.Class)
+		t.Run("stop 3rd node", func(t *testing.T) {
+			require.Nil(t, compose.StopAt(context.Background(), 2, nil))
+		})
+
+		t.Run("create class", func(t *testing.T) {
+			helper.CreateClass(t, testClass)
+		})
+
+		t.Run("bring 3rd node back up", func(t *testing.T) {
+			require.Nil(t, compose.StartAt(context.Background(), 2))
+		})
+
+		t.Run("verify class exists on the 3rd node", func(t *testing.T) {
+			helper.SetupClient(compose.GetWeaviateNode3().URI())
+			require.NotNil(t, helper.GetClass(t, testClass.Class))
+		})
 	})
 }
 

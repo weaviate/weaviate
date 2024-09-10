@@ -154,14 +154,14 @@ func ptString(in string) *string {
 }
 
 type fakeClassSettings struct {
-	maxTokens   float64
+	maxTokens   *int
 	temperature float64
 	topP        float64
 	topK        int
 	endpoint    string
 }
 
-func (s *fakeClassSettings) MaxTokens() float64 {
+func (s *fakeClassSettings) MaxTokens() *int {
 	return s.maxTokens
 }
 
