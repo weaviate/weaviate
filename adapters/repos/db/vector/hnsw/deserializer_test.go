@@ -137,7 +137,8 @@ func TestDeserializer2ReadCommitType(t *testing.T) {
 func TestDeserializerReadDeleteNode(t *testing.T) {
 	nodes := generateDummyVertices(4)
 	res := &DeserializationResult{
-		Nodes: nodes,
+		Nodes:        nodes,
+		NodesDeleted: map[uint64]struct{}{},
 	}
 	ids := []uint64{2, 3, 4, 5, 6}
 
@@ -149,9 +150,15 @@ func TestDeserializerReadDeleteNode(t *testing.T) {
 		d := NewDeserializer(logger)
 		reader := bufio.NewReader(data)
 
-		err := d.ReadDeleteNode(reader, res)
+		err := d.ReadDeleteNode(reader, res, res.NodesDeleted)
 		if err != nil {
 			t.Errorf("Error reading commit type: %v", err)
+		}
+	}
+
+	for _, id := range ids {
+		if _, ok := res.NodesDeleted[id]; !ok {
+			t.Errorf("Node %d not marked deleted", id)
 		}
 	}
 }
