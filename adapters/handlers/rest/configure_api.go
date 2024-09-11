@@ -131,15 +131,16 @@ type vectorRepo interface {
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 }
+
 func getCores() (int, error) {
 	cpuset, err := os.ReadFile("/sys/fs/cgroup/cpuset/cpuset.cpus")
 	if err != nil {
 		return 0, errors.Wrap(err, "read cpuset")
 	}
-        return calcCPUs(strings.TrimSpace(string(cpuset)))
+	return calcCPUs(strings.TrimSpace(string(cpuset)))
 }
 
-func calcCPUs(cpuString string)  (int, error){
+func calcCPUs(cpuString string) (int, error) {
 	cores := 0
 	if cpuString == "" {
 		return 0, nil
