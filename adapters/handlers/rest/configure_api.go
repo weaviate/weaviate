@@ -141,6 +141,9 @@ func getCores() (int, error) {
 
 func calcCPUs(cpuString string)  (int, error){
 	cores := 0
+	if cpuString == "" {
+		return 0, nil
+	}
 
 	// Split by comma to handle multiple ranges
 	ranges := strings.Split(cpuString, ",")
