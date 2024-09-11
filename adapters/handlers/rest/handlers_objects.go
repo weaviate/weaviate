@@ -368,7 +368,9 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
-		if errors.As(err, &uco.ErrInvalidUserInput{}) {
+		if errors.As(err, &uco.ErrNotFound{}) {
+			return objects.NewObjectsClassPutNotFound()
+		} else if errors.As(err, &uco.ErrInvalidUserInput{}) {
 			return objects.NewObjectsClassPutUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(err))
 		} else if errors.As(err, &uco.ErrMultiTenancy{}) {
