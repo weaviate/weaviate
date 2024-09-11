@@ -28,7 +28,7 @@ import (
 )
 
 func Test_NoRaceRandomLASQDistanceByteToByte(t *testing.T) {
-	distancers := []distancer.Provider{distancer.NewL2SquaredProvider(), distancer.NewDotProductProvider()}
+	distancers := []distancer.Provider{distancer.NewL2SquaredProvider(), distancer.NewDotProductProvider(), distancer.NewCosineDistanceProvider()}
 	vSize := 100
 	qSize := 10
 	dims := 150
@@ -87,7 +87,7 @@ func BenchmarkLASQDotSpeed(b *testing.B) {
 	vSize := 100
 	dims := 1536
 	data, _ := testinghelpers.RandomVecsFixedSeed(vSize, 0, dims)
-	lasq := compressionhelpers.NewLocallyAdaptiveScalarQuantizer(data, distancer.NewDotProductProvider())
+	lasq := compressionhelpers.NewLocallyAdaptiveScalarQuantizer(data, distancer.NewCosineDistanceProvider())
 	v1 := lasq.Encode(data[0])
 	v2 := lasq.Encode(data[1])
 	b.ResetTimer()

@@ -129,9 +129,9 @@ func (lasq *LaScalarQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (fl
 	case "l2-squared":
 		return ax2*normX2 + ay2*normY2 + 2*ax*bDiff*normX - 2*ay*bDiff*normY - 2*ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + float32(lasq.dims)*bDiff*bDiff, nil
 	case "dot":
-		return -(ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + ax*LAQDotImpl(lasq.means, x[:lasq.dims]) + ay*LAQDotImpl(lasq.means, y[:lasq.dims])), nil
+		return -(ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + LAQDotExpImpl(lasq.means, x[:lasq.dims], y[:lasq.dims], ax, ay)), nil
 	case "cosine-dot":
-		return 1 - (ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + ax*LAQDotImpl(lasq.means, x[:lasq.dims]) + ay*LAQDotImpl(lasq.means, y[:lasq.dims])), nil
+		return 1 - (ax*ay*float32(dotByteImpl(x[:lasq.dims], y[:lasq.dims])) + ax*by*normX + ay*bx*normY + float32(lasq.dims)*bx*by + lasq.normMu2 + (bx+by)*lasq.normMu + LAQDotExpImpl(lasq.means, x[:lasq.dims], y[:lasq.dims], ax, ay)), nil
 	}
 	return 0, errors.Errorf("Distance not supported yet %s", lasq.distancer)
 }
