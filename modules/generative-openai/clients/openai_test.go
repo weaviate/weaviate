@@ -232,18 +232,19 @@ func ptString(in string) *string {
 }
 
 type fakeClassSettings struct {
-	isLegacy         bool
-	model            string
-	maxTokens        float64
-	temperature      float64
-	frequencyPenalty float64
-	presencePenalty  float64
-	topP             float64
-	resourceName     string
-	deploymentID     string
-	isAzure          bool
-	baseURL          string
-	apiVersion       string
+	isLegacy             bool
+	model                string
+	maxTokens            float64
+	temperature          float64
+	frequencyPenalty     float64
+	presencePenalty      float64
+	topP                 float64
+	resourceName         string
+	deploymentID         string
+	isAzure              bool
+	baseURL              string
+	apiVersion           string
+	isThirdPartyProvider bool
 }
 
 func (s *fakeClassSettings) IsLegacy() bool {
@@ -268,6 +269,10 @@ func (s *fakeClassSettings) FrequencyPenalty() float64 {
 
 func (s *fakeClassSettings) PresencePenalty() float64 {
 	return s.presencePenalty
+}
+
+func (s *fakeClassSettings) IsThirdPartyProvider() bool {
+	return s.isThirdPartyProvider
 }
 
 func (s *fakeClassSettings) TopP() float64 {
