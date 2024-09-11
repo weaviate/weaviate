@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -97,6 +98,7 @@ type ClassSettings interface {
 	Validate(class *models.Class) error
 	BaseURL() string
 	ApiVersion() string
+	IsThirdPartyProvider() bool
 }
 
 type classSettings struct {
@@ -232,6 +234,10 @@ func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId s
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
 	return nil
+}
+
+func (cs *classSettings) IsThirdPartyProvider() bool {
+	return !(strings.Contains(cs.BaseURL(), "api.openai.com") || cs.IsAzure())
 }
 
 func contains[T comparable](s []T, e T) bool {
