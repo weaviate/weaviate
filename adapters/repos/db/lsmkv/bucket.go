@@ -818,10 +818,7 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
 	}
 
-	// TODO (jeroiraz):
-	// return b.active.setTombstoneAt(key, deletionTime, opts...)
-
-	return b.active.setTombstone(key, opts...)
+	return b.active.setTombstoneWith(key, deletionTime, opts...)
 }
 
 // meant to be called from situations where a lock is already held, does not

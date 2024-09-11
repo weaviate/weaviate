@@ -122,7 +122,7 @@ func TestInsertNetAdditions_Replace(t *testing.T) {
 
 		for i := 0; i < 10; i++ {
 			tree.insert(key, value, nil)
-			tree.setTombstone(key, nil)
+			tree.setTombstone(key, nil, nil)
 		}
 
 		flat := tree.flattenInOrder()

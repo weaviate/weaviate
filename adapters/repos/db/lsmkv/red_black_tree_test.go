@@ -232,11 +232,11 @@ func TestRBTrees_Tombstones(t *testing.T) {
 			for i, key := range tt.keys {
 				iByte := []byte{uint8(key)}
 				treeNormal.insert(iByte, iByte, nil)
-				treeTombstone.setTombstone(iByte, nil)
+				treeTombstone.setTombstone(iByte, nil, nil)
 				if i%2 == 0 {
 					treeHalfHalf.insert(iByte, iByte, nil)
 				} else {
-					treeHalfHalf.setTombstone(iByte, nil)
+					treeHalfHalf.setTombstone(iByte, nil, nil)
 				}
 			}
 			validateRBTree(t, treeNormal.root)
@@ -282,7 +282,7 @@ func TestRBTrees_Random(t *testing.T) {
 		rand.Read(key)
 		uniqueKeys[fmt.Sprint(key)] = member
 		if mustRandIntn(5) == 1 { // add 20% of all entries as tombstone
-			tree.setTombstone(key, nil)
+			tree.setTombstone(key, nil, nil)
 		} else {
 			tree.insert(key, key, nil)
 		}
