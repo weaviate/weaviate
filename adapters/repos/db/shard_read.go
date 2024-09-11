@@ -548,10 +548,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	return nil
 }
 
-func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
-		return false, err
+		return false, time.Time{}, err
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)

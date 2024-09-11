@@ -417,13 +417,20 @@ func (i *Index) digestObjects(ctx context.Context,
 
 	for j := range objs {
 		if objs[j] == nil {
-			deleted, err := s.WasDeleted(ctx, ids[j])
+			deleted, deletionTime, err := s.WasDeleted(ctx, ids[j])
 			if err != nil {
 				return nil, err
 			}
+
+			var updateTime int64
+			if !deletionTime.IsZero() {
+				updateTime = deletionTime.UnixMilli()
+			}
+
 			result[j] = replica.RepairResponse{
-				ID:      ids[j].String(),
-				Deleted: deleted,
+				ID:         ids[j].String(),
+				Deleted:    deleted,
+				UpdateTime: updateTime,
 				// TODO: use version when supported
 				Version: 0,
 			}
@@ -474,10 +481,11 @@ func (i *Index) readRepairGetObject(ctx context.Context,
 	}
 
 	if obj == nil {
-		deleted, err := shard.WasDeleted(ctx, id)
+		deleted, _, err := shard.WasDeleted(ctx, id)
 		if err != nil {
 			return objects.Replica{}, err
 		}
+
 		return objects.Replica{
 			ID:      id,
 			Deleted: deleted,
@@ -521,7 +529,7 @@ func (i *Index) fetchObjects(ctx context.Context,
 
 	for j, obj := range objs {
 		if obj == nil {
-			deleted, err := shard.WasDeleted(ctx, ids[j])
+			deleted, _, err := shard.WasDeleted(ctx, ids[j])
 			if err != nil {
 				return nil, err
 			}
