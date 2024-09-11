@@ -120,7 +120,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 
 	if len(req.NearText) != 0 {
 		// do vector search
-		resObjects, err := a.vectorSearch(ctx, store, localPath, req.NearText)
+		resObjects, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), req.Limit)
 		if err != nil {
 			return nil, err
 		}
@@ -148,6 +148,8 @@ func (a *API) vectorSearch(
 	store *lsmkv.Store,
 	localPath string,
 	nearText []string,
+	threshold float32,
+	limit int,
 ) ([]*storobj.Object, error) {
 	vectors, err := a.vectorizer.Texts(ctx, nearText, &modules.ClassBasedModuleConfig{})
 	if err != nil {
@@ -177,7 +179,7 @@ func (a *API) vectorSearch(
 		return nil, fmt.Errorf("failed to initialize index: %w", err)
 	}
 
-	matched_ids, _, err := index.SearchByVector(vectors, 10, nil)
+	matched_ids, _, err := index.SearchByVector(vectors, limit, nil)
 
 	fmt.Println("matchd_ids", matched_ids)
 
@@ -218,6 +220,8 @@ type SearchRequest struct {
 	Collection string
 	Tenant     string
 	NearText   []string // vector search
+	Certainty  float64  // threshold to match with certainty of vectors match
+	Limit      int
 	// TODO(kavi): Add fields to do filter based search
 }
 
