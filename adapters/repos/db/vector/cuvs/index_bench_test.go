@@ -403,12 +403,17 @@ func QueryVectors(index *cuvs_index, dataset *hdf5.Dataset, t *testing.T) {
 		}
 
 		K := 10
-		for k := range chunkData {
-			_, _, err := index.SearchByVector(chunkData[k], K, nil)
-			// r = r + 1
-			if err != nil {
-				panic(err)
-			}
+		// for k := range chunkData {
+		// 	_, _, err := index.SearchByVector(chunkData[k], K, nil)
+		// 	// r = r + 1
+		// 	if err != nil {
+		// 		panic(err)
+		// 	}
+		// }
+		_, _, err := index.SearchByVectorBatch(chunkData, K, nil)
+
+		if err != nil {
+			panic(err)
 		}
 
 		// }
