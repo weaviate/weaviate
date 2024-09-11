@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
@@ -115,8 +116,9 @@ func multiShardState(nodeCount int) *sharding.State {
 		nodeList[i] = fmt.Sprintf("node-%d", i)
 	}
 
-	s, err := sharding.InitState("multi-shard-test-index", config,
-		fakeNodes{nodeList}, 1, false)
+	selector := mocks.NewMockNodeSelector(nodeList...)
+	s, err := sharding.InitState("multi-shard-test-index", config, selector.LocalName(),
+		selector.StorageCandidates(), 1, false)
 	if err != nil {
 		panic(err)
 	}

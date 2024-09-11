@@ -329,10 +329,10 @@ func (l *LazyLoadShard) drop() error {
 				idx.vectorIndexUserConfig, idx.vectorIndexUserConfigs)
 		}
 
-		// cleanup queue
+		// cleanup index checkpoints
 		if l.shardOpts.indexCheckpoints != nil {
-			if err := l.shardOpts.indexCheckpoints.Drop(); err != nil {
-				return fmt.Errorf("delete checkpoint: %w", err)
+			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
+				return fmt.Errorf("delete shard index checkpoints: %w", err)
 			}
 		}
 
@@ -434,6 +434,16 @@ func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, s
 		return nil, err
 	}
 	return l.shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
+}
+
+func (l *LazyLoadShard) PreloadQueue(targetVector string) error {
+	l.mustLoad()
+	return l.shard.PreloadQueue(targetVector)
+}
+
+func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
+	l.mustLoad()
+	return l.shard.RepairIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {

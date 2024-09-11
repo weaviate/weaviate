@@ -173,6 +173,8 @@ type hnsw struct {
 	store              *lsmkv.Store
 
 	allocChecker memwatch.AllocChecker
+
+	tombstoneCleanupRunning atomic.Bool
 }
 
 type CommitLogger interface {
@@ -430,7 +432,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
 			continue
 		}
 		if err != nil {
@@ -484,7 +486,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -500,7 +502,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -531,7 +533,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -550,33 +552,6 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	}
 
 	return h.distancerProvider.SingleDist(vecA, vecB)
-}
-
-func (h *hnsw) Stats() {
-	fmt.Printf("levels: %d\n", h.currentMaximumLayer)
-
-	perLevelCount := map[int]uint{}
-
-	for _, node := range h.nodes {
-		if node == nil {
-			continue
-		}
-		l := node.level
-		if l == 0 && len(node.connections) == 0 {
-			// filter out allocated space without nodes
-			continue
-		}
-		c, ok := perLevelCount[l]
-		if !ok {
-			perLevelCount[l] = 0
-		}
-
-		perLevelCount[l] = c + 1
-	}
-
-	for level, count := range perLevelCount {
-		fmt.Printf("unique count on level %d: %d\n", level, count)
-	}
 }
 
 func (h *hnsw) isEmpty() bool {
@@ -675,11 +650,44 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 
 func (h *hnsw) ContainsNode(id uint64) bool {
 	h.RLock()
-	defer h.RUnlock()
 	h.shardedNodeLocks.RLock(id)
-	defer h.shardedNodeLocks.RUnlock(id)
+	exists := len(h.nodes) > int(id) && h.nodes[id] != nil
+	h.shardedNodeLocks.RUnlock(id)
+	h.RUnlock()
 
-	return len(h.nodes) > int(id) && h.nodes[id] != nil
+	return exists && !h.hasTombstone(id)
+}
+
+func (h *hnsw) Iterate(fn func(id uint64) bool) {
+	var id uint64
+
+	for {
+		if h.shutdownCtx.Err() != nil {
+			return
+		}
+		if h.resetCtx.Err() != nil {
+			return
+		}
+
+		h.RLock()
+		h.shardedNodeLocks.RLock(id)
+		stop := int(id) >= len(h.nodes)
+		exists := !stop && h.nodes[id] != nil
+		h.shardedNodeLocks.RUnlock(id)
+		h.RUnlock()
+
+		if stop {
+			return
+		}
+
+		if exists && !h.hasTombstone(id) {
+			if !fn(id) {
+				return
+			}
+		}
+
+		id++
+	}
 }
 
 func (h *hnsw) DistancerProvider() distancer.Provider {
@@ -720,4 +728,128 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 		return distancer.Normalize(vec)
 	}
 	return vec
+}
+
+func IsHNSWIndex(index any) bool {
+	_, ok := index.(*hnsw)
+	return ok
+}
+
+func AsHNSWIndex(index any) Index {
+	h, _ := index.(*hnsw)
+	return h
+}
+
+// This interface exposes public methods of the HNSW index
+// that are not part of the VectorIndex interface.
+// It is a workaround to avoid circular dependencies.
+type Index interface {
+	CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) error
+}
+
+type nodeLevel struct {
+	nodeId uint64
+	level  int
+}
+
+func (h *hnsw) calculateUnreachablePoints() []uint64 {
+	h.RLock()
+	defer h.RUnlock()
+
+	visitedPairs := make(map[nodeLevel]bool)
+	candidateList := []nodeLevel{{h.entryPointID, h.currentMaximumLayer}}
+
+	for len(candidateList) > 0 {
+		currentNode := candidateList[len(candidateList)-1]
+		candidateList = candidateList[:len(candidateList)-1]
+		if !visitedPairs[currentNode] {
+			visitedPairs[currentNode] = true
+			h.shardedNodeLocks.RLock(currentNode.nodeId)
+			node := h.nodes[currentNode.nodeId]
+			if node != nil {
+				node.Lock()
+				neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+				node.Unlock()
+				candidateList = append(candidateList, neighbors...)
+			}
+			h.shardedNodeLocks.RUnlock(currentNode.nodeId)
+		}
+	}
+
+	visitedNodes := make(map[uint64]bool, len(visitedPairs))
+	for k, v := range visitedPairs {
+		if v {
+			visitedNodes[k.nodeId] = true
+		}
+	}
+
+	unvisitedNodes := []uint64{}
+	for i := 0; i < len(h.nodes); i++ {
+		var id uint64
+		h.shardedNodeLocks.RLock(uint64(i))
+		if h.nodes[i] != nil {
+			id = h.nodes[i].id
+		}
+		h.shardedNodeLocks.RUnlock(uint64(i))
+		if id == 0 {
+			continue
+		}
+		if !visitedNodes[uint64(i)] {
+			unvisitedNodes = append(unvisitedNodes, id)
+		}
+
+	}
+	return unvisitedNodes
+}
+
+type HnswStats struct {
+	Dimensions         int32        `json:"dimensions"`
+	EntryPointID       uint64       `json:"entryPointID"`
+	DistributionLayers map[int]uint `json:"distributionLayers"`
+	UnreachablePoints  []uint64     `json:"unreachablePoints"`
+	NumTombstones      int          `json:"numTombstones"`
+	CacheSize          int32        `json:"cacheSize"`
+	PQConfiguration    ent.PQConfig `json:"pqConfiguration"`
+}
+
+func (s *HnswStats) IndexType() common.IndexType {
+	return common.IndexTypeHNSW
+}
+
+func (h *hnsw) Stats() (common.IndexStats, error) {
+	h.RLock()
+	defer h.RUnlock()
+	distributionLayers := map[int]uint{}
+
+	for _, node := range h.nodes {
+		func() {
+			if node == nil {
+				return
+			}
+			node.Lock()
+			defer node.Unlock()
+			l := node.level
+			if l == 0 && len(node.connections) == 0 {
+				return
+			}
+			c, ok := distributionLayers[l]
+			if !ok {
+				distributionLayers[l] = 0
+			}
+
+			distributionLayers[l] = c + 1
+		}()
+	}
+
+	stats := HnswStats{
+		Dimensions:         h.dims,
+		EntryPointID:       h.entryPointID,
+		DistributionLayers: distributionLayers,
+		UnreachablePoints:  h.calculateUnreachablePoints(),
+		NumTombstones:      len(h.tombstones),
+		CacheSize:          h.cache.Len(),
+		PQConfiguration:    h.pqConfig,
+	}
+
+	return &stats, nil
 }

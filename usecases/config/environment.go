@@ -512,6 +512,16 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
+
+	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
+	// docker without a TLD available. However is running in k8s for example you have a TLD available.
+	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
+		cfg.EnableFQDNResolver = true
+	}
+
+	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
+
 	return cfg, nil
 }
 
@@ -758,6 +768,8 @@ func parseClusterConfig() (cluster.Config, error) {
 			Password: basicAuthPassword,
 		},
 	}
+
+	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
 
 	return cfg, nil
 }

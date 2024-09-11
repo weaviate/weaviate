@@ -4,7 +4,7 @@
 
 ###############################################################################
 # Base build image
-FROM golang:1.21-alpine AS build_base
+FROM golang:1.22-alpine AS build_base
 RUN apk add bash ca-certificates git gcc g++ libc-dev
 WORKDIR /go/src/github.com/weaviate/weaviate
 ENV GO111MODULE=on
@@ -24,7 +24,7 @@ COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
       -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"' \
-      -X github.com/weaviate/weaviate/usecases/config.DockerImageTag='"$DOCKER_IMAGE_TAG"'' \
+      -X github.com/weaviate/weaviate/usecases/config.ImageTag='"$DOCKER_IMAGE_TAG"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################
@@ -47,6 +47,6 @@ COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
-RUN apk add --no-cache --upgrade ca-certificates openssl
+RUN apk add --no-cache --upgrade bc ca-certificates openssl
 RUN mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]

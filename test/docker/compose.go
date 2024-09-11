@@ -28,6 +28,7 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
@@ -113,10 +114,11 @@ type Compose struct {
 	withOctoAIGenerative          bool
 	withOctoAIApiKey              string
 	weaviateEnvs                  map[string]string
+	removeEnvs                    map[string]struct{}
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), withBackendS3Buckets: make(map[string]string)}
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), removeEnvs: make(map[string]struct{}), withBackendS3Buckets: make(map[string]string)}
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -302,6 +304,12 @@ func (d *Compose) WithGenerativeCohere(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithGenerativeFriendliAI(apiKey string) *Compose {
+	d.weaviateEnvs["FRIENDLI_TOKEN"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativefriendliai.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativePaLM(apiKey string) *Compose {
 	d.withPaLMApiKey = apiKey
 	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
@@ -373,24 +381,17 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
-func (d *Compose) WithSecondWeaviate() *Compose {
-	d.With1NodeCluster()
-	d.withSecondWeaviate = true // TODO: create a second 1 node cluster
-	return d
-}
-
 func (d *Compose) WithWeaviateCluster(size int) *Compose {
+	if size%2 == 0 {
+		panic("it's essential for the cluster size to be an odd number to ensure a majority can be achieved for quorum decisions, even if some nodes become unavailable")
+	}
 	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = size
 	return d
 }
 
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
-	d.With2NodeCluster()
-	return d
-}
-
-func (d *Compose) WithWeaviateGRPC() *Compose {
+	d.With3NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
@@ -409,6 +410,14 @@ func (d *Compose) WithWeaviateAuth() *Compose {
 
 func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	d.weaviateEnvs[name] = value
+	return d
+}
+
+func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
+	for _, name := range names {
+		d.removeEnvs[name] = struct{}{}
+	}
+
 	return d
 }
 
@@ -636,12 +645,6 @@ func (d *Compose) With1NodeCluster() *Compose {
 	return d
 }
 
-func (d *Compose) With2NodeCluster() *Compose {
-	d.withWeaviateCluster = true
-	d.withWeaviateClusterSize = 2
-	return d
-}
-
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = 3
@@ -654,6 +657,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	for k, v := range d.weaviateEnvs {
 		settings[k] = v
+	}
+
+	for k := range d.removeEnvs {
+		delete(settings, k)
 	}
 
 	raft_join := "node1,node2,node3"
@@ -674,7 +681,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateAuth {
 		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
 		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.semi.technology/auth/realms/SeMI"
+		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"

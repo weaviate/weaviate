@@ -255,6 +255,104 @@ func TestDelete_WithCleaningUpTombstonesOnce(t *testing.T) {
 	})
 }
 
+func TestDelete_WithCleaningUpTombstonesTwiceConcurrently(t *testing.T) {
+	// there is a single bulk clean event after all the deletes
+	vectors := vectorsForDeleteTest()
+	var vectorIndex *hnsw
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections: 30,
+			EFConstruction: 128,
+
+			// The actual size does not matter for this test, but if it defaults to
+			// zero it will constantly think it's full and needs to be deleted - even
+			// after just being deleted, so make sure to use a positive number here.
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("running two cleanups concurrently", func(t *testing.T) {
+		var wg sync.WaitGroup
+		results := make(chan error, 2)
+
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+				results <- err
+			}()
+		}
+
+		wg.Wait()
+		close(results)
+
+		var errors []error
+		for err := range results {
+			errors = append(errors, err)
+		}
+
+		require.Len(t, errors, 2, "Expected exactly two results")
+
+		successCount := 0
+		alreadyRunningCount := 0
+		for _, err := range errors {
+			if err == nil {
+				successCount++
+			} else if err.Error() == "tombstone cleanup already running" {
+				alreadyRunningCount++
+			} else {
+				t.Errorf("Unexpected error: %v", err)
+			}
+		}
+
+		// There is a possibility the first cleanup completes before the second one starts
+		assert.GreaterOrEqual(t, successCount, 1, "Expected at least one successful cleanup")
+		assert.LessOrEqual(t, alreadyRunningCount, 1, "Expected at most one 'already running' error")
+		stats, err := vectorIndex.Stats()
+		require.Nil(t, err)
+		hnswStats, ok := stats.(*HnswStats)
+		require.True(t, ok)
+		assert.Equal(t, 0, hnswStats.NumTombstones, "Expected no tombstones after cleanup")
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
+}
+
 func TestDelete_WithConcurrentEntrypointDeletionAndTombstoneCleanup(t *testing.T) {
 	var vectors [][]float32
 	for i := 0; i < 100; i++ {

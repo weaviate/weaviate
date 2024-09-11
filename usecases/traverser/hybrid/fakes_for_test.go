@@ -80,6 +80,10 @@ func (f *fakeSchemaManager) Statistics() map[string]any {
 	return nil
 }
 
+func (f *fakeSchemaManager) StorageCandidates() []string {
+	return []string{}
+}
+
 func (f *fakeSchemaManager) ResolveParentNodes(_ string, shard string,
 ) (map[string]string, error) {
 	return nil, nil
@@ -89,11 +93,11 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string {
 	return ""
 }
 
-func (f *fakeSchemaManager) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaManager) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	return nil, nil
 }
 
-func (f *fakeSchemaManager) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil

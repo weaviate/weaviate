@@ -56,7 +56,7 @@ func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) 
 	return []string{shard}, nil
 }
 
-func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
 	res := map[string]string{}
 	for _, t := range tenants {
 		res[t] = models.TenantActivityStatusHOT
@@ -64,7 +64,7 @@ func (f *fakeSchemaGetter) TenantsShards(class string, tenants ...string) (map[s
 	return res, nil
 }
 
-func (f *fakeSchemaGetter) OptimisticTenantStatus(class string, tenant string) (map[string]string, error) {
+func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string) (map[string]string, error) {
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
@@ -144,7 +144,7 @@ type fakeVectorRepoKNN struct {
 }
 
 func (f *fakeVectorRepoKNN) GetUnclassified(ctx context.Context,
-	class string, properties []string,
+	class string, properties []string, propsToReturn []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
 	f.Lock()
@@ -273,7 +273,7 @@ func (f *fakeVectorRepoContextual) get(id strfmt.UUID) (*models.Object, bool) {
 }
 
 func (f *fakeVectorRepoContextual) GetUnclassified(ctx context.Context,
-	class string, properties []string,
+	class string, properties []string, propsToReturn []string,
 	filter *libfilters.LocalFilter,
 ) ([]search.Result, error) {
 	return f.unclassified, nil

@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -50,13 +51,14 @@ var (
 )
 
 type Module struct {
-	Endpoint    string
-	Bucket      string
-	Concurrency int
-	DataPath    string
-	logger      logrus.FieldLogger
-	timeout     time.Duration
-	app         *cli.App
+	Endpoint     string
+	Bucket       string
+	BucketExists atomic.Bool
+	Concurrency  int
+	DataPath     string
+	logger       logrus.FieldLogger
+	timeout      time.Duration
+	app          *cli.App
 }
 
 func New() *Module {
@@ -197,10 +199,6 @@ func (m *Module) Init(ctx context.Context,
 		if err := m.create(ctx); err != nil && !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
 			return fmt.Errorf("can't create offload bucket: %s at endpoint %s %w", m.Bucket, m.Endpoint, err)
 		}
-	} else {
-		if err := m.list(ctx); err != nil {
-			return fmt.Errorf("can't find offload bucket: %s at endpoint %s %w", m.Bucket, m.Endpoint, err)
-		}
 	}
 
 	m.logger.WithFields(logrus.Fields{
@@ -217,7 +215,11 @@ func (m *Module) RootHandler() http.Handler {
 	return nil
 }
 
-func (m *Module) list(ctx context.Context) error {
+func (m *Module) VerifyBucket(ctx context.Context) error {
+	if m.BucketExists.Load() {
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 	cmd := []string{
@@ -225,8 +227,11 @@ func (m *Module) list(ctx context.Context) error {
 		"ls",
 		fmt.Sprintf("s3://%s", m.Bucket),
 	}
-
-	return m.app.RunContext(ctx, cmd)
+	if err := m.app.RunContext(ctx, cmd); err != nil {
+		return err
+	}
+	m.BucketExists.Store(true)
+	return nil
 }
 
 func (m *Module) create(ctx context.Context) error {
@@ -309,6 +314,7 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
+
 	return m.app.RunContext(ctx, cmd)
 }
 

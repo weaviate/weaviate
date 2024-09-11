@@ -48,9 +48,7 @@ func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
-	// TODO shall be removed with the DB is idempotent
-	// delete class before trying to create in case it was existing.
-	if err != nil && strings.Contains(err.Error(), "exists") {
+	if err != nil {
 		return
 	}
 	AssertRequestOk(t, resp, err, nil)
@@ -338,4 +336,10 @@ func GetMeta(t *testing.T) *models.Meta {
 	resp, err := Client(t).Meta.MetaGet(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+func ObjectContentsProp(contents string) map[string]interface{} {
+	props := map[string]interface{}{}
+	props["contents"] = contents
+	return props
 }

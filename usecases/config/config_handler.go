@@ -41,10 +41,10 @@ import (
 var ServerVersion string
 
 var (
-	// GitHash keeps the current git hash commit information
+	// GitHash keeps the current git hash commit information, value injected by the compiler using ldflags -X at build time.
 	GitHash = "unknown"
-	// DockerImageTag keeps the docker tag the weaviate binary was built in
-	DockerImageTag = "unknown"
+	// ImageTag keeps the docker tag the weaviate binary was built in, value injected by the compiler using ldflags -X at build time.
+	ImageTag = "localhost"
 )
 
 // DefaultConfigFile is the default file when no config file is provided
@@ -295,7 +295,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key "
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Friendli-Token, X-Friendli-Baseurl"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -324,6 +324,11 @@ type Raft struct {
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
+
+	ForceOneNodeRecovery bool
+
+	EnableFQDNResolver bool
+	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
@@ -383,6 +388,7 @@ func (r *Raft) Validate() error {
 	if r.ConsistencyWaitTimeout <= 0 {
 		return fmt.Errorf("raft.bootstrap.consistency_wait_timeout must be more than 0")
 	}
+
 	return nil
 }
 

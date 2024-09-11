@@ -18,6 +18,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -49,10 +51,11 @@ const (
 )
 
 type flat struct {
-	sync.Mutex
 	id                  string
 	targetVector        string
+	rootPath            string
 	dims                int32
+	metadata            *bolt.DB
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
@@ -86,6 +89,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	index := &flat{
 		id:                   cfg.ID,
 		targetVector:         cfg.TargetVector,
+		rootPath:             cfg.RootPath,
 		logger:               logger,
 		distancerProvider:    cfg.DistanceProvider,
 		rescore:              extractCompressionRescore(uc),
@@ -102,6 +106,10 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	if uc.BQ.Enabled && uc.BQ.Cache {
 		index.bqCache = cache.NewShardedUInt64LockCache(
 			index.getBQVector, uc.VectorCacheMaxObjects, cfg.Logger, 0, cfg.AllocChecker)
+	}
+
+	if err := index.initMetadata(); err != nil {
+		return nil, err
 	}
 
 	return index, nil
@@ -292,7 +300,12 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 
 func (index *flat) Add(id uint64, vector []float32) error {
 	index.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&index.dims, int32(len(vector)))
+		size := int32(len(vector))
+		atomic.StoreInt32(&index.dims, size)
+		err := index.setDimensions(size)
+		if err != nil {
+			index.logger.WithError(err).Error("could not set dimensions")
+		}
 
 		if index.isBQ() {
 			index.bq = compressionhelpers.NewBinaryQuantizer(nil)
@@ -676,7 +689,14 @@ func (index *flat) UpdateUserConfig(updated schemaConfig.VectorIndexConfig, call
 }
 
 func (index *flat) Drop(ctx context.Context) error {
-	// nothing to do here
+	if index.metadata != nil {
+		if err := index.metadata.Close(); err != nil {
+			return errors.Wrap(err, "close metadata")
+		}
+		if err := index.removeMetadataFile(); err != nil {
+			return err
+		}
+	}
 	// Shard::drop will take care of handling store's buckets
 	return nil
 }
@@ -688,7 +708,11 @@ func (index *flat) Flush() error {
 }
 
 func (index *flat) Shutdown(ctx context.Context) error {
-	// nothing to do here
+	if index.metadata != nil {
+		if err := index.metadata.Close(); err != nil {
+			return errors.Wrap(err, "close metadata")
+		}
+	}
 	// Shard::shutdown will take care of handling store's buckets
 	return nil
 }
@@ -698,9 +722,23 @@ func (index *flat) SwitchCommitLogs(context.Context) error {
 }
 
 func (index *flat) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	// nothing to do here
-	// Shard::ListBackupFiles will take care of handling store's buckets
-	return []string{}, nil
+	var files []string
+
+	if index.metadata != nil {
+		metadataFile := index.getMetadataFile()
+		fullPath := filepath.Join(index.rootPath, metadataFile)
+
+		if _, err := os.Stat(fullPath); err == nil {
+			relPath, err := filepath.Rel(basePath, fullPath)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get relative path: %w", err)
+			}
+			files = append(files, relPath)
+		}
+		// If the file doesn't exist, we simply don't add it to the list
+	}
+
+	return files, nil
 }
 
 func (i *flat) ValidateBeforeInsert(vector []float32) error {
@@ -711,8 +749,6 @@ func (index *flat) PostStartup() {
 	if !index.isBQCached() {
 		return
 	}
-	cursor := index.store.Bucket(index.getCompressedBucketName()).Cursor()
-	defer cursor.Close()
 
 	// The idea here is to first read everything from disk in one go, then grow
 	// the cache just once before inserting all vectors. A previous iteration
@@ -804,6 +840,33 @@ func (index *flat) ContainsNode(id uint64) bool {
 	}
 
 	return true
+}
+
+func (index *flat) Iterate(fn func(id uint64) bool) {
+	var bucketName string
+
+	// logic modeled after SearchByVector which indicates that the PQ bucket is
+	// the same as the uncompressed bucket "for now"
+	switch index.compression {
+	case compressionBQ:
+		bucketName = index.getCompressedBucketName()
+	case compressionPQ:
+		// use uncompressed for now
+		fallthrough
+	default:
+		bucketName = index.getBucketName()
+	}
+
+	bucket := index.store.Bucket(bucketName)
+	cursor := bucket.Cursor()
+	defer cursor.Close()
+
+	for key, _ := cursor.First(); key != nil; key, _ = cursor.Next() {
+		id := binary.BigEndian.Uint64(key)
+		if !fn(id) {
+			break
+		}
+	}
 }
 
 func (index *flat) DistancerProvider() distancer.Provider {
@@ -908,7 +971,6 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 				return index.bq.DistanceBetweenCompressedVectors(vec, queryVecEncode)
 			}
 		}
-
 	case compressionPQ:
 		// use uncompressed for now
 		fallthrough
@@ -926,4 +988,14 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		}
 	}
 	return common.QueryVectorDistancer{DistanceFunc: distFunc}
+}
+
+func (index *flat) Stats() (common.IndexStats, error) {
+	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
+}
+
+type FlatStats struct{}
+
+func (s *FlatStats) IndexType() common.IndexType {
+	return common.IndexTypeFlat
 }

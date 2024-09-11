@@ -22,7 +22,9 @@ export DISABLE_TELEMETRY=true # disable telemetry for local development
 
 function go_run() {
   GIT_HASH=$(git rev-parse --short HEAD)
-  go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH" "$@"
+   go run -ldflags "-X github.com/weaviate/weaviate/usecases/config.GitHash=$GIT_HASH \
+   -X github.com/weaviate/weaviate/usecases/config.IMAGE_TAG=localhost" \
+   "$@"
 }
 
 case $CONFIG in
@@ -516,13 +518,17 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-      ENABLE_MODULES="backup-filesystem,offload-s3" \
+      ENABLE_MODULES="backup-s3,offload-s3" \
+      BACKUP_S3_BUCKET="weaviate-backups" \
+      BACKUP_S3_USE_SSL="false" \
+      BACKUP_S3_ENDPOINT="localhost:9000" \
       PROMETHEUS_MONITORING_PORT="2112" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
       OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
+      OFFLOAD_S3_BUCKET_AUTO_CREATE=true \
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
       go_run ./cmd/weaviate-server \
@@ -532,14 +538,17 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
     ;;
-    
+
   local-offload-s3)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem,offload-s3" \
+      ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
+      BACKUP_S3_BUCKET="weaviate-backups" \
+      BACKUP_S3_USE_SSL="false" \
+      BACKUP_S3_ENDPOINT="localhost:9000" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
@@ -562,6 +571,9 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-1" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-1" \
+      BACKUP_S3_BUCKET="weaviate-backups" \
+      BACKUP_S3_USE_SSL="false" \
+      BACKUP_S3_ENDPOINT="localhost:9000" \
       CLUSTER_HOSTNAME="weaviate-1" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7102" \
@@ -576,7 +588,7 @@ case $CONFIG in
       AWS_ACCESS_KEY_ID="aws_access_key"\
       AWS_SECRET_KEY="aws_secret_key"\
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-      ENABLE_MODULES="text2vec-contextionary,backup-filesystem,offload-s3" \
+      ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -591,6 +603,9 @@ case $CONFIG in
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
         PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-2" \
         BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-2" \
+        BACKUP_S3_BUCKET="weaviate-backups" \
+        BACKUP_S3_USE_SSL="false" \
+        BACKUP_S3_ENDPOINT="localhost:9000" \
         CLUSTER_HOSTNAME="weaviate-2" \
         CLUSTER_IN_LOCALHOST=true \
         CLUSTER_GOSSIP_BIND_PORT="7104" \
@@ -602,7 +617,7 @@ case $CONFIG in
         RAFT_JOIN="weaviate-0:8300,weaviate-1:8302,weaviate-2:8304" \
         RAFT_BOOTSTRAP_EXPECT=3 \
         DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
-        ENABLE_MODULES="text2vec-contextionary,backup-filesystem,offload-s3" \
+        ENABLE_MODULES="text2vec-contextionary,backup-s3,offload-s3" \
         OFFLOAD_S3_ENDPOINT="http://localhost:9000"\
         AWS_ACCESS_KEY_ID="aws_access_key"\
         AWS_SECRET_KEY="aws_secret_key"\
