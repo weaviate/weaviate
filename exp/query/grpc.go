@@ -47,9 +47,13 @@ func requestFromProto(req *protocol.SearchRequest) *SearchRequest {
 	sr := &SearchRequest{
 		Collection: req.Collection,
 		Tenant:     req.Tenant,
+		Limit:      int(req.Limit),
 	}
 	if req.NearText != nil {
 		sr.NearText = req.NearText.Query
+		if req.NearText.Certainty != nil {
+			sr.Certainty = *req.NearText.Certainty
+		}
 	}
 	return sr
 }
