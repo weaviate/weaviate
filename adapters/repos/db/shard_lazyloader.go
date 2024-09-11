@@ -455,9 +455,9 @@ func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filter
 	return l.shard.ObjectList(ctx, limit, sort, cursor, additional, className)
 }
 
-func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) {
+func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
 	if err := l.Load(ctx); err != nil {
-		return false, err
+		return false, time.Time{}, err
 	}
 	return l.shard.WasDeleted(ctx, id)
 }

@@ -111,9 +111,9 @@ type ShardLike interface {
 	// TODO tests only
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
 		additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
-	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, error) // Check if an object was deleted
-	VectorIndex() VectorIndex                                     // Get the vector index
-	VectorIndexes() map[string]VectorIndex                        // Get the vector indexes
+	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
+	VectorIndex() VectorIndex                                                // Get the vector index
+	VectorIndexes() map[string]VectorIndex                                   // Get the vector indexes
 	hasTargetVectors() bool
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner

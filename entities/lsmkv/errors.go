@@ -30,6 +30,10 @@ func NewErrDeleted(deletionTime time.Time) ErrDeleted {
 	return ErrDeleted{deletionTime: deletionTime}
 }
 
+func (e ErrDeleted) DeletionTime() time.Time {
+	return e.deletionTime
+}
+
 func (e ErrDeleted) Error() string {
 	return fmt.Sprintf("%v: deletion time %s", Deleted, e.deletionTime)
 }
