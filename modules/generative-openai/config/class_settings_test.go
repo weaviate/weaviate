@@ -122,6 +122,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"isAzure":          true,
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
 					"maxTokens":        4097,
@@ -148,6 +149,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config with baseURL",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"isAzure":          true,
 					"baseURL":          "some-base-url",
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",

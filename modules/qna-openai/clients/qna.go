@@ -32,9 +32,9 @@ import (
 	"github.com/weaviate/weaviate/modules/qna-openai/ent"
 )
 
-func buildUrl(baseURL, resourceName, deploymentID string) (string, error) {
+func buildUrl(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 	///X update with base url
-	if resourceName != "" && deploymentID != "" {
+	if isAzure {
 		host := "https://" + resourceName + ".openai.azure.com"
 		path := "openai/deployments/" + deploymentID + "/completions"
 		queryParam := "api-version=2022-12-01"
@@ -49,7 +49,7 @@ type qna struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
-	buildUrlFn         func(baseURL, resourceName, deploymentID string) (string, error)
+	buildUrlFn         func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
@@ -84,7 +84,7 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		return nil, errors.Wrapf(err, "marshal body")
 	}
 
-	oaiUrl, err := v.buildOpenAIUrl(ctx, settings.BaseURL(), settings.ResourceName(), settings.DeploymentID())
+	oaiUrl, err := v.buildOpenAIUrl(ctx, settings.BaseURL(), settings.ResourceName(), settings.DeploymentID(), settings.IsAzure())
 	if err != nil {
 		return nil, errors.Wrap(err, "join OpenAI API host and path")
 	}
@@ -138,12 +138,22 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	}, nil
 }
 
-func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string) (string, error) {
+func (v *qna) buildOpenAIUrl(ctx context.Context, baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
 	passedBaseURL := baseURL
+
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		passedBaseURL = headerBaseURL
 	}
-	return v.buildUrlFn(passedBaseURL, resourceName, deploymentID)
+
+	if headerDeploymentID := v.getValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
+		deploymentID = headerDeploymentID
+	}
+
+	if headerResourceName := v.getValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+		resourceName = headerResourceName
+	}
+
+	return v.buildUrlFn(passedBaseURL, resourceName, deploymentID, isAzure)
 }
 
 func (v *qna) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
