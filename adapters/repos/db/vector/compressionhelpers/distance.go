@@ -37,6 +37,15 @@ var LAQDotImpl func(x []float32, y []byte) float32 = func(x []float32, y []byte)
 	for i := range x {
 		sum += x[i] * float32(y[i])
 	}
-	panic(sum)
+
+	return sum
+}
+
+var LAQDotExpImpl func(x []float32, y1, y2 []byte, a1, a2 float32) float32 = func(x []float32, y1, y2 []byte, a1, a2 float32) float32 {
+	sum := float32(0)
+	for i := range x {
+		sum += x[i] * (a1*float32(y1[i]) + a2*float32(y2[i]))
+	}
+
 	return sum
 }
