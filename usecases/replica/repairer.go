@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -59,9 +60,6 @@ func (r *repairer) repairOne(ctx context.Context,
 		cl        = r.client
 	)
 	for i, x := range votes {
-		if x.o.Deleted {
-			return nil, errConflictExistOrDeleted
-		}
 		if x.UTime > lastUTime {
 			lastUTime = x.UTime
 			winnerIdx = i
@@ -70,13 +68,13 @@ func (r *repairer) repairOne(ctx context.Context,
 	// fetch most recent object
 	updates := votes[contentIdx].o
 	winner := votes[winnerIdx]
-	if updates.UpdateTime() != lastUTime {
+	if updates.LastUpdateTimeUnixMilli != lastUTime {
 		updates, err = cl.FullRead(ctx, winner.sender, r.class, shard, id,
 			search.SelectProperties{}, additional.Properties{}, 9)
 		if err != nil {
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 		}
-		if updates.UpdateTime() != lastUTime {
+		if updates.LastUpdateTimeUnixMilli != lastUTime {
 			return nil, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
 		}
 	}
@@ -88,10 +86,21 @@ func (r *repairer) repairOne(ctx context.Context,
 		}
 		vote := vote
 		gr.Go(func() error {
+			var latestObject *models.Object
+			var vector []float32
+
+			if !updates.Deleted {
+				latestObject = &updates.Object.Object
+				vector = updates.Object.Vector
+			}
+
 			ups := []*objects.VObject{{
-				LatestObject:    &updates.Object.Object,
-				Vector:          updates.Object.Vector,
-				StaleUpdateTime: vote.UTime,
+				ID:                      updates.ID,
+				Deleted:                 updates.Deleted,
+				LastUpdateTimeUnixMilli: updates.LastUpdateTimeUnixMilli,
+				LatestObject:            latestObject,
+				Vector:                  vector,
+				StaleUpdateTime:         vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
 			if err != nil {
@@ -128,9 +137,6 @@ func (r *repairer) repairExist(ctx context.Context,
 		cl        = r.client
 	)
 	for i, x := range votes {
-		if x.o.Deleted {
-			return false, errConflictExistOrDeleted
-		}
 		if x.UTime > lastUTime {
 			lastUTime = x.UTime
 			winnerIdx = i
@@ -142,7 +148,7 @@ func (r *repairer) repairExist(ctx context.Context,
 	if err != nil {
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 	}
-	if resp.UpdateTime() != lastUTime {
+	if resp.LastUpdateTimeUnixMilli != lastUTime {
 		return false, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
 	}
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
@@ -152,10 +158,21 @@ func (r *repairer) repairExist(ctx context.Context,
 		}
 		vote := vote
 		gr.Go(func() error {
+			var latestObject *models.Object
+			var vector []float32
+
+			if !resp.Deleted {
+				latestObject = &resp.Object.Object
+				vector = resp.Object.Vector
+			}
+
 			ups := []*objects.VObject{{
-				LatestObject:    &resp.Object.Object,
-				Vector:          resp.Object.Vector,
-				StaleUpdateTime: vote.UTime,
+				ID:                      resp.ID,
+				Deleted:                 resp.Deleted,
+				LastUpdateTimeUnixMilli: resp.LastUpdateTimeUnixMilli,
+				LatestObject:            latestObject,
+				Vector:                  vector,
+				StaleUpdateTime:         vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
 			if err != nil {
@@ -192,7 +209,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 	// find most recent objects
 	for i, x := range votes[contentIdx].FullData {
-		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime(), Deleted: x.Deleted}
+		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.LastUpdateTimeUnixMilli, Deleted: x.Deleted}
 		votes[contentIdx].Count[i] = nVotes // reuse Count[] to check consistency
 	}
 
@@ -253,7 +270,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				resp, err := cl.FullReads(ctx, receiver, r.class, shard, query)
 				for i, n := 0, len(query); i < n; i++ {
 					idx := ms[start-n+i].O
-					if err != nil || lastTimes[idx].T != resp[i].UpdateTime() {
+					if err != nil || lastTimes[idx].T != resp[i].LastUpdateTimeUnixMilli {
 						votes[rid].Count[idx]--
 					} else {
 						result[idx] = resp[i].Object

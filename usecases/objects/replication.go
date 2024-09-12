@@ -22,6 +22,13 @@ import (
 
 // VObject is a versioned object for detecting replication inconsistencies
 type VObject struct {
+	ID strfmt.UUID `json:"id,omitempty"`
+
+	Deleted bool `json:"deleted,omitempty"`
+
+	// Timestamp of the last Object update in milliseconds since epoch UTC.
+	LastUpdateTimeUnixMilli int64 `json:"lastUpdateTimeUnixMilli,omitempty"`
+
 	// LatestObject is to most up-to-date version of an object
 	LatestObject *models.Object `json:"object,omitempty"`
 
@@ -92,9 +99,10 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 
 // Replica represents a replicated data item
 type Replica struct {
-	ID      strfmt.UUID     `json:"id,omitempty"`
-	Deleted bool            `json:"deleted"`
-	Object  *storobj.Object `json:"object,omitempty"`
+	ID                      strfmt.UUID     `json:"id,omitempty"`
+	Deleted                 bool            `json:"deleted"`
+	Object                  *storobj.Object `json:"object,omitempty"`
+	LastUpdateTimeUnixMilli int64           `json:"lastUpdateTimeUnixMilli"`
 }
 
 // robjectMarshaler is a helper for the methods implementing encoding.BinaryMarshaler
@@ -187,12 +195,4 @@ func (ro *Replicas) UnmarshalBinary(data []byte) error {
 
 	*ro = reps
 	return nil
-}
-
-// UpdateTime return update time if it exists and 0 otherwise
-func (r Replica) UpdateTime() int64 {
-	if r.Object != nil {
-		return r.Object.LastUpdateTimeUnix()
-	}
-	return 0
 }

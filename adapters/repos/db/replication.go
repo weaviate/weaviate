@@ -328,51 +328,83 @@ func (db *DB) OverwriteObjects(ctx context.Context,
 func (i *Index) overwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
 ) ([]replica.RepairResponse, error) {
-	result := make([]replica.RepairResponse, 0, len(updates)/2)
 	s := i.localShard(shard)
 	if s == nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
 	}
+
+	result := make([]replica.RepairResponse, 0, len(updates)/2)
+
 	for i, u := range updates {
-		// Just in case but this should not happen
-		data := u.LatestObject
-		if data == nil || data.ID == "" {
+		incomingObj := u.LatestObject
+
+		if (u.Deleted && u.ID == "") || (!u.Deleted && (incomingObj == nil || incomingObj.ID == "")) {
 			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
 			result = append(result, replica.RepairResponse{Err: msg})
 			continue
 		}
-		// valid update
-		found, err := s.ObjectByIDErrDeleted(ctx, data.ID, nil, additional.Properties{})
-		if err != nil && errors.Is(err, lsmkv.Deleted) {
-			continue
-		}
-		var curUpdateTime int64 // 0 means object doesn't exist on this node
-		if found != nil {
-			curUpdateTime = found.LastUpdateTimeUnix()
-		}
-		r := replica.RepairResponse{ID: data.ID.String(), UpdateTime: curUpdateTime}
-		switch {
-		case err != nil:
-			r.Err = "not found: " + err.Error()
-		case curUpdateTime == u.StaleUpdateTime:
-			// the stored object is not the most recent version. in
-			// this case, we overwrite it with the more recent one.
-			err := s.PutObject(ctx, storobj.FromObject(data, u.Vector, u.Vectors))
-			if err != nil {
-				r.Err = fmt.Sprintf("overwrite stale object: %v", err)
-			}
-		case curUpdateTime != data.LastUpdateTimeUnix:
-			// object changed and its state differs from recent known state
-			r.Err = "conflict"
+
+		var id strfmt.UUID
+		if u.Deleted {
+			id = u.ID
+		} else {
+			id = incomingObj.ID
 		}
 
-		if r.Err != "" { // include only unsuccessful responses
+		var currUpdateTime int64 // 0 means object doesn't exist on this node
+
+		localObj, err := s.ObjectByIDErrDeleted(ctx, id, nil, additional.Properties{})
+		if err == nil {
+			currUpdateTime = localObj.LastUpdateTimeUnix()
+		} else if errors.Is(err, lsmkv.Deleted) {
+			errDeleted, ok := err.(lsmkv.ErrDeleted)
+			if ok {
+				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
+			} else {
+				// deleted object without with an unknown deletion time can not be overwritten
+				continue
+			}
+		} else if !errors.Is(err, lsmkv.NotFound) {
+			result = append(result, replica.RepairResponse{
+				ID:  id.String(),
+				Err: err.Error(),
+			})
+			continue
+		}
+
+		r := replica.RepairResponse{ID: id.String(), UpdateTime: currUpdateTime}
+
+		if currUpdateTime != u.StaleUpdateTime {
+			// object changed and its state differs from recent known state
+			r.Err = "conflict"
+			result = append(result, r)
+			continue
+		}
+
+		if u.Deleted {
+			// NOTE: deletion of an object not previously stored might not be required
+			// but keeping just to ensure objects are fully in sync among replicas
+			err = s.DeleteObject(ctx, id, time.UnixMilli(u.LastUpdateTimeUnixMilli))
+			if err != nil {
+				r.Err = fmt.Sprintf("delete stale object: %v", err)
+				result = append(result, r)
+			}
+			continue
+		}
+
+		// the stored object is not the most recent version. in
+		// this case, we overwrite it with the more recent one.
+		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors))
+		if err != nil {
+			r.Err = fmt.Sprintf("overwrite stale object: %v", err)
 			result = append(result, r)
 		}
 	}
+
 	if len(result) == 0 {
 		return nil, nil
 	}
+
 	return result, nil
 }
 
@@ -481,20 +513,22 @@ func (i *Index) readRepairGetObject(ctx context.Context,
 	}
 
 	if obj == nil {
-		deleted, _, err := shard.WasDeleted(ctx, id)
+		deleted, deletionTime, err := shard.WasDeleted(ctx, id)
 		if err != nil {
 			return objects.Replica{}, err
 		}
 
 		return objects.Replica{
-			ID:      id,
-			Deleted: deleted,
+			ID:                      id,
+			Deleted:                 deleted,
+			LastUpdateTimeUnixMilli: deletionTime.UnixMilli(),
 		}, nil
 	}
 
 	return objects.Replica{
-		Object: obj,
-		ID:     obj.ID(),
+		Object:                  obj,
+		ID:                      obj.ID(),
+		LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
 	}, nil
 }
 

@@ -505,6 +505,7 @@ func TestReplicationDigestObjects(t *testing.T) {
 		},
 		{
 			ID:         UUID2.String(),
+			Deleted:    true,
 			UpdateTime: now.UnixMilli(),
 			Version:    1,
 		},
