@@ -27,7 +27,17 @@ func iteratorConcurrentlyReplace(b *lsmkv.Bucket, aggregateFunc func(b []byte) e
 
 	seedCount := 2*runtime.GOMAXPROCS(0) - 1
 	seeds := b.QuantileKeys(seedCount)
+	// in case all keys are in memory
 	if len(seeds) == 0 {
+		c := b.Cursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			err := aggregateFunc(v)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -90,7 +100,17 @@ func iteratorConcurrentlyReplace(b *lsmkv.Bucket, aggregateFunc func(b []byte) e
 func iteratorConcurrentlySet(b *lsmkv.Bucket, aggregateFunc func(k []byte, v [][]byte) error, logger logrus.FieldLogger) error {
 	seedCount := 2*runtime.GOMAXPROCS(0) - 1
 	seeds := b.QuantileKeys(seedCount)
+	// in case all keys are in memory
 	if len(seeds) == 0 {
+		c := b.SetCursor()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			err := aggregateFunc(k, v)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -153,7 +173,17 @@ func iteratorConcurrentlySet(b *lsmkv.Bucket, aggregateFunc func(k []byte, v [][
 func iteratorConcurrentlyRoaringSet(b *lsmkv.Bucket, aggregateFunc func(k []byte, v *sroar.Bitmap) error, logger logrus.FieldLogger) error {
 	seedCount := 2*runtime.GOMAXPROCS(0) - 1
 	seeds := b.QuantileKeys(seedCount)
+	// in case all keys are in memory
 	if len(seeds) == 0 {
+		c := b.CursorRoaringSet()
+		defer c.Close()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			err := aggregateFunc(k, v)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
