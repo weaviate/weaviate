@@ -69,6 +69,13 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 		resp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
 
+		listresp, err := helper.ListBackup(t, className, backend)
+		helper.AssertRequestOk(t, listresp, err, nil)
+
+		require.Equal(t, backupID, listresp.Payload[0].ID)
+		require.Equal(t, models.BackupCreateResponseStatusSTARTED, listresp.Payload[0].Status)
+		require.Equal(t, []string{className}, listresp.Payload[0].Classes)
+
 		// wait for create success
 		ticker := time.NewTicker(90 * time.Second)
 
@@ -101,6 +108,13 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 
 		require.Equal(t, *statusResp.Payload.Status,
 			string(backup.Success), statusResp.Payload.Error)
+
+		listresp, err = helper.ListBackup(t, className, backend)
+		helper.AssertRequestOk(t, listresp, err, nil)
+
+		require.Equal(t, backupID, listresp.Payload[0].ID)
+		require.Equal(t, models.BackupCreateResponseStatusSUCCESS, listresp.Payload[0].Status)
+		require.Equal(t, []string{className}, listresp.Payload[0].Classes)
 	})
 
 	t.Run("delete class for restoration", func(t *testing.T) {
@@ -165,6 +179,71 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			}
 		}
 	}, 5*time.Second, 500*time.Microsecond, "class doesn't exists in follower nodes")
+}
+
+func backupJourneyWithCancellation(t *testing.T, className, backend, backupID string, journeyType journeyType) {
+	if journeyType == clusterJourney && backend == "filesystem" {
+		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
+			backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
+			assert.Nil(t, backupResp)
+			assert.Error(t, err)
+
+			restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, map[string]string{})
+			assert.Nil(t, restoreResp)
+			assert.Error(t, err)
+		})
+		return
+	}
+
+	t.Run("create and cancel backup", func(t *testing.T) {
+		// Ensure cluster is in sync
+		if journeyType == clusterJourney {
+			time.Sleep(3 * time.Second)
+		}
+		resp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
+		helper.AssertRequestOk(t, resp, err, nil)
+
+		listresp, err := helper.ListBackup(t, className, backend)
+		helper.AssertRequestOk(t, listresp, err, nil)
+
+		require.Equal(t, backupID, listresp.Payload[0].ID)
+		require.Equal(t, models.BackupCreateResponseStatusSTARTED, listresp.Payload[0].Status)
+		require.Equal(t, []string{className}, listresp.Payload[0].Classes)
+
+		t.Run("cancel backup", func(t *testing.T) {
+			require.Nil(t, helper.CancelBackup(t, className, backend, backupID))
+		})
+
+		// wait for cancellation
+		ticker := time.NewTicker(10 * time.Second)
+	wait:
+		for {
+			select {
+			case <-ticker.C:
+				break wait
+			default:
+				statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
+				helper.AssertRequestOk(t, resp, err, func() {
+					require.NotNil(t, statusResp)
+					require.NotNil(t, statusResp.Payload)
+					require.NotNil(t, statusResp.Payload.Status)
+				})
+
+				if *resp.Payload.Status == string(backup.Cancelled) {
+					break wait
+				}
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+
+		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
+		helper.AssertRequestOk(t, resp, err, func() {
+			require.NotNil(t, statusResp)
+			require.NotNil(t, statusResp.Payload)
+			require.NotNil(t, statusResp.Payload.Status)
+			require.Equal(t, string(backup.Cancelled), *statusResp.Payload.Status)
+		})
+	})
 }
 
 func addTestClass(t *testing.T, className string, multiTenant bool) {
