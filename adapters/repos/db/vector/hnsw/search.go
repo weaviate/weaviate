@@ -174,9 +174,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
 ) {
-	h.pools.visitedListsLock.RLock()
-	visited := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
+	visited := h.pools.visitedLists.Get().(*visited.SparseSet)
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -202,9 +200,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
 	}
 	if err != nil {
-		h.pools.visitedListsLock.RLock()
-		h.pools.visitedLists.Return(visited)
-		h.pools.visitedListsLock.RUnlock()
+		visited.Reset()
+		h.pools.visitedLists.Put(visited)
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
 	connectionsReusable := make([]uint64, h.maximumConnectionsLayerZero)
@@ -280,9 +277,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
 					continue
 				}
-				h.pools.visitedListsLock.RLock()
-				h.pools.visitedLists.Return(visited)
-				h.pools.visitedListsLock.RUnlock()
+				visited.Reset()
+				h.pools.visitedLists.Put(visited)
 				return nil, errors.Wrap(err, "calculate distance between candidate and query")
 			}
 
@@ -323,17 +319,15 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	}
 
 	h.pools.pqCandidates.Put(candidates)
-
-	h.pools.visitedListsLock.RLock()
-	h.pools.visitedLists.Return(visited)
-	h.pools.visitedListsLock.RUnlock()
+	visited.Reset()
+	h.pools.visitedLists.Put(visited)
 
 	return results, nil
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
+	visitedList *visited.SparseSet, allowList helpers.AllowList,
 ) {
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()

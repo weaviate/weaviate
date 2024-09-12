@@ -15,14 +15,12 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 type pools struct {
-	visitedLists     *visited.Pool
-	visitedListsLock *sync.RWMutex
+	visitedLists *sync.Pool
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
@@ -34,8 +32,11 @@ type pools struct {
 
 func newPools(maxConnectionsLayerZero int) *pools {
 	return &pools{
-		visitedLists:     visited.NewPool(1, cache.InitialSize+500),
-		visitedListsLock: &sync.RWMutex{},
+		visitedLists: &sync.Pool{
+			New: func() interface{} {
+				return visited.NewSparseSet(1000000, 8192)
+			},
+		},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
