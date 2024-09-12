@@ -13,6 +13,11 @@ package docid
 
 import (
 	"encoding/binary"
+	"runtime"
+	"sync"
+
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/entities/storobj"
 
@@ -31,8 +36,8 @@ type ObjectScanFn func(prop *models.PropertySchema, docID uint64) (bool, error)
 // specified pointer. If a pointer does not resolve to an object-id, the item
 // will be skipped. The number of times scanFn is called can therefore be
 // smaller than the input length of pointers.
-func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string) error {
-	return newObjectScannerLSM(store, pointers, scan, properties).Do()
+func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) error {
+	return newObjectScannerLSM(store, pointers, scan, properties, logger).Do()
 }
 
 type objectScannerLSM struct {
@@ -41,16 +46,18 @@ type objectScannerLSM struct {
 	scanFn        ObjectScanFn
 	objectsBucket *lsmkv.Bucket
 	properties    []string
+	logger        logrus.FieldLogger
 }
 
 func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64,
-	scan ObjectScanFn, properties []string,
+	scan ObjectScanFn, properties []string, logger logrus.FieldLogger,
 ) *objectScannerLSM {
 	return &objectScannerLSM{
 		store:      store,
 		pointers:   pointers,
 		scanFn:     scan,
 		properties: properties,
+		logger:     logger,
 	}
 }
 
@@ -77,51 +84,69 @@ func (os *objectScannerLSM) init() error {
 }
 
 func (os *objectScannerLSM) scan() error {
-	// each object is scanned one after the other, so we can reuse the same memory allocations for all objects
-	docIDBytes := make([]byte, 8)
-
 	// Preallocate strings needed for json unmarshalling
 	propStrings := make([][]string, len(os.properties))
 	for i := range os.properties {
 		propStrings[i] = []string{os.properties[i]}
 	}
 
-	// The typed properties are needed for extraction from json
-	var properties models.PropertySchema
-	propertiesTyped := map[string]interface{}{}
+	lock := sync.Mutex{}
+	eg := enterrors.NewErrorGroupWrapper(os.logger)
+	concurrency := 2 * runtime.GOMAXPROCS(0)
+	stride := len(os.pointers) / concurrency
+	for i := 0; i < concurrency; i++ {
+		start := i * stride
+		end := min(start+stride, len(os.pointers))
+		f := func() error {
+			// each object is scanned one after the other, so we can reuse the same memory allocations for all objects
+			docIDBytes := make([]byte, 8)
 
-	for _, prop := range os.properties {
-		propertiesTyped[prop] = nil
-	}
+			// The typed properties are needed for extraction from json
+			var properties models.PropertySchema
+			propertiesTyped := map[string]interface{}{}
 
-	for _, id := range os.pointers {
-		binary.LittleEndian.PutUint64(docIDBytes, id)
-		res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
-		if err != nil {
-			return err
-		}
-
-		if res == nil {
-			continue
-		}
-
-		if len(os.properties) > 0 {
-			err = storobj.UnmarshalPropertiesFromObject(res, &propertiesTyped, os.properties, propStrings)
-			if err != nil {
-				return errors.Wrapf(err, "unmarshal data object")
+			for _, prop := range os.properties {
+				propertiesTyped[prop] = nil
 			}
-			properties = propertiesTyped
+
+			for _, id := range os.pointers[start:end] {
+				binary.LittleEndian.PutUint64(docIDBytes, id)
+				res, err := os.objectsBucket.GetBySecondary(0, docIDBytes)
+				if err != nil {
+					return err
+				}
+
+				if res == nil {
+					continue
+				}
+
+				if len(os.properties) > 0 {
+					err = storobj.UnmarshalPropertiesFromObject(res, &propertiesTyped, os.properties, propStrings)
+					if err != nil {
+						return errors.Wrapf(err, "unmarshal data object")
+					}
+					properties = propertiesTyped
+				}
+
+				// majority of time is spend reading the objects => do the analyses sequentially to not cause races
+				// when analysing the results
+				lock.Lock()
+				continueScan, err := os.scanFn(&properties, id)
+				lock.Unlock()
+				if err != nil {
+					return errors.Wrapf(err, "scan")
+				}
+
+				if !continueScan {
+					break
+				}
+			}
+			return nil
 		}
 
-		continueScan, err := os.scanFn(&properties, id)
-		if err != nil {
-			return errors.Wrapf(err, "scan")
-		}
+		eg.Go(f)
 
-		if !continueScan {
-			break
-		}
 	}
 
-	return nil
+	return eg.Wait()
 }
