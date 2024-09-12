@@ -215,6 +215,82 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	return st, nil
 }
 
+func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, backupID string,
+) error {
+	defer func(begin time.Time) {
+		var err error
+		logOperation(s.logger, "cancel_backup", backupID, backend, begin, err)
+	}(time.Now())
+
+	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
+	if err := s.authorizer.Authorize(principal, "delete", path); err != nil {
+		return err
+	}
+
+	store, err := coordBackend(s.backends, backend, backupID)
+	if err != nil {
+		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+		return backup.NewErrUnprocessable(err)
+	}
+
+	if err := validateID(backupID); err != nil {
+		return err
+	}
+
+	if err := store.Initialize(ctx); err != nil {
+		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
+	}
+
+	meta, _ := store.Meta(ctx, GlobalBackupFile)
+	if meta != nil && meta.Status == backup.Cancelled {
+		return nil
+	}
+
+	nodes, err := s.backupper.Nodes(ctx, &Request{
+		Method:  OpCreate,
+		Backend: backend,
+		ID:      backupID,
+		Classes: s.backupper.selector.ListClasses(ctx),
+	})
+	if err != nil {
+		return err
+	}
+	s.backupper.abortAll(ctx,
+		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend}, nodes)
+
+	return nil
+}
+
+func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string) (*models.BackupListResponse, error) {
+	var err error
+	defer func(begin time.Time) {
+		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
+	}(time.Now())
+	path := fmt.Sprintf("backups/%s", backend)
+	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+		return nil, err
+	}
+
+	res := models.BackupListResponse{}
+	if s.backupper.descriptor.ID != "" {
+
+		store, err := coordBackend(s.backends, backend, "")
+		if err != nil {
+			err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
+			return nil, backup.NewErrUnprocessable(err)
+		}
+		// active backups
+		res = append(res, &models.BackupListResponseItems0{
+			ID:      s.backupper.descriptor.ID,
+			Path:    store.HomeDir(),
+			Classes: s.backupper.descriptor.Classes(),
+			Status:  string(s.backupper.descriptor.Status),
+		})
+	}
+	// TODO : add canceled backups to the list
+	return &res, nil
+}
+
 func coordBackend(provider BackupBackendProvider, backend, id string) (coordStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
@@ -254,8 +330,8 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	destPath := store.HomeDir()
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	_, err := store.Meta(ctx, GlobalBackupFile)
-	if err == nil {
+	meta, err := store.Meta(ctx, GlobalBackupFile)
+	if err == nil && meta.Status != backup.Cancelled {
 		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
 	if _, ok := err.(backup.ErrNotFound); !ok {
