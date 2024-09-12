@@ -93,10 +93,13 @@ func (os *objectScannerLSM) scan() error {
 	lock := sync.Mutex{}
 	eg := enterrors.NewErrorGroupWrapper(os.logger)
 	concurrency := 2 * runtime.GOMAXPROCS(0)
-	stride := len(os.pointers) / concurrency
+	stride := max(len(os.pointers)/concurrency, 1)
 	for i := 0; i < concurrency; i++ {
 		start := i * stride
 		end := min(start+stride, len(os.pointers))
+		if start >= len(os.pointers) {
+			break
+		}
 		f := func() error {
 			// each object is scanned one after the other, so we can reuse the same memory allocations for all objects
 			docIDBytes := make([]byte, 8)
