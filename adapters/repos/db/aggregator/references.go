@@ -13,6 +13,7 @@ package aggregator
 
 import (
 	"errors"
+	"sync"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
 )
@@ -38,11 +39,14 @@ func newRefAggregator() *refAggregator {
 }
 
 type refAggregator struct {
+	sync.Mutex
 	count        uint64
 	valueCounter map[string]uint64
 }
 
 func (a *refAggregator) AddReference(ref map[string]interface{}) error {
+	a.Lock()
+	defer a.Unlock()
 	a.count++
 
 	beacon, ok := ref["beacon"].(string)

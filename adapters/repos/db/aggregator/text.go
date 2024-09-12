@@ -13,6 +13,7 @@ package aggregator
 
 import (
 	"sort"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -36,6 +37,7 @@ func newTextAggregator(limit int) *textAggregator {
 }
 
 type textAggregator struct {
+	sync.Mutex
 	max   int
 	count uint64
 
@@ -67,6 +69,8 @@ func (a *Aggregator) parseAndAddTextRow(agg *textAggregator,
 }
 
 func (a *textAggregator) AddText(value string) error {
+	a.Lock()
+	defer a.Unlock()
 	a.count++
 
 	itemCount := a.itemCounter[value]
