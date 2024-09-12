@@ -317,35 +317,6 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		sg.segments[old2].countNetAdditions
 	sg.maintenanceLock.RUnlock()
 
-	err := func() error {
-		sg.maintenanceLock.Lock()
-		defer sg.maintenanceLock.Unlock()
-
-		leftSegment := sg.segments[old1]
-		rightSegment := sg.segments[old2]
-		newSegmentId := "segment-" + segmentID(leftSegment.path) + "_" + segmentID(rightSegment.path)
-
-		// delete any existing bloom tmp files in the form of segment-<seg1>_<seg2>*bloom.tmp
-		tmpFiles, err := filepath.Glob(filepath.Join(sg.dir, newSegmentId+"*bloom.tmp"))
-		if err != nil {
-			return errors.Wrap(err, "glob tmp files")
-		}
-
-		for _, tmpFile := range tmpFiles {
-			err = os.Remove(tmpFile)
-			if err != nil {
-				return errors.Wrap(err, "remove tmp file")
-			}
-		}
-		return nil
-	}()
-	if err != nil {
-		return err
-	}
-
-	leftSegment := sg.segments[old1]
-	rightSegment := sg.segments[old2]
-
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
 		updatedCountNetAdditions, sg.logger,
@@ -356,6 +327,9 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
+
+	leftSegment := sg.segments[old1]
+	rightSegment := sg.segments[old2]
 
 	if err := leftSegment.close(); err != nil {
 		return errors.Wrap(err, "close disk segment")
