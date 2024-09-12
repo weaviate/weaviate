@@ -883,20 +883,28 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			got := a[4].([]*objects.VObject)
 			want := []*objects.VObject{
 				{
-					LatestObject:    &result[0].Object,
-					StaleUpdateTime: 1,
+					ID:                      ids[0],
+					LastUpdateTimeUnixMilli: 2,
+					LatestObject:            &result[0].Object,
+					StaleUpdateTime:         1,
 				},
 				{
-					LatestObject:    &result[1].Object,
-					StaleUpdateTime: 1,
+					ID:                      ids[1],
+					LastUpdateTimeUnixMilli: 2,
+					LatestObject:            &result[1].Object,
+					StaleUpdateTime:         1,
 				},
 				{
-					LatestObject:    &result[2].Object,
-					StaleUpdateTime: 2,
+					ID:                      ids[2],
+					LastUpdateTimeUnixMilli: 3,
+					LatestObject:            &result[2].Object,
+					StaleUpdateTime:         2,
 				},
 				{
-					LatestObject:    &result[4].Object,
-					StaleUpdateTime: 2,
+					ID:                      ids[4],
+					LastUpdateTimeUnixMilli: 3,
+					LatestObject:            &result[4].Object,
+					StaleUpdateTime:         2,
 				},
 			}
 
@@ -910,16 +918,22 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			got := a[4].([]*objects.VObject)
 			want := []*objects.VObject{
 				{
-					LatestObject:    &result[2].Object,
-					StaleUpdateTime: 1,
+					ID:                      ids[2],
+					LastUpdateTimeUnixMilli: 3,
+					LatestObject:            &result[2].Object,
+					StaleUpdateTime:         1,
 				},
 				{
-					LatestObject:    &result[3].Object,
-					StaleUpdateTime: 1,
+					ID:                      ids[3],
+					LastUpdateTimeUnixMilli: 4,
+					LatestObject:            &result[3].Object,
+					StaleUpdateTime:         1,
 				},
 				{
-					LatestObject:    &result[4].Object,
-					StaleUpdateTime: 1,
+					ID:                      ids[4],
+					LastUpdateTimeUnixMilli: 3,
+					LatestObject:            &result[4].Object,
+					StaleUpdateTime:         1,
 				},
 			}
 
@@ -932,16 +946,22 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			got := a[4].([]*objects.VObject)
 			want := []*objects.VObject{
 				{
-					LatestObject:    &result[0].Object,
-					StaleUpdateTime: 1,
+					ID:                      ids[0],
+					LastUpdateTimeUnixMilli: 2,
+					LatestObject:            &result[0].Object,
+					StaleUpdateTime:         1,
 				},
 				{
-					LatestObject:    &result[1].Object,
-					StaleUpdateTime: 1,
+					ID:                      ids[1],
+					LastUpdateTimeUnixMilli: 2,
+					LatestObject:            &result[1].Object,
+					StaleUpdateTime:         1,
 				},
 				{
-					LatestObject:    &result[3].Object,
-					StaleUpdateTime: 1,
+					ID:                      ids[3],
+					LastUpdateTimeUnixMilli: 4,
+					LatestObject:            &result[3].Object,
+					StaleUpdateTime:         1,
 				},
 			}
 			require.ElementsMatch(t, want, got)
