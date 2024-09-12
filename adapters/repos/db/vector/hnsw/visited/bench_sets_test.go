@@ -20,16 +20,23 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-func BenchmarkSparse(b *testing.B) {
+const (
+	totalSize     = 500_000_000
+	rate          = 0.00001
+	collisionRate = 8192
+)
+
+func BenchmarkSparseRandom(b *testing.B) {
 	var m1, m2 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&m1)
-	s := NewSparseSet(500_000_000, 8192)
+	s := NewSparseSet(totalSize, collisionRate)
 	for i := 0; i < b.N; i++ {
-		if rand.Float32() < 0.00001 {
+		if rand.Float32() < rate {
 			s.Visit(uint64(i))
 		}
 	}
+	runtime.GC()
 	runtime.ReadMemStats(&m2)
 	fmt.Println("total memory:", m2.TotalAlloc-m1.TotalAlloc)
 	b.ResetTimer()
@@ -38,16 +45,17 @@ func BenchmarkSparse(b *testing.B) {
 	}
 }
 
-func BenchmarkList(b *testing.B) {
+func BenchmarkListRandom(b *testing.B) {
 	var m1, m2 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&m1)
-	s := NewList(500_000_000)
+	s := NewList(totalSize)
 	for i := 0; i < b.N; i++ {
-		if rand.Float32() < 0.00001 {
+		if rand.Float32() < rate {
 			s.Visit(uint64(i))
 		}
 	}
+	runtime.GC()
 	runtime.ReadMemStats(&m2)
 	fmt.Println("total memory:", m2.TotalAlloc-m1.TotalAlloc)
 	b.ResetTimer()
@@ -56,16 +64,17 @@ func BenchmarkList(b *testing.B) {
 	}
 }
 
-func BenchmarkAllow(b *testing.B) {
+func BenchmarkAllowRandom(b *testing.B) {
 	var m1, m2 runtime.MemStats
 	runtime.GC()
 	runtime.ReadMemStats(&m1)
-	stemp := make([]uint64, 0, 500_000_000)
+	stemp := make([]uint64, 0, totalSize)
 	for i := 0; i < b.N; i++ {
-		if rand.Float32() < 0.0001 {
+		if rand.Float32() < rate {
 			stemp = append(stemp, uint64(i))
 		}
 	}
+	runtime.GC()
 	runtime.ReadMemStats(&m2)
 	fmt.Println("total memory:", m2.TotalAlloc-m1.TotalAlloc)
 	s := helpers.NewAllowList(stemp...)
@@ -73,4 +82,91 @@ func BenchmarkAllow(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		s.Contains(uint64(i))
 	}
+}
+
+func BenchmarkSparseTail(b *testing.B) {
+	var m1, m2 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m1)
+	s := NewSparseSet(totalSize, collisionRate)
+	for i := 0; i < b.N; i++ {
+		if i < rate*totalSize {
+			s.Visit(uint64(i))
+		}
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&m2)
+	fmt.Println("total memory:", m2.TotalAlloc-m1.TotalAlloc)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Visited(uint64(i))
+	}
+}
+
+func BenchmarkListTail(b *testing.B) {
+	var m1, m2 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m1)
+	s := NewList(totalSize)
+	for i := 0; i < b.N; i++ {
+		if i < rate*totalSize {
+			s.Visit(uint64(i))
+		}
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&m2)
+	fmt.Println("total memory:", m2.TotalAlloc-m1.TotalAlloc)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Visited(uint64(i))
+	}
+}
+
+func BenchmarkAllowTail(b *testing.B) {
+	var m1, m2 runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&m1)
+	stemp := make([]uint64, 0, totalSize)
+	for i := 0; i < b.N; i++ {
+		if i < rate*totalSize {
+			stemp = append(stemp, uint64(i))
+		}
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&m2)
+	fmt.Println("total memory:", m2.TotalAlloc-m1.TotalAlloc)
+	s := helpers.NewAllowList(stemp...)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Contains(uint64(i))
+	}
+}
+
+func BenchmarkSparseReset(b *testing.B) {
+	s := NewSparseSet(500_000_000, 8192)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Reset()
+	}
+}
+
+func BenchmarkList(b *testing.B) {
+	s := NewList(500_000_000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.Reset()
+	}
+}
+
+func BenchmarkSets(b *testing.B) {
+	b.Run("uniform distribution", func(b *testing.B) {
+		b.Run("sparse ", func(b *testing.B) { BenchmarkSparseRandom(b) })
+		b.Run("visited ", func(b *testing.B) { BenchmarkListRandom(b) })
+		b.Run("allow ", func(b *testing.B) { BenchmarkAllowRandom(b) })
+	})
+	b.Run("tailing distribution", func(b *testing.B) {
+		b.Run("sparse ", func(b *testing.B) { BenchmarkSparseTail(b) })
+		b.Run("visited ", func(b *testing.B) { BenchmarkListTail(b) })
+		b.Run("allow ", func(b *testing.B) { BenchmarkAllowTail(b) })
+	})
 }
