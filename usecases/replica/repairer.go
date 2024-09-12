@@ -60,6 +60,10 @@ func (r *repairer) repairOne(ctx context.Context,
 		cl        = r.client
 	)
 	for i, x := range votes {
+		if x.o.Deleted && x.o.LastUpdateTimeUnixMilli == 0 {
+			// object deletion without an associted timestamp can not be handled
+			return nil, errConflictExistOrDeleted
+		}
 		if x.UTime > lastUTime {
 			lastUTime = x.UTime
 			winnerIdx = i
@@ -68,13 +72,13 @@ func (r *repairer) repairOne(ctx context.Context,
 	// fetch most recent object
 	updates := votes[contentIdx].o
 	winner := votes[winnerIdx]
-	if updates.LastUpdateTimeUnixMilli != lastUTime {
+	if updates.UpdateTime() != lastUTime {
 		updates, err = cl.FullRead(ctx, winner.sender, r.class, shard, id,
 			search.SelectProperties{}, additional.Properties{}, 9)
 		if err != nil {
 			return nil, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 		}
-		if updates.LastUpdateTimeUnixMilli != lastUTime {
+		if updates.UpdateTime() != lastUTime {
 			return nil, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
 		}
 	}
@@ -97,7 +101,7 @@ func (r *repairer) repairOne(ctx context.Context,
 			ups := []*objects.VObject{{
 				ID:                      updates.ID,
 				Deleted:                 updates.Deleted,
-				LastUpdateTimeUnixMilli: updates.LastUpdateTimeUnixMilli,
+				LastUpdateTimeUnixMilli: updates.UpdateTime(),
 				LatestObject:            latestObject,
 				Vector:                  vector,
 				StaleUpdateTime:         vote.UTime,
@@ -137,6 +141,10 @@ func (r *repairer) repairExist(ctx context.Context,
 		cl        = r.client
 	)
 	for i, x := range votes {
+		if x.o.Deleted && x.o.UpdateTime == 0 {
+			// object deletion without an associted timestamp can not be handled
+			return false, errConflictExistOrDeleted
+		}
 		if x.UTime > lastUTime {
 			lastUTime = x.UTime
 			winnerIdx = i
@@ -148,7 +156,7 @@ func (r *repairer) repairExist(ctx context.Context,
 	if err != nil {
 		return false, fmt.Errorf("get most recent object from %s: %w", winner.sender, err)
 	}
-	if resp.LastUpdateTimeUnixMilli != lastUTime {
+	if resp.UpdateTime() != lastUTime {
 		return false, fmt.Errorf("fetch new state from %s: %w, %v", winner.sender, errConflictObjectChanged, err)
 	}
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
@@ -169,7 +177,7 @@ func (r *repairer) repairExist(ctx context.Context,
 			ups := []*objects.VObject{{
 				ID:                      resp.ID,
 				Deleted:                 resp.Deleted,
-				LastUpdateTimeUnixMilli: resp.LastUpdateTimeUnixMilli,
+				LastUpdateTimeUnixMilli: resp.UpdateTime(),
 				LatestObject:            latestObject,
 				Vector:                  vector,
 				StaleUpdateTime:         vote.UTime,
@@ -209,7 +217,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 	// find most recent objects
 	for i, x := range votes[contentIdx].FullData {
-		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.LastUpdateTimeUnixMilli, Deleted: x.Deleted}
+		lastTimes[i] = iTuple{S: contentIdx, O: i, T: x.UpdateTime(), Deleted: x.Deleted}
 		votes[contentIdx].Count[i] = nVotes // reuse Count[] to check consistency
 	}
 
@@ -231,7 +239,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 
 	// find missing content (diff)
 	for i, p := range votes[contentIdx].FullData {
-		if lastTimes[i].Deleted { // conflict
+		if lastTimes[i].Deleted && lastTimes[i].T == 0 { // conflict
 			nDeletions++
 			result[i] = nil
 			votes[contentIdx].Count[i] = 0
@@ -270,7 +278,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 				resp, err := cl.FullReads(ctx, receiver, r.class, shard, query)
 				for i, n := 0, len(query); i < n; i++ {
 					idx := ms[start-n+i].O
-					if err != nil || lastTimes[idx].T != resp[i].LastUpdateTimeUnixMilli {
+					if err != nil || lastTimes[idx].T != resp[i].UpdateTime() {
 						votes[rid].Count[idx]--
 					} else {
 						result[idx] = resp[i].Object
@@ -292,11 +300,23 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		m := make(map[string]int, len(ids)/2) //
 		for j, x := range lastTimes {
 			cTime := vote.UpdateTimeAt(j)
-			if x.T != cTime && !x.Deleted && result[j] != nil && vote.Count[j] == nVotes {
+			if x.T != cTime && (!x.Deleted || x.T > 0) && result[j] != nil && vote.Count[j] == nVotes {
+
+				var latestObject *models.Object
+				var vector []float32
+
+				if !x.Deleted {
+					latestObject = &result[j].Object
+					vector = result[j].Vector
+				}
+
 				obj := objects.VObject{
-					LatestObject:    &result[j].Object,
-					Vector:          result[j].Vector,
-					StaleUpdateTime: cTime,
+					ID:                      result[j].ID(),
+					Deleted:                 x.Deleted,
+					LastUpdateTimeUnixMilli: x.T,
+					LatestObject:            latestObject,
+					Vector:                  vector,
+					StaleUpdateTime:         cTime,
 				}
 				query = append(query, &obj)
 				m[string(result[j].ID())] = j

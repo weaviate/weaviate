@@ -151,6 +151,13 @@ func (r *Replica) UnmarshalBinary(data []byte) error {
 	return nil
 }
 
+func (r *Replica) UpdateTime() int64 {
+	if r.Object == nil {
+		return r.LastUpdateTimeUnixMilli
+	}
+	return r.Object.LastUpdateTimeUnix()
+}
+
 type Replicas []Replica
 
 func (ro Replicas) MarshalBinary() ([]byte, error) {

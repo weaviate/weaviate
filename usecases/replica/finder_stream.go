@@ -295,5 +295,5 @@ func (r batchReply) UpdateTimeAt(idx int) int64 {
 	if len(r.DigestData) != 0 {
 		return r.DigestData[idx].UpdateTime
 	}
-	return r.FullData[idx].LastUpdateTimeUnixMilli
+	return r.FullData[idx].UpdateTime()
 }
