@@ -13,6 +13,7 @@ package docid
 
 import (
 	"encoding/binary"
+	"math"
 	"runtime"
 	"sync"
 
@@ -93,7 +94,7 @@ func (os *objectScannerLSM) scan() error {
 	lock := sync.Mutex{}
 	eg := enterrors.NewErrorGroupWrapper(os.logger)
 	concurrency := 2 * runtime.GOMAXPROCS(0)
-	stride := max(len(os.pointers)/concurrency, 1)
+	stride := int(math.Ceil(max(float64(len(os.pointers))/float64(concurrency), 1)))
 	for i := 0; i < concurrency; i++ {
 		start := i * stride
 		end := min(start+stride, len(os.pointers))
