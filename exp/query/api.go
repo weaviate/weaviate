@@ -187,12 +187,14 @@ func (a *API) vectorSearch(
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to initialize index: %w", err)
 	}
+	defer index.Shutdown(ctx)
 
 	matched_ids, distance, err := index.SearchByVectorDistance(vectors, threshold, int64(limit), nil)
 
 	fmt.Println("matchd_ids", matched_ids, "distance", distance)
 
 	opts := []lsmkv.BucketOption{
+		// lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(2),
 	}
 
