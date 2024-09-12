@@ -137,9 +137,40 @@ func getCores() (int, error) {
 	if err != nil {
 		return 0, errors.Wrap(err, "read cpuset")
 	}
+	return calcCPUs(strings.TrimSpace(string(cpuset)))
+}
 
-	cores := strings.Split(strings.TrimSpace(string(cpuset)), ",")
-	return len(cores), nil
+func calcCPUs(cpuString string) (int, error) {
+	cores := 0
+	if cpuString == "" {
+		return 0, nil
+	}
+
+	// Split by comma to handle multiple ranges
+	ranges := strings.Split(cpuString, ",")
+	for _, r := range ranges {
+		// Check if it's a range (contains a hyphen)
+		if strings.Contains(r, "-") {
+			parts := strings.Split(r, "-")
+			if len(parts) != 2 {
+				return 0, fmt.Errorf("invalid CPU range format: %s", r)
+			}
+			start, err := strconv.Atoi(parts[0])
+			if err != nil {
+				return 0, fmt.Errorf("invalid start of CPU range: %s", parts[0])
+			}
+			end, err := strconv.Atoi(parts[1])
+			if err != nil {
+				return 0, fmt.Errorf("invalid end of CPU range: %s", parts[1])
+			}
+			cores += end - start + 1
+		} else {
+			// Single CPU
+			cores++
+		}
+	}
+
+	return cores, nil
 }
 
 func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
