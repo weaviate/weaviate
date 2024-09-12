@@ -33,6 +33,21 @@ func TestSparseVisitedList(t *testing.T) {
 		assert.False(t, l.Visited(998), "unvisited node should NOT be marked visited")
 	})
 
+	t.Run("creating a new list, filling it with collisions and checking against it", func(t *testing.T) {
+		l := NewSparseSet(1000, 32)
+
+		l.Visit(7)
+		l.Visit(5)
+		l.Visit(1)
+
+		assert.True(t, l.Visited(7), "visited node should be marked visited")
+		assert.True(t, l.Visited(5), "visited node should be marked visited")
+		assert.True(t, l.Visited(1), "visited node should be marked visited")
+		assert.False(t, l.Visited(6), "unvisited node should NOT be marked visited")
+		assert.False(t, l.Visited(31), "unvisited node should NOT be marked visited")
+		assert.False(t, l.Visited(998), "unvisited node should NOT be marked visited")
+	})
+
 	t.Run("reusing a list it is not affected by past entries", func(t *testing.T) {
 		l := NewSparseSet(1000, 16)
 

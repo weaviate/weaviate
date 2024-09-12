@@ -55,8 +55,11 @@ func (s *segmentedBitSet) get(segmentedInded, byteInSegment uint64, mask byte) b
 	return s.segments[segmentedInded].getMasked(byteInSegment, mask)
 }
 
+func (s *segmentedBitSet) grow(size uint64) {
+	s.segments = append(s.segments, make([]*segment, size)...)
+}
+
 type SparseSet struct {
-	size             int
 	collisionRate    uint64
 	collidingBitSet  []byte
 	segmentedBitSets *segmentedBitSet
@@ -69,7 +72,6 @@ func NewSparseSet(size, collisionRate int) *SparseSet {
 		masks[i] = 1 << i
 	}
 	return &SparseSet{
-		size:             size,
 		collisionRate:    uint64(collisionRate),
 		collidingBitSet:  make([]byte, (size/collisionRate+1)/8+1),
 		segmentedBitSets: newSegmentedBitSet(size, collisionRate),
@@ -77,9 +79,12 @@ func NewSparseSet(size, collisionRate int) *SparseSet {
 	}
 }
 
-func (s SparseSet) Len() int { return s.size }
+func (s SparseSet) Len() int { return len(s.collidingBitSet) * int(s.collisionRate*8) }
 
 func (s *SparseSet) Visit(node uint64) {
+	if node >= uint64(s.Len()) {
+		s.grow(node)
+	}
 	segment := node / s.collisionRate / 8
 	segmentIndex := node / s.collisionRate % 8
 	segmentedInded := node / s.collisionRate
@@ -92,6 +97,9 @@ func (s *SparseSet) Visit(node uint64) {
 }
 
 func (s *SparseSet) Visited(node uint64) bool {
+	if node >= uint64(s.Len()) {
+		return false
+	}
 	segment := node / s.collisionRate / 8
 	segmentIndex := node / s.collisionRate % 8
 	if s.collidingBitSet[segment]&s.masks[segmentIndex] == 0 {
@@ -120,4 +128,10 @@ func (s *SparseSet) resetSegment(segmentId uint64) {
 	for i := range segment.bitSet {
 		segment.bitSet[i] = 0
 	}
+}
+
+func (s *SparseSet) grow(size uint64) {
+	growSize := (size - uint64(s.Len())) / s.collisionRate
+	s.collidingBitSet = append(s.collidingBitSet, make([]byte, growSize/8)...)
+	s.segmentedBitSets.grow(growSize)
 }

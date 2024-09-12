@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
+	visitedpkg "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -209,8 +210,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("knn_search_layer_%d_took", level), took)
 	}()
 	h.pools.visitedListsLock.RLock()
-	visited := h.pools.visitedLists.Borrow()
-	visitedExp := h.pools.visitedLists.Borrow()
+	visited := h.pools.visitedLists.Get().(*visitedpkg.SparseSet)
+	visitedExp := h.pools.visitedLists.Get().(*visitedpkg.SparseSet)
 	h.pools.visitedListsLock.RUnlock()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
@@ -238,6 +239,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
 	}
 	if err != nil {
+		visited.Reset()
+		h.pools.visitedLists.Put(visited)
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
 	var connectionsReusable []uint64
@@ -259,7 +262,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
 			h.pools.visitedListsLock.RLock()
-			h.pools.visitedLists.Return(visited)
+			visited.Reset()
+			h.pools.visitedLists.Put(visited)
 			h.pools.visitedListsLock.RUnlock()
 
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_layer")
@@ -443,8 +447,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					continue
 				} else {
 					h.pools.visitedListsLock.RLock()
-					h.pools.visitedLists.Return(visited)
-					h.pools.visitedLists.Return(visitedExp)
+					visited.Reset()
+					h.pools.visitedLists.Put(visited)
+					visitedExp.Reset()
+					h.pools.visitedLists.Put(visitedExp)
 					h.pools.visitedListsLock.RUnlock()
 					return nil, errors.Wrap(err, "calculate distance between candidate and query")
 				}
@@ -500,8 +506,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	h.pools.pqCandidates.Put(candidates)
 
 	h.pools.visitedListsLock.RLock()
-	h.pools.visitedLists.Return(visited)
-	h.pools.visitedLists.Return(visitedExp)
+	visited.Reset()
+	h.pools.visitedLists.Put(visited)
+	visitedExp.Reset()
+	h.pools.visitedLists.Put(visitedExp)
 	h.pools.visitedListsLock.RUnlock()
 
 	return results, nil
@@ -509,7 +517,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
-	visitedList visited.ListSet, allowList helpers.AllowList,
+	visitedList *visited.SparseSet, allowList helpers.AllowList,
 ) {
 	isMultivec := h.multivector.Load()
 	for entrypoints.Len() > 0 {
