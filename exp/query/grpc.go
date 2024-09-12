@@ -62,11 +62,11 @@ func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
 	var resp protocol.SearchReply
 
 	// TODO(kavi): copy rest of the fields accordingly.
-	for _, v := range res.objects {
+	for _, v := range res.Results {
 		props := protocol.Properties{
 			Fields: make(map[string]*protocol.Value),
 		}
-		objprops := v.Object.Properties.(map[string]interface{})
+		objprops := v.Obj.Object.Properties.(map[string]interface{})
 		for prop, val := range objprops {
 			props.Fields[prop] = &protocol.Value{
 				Kind: &protocol.Value_StringValue{
@@ -77,10 +77,11 @@ func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
 
 		resp.Results = append(resp.Results, &protocol.SearchResult{
 			Metadata: &protocol.MetadataResult{
-				Id: v.ID().String(),
+				Id:        v.Obj.ID().String(),
+				Certainty: float32(v.Certainty),
 			},
 			Properties: &protocol.PropertiesResult{
-				TargetCollection: v.Object.Class,
+				TargetCollection: v.Obj.Object.Class,
 				NonRefProps:      &props,
 			},
 		})

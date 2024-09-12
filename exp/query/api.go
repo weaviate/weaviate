@@ -115,16 +115,28 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
+	defer store.Shutdown(ctx)
 
 	var resp SearchResponse
 
 	if len(req.NearText) != 0 {
 		// do vector search
-		resObjects, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), req.Limit)
+		resObjects, distances, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), req.Limit)
 		if err != nil {
 			return nil, err
 		}
-		resp.objects = append(resp.objects, resObjects...)
+
+		if len(resObjects) != len(distances) {
+			return nil, fmt.Errorf("vectorsearch returned distance in-complete")
+		}
+
+		for i := 0; i < len(resObjects); i++ {
+			resp.Results = append(resp.Results, Result{
+				Obj:       resObjects[i],
+				Certainty: float64(distances[i]),
+			})
+		}
+
 	} else {
 		// return all objects
 		if err := store.CreateOrLoadBucket(ctx, defaultLSMObjectsBucket); err != nil {
@@ -132,7 +144,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		}
 		bkt := store.Bucket(defaultLSMObjectsBucket)
 		if err := bkt.IterateObjects(ctx, func(object *storobj.Object) error {
-			resp.objects = append(resp.objects, object)
+			resp.Results = append(resp.Results, Result{Obj: object})
 			return nil
 		}); err != nil {
 			return nil, fmt.Errorf("failed to iterate objects in store: %w", err)
@@ -150,10 +162,10 @@ func (a *API) vectorSearch(
 	nearText []string,
 	threshold float32,
 	limit int,
-) ([]*storobj.Object, error) {
+) ([]*storobj.Object, []float32, error) {
 	vectors, err := a.vectorizer.Texts(ctx, nearText, &modules.ClassBasedModuleConfig{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
+		return nil, nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
 	}
 
 	fmt.Println("vectors", vectors)
@@ -162,9 +174,6 @@ func (a *API) vectorSearch(
 	bq := flatent.CompressionUserConfig{
 		Enabled: true,
 	}
-	// if err := store.CreateOrLoadBucket(ctx, defaultLSMVectorsCompressedBucket); err != nil {
-	// 	return nil, fmt.Errorf("failed to load vectors bucket in store: %w", err)
-	// }
 
 	// NOTE(kavi): Accept distance provider as dependency?
 	dis := distancer.NewCosineDistanceProvider()
@@ -176,19 +185,19 @@ func (a *API) vectorSearch(
 		BQ: bq,
 	}, store)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize index: %w", err)
+		return nil, nil, fmt.Errorf("failed to initialize index: %w", err)
 	}
 
-	matched_ids, _, err := index.SearchByVector(vectors, limit, nil)
+	matched_ids, distance, err := index.SearchByVectorDistance(vectors, threshold, int64(limit), nil)
 
-	fmt.Println("matchd_ids", matched_ids)
+	fmt.Println("matchd_ids", matched_ids, "distance", distance)
 
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithSecondaryIndices(2),
 	}
 
 	if err := store.CreateOrLoadBucket(ctx, defaultLSMObjectsBucket, opts...); err != nil {
-		return nil, fmt.Errorf("failed to vectorize query text: %w", err)
+		return nil, nil, fmt.Errorf("failed to vectorize query text: %w", err)
 	}
 
 	bkt := store.Bucket(defaultLSMObjectsBucket)
@@ -198,22 +207,22 @@ func (a *API) vectorSearch(
 	for _, id := range matched_ids {
 		key, err := indexDocIDToLSMKey(id)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize ids returned from flat index: %w", err)
+			return nil, nil, fmt.Errorf("failed to serialize ids returned from flat index: %w", err)
 		}
 		objB, err := bkt.GetBySecondary(0, key)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get object from store: %w", err)
+			return nil, nil, fmt.Errorf("failed to get object from store: %w", err)
 		}
 
 		obj, err := storobj.FromBinary(objB)
 		if err != nil {
-			return nil, fmt.Errorf("failed to decode object from store: %w", err)
+			return nil, nil, fmt.Errorf("failed to decode object from store: %w", err)
 		}
 
 		objs = append(objs, obj)
 	}
 
-	return objs, nil
+	return objs, distance, nil
 }
 
 type SearchRequest struct {
@@ -226,7 +235,12 @@ type SearchRequest struct {
 }
 
 type SearchResponse struct {
-	objects []*storobj.Object
+	Results []Result
+}
+
+type Result struct {
+	Obj       *storobj.Object
+	Certainty float64
 }
 
 func indexDocIDToLSMKey(x uint64) ([]byte, error) {
