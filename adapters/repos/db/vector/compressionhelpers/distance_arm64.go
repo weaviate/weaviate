@@ -21,5 +21,6 @@ func init() {
 		l2SquaredByteImpl = asm.L2ByteARM64
 		dotByteImpl = asm.DotByteARM64
 		LAQDotImpl = asm.DotFloatByte_Neon
+		LAQDotExpImpl = asm.LAQDotExp_Neon
 	}
 }
