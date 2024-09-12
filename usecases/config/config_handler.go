@@ -324,9 +324,6 @@ type Raft struct {
 	MetadataOnlyVoters bool
 
 	ForceOneNodeRecovery bool
-
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
@@ -386,7 +383,6 @@ func (r *Raft) Validate() error {
 	if r.ConsistencyWaitTimeout <= 0 {
 		return fmt.Errorf("raft.bootstrap.consistency_wait_timeout must be more than 0")
 	}
-
 	return nil
 }
 

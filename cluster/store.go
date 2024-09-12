@@ -130,9 +130,6 @@ type Config struct {
 	// committed wrong peer configuration entry that makes it unable to obtain a quorum to start.
 	// WARNING: This should be run on *actual* one node cluster only.
 	ForceOneNodeRecovery bool
-
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -182,30 +179,17 @@ type Store struct {
 }
 
 func NewFSM(cfg Config) Store {
-	// We have different resolver in raft so that depending on the environment we can resolve a node-id to an IP using
-	// different methods.
-	var raftResolver types.RaftResolver
-	raftResolver = resolver.NewRaft(resolver.RaftConfig{
-		NodeToAddress:     cfg.NodeToAddressResolver,
-		RaftPort:          cfg.RaftPort,
-		IsLocalHost:       cfg.IsLocalHost,
-		NodeNameToPortMap: cfg.NodeNameToPortMap,
-	})
-	if cfg.EnableFQDNResolver {
-		raftResolver = resolver.NewFQDN(resolver.FQDNConfig{
-			TLD:               cfg.FQDNResolverTLD,
+	return Store{
+		cfg:          cfg,
+		log:          cfg.Logger,
+		candidates:   make(map[string]string, cfg.BootstrapExpect),
+		applyTimeout: time.Second * 20,
+		raftResolver: resolver.NewRaft(resolver.RaftConfig{
+			NodeToAddress:     cfg.NodeToAddressResolver,
 			RaftPort:          cfg.RaftPort,
 			IsLocalHost:       cfg.IsLocalHost,
 			NodeNameToPortMap: cfg.NodeNameToPortMap,
-		})
-	}
-
-	return Store{
-		cfg:           cfg,
-		log:           cfg.Logger,
-		candidates:    make(map[string]string, cfg.BootstrapExpect),
-		applyTimeout:  time.Second * 20,
-		raftResolver:  raftResolver,
+		}),
 		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
 	}
 }
