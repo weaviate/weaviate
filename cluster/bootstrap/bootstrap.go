@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"slices"
 	"time"
 
 	"github.com/getsentry/sentry-go"
@@ -22,7 +23,6 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
-	"golang.org/x/exp/slices"
 )
 
 // PeerJoiner is the interface we expect to be able to talk to the other peers to either Join or Notify them
@@ -71,7 +71,11 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 	}
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
 	defer ticker.Stop()
+
+	joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
+
 	for {
+		remoteNodes := ResolveRemoteNodes(b.addrResolver, serverPortMap)
 		select {
 		case <-stop:
 			return nil
@@ -83,7 +87,6 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 				return nil
 			}
 
-			remoteNodes := ResolveRemoteNodes(b.addrResolver, serverPortMap)
 			// We were not able to resolve any nodes to an address
 			if len(remoteNodes) == 0 {
 				lg.WithField("action", "bootstrap").WithField("join_list", serverPortMap).Warn("unable to resolve any node address to join")
@@ -91,7 +94,6 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			}
 
 			// Always try to join an existing cluster first
-			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
 			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
