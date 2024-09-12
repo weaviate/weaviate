@@ -61,6 +61,18 @@ func Test_Authorization(t *testing.T) {
 			expectedVerb:     "get",
 			expectedResource: "backups/s3/123/restore",
 		},
+		{
+			methodName:       "List",
+			additionalArgs:   []interface{}{"s3"},
+			expectedVerb:     "get",
+			expectedResource: "backups/s3",
+		},
+		{
+			methodName:       "Cancel",
+			additionalArgs:   []interface{}{"s3", "123"},
+			expectedVerb:     "delete",
+			expectedResource: "backups/s3/123",
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
