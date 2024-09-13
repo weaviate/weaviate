@@ -147,7 +147,7 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	}
 
 	dimensions := cs.Dimensions()
-	if dimensions != nil {
+	if !cs.IsThirdPartyProvider() && dimensions != nil {
 		if !basesettings.ValidateSetting[string](model, availableV3Models) {
 			return errors.Errorf("dimensions setting can only be used with V3 embedding models: %v", availableV3Models)
 		}
