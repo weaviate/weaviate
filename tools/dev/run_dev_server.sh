@@ -544,14 +544,12 @@ case $CONFIG in
 
     local-single-offload-node)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
-      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       ENABLE_MODULES="backup-s3,offload-s3" \
       BACKUP_S3_BUCKET="weaviate-backups" \
       BACKUP_S3_USE_SSL="false" \
       BACKUP_S3_ENDPOINT="localhost:9000" \
-      ENABLE_MODULES="backup-filesystem,text2vec-contextionary,offload-s3" \
       PROMETHEUS_MONITORING_PORT="2112" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
