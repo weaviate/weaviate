@@ -1088,6 +1088,10 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		}
 		docPointers := make([]terms.DocPointerWithScore, len(mem))
 		for i, v := range mem {
+			if len(v.Value) < 8 {
+				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
+				continue
+			}
 			if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
 				return nil, err
 			}
@@ -1101,6 +1105,10 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 	docPointers := make([]terms.DocPointerWithScore, len(mem))
 	for i, v := range mem {
+		if len(v.Value) < 8 {
+			b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
+			continue
+		}
 		if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
 			return nil, err
 		}
