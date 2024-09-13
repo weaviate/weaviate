@@ -384,6 +384,13 @@ func TestCompaction(t *testing.T) {
 				WithKeepTombstones(true),
 			},
 		},
+		{
+			name: "compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer",
+			f:    compactionRoaringSetRangeStrategy_BugfixOverwrittenBuffer,
+			opts: []BucketOption{
+				WithStrategy(StrategyRoaringSetRange),
+			},
+		},
 	}
 	tests.run(ctx, t)
 }
