@@ -146,6 +146,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		// prevent accidentally trying to register the same bucket twice
+		return nil, err
+	}
+
 	b := &Bucket{
 		dir:                   dir,
 		rootDir:               rootDir,
