@@ -17,6 +17,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 
@@ -106,18 +107,9 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
-	// src - s3://<collection>/<tenant>/<node>/
-	// dst (local) - <data-path/<collection>/<tenant>
-	if err := a.offload.Download(ctx, req.Collection, req.Tenant, nodeName); err != nil {
-		return nil, err
-	}
-
-	localPath := path.Join(a.offload.DataPath, strings.ToLower(req.Collection), strings.ToLower(req.Tenant), defaultLSMRoot)
-
-	// TODO(kavi): Avoid creating store every time?
-	store, err := lsmkv.New(localPath, localPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, localPath, err := a.loadOrDownloadLSM(ctx, req.Collection, req.Tenant)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
+		return nil, err
 	}
 	defer store.Shutdown(ctx)
 
@@ -237,6 +229,29 @@ func (a *API) vectorSearch(
 	}
 
 	return objs, distance, nil
+}
+
+func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) (*lsmkv.Store, string, error) {
+	localPath := path.Join(a.offload.DataPath, strings.ToLower(collection), strings.ToLower(tenant), defaultLSMRoot)
+
+	// NOTE: Download only if path doesn't exist.
+	// Assumes, whatever in the path is latest.
+	// We will add a another way to keep this path upto date via some data versioning.
+	_, err := os.Stat(localPath)
+	if os.IsNotExist(err) {
+		// src - s3://<collection>/<tenant>/<node>/
+		// dst (local) - <data-path/<collection>/<tenant>
+		if err := a.offload.Download(ctx, collection, tenant, nodeName); err != nil {
+			return nil, "", err
+		}
+	}
+
+	// TODO(kavi): Avoid creating store every time?
+	store, err := lsmkv.New(localPath, localPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
+	}
+	return store, localPath, nil
 }
 
 type SearchRequest struct {
