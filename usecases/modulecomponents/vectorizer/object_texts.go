@@ -27,6 +27,7 @@ type ClassSettings interface {
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
 	Properties() []string
+	LowerCaseInput() bool
 }
 
 type ObjectVectorizer struct{}
@@ -65,7 +66,11 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	var titlePropertyValue []string
 
 	if icheck.VectorizeClassName() {
-		corpi = append(corpi, v.camelCaseToLower(object.Class))
+		className := object.Class
+		if icheck.LowerCaseInput() {
+			className = v.camelCaseToLower(object.Class)
+		}
+		corpi = append(corpi, className)
 	}
 	if object.Properties != nil {
 		propMap := object.Properties.(map[string]interface{})
@@ -79,7 +84,9 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 			switch val := propMap[propName].(type) {
 			case []string:
 				if len(val) > 0 {
-					lowerPropertyName := v.camelCaseToLower(propName)
+					if icheck.LowerCaseInput() {
+						propName = v.camelCaseToLower(propName)
+					}
 
 					for i := range val {
 						str := strings.ToLower(val[i])
@@ -87,20 +94,24 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 							titlePropertyValue = append(titlePropertyValue, str)
 						}
 						if isNameVectorizable {
-							str = fmt.Sprintf("%s %s", lowerPropertyName, str)
+							str = fmt.Sprintf("%s %s", propName, str)
 						}
 						corpi = append(corpi, str)
 					}
 				}
 			case string:
-				str := strings.ToLower(val)
+				if icheck.LowerCaseInput() {
+					val = strings.ToLower(val)
+					propName = v.camelCaseToLower(propName)
+				}
+
 				if isTitleProperty {
-					titlePropertyValue = append(titlePropertyValue, str)
+					titlePropertyValue = append(titlePropertyValue, val)
 				}
 				if icheck.VectorizePropertyName(propName) {
-					str = fmt.Sprintf("%s %s", v.camelCaseToLower(propName), str)
+					val = fmt.Sprintf("%s %s", propName, val)
 				}
-				corpi = append(corpi, str)
+				corpi = append(corpi, val)
 			default:
 				// properties that are not part of the object
 			}
@@ -108,7 +119,11 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	}
 	if len(corpi) == 0 {
 		// fall back to using the class name
-		corpi = append(corpi, v.camelCaseToLower(object.Class))
+		className := object.Class
+		if icheck.LowerCaseInput() {
+			className = v.camelCaseToLower(object.Class)
+		}
+		corpi = append(corpi, className)
 	}
 
 	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")
