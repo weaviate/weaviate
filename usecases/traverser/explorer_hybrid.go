@@ -221,18 +221,19 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
+	// pagination is handled after combining results
 	vectorParams := params
 	vectorParams.Pagination = &filters.Pagination{
 		Limit:   params.Pagination.Limit,
-		Offset:  params.Pagination.Offset,
-		Autocut: params.Pagination.Autocut,
+		Offset:  0,
+		Autocut: -1,
 	}
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
 		Limit:   params.Pagination.Limit,
-		Offset:  params.Pagination.Offset,
-		Autocut: params.Pagination.Autocut,
+		Offset:  0,
+		Autocut: -1,
 	}
 
 	// If the user has given any weight to the vector search, choose 1 of three possible vector searches
