@@ -15,6 +15,7 @@ import (
 	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
 func (sg *SegmentGroup) newRoaringSetRangeReaders() ([]roaringsetrange.InnerReader, func()) {
@@ -39,11 +40,9 @@ func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
 		segmentCursor = roaringsetrange.NewSegmentCursorPread(sectionReader, 2)
 	}
 
-	concurrency := 4
-	if concurrency > _NUMCPU {
-		concurrency = _NUMCPU
-	}
-	return roaringsetrange.NewSegmentReaderConcurrent(roaringsetrange.NewGaplessSegmentCursor(segmentCursor), concurrency)
+	return roaringsetrange.NewSegmentReaderConcurrent(
+		roaringsetrange.NewGaplessSegmentCursor(segmentCursor),
+		concurrency.NUMCPU_2)
 }
 
 func (s *segment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
