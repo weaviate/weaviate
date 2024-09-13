@@ -12,10 +12,11 @@
 package rest
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
+	"io/fs"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -26,6 +27,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/casbin/casbin/v2"
+	"github.com/casbin/casbin/v2/model"
+	"github.com/casbin/casbin/v2/persist"
+	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
+	"github.com/weaviate/fgprof"
 
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/casbin/casbin/v2"
@@ -1501,63 +1508,198 @@ func (m membership) LeaderID() string {
 	return id
 }
 
-func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, error) {
-	numRoles := len(authConfig.Roles)
-	if numRoles == 0 {
-		log.Printf("no roles found")
-		return nil, nil
-	}
+// Code Explanation
+// Breakdown
+// m: This is an instance of the Casbin model. The model defines the structure of the access control policies, including the request, policy, and role definitions.
 
-	if len(authConfig.Users) != numRoles || len(authConfig.AllowedKeys) != numRoles {
-		return nil, fmt.Errorf(
-			"AUTHENTICATION_APIKEY_ROLES must contain the same number of entries as " +
-				"AUTHENTICATION_APIKEY_USERS and AUTHENTICATION_APIKEY_ALLOWED_KEYS")
-	}
+// AddDef: This method is used to add a definition to the model. The AddDef method takes three parameters:
 
-	m, err := model.NewModelFromFile("./rbac/model.conf")
-	if err != nil {
-		return nil, fmt.Errorf("load rbac model: %w", err)
-	}
+// The section name (e.g., "r" for request, "p" for policy, "g" for role definition).
+// The section key (usually the same as the section name).
+// The value, which is a comma-separated list of attributes.
+// Parameters:
 
-	enforcer, err := casbin.NewSyncedCachedEnforcer(m)
+// Section Name ("r"): This indicates that the definition being added is for the request section of the model.
+// Section Key ("r"): This is the key for the request section. It is typically the same as the section name.
+// Value ("sub, obj, act"): This is a comma-separated list of attributes that define the request. In this case:
+// sub: The subject, which represents the user or entity making the request.
+// obj: The object, which represents the resource being accessed.
+// act: The action, which represents the operation being performed on the object (e.g., read, write).
+// Context
+// In Casbin, the model file (usually with a .conf extension) defines the structure of the access control policies. The AddDef method is used to programmatically add these definitions to the model.
+
+// Example Model Definition
+// Here is an example of what a model definition might look like in a Casbin model file:
+
+// Explanation of Example Model
+// Request Definition ([request_definition]): Defines the attributes of a request (sub, obj, act).
+// Policy Definition ([policy_definition]): Defines the attributes of a policy (sub, obj, act).
+// Role Definition ([role_definition]): Defines the attributes of a role.
+// Policy Effect ([policy_effect]): Defines the effect of the policy (e.g., allow or deny).
+// Matchers ([matchers]): Defines the matching logic between requests and policies.
+// Summary
+// The line m.AddDef("r", "r", "sub, obj, act") is adding a request definition to the Casbin model, specifying that a request consists of a subject (sub), an object (obj), and an action (act). This is a fundamental part of setting up the Casbin model to define how access control policies are structured and evaluated.
+// CasbinMiddleware is a custom middleware for RBAC using Casbin.
+func CasbinMiddleware(enforcer *casbin.Enforcer) func(handler http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Extract subject (user), object (API endpoint), and action (HTTP method) from the request
+			// user, ok := r.Context().Value("user").(string)
+			// if !ok {
+			// 	// Handle the case where the user is not found in the context
+			// 	log.Println("User not found in context")
+			// }
+			sub := r.Header.Get("X-User") // or retrieve from context/session, etc.
+			obj := r.URL.Path
+			act := r.Method
+
+			fmt.Println(sub)
+			fmt.Println(obj)
+			fmt.Println(act)
+			fmt.Println(enforcer.GetPolicy())
+			fmt.Println(enforcer.GetRolesForUser(sub))
+
+			// Perform Casbin authorization check
+			allow, err := enforcer.Enforce(sub, obj, act)
+			if err != nil {
+				http.Error(w, "Error in authorization", http.StatusInternalServerError)
+				return
+			}
+
+			if !allow {
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+
+			// Proceed to the next handler if authorized
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func initializeCasbin() (*casbin.Enforcer, error) {
+	// Define the Casbin model dynamically in code
+	// Define the Casbin model dynamically in code
+	// m := model.NewModel()
+	// m.AddDef("r", "r", "sub, obj, act")                                       // Request definition
+	// m.AddDef("p", "p", "sub, obj, act")                                       // Policy definition
+	// m.AddDef("g", "g", "_, _")                                                // Role definition
+	// m.AddDef("e", "e", "some(where (p.eft == allow))")                        // Policy effect
+	// m.AddDef("m", "m", "g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act") // Matchers
+
+	m := model.NewModel()
+	m.AddDef("r", "r", "sub, obj, act")                                               // Request definition
+	m.AddDef("p", "p", "sub, obj, act")                                               // Policy definition
+	m.AddDef("g", "g", "_, _")                                                        // Role definition
+	m.AddDef("e", "e", "some(where (p.eft == allow))")                                // Policy effect
+	m.AddDef("m", "m", "g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && r.act == p.act") // Matchers
+
+	// Create a new Casbin enforcer with the model
+	enforcer, err := casbin.NewEnforcer(m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
-	// TODO: make configurable
-	enforcer.EnableCache(false)
 
-	// TODO: make configurable
-	enforcer.SetAdapter(fileadapter.NewAdapter("./rbac/policy.csv"))
-	enforcer.AddNamedMatchingFunc("g", "KeyMatch2", casbinutil.KeyMatch2)
+	enforcer.SetAdapter(fileadapter.NewAdapter("./basic_policy.csv"))
 
-	for i := range authConfig.Roles {
-		// All abstract roles are created at startup.
-		//
-		// No permissions are added by default for a new instance, they need to be
-		// added manually after startup. The below line can be swapped in for
-		// debugging purposes if needed.
-		//
-		// TODO: objects has to be mapped e.g.
-		//  v1/schema.class.ABC  [path.objectType.objectName]
+	// Add policies dynamically
+	enforcer.AddPolicy("admin", "/*", "GET")  // Admin can GET data1
+	enforcer.AddPolicy("admin", "/*", "POST") // Admin can POST data1
+	enforcer.AddPolicy("admin", "*", "PUT")   // User can PUT data2
 
-		for _, verb := range authorization.BuiltInRolesVerbs[authConfig.Roles[i]] {
-			if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", verb); err != nil {
-				return nil, fmt.Errorf("add policy: %w", err)
-			}
-		}
+	enforcer.AddPolicy("user", "/*", "GET")  // User can GET data2
+	enforcer.AddPolicy("guest", "/*", "GET") // Guest can GET data1
 
-		// TODO do we need to add to keys as users ?
-		// if _, err := enforcer.AddRoleForUser(authConfig.AllowedKeys[i], authConfig.Roles[i]); err != nil {
-		// 	return nil, fmt.Errorf("add role for key: %w", err)
-		// }
-		if _, err := enforcer.AddRoleForUser(authConfig.Users[i], authConfig.Roles[i]); err != nil {
-			return nil, fmt.Errorf("add role for user: %w", err)
-		}
-	}
+	// Assign roles to users dynamically
+	enforcer.AddGroupingPolicy("alice", "admin")
+	enforcer.AddGroupingPolicy("bob", "user")
+	enforcer.AddGroupingPolicy("charlie", "guest")
 
 	if err := enforcer.SavePolicy(); err != nil {
 		return nil, err
 	}
+	// // Add default policies dynamically
+	// enforcer.AddPolicy("admin", "*", "read")   // Admin can read everything
+	// enforcer.AddPolicy("admin", "*", "write")  // Admin can write everything
+	// enforcer.AddPolicy("admin", "*", "update") // Admin can update everything
+	// enforcer.AddPolicy("admin", "*", "delete") // Admin can delete everything
+
+	// // enforcer.AddPolicy("admin", "*", "get")    // Admin can read everything
+	// // enforcer.AddPolicy("admin", "*", "post")   // Admin can write everything
+	// // enforcer.AddPolicy("admin", "*", "put")    // Admin can update everything
+	// // enforcer.AddPolicy("admin", "*", "delete") // Admin can delete everything
+
+	// enforcer.AddPolicy("user", "data1", "read")     // User can read specific data
+	// enforcer.AddPolicy("user", "data1", "write")    // User can write specific data
+	// enforcer.AddPolicy("user", "profile", "update") // User can update their profile
+
+	// enforcer.AddPolicy("guest", "public_data", "read") // Guest can read public data
+
+	// enforcer.AddPolicy("moderator", "comments", "read")   // Moderator can read comments
+	// enforcer.AddPolicy("moderator", "comments", "update") // Moderator can update comments
+	// enforcer.AddPolicy("moderator", "comments", "delete") // Moderator can delete comments
+
+	// // Assign roles to users
+	// enforcer.AddGroupingPolicy("alice", "admin")
+	// enforcer.AddGroupingPolicy("bob", "user")
+	// enforcer.AddGroupingPolicy("charlie", "guest")
+	// enforcer.AddGroupingPolicy("dave", "moderator")
 
 	return enforcer, nil
+}
+
+const (
+	errInvalidFilePath = "invalid file path, file path cannot be empty"
+	errNotImplemented  = "not implemented"
+)
+
+type Adapter struct {
+	fsys     fs.FS
+	filePath string
+}
+
+func NewAdapter(fsys fs.FS, filePath string) *Adapter {
+	return &Adapter{fsys, filePath}
+}
+
+func (a *Adapter) LoadPolicy(model model.Model) error {
+	if a.filePath == "" {
+		return errors.New(errInvalidFilePath)
+	}
+
+	return a.loadPolicyFile(model, persist.LoadPolicyLine)
+}
+
+func (a *Adapter) loadPolicyFile(model model.Model, handler func(string, model.Model) error) error {
+	f, err := a.fsys.Open(a.filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		err = handler(line, model)
+		if err != nil {
+			return err
+		}
+	}
+	return scanner.Err()
+}
+
+func (a *Adapter) SavePolicy(model model.Model) error {
+	return errors.New(errNotImplemented)
+}
+
+func (a *Adapter) AddPolicy(sec string, ptype string, rule []string) error {
+	return errors.New(errNotImplemented)
+}
+
+func (a *Adapter) RemovePolicy(sec string, ptype string, rule []string) error {
+	return errors.New(errNotImplemented)
+}
+
+func (a *Adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
+	return errors.New(errNotImplemented)
 }
