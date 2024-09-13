@@ -180,8 +180,6 @@ func (a *API) vectorSearch(
 		return nil, nil, fmt.Errorf("failed to vectorize the nearText query: %w", err)
 	}
 
-	fmt.Println("vectors", vectors)
-
 	// TODO(kavi): Assuming BQ compression is enabled. Make it generic.
 	bq := flatent.CompressionUserConfig{
 		Enabled: true,
@@ -206,8 +204,6 @@ func (a *API) vectorSearch(
 	// don't have control too.
 	certainty := 1 - threshold
 	matched_ids, distance, err := index.SearchByVectorDistance(vectors, certainty, int64(limit), nil)
-
-	fmt.Println("matchd_ids", matched_ids, "distance", distance)
 
 	opts := []lsmkv.BucketOption{
 		// lsmkv.WithStrategy(lsmkv.StrategyReplace),
