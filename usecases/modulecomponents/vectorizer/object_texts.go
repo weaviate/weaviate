@@ -14,7 +14,10 @@ package vectorizer
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -69,8 +72,13 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	var corpi []string
 	var titlePropertyValue []string
 
+	toLowerCase := icheck.LowerCaseInput()
+	if entcfg.Enabled(os.Getenv("LOWERCASE_VECTORIZATION_INPUT")) {
+		toLowerCase = true
+	}
+
 	if icheck.VectorizeClassName() {
-		corpi = append(corpi, v.separateCamelCase(object.Class, icheck.LowerCaseInput()))
+		corpi = append(corpi, v.separateCamelCase(object.Class, toLowerCase))
 	}
 	if object.Properties != nil {
 		propMap := object.Properties.(map[string]interface{})
@@ -84,7 +92,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 			switch val := propMap[propName].(type) {
 			case []string:
 				if len(val) > 0 {
-					propName = v.separateCamelCase(propName, icheck.LowerCaseInput())
+					propName = v.separateCamelCase(propName, toLowerCase)
 
 					for i := range val {
 						str := strings.ToLower(val[i])
@@ -98,10 +106,10 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 					}
 				}
 			case string:
-				if icheck.LowerCaseInput() {
+				if toLowerCase {
 					val = strings.ToLower(val)
 				}
-				propName = v.separateCamelCase(propName, icheck.LowerCaseInput())
+				propName = v.separateCamelCase(propName, toLowerCase)
 
 				if isTitleProperty {
 					titlePropertyValue = append(titlePropertyValue, val)
@@ -117,7 +125,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	}
 	if len(corpi) == 0 {
 		// fall back to using the class name
-		corpi = append(corpi, v.separateCamelCase(object.Class, icheck.LowerCaseInput()))
+		corpi = append(corpi, v.separateCamelCase(object.Class, toLowerCase))
 	}
 
 	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")

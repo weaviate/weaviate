@@ -208,3 +208,21 @@ func TestVectorizingObjects(t *testing.T) {
 		})
 	}
 }
+
+func TestLowerCaseEnv(t *testing.T) {
+	t.Setenv("LOWERCASE_VECTORIZATION_INPUT", "true")
+	v := New()
+
+	ic := &fakeClassConfig{lowerCaseInput: false}
+	cs := settings.NewBaseClassSettings(ic, false)
+	text := v.Texts(context.Background(), &models.Object{
+		Class: "Car",
+		Properties: map[string]interface{}{
+			"Brand": "Upper Case",
+		},
+	}, cs)
+
+	expected := []string{"upper", "case"}
+	actual := strings.Split(text, " ")
+	assert.Equal(t, expected, actual)
+}
