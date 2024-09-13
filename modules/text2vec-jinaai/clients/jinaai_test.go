@@ -185,12 +185,8 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
 	if f.serverError != nil {
-		embeddingError := map[string]interface{}{
-			"message": f.serverError.Error(),
-			"type":    "invalid_request_error",
-		}
 		embedding := map[string]interface{}{
-			"error": embeddingError,
+			"detail": f.serverError.Error(),
 		}
 		outBytes, err := json.Marshal(embedding)
 		require.Nil(f.t, err)
