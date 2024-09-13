@@ -119,7 +119,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	var resp SearchResponse
 
 	limit := req.Limit
-	if limit == 0 {
+	if limit == 0 || limit > maxQueryObjectsLimit {
 		limit = maxQueryObjectsLimit
 	}
 
@@ -140,23 +140,22 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 				Certainty: float64(distances[i]),
 			})
 		}
+		return &resp, nil
+	}
 
-	} else {
-		// return all objects upto `limit`
-		if err := store.CreateOrLoadBucket(ctx, defaultLSMObjectsBucket); err != nil {
-			return nil, fmt.Errorf("failed to load objects bucket in store: %w", err)
+	// return all objects upto `limit`
+	if err := store.CreateOrLoadBucket(ctx, defaultLSMObjectsBucket); err != nil {
+		return nil, fmt.Errorf("failed to load objects bucket in store: %w", err)
+	}
+	bkt := store.Bucket(defaultLSMObjectsBucket)
+	if err := bkt.IterateObjects(ctx, func(object *storobj.Object) error {
+		resp.Results = append(resp.Results, Result{Obj: object})
+		if len(resp.Results) >= limit {
+			return errLimitReached
 		}
-		bkt := store.Bucket(defaultLSMObjectsBucket)
-		if err := bkt.IterateObjects(ctx, func(object *storobj.Object) error {
-			resp.Results = append(resp.Results, Result{Obj: object})
-			if len(resp.Results) >= limit {
-				return errLimitReached
-			}
-			return nil
-		}); err != nil && !errors.Is(errLimitReached, err) {
-			return nil, fmt.Errorf("failed to iterate objects in store: %w", err)
-		}
-
+		return nil
+	}); err != nil && !errors.Is(errLimitReached, err) {
+		return nil, fmt.Errorf("failed to iterate objects in store: %w", err)
 	}
 
 	return &resp, nil
