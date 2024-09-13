@@ -149,14 +149,19 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
 		config.Authentication.APIKey.Enabled = true
 
-		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
-			keys := strings.Split(keysString, ",")
+		if rawKeys, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ALLOWED_KEYS"); ok {
+			keys := strings.Split(rawKeys, ",")
 			config.Authentication.APIKey.AllowedKeys = keys
 		}
 
-		if keysString, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
-			keys := strings.Split(keysString, ",")
-			config.Authentication.APIKey.Users = keys
+		if rawUsers, ok := os.LookupEnv("AUTHENTICATION_APIKEY_USERS"); ok {
+			users := strings.Split(rawUsers, ",")
+			config.Authentication.APIKey.Users = users
+		}
+
+		if rawRoles, ok := os.LookupEnv("AUTHENTICATION_APIKEY_ROLES"); ok {
+			roles := strings.Split(rawRoles, ",")
+			config.Authentication.APIKey.Roles = roles
 		}
 	}
 

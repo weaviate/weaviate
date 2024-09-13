@@ -64,5 +64,6 @@ type OIDC struct {
 type APIKey struct {
 	Enabled     bool     `json:"enabled" yaml:"enabled"`
 	Users       []string `json:"users" yaml:"users"`
+	Roles       []string `json:"roles" yaml:"roles"`
 	AllowedKeys []string `json:"allowed_keys" yaml:"allowed_keys"`
 }
