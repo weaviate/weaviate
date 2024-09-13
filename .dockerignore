@@ -37,3 +37,4 @@ var/weaviate/
 
 # ignore archives, they are most likely part of some debugging and never part of actual code
 *.tar.gz
+rbac/*.csv

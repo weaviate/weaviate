@@ -4,7 +4,7 @@ dist/*
 dist
 nightly
 
-# ignore confectionary files
+# ignore contextionary files
 contextionary/contextionary.vocab
 contextionary/contextionary.idx
 contextionary/contextionary.knn
@@ -89,6 +89,7 @@ docker-compose/runtime-stable/data
 docker-compose/runtime-unstable/data
 c.out
 /cmd/weaviate-server/build_artifacts/
+rbac/*.csv
 
 esbackups/
 **/generated_testdata/
