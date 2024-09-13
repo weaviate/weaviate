@@ -174,27 +174,28 @@ func New(logger logrus.FieldLogger, config Config,
 }
 
 type Config struct {
-	RootPath                  string
-	QueryLimit                int64
-	QueryMaximumResults       int64
-	QueryNestedRefLimit       int64
-	ResourceUsage             config.ResourceUsage
-	MaxImportGoroutinesFactor float64
-	MemtablesFlushDirtyAfter  int
-	MemtablesInitialSizeMB    int
-	MemtablesMaxSizeMB        int
-	MemtablesMinActiveSeconds int
-	MemtablesMaxActiveSeconds int
-	MaxSegmentSize            int64
-	HNSWMaxLogSize            int64
-	HNSWWaitForCachePrefill   bool
-	TrackVectorDimensions     bool
-	ServerVersion             string
-	GitHash                   string
-	AvoidMMap                 bool
-	DisableLazyLoadShards     bool
-	ForceFullReplicasSearch   bool
-	Replication               replication.GlobalConfig
+	RootPath                     string
+	QueryLimit                   int64
+	QueryMaximumResults          int64
+	QueryNestedRefLimit          int64
+	ResourceUsage                config.ResourceUsage
+	MaxImportGoroutinesFactor    float64
+	MemtablesFlushDirtyAfter     int
+	MemtablesInitialSizeMB       int
+	MemtablesMaxSizeMB           int
+	MemtablesMinActiveSeconds    int
+	MemtablesMaxActiveSeconds    int
+	SegmentsCleanupIntervalHours int64
+	MaxSegmentSize               int64
+	HNSWMaxLogSize               int64
+	HNSWWaitForCachePrefill      bool
+	TrackVectorDimensions        bool
+	ServerVersion                string
+	GitHash                      string
+	AvoidMMap                    bool
+	DisableLazyLoadShards        bool
+	ForceFullReplicasSearch      bool
+	Replication                  replication.GlobalConfig
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
