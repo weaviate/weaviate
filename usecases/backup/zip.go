@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -83,6 +84,9 @@ func (z *zip) WriteShard(ctx context.Context, sd *backup.ShardDescriptor) (writt
 		{relPath: sd.PropLengthTrackerPath, data: sd.PropLengthTracker},
 		{relPath: sd.ShardVersionPath, data: sd.Version},
 	} {
+		if err := ctx.Err(); err != nil {
+			return written, err
+		}
 		info := vFileInfo{
 			name: filepath.Base(x.relPath),
 			size: len(x.data),
@@ -156,6 +160,10 @@ func (z *zip) writeOne(ctx context.Context, info fs.FileInfo, relPath string, r 
 	// write bytes
 	written, err = io.Copy(z.w, r)
 	if err != nil {
+		if errors.Is(err, io.ErrClosedPipe) && ctx.Err() != nil {
+			// we ignore ErrClosedPipe in case the ctx was cancelled
+			return written, nil
+		}
 		return written, fmt.Errorf("copy: %s %w", relPath, err)
 	}
 	return

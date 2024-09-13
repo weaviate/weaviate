@@ -254,7 +254,15 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params, settin
 			Role:    "user",
 			Content: prompt,
 		}}
-		tokens, err := v.determineTokens(settings.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
+
+		var tokens int
+		var err error
+		if settings.IsThirdPartyProvider() {
+			tokens, err = v.determineTokens(settings.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
+		} else {
+			tokens = int(settings.MaxTokens())
+		}
+
 		if err != nil {
 			return input, errors.Wrap(err, "determine tokens count")
 		}
