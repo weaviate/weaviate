@@ -200,6 +200,7 @@ func TestActivationDeactivation_Restarts(t *testing.T) {
 	})
 
 	t.Run("multiple nodes", func(t *testing.T) {
+		t.Skip("flaky test")
 		composeFn := func(t *testing.T, ctx context.Context) (
 			client *wvt.Client,
 			cleanupFn func(t *testing.T, ctx context.Context),

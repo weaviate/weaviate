@@ -37,6 +37,9 @@ type Metrics struct {
 	tombstoneFindLocalEntrypoint  prometheus.Counter
 	tombstoneDeleteListSize       prometheus.Gauge
 	tombstoneUnexpected           prometheus.CounterVec
+	tombstoneStart                prometheus.Gauge
+	tombstoneEnd                  prometheus.Gauge
+	tombstoneProgress             prometheus.Gauge
 }
 
 func NewMetrics(prom *monitoring.PrometheusMetrics,
@@ -127,6 +130,21 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		"shard_name": shardName,
 	})
 
+	tombstoneStart := prom.VectorIndexTombstoneCycleStart.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	tombstoneEnd := prom.VectorIndexTombstoneCycleEnd.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
+	tombstoneProgress := prom.VectorIndexTombstoneCycleProgress.With(prometheus.Labels{
+		"class_name": className,
+		"shard_name": shardName,
+	})
+
 	tombstoneFindGlobalEntrypoint := prom.TombstoneFindGlobalEntrypoint.With(prometheus.Labels{
 		"class_name": className,
 		"shard_name": shardName,
@@ -161,6 +179,9 @@ func NewMetrics(prom *monitoring.PrometheusMetrics,
 		tombstoneFindLocalEntrypoint:  tombstoneFindLocalEntrypoint,
 		tombstoneDeleteListSize:       tombstoneDeleteListSize,
 		tombstoneUnexpected:           *tombstoneUnexpected,
+		tombstoneStart:                tombstoneStart,
+		tombstoneEnd:                  tombstoneEnd,
+		tombstoneProgress:             tombstoneProgress,
 	}
 }
 
@@ -210,6 +231,32 @@ func (m *Metrics) AddUnexpectedTombstone(operation string) {
 	}
 
 	m.tombstoneUnexpected.With(prometheus.Labels{"operation": operation}).Inc()
+}
+
+func (m *Metrics) StartTombstoneCycle() {
+	if !m.enabled {
+		return
+	}
+
+	m.tombstoneStart.Set(float64(time.Now().Unix()))
+	m.tombstoneProgress.Set(0)
+	m.tombstoneEnd.Set(-1)
+}
+
+func (m *Metrics) EndTombstoneCycle() {
+	if !m.enabled {
+		return
+	}
+
+	m.tombstoneEnd.Set(float64(time.Now().Unix()))
+}
+
+func (m *Metrics) TombstoneCycleProgress(progress float64) {
+	if !m.enabled {
+		return
+	}
+
+	m.tombstoneProgress.Set(progress)
 }
 
 func (m *Metrics) RemoveTombstone() {
