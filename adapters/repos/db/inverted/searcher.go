@@ -915,3 +915,9 @@ func (dbm *docBitmap) IDsWithLimit(limit int) []uint64 {
 
 	return out
 }
+
+type docPointerWithScore struct {
+	id         uint64
+	frequency  float32
+	propLength float32
+}

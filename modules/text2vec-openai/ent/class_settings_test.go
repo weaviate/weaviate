@@ -112,6 +112,16 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.New("dimensions setting can only be used with V3 embedding models: [text-embedding-3-small text-embedding-3-large]"),
 		},
 		{
+			name: "custom endpoint - no dimension validation",
+			cfg: &fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":      "model-that-openai-does-not-have",
+					"baseURL":    "https://something-else.com",
+					"dimensions": 512,
+				},
+			},
+		},
+		{
 			name: "text-embedding-ada-002 - wrong model version",
 			cfg: &fakeClassConfig{
 				classConfig: map[string]interface{}{

@@ -44,7 +44,7 @@ type BackupCreateStatusResponse struct {
 	Path string `json:"path,omitempty"`
 
 	// phase of backup creation process
-	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED]
+	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]
 	Status *string `json:"status,omitempty"`
 }
 
@@ -66,7 +66,7 @@ var backupCreateStatusResponseTypeStatusPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["STARTED","TRANSFERRING","TRANSFERRED","SUCCESS","FAILED","CANCELED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -90,6 +90,9 @@ const (
 
 	// BackupCreateStatusResponseStatusFAILED captures enum value "FAILED"
 	BackupCreateStatusResponseStatusFAILED string = "FAILED"
+
+	// BackupCreateStatusResponseStatusCANCELED captures enum value "CANCELED"
+	BackupCreateStatusResponseStatusCANCELED string = "CANCELED"
 )
 
 // prop value enum

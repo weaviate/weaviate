@@ -212,6 +212,22 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0"),
 		},
 		{
+			name: "Third party provider, use max tokens",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":     "model-that-openai-does-not-have",
+					"baseURL":   "https://something-else.com",
+					"maxTokens": 4097,
+				},
+			},
+			wantMaxTokens:  4097,
+			wantBaseURL:    "https://something-else.com",
+			wantApiVersion: "2024-02-01",
+			wantModel:      "model-that-openai-does-not-have",
+			wantTopP:       1,
+			wantErr:        nil,
+		},
+		{
 			name: "Wrong frequencyPenalty configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
