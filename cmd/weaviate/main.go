@@ -46,7 +46,7 @@ func main() {
 		if err.(*flags.Error).Type == flags.ErrHelp {
 			os.Exit(1)
 		}
-		log.WithField("cause", err).Fatal("failed to parse command line args")
+		log.WithField("err", err).Fatal("failed to parse command line args")
 	}
 
 	switch opts.Target {
@@ -63,7 +63,7 @@ func main() {
 		vclient, err := client.NewClient(opts.Query.VectorizerAddr, log)
 		if err != nil {
 			log.WithFields(logrus.Fields{
-				"cause": err,
+				"err":   err,
 				"addrs": opts.Query.VectorizerAddr,
 			}).Fatal("failed to talk to vectorizer")
 		}
@@ -80,7 +80,7 @@ func main() {
 		listener, err := net.Listen("tcp", opts.Query.GRPCListenAddr)
 		if err != nil {
 			log.WithFields(logrus.Fields{
-				"cause": err,
+				"err":   err,
 				"addrs": opts.Query.GRPCListenAddr,
 			}).Fatal("failed to bind grpc server addr")
 		}

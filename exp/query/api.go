@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -64,7 +65,9 @@ type API struct {
 	// svc    protocol.WeaviateServer
 	// schema *schema.Manager
 	// batch  *objects.BatchManager
-	offload    *modsloads3.Module
+	offload *modsloads3.Module
+	omu     sync.Mutex
+
 	vectorizer text2vecbase.TextVectorizer
 }
 
@@ -196,6 +199,9 @@ func (a *API) vectorSearch(
 	// don't have control too.
 	certainty := 1 - threshold
 	matched_ids, distance, err := index.SearchByVectorDistance(vectors, certainty, int64(limit), nil)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to search by vector: %w", err)
+	}
 
 	opts := []lsmkv.BucketOption{
 		// lsmkv.WithStrategy(lsmkv.StrategyReplace),
@@ -237,6 +243,9 @@ func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) 
 	// NOTE: Download only if path doesn't exist.
 	// Assumes, whatever in the path is latest.
 	// We will add a another way to keep this path upto date via some data versioning.
+	a.omu.Lock()
+	defer a.omu.Unlock()
+
 	_, err := os.Stat(localPath)
 	if os.IsNotExist(err) {
 		// src - s3://<collection>/<tenant>/<node>/
@@ -281,8 +290,4 @@ func indexDocIDToLSMKey(x uint64) ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
-}
-
-func normalizeNearText(t string) string {
-	return strings.TrimSpace(t)
 }
