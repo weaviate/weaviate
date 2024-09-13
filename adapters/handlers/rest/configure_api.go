@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -1540,110 +1541,126 @@ func (m membership) LeaderID() string {
 // Summary
 // The line m.AddDef("r", "r", "sub, obj, act") is adding a request definition to the Casbin model, specifying that a request consists of a subject (sub), an object (obj), and an action (act). This is a fundamental part of setting up the Casbin model to define how access control policies are structured and evaluated.
 // CasbinMiddleware is a custom middleware for RBAC using Casbin.
-func CasbinMiddleware(enforcer *casbin.Enforcer) func(handler http.Handler) http.Handler {
+func CasbinMiddleware(enforcer *casbin.Enforcer, authConfig config.APIKey) func(handler http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extract subject (user), object (API endpoint), and action (HTTP method) from the request
-			// user, ok := r.Context().Value("user").(string)
-			// if !ok {
-			// 	// Handle the case where the user is not found in the context
-			// 	log.Println("User not found in context")
-			// }
-			sub := r.Header.Get("X-User") // or retrieve from context/session, etc.
-			obj := r.URL.Path
-			act := r.Method
-
-			fmt.Println(sub)
-			fmt.Println(obj)
-			fmt.Println(act)
-			fmt.Println(enforcer.GetPolicy())
-			fmt.Println(enforcer.GetRolesForUser(sub))
-
-			// Perform Casbin authorization check
-			allow, err := enforcer.Enforce(sub, obj, act)
-			if err != nil {
-				http.Error(w, "Error in authorization", http.StatusInternalServerError)
+			// Enforcer will be nil when API keys are not enabled
+			if enforcer == nil {
+				log.Printf("nil enforcer")
 				return
 			}
 
-			if !allow {
+			// TODO <super hack>: determine a robust way to filter out internal
+			//                    API requests from user-originated requests
+			if strings.Contains(r.URL.Path, "extensions") {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			fmt.Printf("r.URL.Path: %+v\n", r.URL.Path)
+			bearer := strings.Split(r.Header.Get("Authorization"), " ") // or retrieve from context/session, etc.
+			fmt.Printf("bearer: %+v\n", bearer)
+			if len(bearer) != 2 {
+				log.Printf("bearer token not found")
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 
-			// Proceed to the next handler if authorized
-			next.ServeHTTP(w, r)
+			sub := ""
+			found := false
+
+			// Need to match the provided key to the respective user,
+			// since API keys are not persisted, but usernames are
+			for i, key := range authConfig.AllowedKeys {
+				if bearer[1] == key {
+					sub = authConfig.Users[i]
+					found = true
+				}
+			}
+
+			if !found {
+				log.Printf("invalid api key")
+				http.Error(w, "Forbidden", http.StatusForbidden)
+				return
+			}
+
+			obj := r.URL.Path
+			act := r.Method
+			roles, err := enforcer.GetRolesForUser(sub)
+			if err != nil {
+				log.Printf("failed to fetch roles for user %s: %v", sub, err)
+				http.Error(w, "Error in authorization", http.StatusInternalServerError)
+				return
+			}
+
+			// One user can potentially be assigned multiple roles
+			for _, role := range roles {
+				log.Printf("checking for role: %q, obj: %q, act: %q", role, obj, act)
+				allow, err := enforcer.Enforce(role, obj, act)
+				if err != nil {
+					log.Printf("failed to enforce policy %s:", err)
+					http.Error(w, "Error in authorization", http.StatusInternalServerError)
+					return
+				}
+				if allow {
+					// Proceed to the next handler if authorized
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
 		})
 	}
 }
 
-func initializeCasbin() (*casbin.Enforcer, error) {
-	// Define the Casbin model dynamically in code
-	// Define the Casbin model dynamically in code
-	// m := model.NewModel()
-	// m.AddDef("r", "r", "sub, obj, act")                                       // Request definition
-	// m.AddDef("p", "p", "sub, obj, act")                                       // Policy definition
-	// m.AddDef("g", "g", "_, _")                                                // Role definition
-	// m.AddDef("e", "e", "some(where (p.eft == allow))")                        // Policy effect
-	// m.AddDef("m", "m", "g(r.sub, p.sub) && r.obj == p.obj && r.act == p.act") // Matchers
+func initializeCasbin(authConfig config.APIKey) (*casbin.Enforcer, error) {
+	numRoles := len(authConfig.Roles)
+	if numRoles == 0 {
+		log.Printf("no roles found")
+		return nil, nil
+	}
 
-	m := model.NewModel()
-	m.AddDef("r", "r", "sub, obj, act")                                               // Request definition
-	m.AddDef("p", "p", "sub, obj, act")                                               // Policy definition
-	m.AddDef("g", "g", "_, _")                                                        // Role definition
-	m.AddDef("e", "e", "some(where (p.eft == allow))")                                // Policy effect
-	m.AddDef("m", "m", "g(r.sub, p.sub) && keyMatch(r.obj, p.obj) && r.act == p.act") // Matchers
+	if len(authConfig.Users) != numRoles || len(authConfig.AllowedKeys) != numRoles {
+		return nil, fmt.Errorf(
+			"AUTHENTICATION_APIKEY_ROLES must contain the same number of entries as " +
+				"AUTHENTICATION_APIKEY_USERS and AUTHENTICATION_APIKEY_ALLOWED_KEYS")
+	}
 
-	// Create a new Casbin enforcer with the model
+	m, err := model.NewModelFromFile("./rbac/model.conf")
+	if err != nil {
+		return nil, fmt.Errorf("load rbac model: %w", err)
+	}
+
 	enforcer, err := casbin.NewEnforcer(m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
 
-	enforcer.SetAdapter(fileadapter.NewAdapter("./basic_policy.csv"))
+	// TODO: make configurable
+	enforcer.SetAdapter(fileadapter.NewAdapter("./rbac/policy.csv"))
 
-	// Add policies dynamically
-	enforcer.AddPolicy("admin", "/*", "GET")  // Admin can GET data1
-	enforcer.AddPolicy("admin", "/*", "POST") // Admin can POST data1
-	enforcer.AddPolicy("admin", "*", "PUT")   // User can PUT data2
-
-	enforcer.AddPolicy("user", "/*", "GET")  // User can GET data2
-	enforcer.AddPolicy("guest", "/*", "GET") // Guest can GET data1
-
-	// Assign roles to users dynamically
-	enforcer.AddGroupingPolicy("alice", "admin")
-	enforcer.AddGroupingPolicy("bob", "user")
-	enforcer.AddGroupingPolicy("charlie", "guest")
+	for i := range authConfig.Roles {
+		// All abstract roles are created at startup.
+		//
+		// No permissions are added by default for a new instance, they need to be
+		// added manually after startup. The below line can be swapped in for
+		// debugging purposes if needed.
+		//
+		// if _, err := enforcer.AddPolicy(authConfig.Roles[i], "/v1/meta", "GET"); err != nil {
+		//
+		if _, err := enforcer.AddPolicy(authConfig.Roles[i], "", ""); err != nil {
+			return nil, fmt.Errorf("add policy: %w", err)
+		}
+		if _, err := enforcer.AddGroupingPolicy(authConfig.Users[i], authConfig.Roles[i]); err != nil {
+			return nil, fmt.Errorf("add grouping policy: %w", err)
+		}
+	}
 
 	if err := enforcer.SavePolicy(); err != nil {
 		return nil, err
 	}
-	// // Add default policies dynamically
-	// enforcer.AddPolicy("admin", "*", "read")   // Admin can read everything
-	// enforcer.AddPolicy("admin", "*", "write")  // Admin can write everything
-	// enforcer.AddPolicy("admin", "*", "update") // Admin can update everything
-	// enforcer.AddPolicy("admin", "*", "delete") // Admin can delete everything
-
-	// // enforcer.AddPolicy("admin", "*", "get")    // Admin can read everything
-	// // enforcer.AddPolicy("admin", "*", "post")   // Admin can write everything
-	// // enforcer.AddPolicy("admin", "*", "put")    // Admin can update everything
-	// // enforcer.AddPolicy("admin", "*", "delete") // Admin can delete everything
-
-	// enforcer.AddPolicy("user", "data1", "read")     // User can read specific data
-	// enforcer.AddPolicy("user", "data1", "write")    // User can write specific data
-	// enforcer.AddPolicy("user", "profile", "update") // User can update their profile
-
-	// enforcer.AddPolicy("guest", "public_data", "read") // Guest can read public data
-
-	// enforcer.AddPolicy("moderator", "comments", "read")   // Moderator can read comments
-	// enforcer.AddPolicy("moderator", "comments", "update") // Moderator can update comments
-	// enforcer.AddPolicy("moderator", "comments", "delete") // Moderator can delete comments
-
-	// // Assign roles to users
-	// enforcer.AddGroupingPolicy("alice", "admin")
-	// enforcer.AddGroupingPolicy("bob", "user")
-	// enforcer.AddGroupingPolicy("charlie", "guest")
-	// enforcer.AddGroupingPolicy("dave", "moderator")
 
 	return enforcer, nil
 }
