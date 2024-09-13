@@ -197,6 +197,14 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMMaxSegmentSize = DefaultPersistenceLSMMaxSegmentSize
 	}
 
+	if err := parsePositiveInt(
+		"PERSISTENCE_LSM_SEGMENTS_CLEANUP_INTERVAL_HOURS",
+		func(val int) { config.Persistence.LSMSegmentsCleanupIntervalHours = int64(val) },
+		DefaultPersistenceLSMSegmentsCleanupIntervalHours,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {
