@@ -141,6 +141,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		lsmkv.WithSegmentsCleanupInterval(time.Duration(s.index.Config.SegmentsCleanupIntervalHours) * time.Hour),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {
