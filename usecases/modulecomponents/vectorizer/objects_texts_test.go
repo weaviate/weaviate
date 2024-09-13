@@ -13,35 +13,27 @@ package vectorizer
 
 import (
 	"context"
+	"strings"
 	"testing"
 
-	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
-
-	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
 // These are mostly copy/pasted (with minimal additions) from the
 // text2vec-contextionary module
 func TestVectorizingObjects(t *testing.T) {
 	type testCase struct {
-		name                string
-		input               *models.Object
-		expectedClientCall  string
-		expectedOpenAIType  string
-		expectedOpenAIModel string
-		noindex             string
-		excludedProperty    string // to simulate a schema where property names aren't vectorized
-		excludedClass       string // to simulate a schema where class names aren't vectorized
-		openAIType          string
-		openAIModel         string
-		openAIModelVersion  string
+		name             string
+		input            *models.Object
+		lowerCase        bool
+		expectedText     string
+		noindex          string
+		excludedProperty string // to simulate a schema where property names aren't vectorized
+		excludedClass    string // to simulate a schema where class names aren't vectorized
 	}
-	logger, _ := test.NewNullLogger()
 
 	tests := []testCase{
 		{
@@ -49,11 +41,16 @@ func TestVectorizingObjects(t *testing.T) {
 			input: &models.Object{
 				Class: "Car",
 			},
-			openAIType:          "text",
-			openAIModel:         "ada",
-			expectedOpenAIType:  "text",
-			expectedOpenAIModel: "ada",
-			expectedClientCall:  "car",
+			lowerCase:    true,
+			expectedText: "car",
+		},
+		{
+			name: "empty object",
+			input: &models.Object{
+				Class: "Car",
+			},
+			lowerCase:    false,
+			expectedText: "Car",
 		},
 		{
 			name: "object with one string prop",
@@ -63,7 +60,19 @@ func TestVectorizingObjects(t *testing.T) {
 					"brand": "Mercedes",
 				},
 			},
-			expectedClientCall: "car brand mercedes",
+			expectedText: "Car brand Mercedes",
+			lowerCase:    false,
+		},
+		{
+			name: "object with one string prop",
+			input: &models.Object{
+				Class: "Car",
+				Properties: map[string]interface{}{
+					"brand": "Mercedes",
+				},
+			},
+			expectedText: "car brand mercedes",
+			lowerCase:    true,
 		},
 		{
 			name: "object with one non-string prop",
@@ -73,7 +82,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"power": 300,
 				},
 			},
-			expectedClientCall: "car",
+			expectedText: "Car",
 		},
 		{
 			name: "object with a mix of props",
@@ -85,7 +94,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
-			expectedClientCall: "car brand best brand review a very great car",
+			expectedText: "Car brand best brand review a very great car",
 		},
 		{
 			name:    "with a noindexed property",
@@ -98,7 +107,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
-			expectedClientCall: "car brand best brand",
+			expectedText: "Car brand best brand",
 		},
 		{
 			name:          "with the class name not vectorized",
@@ -111,7 +120,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
-			expectedClientCall: "brand best brand review a very great car",
+			expectedText: "brand best brand review a very great car",
 		},
 		{
 			name:             "with a property name not vectorized",
@@ -124,7 +133,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
-			expectedClientCall: "car brand best brand a very great car",
+			expectedText: "Car brand best brand a very great car",
 		},
 		{
 			name:             "with no schema labels vectorized",
@@ -136,7 +145,7 @@ func TestVectorizingObjects(t *testing.T) {
 					"review": "a very great car",
 				},
 			},
-			expectedClientCall: "a very great car",
+			expectedText: "a very great car",
 		},
 		{
 			name:             "with string/text arrays without propname or classname",
@@ -151,7 +160,7 @@ func TestVectorizingObjects(t *testing.T) {
 					},
 				},
 			},
-			expectedClientCall: "a very great car you should consider buying one",
+			expectedText: "a very great car you should consider buying one",
 		},
 		{
 			name: "with string/text arrays with propname and classname",
@@ -164,7 +173,7 @@ func TestVectorizingObjects(t *testing.T) {
 					},
 				},
 			},
-			expectedClientCall: "car reviews a very great car reviews you should consider buying one",
+			expectedText: "Car reviews a very great car reviews you should consider buying one",
 		},
 		{
 			name: "with compound class and prop names",
@@ -176,81 +185,26 @@ func TestVectorizingObjects(t *testing.T) {
 					"review":        "a very great car",
 				},
 			},
-			expectedClientCall: "super car brand of the car best brand review a very great car",
+			expectedText: "Super Car brand Of The Car best brand review a very great car",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &fakeClient{}
+			v := New()
 
-			v := New(client, logger)
-
-			cfg := &FakeClassConfig{
-				classConfig: map[string]interface{}{
-					"vectorizeClassName": test.excludedClass != "Car",
-					"type":               test.openAIType,
-					"model":              test.openAIModel,
-					"modelVersion":       test.openAIModelVersion,
-				},
-				vectorizePropertyName: true,
+			ic := &fakeClassConfig{
 				skippedProperty:       test.noindex,
+				vectorizeClassName:    test.excludedClass != "Car",
 				excludedProperty:      test.excludedProperty,
+				vectorizePropertyName: true,
 			}
-			icheck := ent.NewClassSettings(cfg)
-			vector, _, err := v.Object(context.Background(), test.input, cfg, icheck)
+			cs := settings.NewBaseClassSettings(ic, test.lowerCase)
+			text := v.Texts(context.Background(), test.input, cs)
 
-			require.Nil(t, err)
-			assert.Equal(t, []float32{0, 1, 2, 3}, vector)
-			assert.Equal(t, []string{test.expectedClientCall}, client.lastInput)
-			conf := ent.NewClassSettings(client.lastConfig)
-			assert.Equal(t, test.expectedOpenAIType, conf.Type())
-			assert.Equal(t, test.expectedOpenAIModel, conf.Model())
+			expected := strings.Split(test.expectedText, " ")
+			actual := strings.Split(text, " ")
+			assert.Equal(t, expected, actual)
 		})
 	}
-}
-
-func TestClassSettings(t *testing.T) {
-	type testCase struct {
-		expectedBaseURL string
-		cfg             moduletools.ClassConfig
-	}
-	tests := []testCase{
-		{
-			cfg: FakeClassConfig{
-				classConfig: make(map[string]interface{}),
-			},
-			expectedBaseURL: ent.DefaultBaseURL,
-		},
-		{
-			cfg: FakeClassConfig{
-				classConfig: map[string]interface{}{
-					"baseURL": "https://proxy.weaviate.dev",
-				},
-			},
-			expectedBaseURL: "https://proxy.weaviate.dev",
-		},
-	}
-
-	for _, tt := range tests {
-		ic := ent.NewClassSettings(tt.cfg)
-		assert.Equal(t, tt.expectedBaseURL, ic.BaseURL())
-	}
-}
-
-func TestPickDefaultModelVersion(t *testing.T) {
-	t.Run("ada with text", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("ada", "text")
-		assert.Equal(t, "002", version)
-	})
-
-	t.Run("ada with code", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("ada", "code")
-		assert.Equal(t, "001", version)
-	})
-
-	t.Run("with curie", func(t *testing.T) {
-		version := ent.PickDefaultModelVersion("curie", "text")
-		assert.Equal(t, "001", version)
-	})
 }

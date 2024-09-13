@@ -11,57 +11,13 @@
 
 package vectorizer
 
-import (
-	"context"
-
-	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/modulecomponents"
-)
-
-type fakeClient struct {
-	lastInput  []string
-	lastConfig moduletools.ClassConfig
-}
-
-func (c *fakeClient) Vectorize(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0, 1, 2, 3}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil, nil
-}
-
-func (c *fakeClient) VectorizeQuery(ctx context.Context,
-	text []string, cfg moduletools.ClassConfig,
-) (*modulecomponents.VectorizationResult, error) {
-	c.lastInput = text
-	c.lastConfig = cfg
-	return &modulecomponents.VectorizationResult{
-		Vector:     [][]float32{{0.1, 1.1, 2.1, 3.1}},
-		Dimensions: 4,
-		Text:       text,
-	}, nil
-}
-
-func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
-	return &modulecomponents.RateLimits{}
-}
-
-func (c *fakeClient) GetApiKeyHash(ctx context.Context, cfg moduletools.ClassConfig) [32]byte {
-	return [32]byte{}
-}
-
 type fakeClassConfig struct {
 	classConfig           map[string]interface{}
 	vectorizeClassName    bool
 	vectorizePropertyName bool
 	skippedProperty       string
 	excludedProperty      string
-	jinaAIModel           string
+	lowerCaseInput        bool
 }
 
 func (f fakeClassConfig) Class() map[string]interface{} {
@@ -70,7 +26,6 @@ func (f fakeClassConfig) Class() map[string]interface{} {
 	}
 	classSettings := map[string]interface{}{
 		"vectorizeClassName": f.vectorizeClassName,
-		"model":              f.jinaAIModel,
 	}
 	return classSettings
 }
@@ -104,4 +59,8 @@ func (f fakeClassConfig) Tenant() string {
 
 func (f fakeClassConfig) TargetVector() string {
 	return ""
+}
+
+func (f fakeClassConfig) LowerCaseInput() bool {
+	return f.lowerCaseInput
 }

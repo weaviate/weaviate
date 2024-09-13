@@ -42,7 +42,7 @@ func (v *ObjectVectorizer) Texts(ctx context.Context, object *models.Object, ich
 	return text
 }
 
-func (v *ObjectVectorizer) camelCaseToLower(in string) string {
+func (v *ObjectVectorizer) separateCamelCase(in string, toLower bool) string {
 	parts := camelcase.Split(in)
 	var sb strings.Builder
 	for i, part := range parts {
@@ -54,7 +54,11 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 			sb.WriteString(" ")
 		}
 
-		sb.WriteString(strings.ToLower(part))
+		if toLower {
+			part = strings.ToLower(part)
+		}
+
+		sb.WriteString(part)
 	}
 
 	return sb.String()
@@ -66,11 +70,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	var titlePropertyValue []string
 
 	if icheck.VectorizeClassName() {
-		className := object.Class
-		if icheck.LowerCaseInput() {
-			className = v.camelCaseToLower(object.Class)
-		}
-		corpi = append(corpi, className)
+		corpi = append(corpi, v.separateCamelCase(object.Class, icheck.LowerCaseInput()))
 	}
 	if object.Properties != nil {
 		propMap := object.Properties.(map[string]interface{})
@@ -84,9 +84,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 			switch val := propMap[propName].(type) {
 			case []string:
 				if len(val) > 0 {
-					if icheck.LowerCaseInput() {
-						propName = v.camelCaseToLower(propName)
-					}
+					propName = v.separateCamelCase(propName, icheck.LowerCaseInput())
 
 					for i := range val {
 						str := strings.ToLower(val[i])
@@ -102,8 +100,8 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 			case string:
 				if icheck.LowerCaseInput() {
 					val = strings.ToLower(val)
-					propName = v.camelCaseToLower(propName)
 				}
+				propName = v.separateCamelCase(propName, icheck.LowerCaseInput())
 
 				if isTitleProperty {
 					titlePropertyValue = append(titlePropertyValue, val)
@@ -119,11 +117,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	}
 	if len(corpi) == 0 {
 		// fall back to using the class name
-		className := object.Class
-		if icheck.LowerCaseInput() {
-			className = v.camelCaseToLower(object.Class)
-		}
-		corpi = append(corpi, className)
+		corpi = append(corpi, v.separateCamelCase(object.Class, icheck.LowerCaseInput()))
 	}
 
 	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")
