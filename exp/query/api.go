@@ -42,11 +42,15 @@ const (
 	defaultLSMVectorsCompressedBucket = "vectors_compressed"
 	defaultLSMRoot                    = "lsm"
 
-	// TODO(kavi): Accept `limit` arg from user.
 	maxQueryObjectsLimit = 10
 )
 
-var ErrInvalidTenant = errors.New("invalid tenant status")
+var (
+	ErrInvalidTenant = errors.New("invalid tenant status")
+
+	// Sentinel error to mark if limit is reached when iterating on objects bucket. not user facing.
+	errLimitReached = errors.New("limit reached")
+)
 
 // API is the core query API that is transport agnostic (http, grpc, etc).
 type API struct {
@@ -119,9 +123,14 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 
 	var resp SearchResponse
 
+	limit := req.Limit
+	if limit == 0 {
+		limit = maxQueryObjectsLimit
+	}
+
 	if len(req.NearText) != 0 {
 		// do vector search
-		resObjects, distances, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), req.Limit)
+		resObjects, distances, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), limit)
 		if err != nil {
 			return nil, err
 		}
@@ -138,15 +147,18 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		}
 
 	} else {
-		// return all objects
+		// return all objects upto `limit`
 		if err := store.CreateOrLoadBucket(ctx, defaultLSMObjectsBucket); err != nil {
 			return nil, fmt.Errorf("failed to load objects bucket in store: %w", err)
 		}
 		bkt := store.Bucket(defaultLSMObjectsBucket)
 		if err := bkt.IterateObjects(ctx, func(object *storobj.Object) error {
 			resp.Results = append(resp.Results, Result{Obj: object})
+			if len(resp.Results) >= limit {
+				return errLimitReached
+			}
 			return nil
-		}); err != nil {
+		}); err != nil && !errors.Is(errLimitReached, err) {
 			return nil, fmt.Errorf("failed to iterate objects in store: %w", err)
 		}
 
@@ -189,7 +201,11 @@ func (a *API) vectorSearch(
 	}
 	defer index.Shutdown(ctx)
 
-	matched_ids, distance, err := index.SearchByVectorDistance(vectors, threshold, int64(limit), nil)
+	// TODO(kavi): Here `limit` is not what you expect. It's the maxLimit.
+	// Currently `SearchByVectorDistance` api takes limit via `newSearchByDistParams(maxLimit)` which caller
+	// don't have control too.
+	certainty := 1 - threshold
+	matched_ids, distance, err := index.SearchByVectorDistance(vectors, certainty, int64(limit), nil)
 
 	fmt.Println("matchd_ids", matched_ids, "distance", distance)
 
