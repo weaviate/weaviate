@@ -173,6 +173,9 @@ func NewIndexQueue(
 	if opts.BruteForceSearchLimit == 0 {
 		opts.BruteForceSearchLimit = 100_000
 	}
+	if v, err := strconv.Atoi(os.Getenv("ASYNC_BRUTE_FORCE_SEARCH_LIMIT")); err == nil && v >= 0 {
+		opts.BruteForceSearchLimit = v
+	}
 
 	if opts.StaleTimeout == 0 {
 		opts.StaleTimeout = 5 * time.Second
@@ -567,7 +570,8 @@ func (q *IndexQueue) search(vector []float32, dist float32, maxLimit int, allowL
 		return nil, nil, err
 	}
 
-	if !asyncEnabled() {
+	// Skip merging brute force results if async indexing disabled or brute force search limit is 0
+	if !asyncEnabled() || q.BruteForceSearchLimit == 0 {
 		return indexedResults, distances, nil
 	}
 
