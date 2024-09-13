@@ -13,14 +13,12 @@ package lsmkv
 
 import (
 	"context"
-	"runtime"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 )
-
-var _NUMCPU = runtime.GOMAXPROCS(0)
 
 func (b *Bucket) RoaringSetRangeAdd(key uint64, values ...uint64) error {
 	if err := CheckStrategyRoaringSetRange(b.strategy); err != nil {
@@ -64,12 +62,8 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	}
 	readers = append(readers, b.active.newRoaringSetRangeReader())
 
-	concurrency := 4
-	if concurrency > _NUMCPU {
-		concurrency = _NUMCPU
-	}
 	return roaringsetrange.NewCombinedReader(readers, func() {
 		releaseSegmentGroup()
 		b.flushLock.RUnlock()
-	}, concurrency, b.logger)
+	}, concurrency.NUMCPU_2, b.logger)
 }

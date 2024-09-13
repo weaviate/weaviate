@@ -12,10 +12,10 @@
 package roaringset
 
 import (
-	"runtime"
 	"sync"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/sroar"
@@ -24,7 +24,6 @@ import (
 var (
 	prefillBufferSize  = 65_536
 	prefillMaxRoutines = 4
-	_NUMCPU            = runtime.NumCPU()
 )
 
 func NewBitmap(values ...uint64) *sroar.Bitmap {
@@ -74,10 +73,7 @@ func NewInvertedBitmap(source *sroar.Bitmap, maxVal uint64, logger logrus.FieldL
 // For maxVal > prefillBufferSize (65_536) and multiple CPUs available task is performed
 // by up to prefillMaxRoutines (4) goroutines.
 func NewBitmapPrefill(maxVal uint64, logger logrus.FieldLogger) *sroar.Bitmap {
-	routinesLimit := prefillMaxRoutines
-	if _NUMCPU < routinesLimit {
-		routinesLimit = _NUMCPU
-	}
+	routinesLimit := concurrency.NoMoreThanNUMCPU(prefillMaxRoutines)
 	if routinesLimit == 1 || maxVal <= uint64(prefillBufferSize) {
 		return newBitmapPrefillSequential(maxVal)
 	}
