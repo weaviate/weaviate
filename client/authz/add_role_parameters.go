@@ -29,50 +29,50 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewGetRoleParams creates a new GetRoleParams object,
+// NewAddRoleParams creates a new AddRoleParams object,
 // with the default timeout for this client.
 //
 // Default values are not hydrated, since defaults are normally applied by the API server side.
 //
 // To enforce default values in parameter, use SetDefaults or WithDefaults.
-func NewGetRoleParams() *GetRoleParams {
-	return &GetRoleParams{
+func NewAddRoleParams() *AddRoleParams {
+	return &AddRoleParams{
 		timeout: cr.DefaultTimeout,
 	}
 }
 
-// NewGetRoleParamsWithTimeout creates a new GetRoleParams object
+// NewAddRoleParamsWithTimeout creates a new AddRoleParams object
 // with the ability to set a timeout on a request.
-func NewGetRoleParamsWithTimeout(timeout time.Duration) *GetRoleParams {
-	return &GetRoleParams{
+func NewAddRoleParamsWithTimeout(timeout time.Duration) *AddRoleParams {
+	return &AddRoleParams{
 		timeout: timeout,
 	}
 }
 
-// NewGetRoleParamsWithContext creates a new GetRoleParams object
+// NewAddRoleParamsWithContext creates a new AddRoleParams object
 // with the ability to set a context for a request.
-func NewGetRoleParamsWithContext(ctx context.Context) *GetRoleParams {
-	return &GetRoleParams{
+func NewAddRoleParamsWithContext(ctx context.Context) *AddRoleParams {
+	return &AddRoleParams{
 		Context: ctx,
 	}
 }
 
-// NewGetRoleParamsWithHTTPClient creates a new GetRoleParams object
+// NewAddRoleParamsWithHTTPClient creates a new AddRoleParams object
 // with the ability to set a custom HTTPClient for a request.
-func NewGetRoleParamsWithHTTPClient(client *http.Client) *GetRoleParams {
-	return &GetRoleParams{
+func NewAddRoleParamsWithHTTPClient(client *http.Client) *AddRoleParams {
+	return &AddRoleParams{
 		HTTPClient: client,
 	}
 }
 
 /*
-GetRoleParams contains all the parameters to send to the API endpoint
+AddRoleParams contains all the parameters to send to the API endpoint
 
-	for the get role operation.
+	for the add role operation.
 
 	Typically these are written to a http.Request.
 */
-type GetRoleParams struct {
+type AddRoleParams struct {
 
 	// Body.
 	Body *models.RoleAssignmentRequest
@@ -82,67 +82,67 @@ type GetRoleParams struct {
 	HTTPClient *http.Client
 }
 
-// WithDefaults hydrates default values in the get role params (not the query body).
+// WithDefaults hydrates default values in the add role params (not the query body).
 //
 // All values with no default are reset to their zero value.
-func (o *GetRoleParams) WithDefaults() *GetRoleParams {
+func (o *AddRoleParams) WithDefaults() *AddRoleParams {
 	o.SetDefaults()
 	return o
 }
 
-// SetDefaults hydrates default values in the get role params (not the query body).
+// SetDefaults hydrates default values in the add role params (not the query body).
 //
 // All values with no default are reset to their zero value.
-func (o *GetRoleParams) SetDefaults() {
+func (o *AddRoleParams) SetDefaults() {
 	// no default values defined for this parameter
 }
 
-// WithTimeout adds the timeout to the get role params
-func (o *GetRoleParams) WithTimeout(timeout time.Duration) *GetRoleParams {
+// WithTimeout adds the timeout to the add role params
+func (o *AddRoleParams) WithTimeout(timeout time.Duration) *AddRoleParams {
 	o.SetTimeout(timeout)
 	return o
 }
 
-// SetTimeout adds the timeout to the get role params
-func (o *GetRoleParams) SetTimeout(timeout time.Duration) {
+// SetTimeout adds the timeout to the add role params
+func (o *AddRoleParams) SetTimeout(timeout time.Duration) {
 	o.timeout = timeout
 }
 
-// WithContext adds the context to the get role params
-func (o *GetRoleParams) WithContext(ctx context.Context) *GetRoleParams {
+// WithContext adds the context to the add role params
+func (o *AddRoleParams) WithContext(ctx context.Context) *AddRoleParams {
 	o.SetContext(ctx)
 	return o
 }
 
-// SetContext adds the context to the get role params
-func (o *GetRoleParams) SetContext(ctx context.Context) {
+// SetContext adds the context to the add role params
+func (o *AddRoleParams) SetContext(ctx context.Context) {
 	o.Context = ctx
 }
 
-// WithHTTPClient adds the HTTPClient to the get role params
-func (o *GetRoleParams) WithHTTPClient(client *http.Client) *GetRoleParams {
+// WithHTTPClient adds the HTTPClient to the add role params
+func (o *AddRoleParams) WithHTTPClient(client *http.Client) *AddRoleParams {
 	o.SetHTTPClient(client)
 	return o
 }
 
-// SetHTTPClient adds the HTTPClient to the get role params
-func (o *GetRoleParams) SetHTTPClient(client *http.Client) {
+// SetHTTPClient adds the HTTPClient to the add role params
+func (o *AddRoleParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithBody adds the body to the get role params
-func (o *GetRoleParams) WithBody(body *models.RoleAssignmentRequest) *GetRoleParams {
+// WithBody adds the body to the add role params
+func (o *AddRoleParams) WithBody(body *models.RoleAssignmentRequest) *AddRoleParams {
 	o.SetBody(body)
 	return o
 }
 
-// SetBody adds the body to the get role params
-func (o *GetRoleParams) SetBody(body *models.RoleAssignmentRequest) {
+// SetBody adds the body to the add role params
+func (o *AddRoleParams) SetBody(body *models.RoleAssignmentRequest) {
 	o.Body = body
 }
 
 // WriteToRequest writes these params to a swagger request
-func (o *GetRoleParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+func (o *AddRoleParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err

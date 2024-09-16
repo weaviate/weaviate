@@ -83,10 +83,10 @@ func NewGetRoleOK() *GetRoleOK {
 /*
 GetRoleOK describes a response with status code 200, with default header values.
 
-Successful response.
+Role assigned users
 */
 type GetRoleOK struct {
-	Payload *models.Role
+	Payload *models.RoleAssignmentResponse
 }
 
 // IsSuccess returns true when this get role o k response has a 2xx status code
@@ -120,20 +120,20 @@ func (o *GetRoleOK) Code() int {
 }
 
 func (o *GetRoleOK) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleOK  %+v", 200, o.Payload)
 }
 
 func (o *GetRoleOK) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleOK  %+v", 200, o.Payload)
 }
 
-func (o *GetRoleOK) GetPayload() *models.Role {
+func (o *GetRoleOK) GetPayload() *models.RoleAssignmentResponse {
 	return o.Payload
 }
 
 func (o *GetRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.Role)
+	o.Payload = new(models.RoleAssignmentResponse)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -151,7 +151,7 @@ func NewGetRoleBadRequest() *GetRoleBadRequest {
 /*
 GetRoleBadRequest describes a response with status code 400, with default header values.
 
-Malformed request.
+Bad request
 */
 type GetRoleBadRequest struct {
 	Payload *models.ErrorResponse
@@ -188,11 +188,11 @@ func (o *GetRoleBadRequest) Code() int {
 }
 
 func (o *GetRoleBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetRoleBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -255,11 +255,11 @@ func (o *GetRoleUnauthorized) Code() int {
 }
 
 func (o *GetRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleUnauthorized ", 401)
 }
 
 func (o *GetRoleUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleUnauthorized ", 401)
 }
 
 func (o *GetRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -312,11 +312,11 @@ func (o *GetRoleForbidden) Code() int {
 }
 
 func (o *GetRoleForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetRoleForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -343,7 +343,7 @@ func NewGetRoleNotFound() *GetRoleNotFound {
 /*
 GetRoleNotFound describes a response with status code 404, with default header values.
 
-no role found
+role is not found.
 */
 type GetRoleNotFound struct {
 }
@@ -379,11 +379,11 @@ func (o *GetRoleNotFound) Code() int {
 }
 
 func (o *GetRoleNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleNotFound ", 404)
 }
 
 func (o *GetRoleNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleNotFound ", 404)
 }
 
 func (o *GetRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -436,11 +436,11 @@ func (o *GetRoleInternalServerError) Code() int {
 }
 
 func (o *GetRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetRoleInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}][%d] getRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/role][%d] getRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetRoleInternalServerError) GetPayload() *models.ErrorResponse {

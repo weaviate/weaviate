@@ -28,7 +28,7 @@ import (
 const GetRoleOKCode int = 200
 
 /*
-GetRoleOK Successful response.
+GetRoleOK Role assigned users
 
 swagger:response getRoleOK
 */
@@ -37,7 +37,7 @@ type GetRoleOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.Role `json:"body,omitempty"`
+	Payload *models.RoleAssignmentResponse `json:"body,omitempty"`
 }
 
 // NewGetRoleOK creates GetRoleOK with default headers values
@@ -47,13 +47,13 @@ func NewGetRoleOK() *GetRoleOK {
 }
 
 // WithPayload adds the payload to the get role o k response
-func (o *GetRoleOK) WithPayload(payload *models.Role) *GetRoleOK {
+func (o *GetRoleOK) WithPayload(payload *models.RoleAssignmentResponse) *GetRoleOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the get role o k response
-func (o *GetRoleOK) SetPayload(payload *models.Role) {
+func (o *GetRoleOK) SetPayload(payload *models.RoleAssignmentResponse) {
 	o.Payload = payload
 }
 
@@ -73,7 +73,7 @@ func (o *GetRoleOK) WriteResponse(rw http.ResponseWriter, producer runtime.Produ
 const GetRoleBadRequestCode int = 400
 
 /*
-GetRoleBadRequest Malformed request.
+GetRoleBadRequest Bad request
 
 swagger:response getRoleBadRequest
 */
@@ -188,7 +188,7 @@ func (o *GetRoleForbidden) WriteResponse(rw http.ResponseWriter, producer runtim
 const GetRoleNotFoundCode int = 404
 
 /*
-GetRoleNotFound no role found
+GetRoleNotFound role is not found.
 
 swagger:response getRoleNotFound
 */
