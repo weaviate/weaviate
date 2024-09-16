@@ -24,40 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// GetRoleHandlerFunc turns a function with the right signature into a get role handler
-type GetRoleHandlerFunc func(GetRoleParams, *models.Principal) middleware.Responder
+// AddPolicyHandlerFunc turns a function with the right signature into a add policy handler
+type AddPolicyHandlerFunc func(AddPolicyParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn GetRoleHandlerFunc) Handle(params GetRoleParams, principal *models.Principal) middleware.Responder {
+func (fn AddPolicyHandlerFunc) Handle(params AddPolicyParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// GetRoleHandler interface for that can handle valid get role params
-type GetRoleHandler interface {
-	Handle(GetRoleParams, *models.Principal) middleware.Responder
+// AddPolicyHandler interface for that can handle valid add policy params
+type AddPolicyHandler interface {
+	Handle(AddPolicyParams, *models.Principal) middleware.Responder
 }
 
-// NewGetRole creates a new http.Handler for the get role operation
-func NewGetRole(ctx *middleware.Context, handler GetRoleHandler) *GetRole {
-	return &GetRole{Context: ctx, Handler: handler}
+// NewAddPolicy creates a new http.Handler for the add policy operation
+func NewAddPolicy(ctx *middleware.Context, handler AddPolicyHandler) *AddPolicy {
+	return &AddPolicy{Context: ctx, Handler: handler}
 }
 
 /*
-	GetRole swagger:route GET /authz/role authz getRole
+	AddPolicy swagger:route POST /authz/policy authz addPolicy
 
-get roles for user or a key or users for specified role
+Add a new policy
 */
-type GetRole struct {
+type AddPolicy struct {
 	Context *middleware.Context
-	Handler GetRoleHandler
+	Handler AddPolicyHandler
 }
 
-func (o *GetRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *AddPolicy) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewGetRoleParams()
+	var Params = NewAddPolicyParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
