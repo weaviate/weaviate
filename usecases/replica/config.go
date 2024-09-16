@@ -24,7 +24,10 @@ type nodeCounter interface {
 
 func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) error {
 	if class.ReplicationConfig == nil {
-		class.ReplicationConfig = &models.ReplicationConfig{Factor: int64(globalCfg.MinimumFactor)}
+		class.ReplicationConfig = &models.ReplicationConfig{
+			Factor:                  int64(globalCfg.MinimumFactor),
+			PropagateObjectDeletion: globalCfg.ForceObjectDeletionPropagation,
+		}
 		return nil
 	}
 
@@ -36,6 +39,9 @@ func ValidateConfig(class *models.Class, globalCfg replication.GlobalConfig) err
 	if class.ReplicationConfig.Factor < 1 {
 		class.ReplicationConfig.Factor = int64(globalCfg.MinimumFactor)
 	}
+
+	class.ReplicationConfig.PropagateObjectDeletion = class.ReplicationConfig.PropagateObjectDeletion ||
+		globalCfg.ForceObjectDeletionPropagation
 
 	return nil
 }

@@ -30,6 +30,9 @@ type ReplicationConfig struct {
 
 	// Number of times a class is replicated
 	Factor int64 `json:"factor,omitempty"`
+
+	// Propagate object deletion
+	PropagateObjectDeletion bool `json:"propagateObjectDeletion,omitempty"`
 }
 
 // Validate validates this replication config
