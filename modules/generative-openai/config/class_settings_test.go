@@ -245,6 +245,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"resourceName": "resource-name",
+					"isAzure":      true,
 				},
 			},
 			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
@@ -254,6 +255,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"deploymentId": "deployment-name",
+					"isAzure":      true,
 				},
 			},
 			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
