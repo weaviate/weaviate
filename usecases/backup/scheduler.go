@@ -269,24 +269,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		return nil, err
 	}
 
-	res := models.BackupListResponse{}
-	if s.backupper.descriptor.ID != "" {
-
-		store, err := coordBackend(s.backends, backend, "")
-		if err != nil {
-			err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
-			return nil, backup.NewErrUnprocessable(err)
-		}
-		// active backups
-		res = append(res, &models.BackupListResponseItems0{
-			ID:      s.backupper.descriptor.ID,
-			Path:    store.HomeDir(),
-			Classes: s.backupper.descriptor.Classes(),
-			Status:  string(s.backupper.descriptor.Status),
-		})
-	}
-	// TODO : add canceled backups to the list
-	return &res, nil
+	return nil, fmt.Errorf("not implemented")
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id string) (coordStore, error) {
