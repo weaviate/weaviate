@@ -1130,7 +1130,11 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 
 		for i := range nv.VectorForTargets {
 			if nv.VectorForTargets[i].Name != targetVectorsTmp[i] {
-				return nil, fmt.Errorf("near_vector: vector for target %s is required", targetVectorsTmp[i])
+				var allNames []string
+				for k := range nv.VectorForTargets {
+					allNames = append(allNames, nv.VectorForTargets[k].Name)
+				}
+				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
 			}
 			vectors[i] = byteops.Float32FromByteVector(nv.VectorForTargets[i].VectorBytes)
 		}
@@ -1143,7 +1147,11 @@ func parseNearVec(nv *pb.NearVector, targetVectors []string) (*searchparams.Near
 			if vec, ok := nv.VectorPerTarget[target]; ok {
 				vectors[i] = byteops.Float32FromByteVector(vec)
 			} else {
-				return nil, fmt.Errorf("near_vector: vector for target %s is required", target)
+				var allNames []string
+				for k := range nv.VectorPerTarget {
+					allNames = append(allNames, k)
+				}
+				return nil, fmt.Errorf("near_vector: vector for target %s is required. All target vectors: %v all vectors for targets %v", targetVectorsTmp[i], targetVectorsTmp, allNames)
 			}
 		}
 	} else {
