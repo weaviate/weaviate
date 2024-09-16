@@ -260,31 +260,15 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 }
 
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string) (*models.BackupListResponse, error) {
-	// var err error
-	// // defer func(begin time.Time) {
-	// // 	logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
-	// // }(time.Now())
-	// path := fmt.Sprintf("backups/%s", backend)
-	// if err := s.authorizer.Authorize(principal, "get", path); err != nil {
-	// 	return nil, err
-	// }
+	var err error
+	defer func(begin time.Time) {
+		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
+	}(time.Now())
+	path := fmt.Sprintf("backups/%s", backend)
+	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+		return nil, err
+	}
 
-	// res := models.BackupListResponse{}
-	// if s.backupper.descriptor.ID != "" {
-
-	// 	store, err := coordBackend(s.backends, backend, "")
-	// 	if err != nil {
-	// 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
-	// 		return nil, backup.NewErrUnprocessable(err)
-	// 	}
-	// 	// active backups
-	// 	res = append(res, &models.BackupListResponseItems0{
-	// 		ID:      s.backupper.descriptor.ID,
-	// 		Path:    store.HomeDir(),
-	// 		Classes: s.backupper.descriptor.Classes(),
-	// 		Status:  string(s.backupper.descriptor.Status),
-	// 	})
-	// }
 	return nil, fmt.Errorf("not implemented")
 }
 
