@@ -34,6 +34,7 @@ import (
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
@@ -237,6 +238,12 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 
 func (d *Compose) WithText2VecHuggingFace() *Compose {
 	d.enableModules = append(d.enableModules, modhuggingface.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modjinaai.Name)
 	return d
 }
 
