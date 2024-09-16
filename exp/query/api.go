@@ -66,7 +66,9 @@ type API struct {
 	// schema *schema.Manager
 	// batch  *objects.BatchManager
 	offload *modsloads3.Module
-	omu     sync.Mutex
+	// NOTE: This lock may be in-efficient if downloaded needed from multiple tenants
+	// TODO(kavi): Optimize based on some data later.
+	omu sync.Mutex
 
 	vectorizer text2vecbase.TextVectorizer
 }
