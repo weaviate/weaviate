@@ -22,6 +22,12 @@ import (
 
 // VObject is a versioned object for detecting replication inconsistencies
 type VObject struct {
+	// ID of the Object.
+	// Format: uuid
+	ID strfmt.UUID `json:"id,omitempty"`
+
+	Deleted bool `json:"deleted"`
+
 	// LatestObject is to most up-to-date version of an object
 	LatestObject *models.Object `json:"object,omitempty"`
 

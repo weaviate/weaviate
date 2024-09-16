@@ -249,7 +249,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	}
 
 	repl := replica.NewReplicator(cfg.ClassName.String(),
-		sg, nodeResolver, replicaClient, logger)
+		sg, nodeResolver, cfg.PropagateObjectDeletion, replicaClient, logger)
 
 	if cfg.QueryNestedRefLimit == 0 {
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
@@ -550,6 +550,7 @@ type IndexConfig struct {
 	HNSWMaxLogSize            int64
 	HNSWWaitForCachePrefill   bool
 	ReplicationFactor         int64
+	PropagateObjectDeletion   bool
 	AvoidMMap                 bool
 	DisableLazyLoadShards     bool
 	ForceFullReplicasSearch   bool
