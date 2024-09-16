@@ -18,212 +18,82 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type authZHandlers struct {
-	authorizer authorization.Authorizer
-	enforcer   *casbin.SyncedCachedEnforcer
-	logger     logrus.FieldLogger
-	metrics    *monitoring.PrometheusMetrics
+	enforcer *casbin.Enforcer
+	logger   logrus.FieldLogger
+	metrics  *monitoring.PrometheusMetrics
 }
 
-func setupAuthZHandlers(api *operations.WeaviateAPI, enforcer *casbin.SyncedCachedEnforcer, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
-	h := &authZHandlers{enforcer: enforcer, authorizer: authorizer, logger: logger, metrics: metrics}
+func setupAuthZHandlers(api *operations.WeaviateAPI, enforcer *casbin.Enforcer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+) {
 
-	// rbac role handlers
-	api.AuthzCreateRoleHandler = authz.CreateRoleHandlerFunc(h.createRole)
-	api.AuthzGetRolesHandler = authz.GetRolesHandlerFunc(h.getRoles)
+	h := &authZHandlers{enforcer: enforcer, logger: logger, metrics: metrics}
+
+	// policy handlers
+	api.AuthzAddPolicyHandler = authz.AddPolicyHandlerFunc(h.addPolicy)
+	api.AuthzGetPoliciesHandler = authz.GetPoliciesHandlerFunc(h.policies)
+	api.AuthzDeletePolicyHandler = authz.DeletePolicyHandlerFunc(h.deletePolicy)
+
+	// roles handlers
 	api.AuthzGetRoleHandler = authz.GetRoleHandlerFunc(h.getRole)
-	api.AuthzDeleteRoleHandler = authz.DeleteRoleHandlerFunc(h.deleteRole)
+	api.AuthzAddRoleHandler = authz.AddRoleHandlerFunc(h.addRole)
+	api.AuthzRemoveRoleHandler = authz.RemoveRoleHandlerFunc(h.removeRole)
+}
+
+func (h *authZHandlers) addPolicy(params authz.AddPolicyParams, principal *models.Principal) middleware.Responder {
+	added, err := h.enforcer.AddPolicy(params.Body.Role, params.Body.Object, params.Body.Action)
+	if err != nil {
+		return authz.NewAddPolicyInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+	if !added {
+
+	}
+	return authz.NewAddPolicyCreated()
+}
+
+func (h *authZHandlers) policies(params authz.GetPoliciesParams, principal *models.Principal) middleware.Responder {
+	_, err := h.enforcer.GetPolicy()
+	if err != nil {
+		return authz.NewGetPoliciesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
+	}
+
+	return authz.NewGetPoliciesOK() // with payload
+}
+
+func (h *authZHandlers) deletePolicy(params authz.DeletePolicyParams, principal *models.Principal) middleware.Responder {
+	h.enforcer.RemovePolicy(params.ID)
+	return authz.NewDeletePolicyNoContent()
+}
+
+func (h *authZHandlers) addRole(params authz.AddRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO
-	// api.AuthzAddPermissionHandler = authz.AddPermissionHandlerFunc()
-	// api.AuthzRemovedPermissionHandler = authz.RemovedPermissionHandlerFunc()
+	h.enforcer.AddRoleForUser(*params.Body.User, params.Body.Role)
+	h.enforcer.AddRoleForUser(*params.Body.Key, params.Body.Role)
 
-	// rbac users handlers
-	api.AuthzGetRolesForUserHandler = authz.GetRolesForUserHandlerFunc(h.getRolesForUser)
-	api.AuthzGetUsersForRoleHandler = authz.GetUsersForRoleHandlerFunc(h.getUsersForRole)
-	api.AuthzAssignRoleHandler = authz.AssignRoleHandlerFunc(h.assignRole)
-	api.AuthzRevokeRoleHandler = authz.RevokeRoleHandlerFunc(h.revokeRole)
-}
-
-func (h *authZHandlers) createRole(params authz.CreateRoleParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.ROLES); err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	rules := [][]string{}
-	for _, permission := range params.Body.Permissions {
-		if len(permission.Resources) == 0 { // no filters
-			for _, action := range permission.Actions {
-				for _, verb := range authorization.Verbs(authorization.Actions[action]) {
-					rules = append(rules, []string{*params.Body.Name, "*", verb})
-				}
-			}
-		} else {
-			for _, resource := range permission.Resources { // with filtering
-				for _, action := range permission.Actions {
-					for _, verb := range authorization.Verbs(authorization.Actions[action]) {
-						rules = append(rules, []string{*params.Body.Name, *resource, verb}) // TODO: add filter to specific resource
-					}
-				}
-			}
-		}
-	}
-
-	for _, rule := range rules {
-		if _, err := h.enforcer.AddPolicy(rule); err != nil {
-			return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	if err := h.enforcer.SavePolicy(); err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	if err := h.enforcer.InvalidateCache(); err != nil {
-		return authz.NewCreateRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	return authz.NewCreateRoleCreated()
-}
-
-func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.ROLES); err != nil {
-		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	// TODO proper mapping between casbin and weaviate permissions
-	// policies, err := h.enforcer.GetPolicy()
-	// if err != nil {
-	// 	return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	// }
-
-	res := models.RolesListResponse{}
-
-	// for _, policy := range policies {
-	// // 	res = append(res, &models.Role{
-	// // 		// Action: &policy[2], // TODO permissions
-	// // 		// Level: &policy[1],
-	// // 		// Permissions: ,
-	// // 		Name: &policy[0],
-	// // 	})
-	// }
-
-	return authz.NewGetRolesOK().WithPayload(res)
+	return authz.NewAddRoleOK()
 }
 
 func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.ROLES); err != nil {
-		return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
+	// TODO
+	// get either user/key
+	// validate
+	// auth ?
+	h.enforcer.GetRolesForUser(*params.Body.User)
+	h.enforcer.GetRolesForUser(*params.Body.Key)
+	h.enforcer.GetUsersForRole(params.Body.Role)
 
-	// TODO proper mapping between casbin and weaviate permissions
-	// policies, err := h.enforcer.GetPolicy()
-	// if err != nil {
-	// 	return authz.NewGetRolesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	// }
-
-	res := models.RolesListResponse{}
-
-	// for _, policy := range policies {
-	// // 	res = append(res, &models.Role{
-	// // 		// Action: &policy[2], // TODO permissions
-	// // 		// Level: &policy[1],
-	// // 		// Permissions: ,
-	// // 		Name: &policy[0],
-	// // 	})
-	// }
-
-	return authz.NewGetRolesOK().WithPayload(res)
+	return authz.NewAddRoleOK()
 }
 
-func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.ROLES); err != nil {
-		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-	if _, err := h.enforcer.RemovePolicy(params.ID); err != nil {
-		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	if err := h.enforcer.SavePolicy(); err != nil {
-		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	if err := h.enforcer.InvalidateCache(); err != nil {
-		return authz.NewDeleteRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	return authz.NewDeleteRoleNoContent()
-}
-
-func (h *authZHandlers) assignRole(params authz.AssignRoleParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.USERS); err != nil {
-		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	for _, role := range params.Body.Roles {
-		if _, err := h.enforcer.AddRoleForUser(params.ID, role); err != nil {
-			return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	if err := h.enforcer.SavePolicy(); err != nil {
-		return authz.NewAssignRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	return authz.NewAssignRoleOK()
-}
-
-func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.USERS); err != nil {
-		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	roles, err := h.enforcer.GetRolesForUser(params.ID)
-	if err != nil {
-		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	return authz.NewGetRolesForUserOK().WithPayload(roles)
-}
-
-func (h *authZHandlers) getUsersForRole(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.GET, authorization.USERS); err != nil {
-		return authz.NewGetUsersForRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	users, err := h.enforcer.GetUsersForRole(params.ID)
-	if err != nil {
-		return authz.NewGetRolesForUserInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	return authz.NewGetRolesForUserOK().WithPayload(users)
-}
-
-func (h *authZHandlers) revokeRole(params authz.RevokeRoleParams, principal *models.Principal) middleware.Responder {
-	// TODO validate and audit log
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.USERS); err != nil {
-		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	for _, role := range params.Body.Roles {
-		if _, err := h.enforcer.DeleteRoleForUser(params.ID, role); err != nil {
-			return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-		}
-	}
-
-	if err := h.enforcer.SavePolicy(); err != nil {
-		return authz.NewRevokeRoleInternalServerError().WithPayload(errPayloadFromSingleErr(err))
-	}
-
-	return authz.NewRevokeRoleOK()
+func (h *authZHandlers) removeRole(params authz.RemoveRoleParams, principal *models.Principal) middleware.Responder {
+	// TODO
+	// get either user/key
+	// validate
+	// auth ?
+	h.enforcer.DeleteRoleForUser(*params.Body.Key, params.Body.Role)
+	h.enforcer.DeleteRoleForUser(*params.Body.User, params.Body.Role)
+	return authz.NewRemoveRoleOK()
 }
