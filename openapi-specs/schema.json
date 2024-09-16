@@ -5,6 +5,81 @@
     "application/json"
   ],
   "definitions": {
+    "Policy": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "description": "role to assigned to key or user"
+        },
+        "object": {
+          "type": "string",
+          "description": "object the user/key can do an action on"
+        },
+        "action": {
+          "type": "string",
+          "description": "HTTP Method like actions the user/key can perform on an object",
+          "enum": ["GET", "POST", "DELETE", "PUT", "PATCH", "HEAD", "OPTIONS"]
+        }
+      }
+    },
+    "PoliciesListResponse": {
+      "type": "array",
+      "description": "list of policies",
+      "items": {
+        "$ref": "#/definitions/Policy"
+      }
+    },
+    "RoleAssignmentRequest": {
+      "type": "object",
+      "description": "RBAC role assignment request",
+      "properties": {
+        "user": {
+          "type": "string",
+          "description": "the user to be assigned to a role",
+          "x-nullable": true
+        },
+        "key": {
+          "type": "string",
+          "description": "the key to be assigned to a role",
+          "x-nullable": true
+        },
+        "role": {
+          "type": "string",
+          "description": "the role that the key/user assigned to"
+        }
+      }
+    },
+    "RoleAssignmentResponse": {
+      "type": "object",
+      "description": "role assignment response",
+      "properties": {
+        "users": {
+          "description": "users assigned to the requested role",
+          "x-nullable": true,
+          "type": "array",          
+          "items": {
+            "type": "string"
+          }
+        },
+        "keys": {
+          "description": "keys assigned to the requested role",
+          "x-nullable": true,
+          "type": "array",          
+          "items": {
+            "type": "string"
+          }
+        },
+        "roles": {
+          "description": "roles assigned to the requested key/user",
+          "x-nullable": true,
+          "type": "array",          
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },    
     "Link": {
       "type": "object",
       "properties": {
@@ -2371,6 +2446,291 @@
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
+      }
+    },
+    "/authz/policy": {
+      "post": {
+        "summary": "Add a new policy",
+        "operationId": "addPolicy",
+        "x-serviceIds": [
+          "weaviate.authz.add.policy"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Policy"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Policy added successfully"
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },          
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }    
+    },
+    "/authz/policies": {
+      "get": {
+        "summary": "Get all policies",
+        "operationId": "getPolicies",
+        "x-serviceIds": [
+          "weaviate.authz.get.policies"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "responses": {          
+          "200": {
+            "description": "Successful response.",
+            "schema": {
+              "$ref": "#/definitions/PoliciesListResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },                    
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/authz/policies/{id}": {
+      "delete": {
+        "summary": "Delete a policy",
+        "operationId": "deletePolicy",
+        "x-serviceIds": [
+          "weaviate.authz.delete.policy"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "description": "policy",            
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+              "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },       
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },    
+    "/authz/role": {
+      "get": {
+        "summary": "get roles for user or a key or users for specified role ",
+        "operationId": "getRole",
+        "x-serviceIds": [
+          "weaviate.authz.get.role"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/RoleAssignmentRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "$ref": "#/definitions/RoleAssignmentResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role is not found."
+          },          
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Assign a role to a user",
+        "operationId": "addRole",
+        "x-serviceIds": [
+          "weaviate.authz.add.role"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/RoleAssignmentRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned successfully"
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "role is not found."
+          },          
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove a role from a user",
+        "operationId": "removeRole",
+        "x-serviceIds": [
+          "weaviate.authz.delete.role"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/RoleAssignmentRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role removed successfully"
+          },          
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },         
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "/objects": {
