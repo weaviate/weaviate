@@ -4662,6 +4662,10 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        },
+        "propagateObjectDeletion": {
+          "description": "Propagate object deletion",
+          "type": "boolean"
         }
       }
     },
@@ -10109,6 +10113,10 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        },
+        "propagateObjectDeletion": {
+          "description": "Propagate object deletion",
+          "type": "boolean"
         }
       }
     },

@@ -96,6 +96,7 @@ func (db *DB) init(ctx context.Context) error {
 				DisableLazyLoadShards:     db.config.DisableLazyLoadShards,
 				ForceFullReplicasSearch:   db.config.ForceFullReplicasSearch,
 				ReplicationFactor:         class.ReplicationConfig.Factor,
+				PropagateObjectDeletion:   class.ReplicationConfig.PropagateObjectDeletion,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
