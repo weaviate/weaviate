@@ -14,7 +14,6 @@ package rest
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -141,15 +140,8 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 			)
 		}
 
-		apiKeyConfig := appState.ServerConfig.Config.Authentication.APIKey
-		enforcer, err := initializeCasbin(apiKeyConfig)
-		if err != nil {
-			log.Fatalf("Failed to initialize Casbin: %v", err)
-		}
-
-		// Create a new middleware for Casbin authorization
-		authMiddleware := CasbinMiddleware(enforcer, apiKeyConfig)
-		handler = authMiddleware(handler)
+		// Create a new middleware for RBAC Authz
+		handler = rbacMiddleware(appState)(handler)
 		// Must be the last middleware as it might skip the next handler
 		handler = addClusterHandlerMiddleware(handler, appState)
 		if appState.ServerConfig.Config.Sentry.Enabled {
