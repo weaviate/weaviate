@@ -295,6 +295,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't load")
 	}
 
+	appState.RBACEnforcer, err = initializeCasbin(appState.ServerConfig.Config.Authentication.APIKey)
+	if err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("RBAC enforcer not initialized")
+	}
+
 	// now that modules are loaded we can run the remaining config validation
 	// which is module dependent
 	if err := appState.ServerConfig.Config.Validate(appState.Modules); err != nil {
@@ -668,6 +675,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger, appState.Modules)
 
+	setupAuthZHandlers(api, appState.RBACEnforcer, appState.Metrics, appState.Logger)
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.Locks,
 		appState.SchemaManager, appState.ServerConfig, appState.Logger,
@@ -1524,13 +1532,13 @@ func (m membership) LeaderID() string {
 // Matchers ([matchers]): Defines the matching logic between requests and policies.
 // Summary
 // The line m.AddDef("r", "r", "sub, obj, act") is adding a request definition to the Casbin model, specifying that a request consists of a subject (sub), an object (obj), and an action (act). This is a fundamental part of setting up the Casbin model to define how access control policies are structured and evaluated.
-// CasbinMiddleware is a custom middleware for RBAC using Casbin.
-func CasbinMiddleware(enforcer *casbin.Enforcer, authConfig config.APIKey) func(handler http.Handler) http.Handler {
+// rbacMiddleware is a custom middleware for RBAC using Casbin.
+func rbacMiddleware(appState *state.State) func(handler http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Enforcer will be nil when API keys are not enabled
-			if enforcer == nil {
-				log.Printf("nil enforcer")
+			if appState.RBACEnforcer == nil {
+				appState.Logger.Info("RBAC enforcers is not enabled")
 				return
 			}
 
@@ -1541,11 +1549,14 @@ func CasbinMiddleware(enforcer *casbin.Enforcer, authConfig config.APIKey) func(
 				return
 			}
 
+			// TODO-remove
 			fmt.Printf("r.URL.Path: %+v\n", r.URL.Path)
 			bearer := strings.Split(r.Header.Get("Authorization"), " ") // or retrieve from context/session, etc.
+
+			// TODO-remove scurity concern
 			fmt.Printf("bearer: %+v\n", bearer)
 			if len(bearer) != 2 {
-				log.Printf("bearer token not found")
+				appState.Logger.Error("bearer token not found")
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
@@ -1555,34 +1566,42 @@ func CasbinMiddleware(enforcer *casbin.Enforcer, authConfig config.APIKey) func(
 
 			// Need to match the provided key to the respective user,
 			// since API keys are not persisted, but usernames are
-			for i, key := range authConfig.AllowedKeys {
+			for i, key := range appState.ServerConfig.Config.Authentication.APIKey.AllowedKeys {
 				if bearer[1] == key {
-					sub = authConfig.Users[i]
+					sub = appState.ServerConfig.Config.Authentication.APIKey.Users[i]
 					found = true
 				}
 			}
 
 			if !found {
-				log.Printf("invalid api key")
+				appState.Logger.Error("invalid api key")
 				http.Error(w, "Forbidden", http.StatusForbidden)
 				return
 			}
 
 			obj := r.URL.Path
 			act := r.Method
-			roles, err := enforcer.GetRolesForUser(sub)
+			roles, err := appState.RBACEnforcer.GetRolesForUser(sub)
 			if err != nil {
-				log.Printf("failed to fetch roles for user %s: %v", sub, err)
+				appState.Logger.WithField("user", sub).WithError(err).Error("failed to fetch roles for user")
 				http.Error(w, "Error in authorization", http.StatusInternalServerError)
 				return
 			}
 
 			// One user can potentially be assigned multiple roles
 			for _, role := range roles {
-				log.Printf("checking for role: %q, obj: %q, act: %q", role, obj, act)
-				allow, err := enforcer.Enforce(role, obj, act)
+				appState.Logger.WithFields(logrus.Fields{
+					"role":   role,
+					"object": obj,
+					"action": act,
+				}).Debug("checking for role")
+				allow, err := appState.RBACEnforcer.Enforce(role, obj, act)
 				if err != nil {
-					log.Printf("failed to enforce policy %s:", err)
+					appState.Logger.WithFields(logrus.Fields{
+						"role":   role,
+						"object": obj,
+						"action": act,
+					}).WithError(err).Error("failed to enforce policy")
 					http.Error(w, "Error in authorization", http.StatusInternalServerError)
 					return
 				}
@@ -1594,7 +1613,6 @@ func CasbinMiddleware(enforcer *casbin.Enforcer, authConfig config.APIKey) func(
 			}
 
 			http.Error(w, "Forbidden", http.StatusForbidden)
-			return
 		})
 	}
 }
