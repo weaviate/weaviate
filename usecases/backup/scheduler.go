@@ -232,8 +232,16 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	}
 
 	meta, _ := store.Meta(ctx, GlobalBackupFile)
-	if meta != nil && meta.Status == backup.Cancelled {
-		return nil
+	if meta != nil {
+		// if existed meta and not in the next cases shall be cancellable
+		switch meta.Status {
+		case backup.Cancelled:
+			return nil
+		case backup.Success:
+			return fmt.Errorf("backup already succeeded")
+		default:
+			// do nothing and continue the cancellation
+		}
 	}
 
 	nodes, err := s.backupper.Nodes(ctx, &Request{
