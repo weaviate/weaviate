@@ -41,9 +41,10 @@ var (
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
-	class  string
-	client finderClient // needed to commit and abort operation
-	logger logrus.FieldLogger
+	class                   string
+	propagateObjectDeletion bool
+	client                  finderClient // needed to commit and abort operation
+	logger                  logrus.FieldLogger
 }
 
 // repairOne repairs a single object (used by Finder::GetOne)
@@ -54,19 +55,54 @@ func (r *repairer) repairOne(ctx context.Context,
 	contentIdx int,
 ) (_ *storobj.Object, err error) {
 	var (
+		deleted   bool
 		lastUTime int64
 		winnerIdx int
 		cl        = r.client
 	)
 	for i, x := range votes {
 		if x.o.Deleted {
-			return nil, errConflictExistOrDeleted
+			deleted = true
+			break
 		}
 		if x.UTime > lastUTime {
 			lastUTime = x.UTime
 			winnerIdx = i
 		}
 	}
+
+	if deleted {
+		if !r.propagateObjectDeletion {
+			return nil, errConflictExistOrDeleted
+		}
+
+		gr := enterrors.NewErrorGroupWrapper(r.logger)
+		for _, vote := range votes {
+			if vote.o.Deleted {
+				continue
+			}
+
+			vote := vote
+
+			gr.Go(func() error {
+				ups := []*objects.VObject{{
+					ID:      id,
+					Deleted: true,
+				}}
+				resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
+				if err != nil {
+					return fmt.Errorf("node %q could not repair deleted object: %w", vote.sender, err)
+				}
+				if len(resp) > 0 && resp[0].Err != "" {
+					return fmt.Errorf("overwrite deleted object %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
+				}
+				return nil
+			})
+		}
+
+		return nil, gr.Wait()
+	}
+
 	// fetch most recent object
 	updates := votes[contentIdx].o
 	winner := votes[winnerIdx]
@@ -123,19 +159,54 @@ func (r *repairer) repairExist(ctx context.Context,
 	st rState,
 ) (_ bool, err error) {
 	var (
+		deleted   bool
 		lastUTime int64
 		winnerIdx int
 		cl        = r.client
 	)
 	for i, x := range votes {
 		if x.o.Deleted {
-			return false, errConflictExistOrDeleted
+			deleted = true
+			break
 		}
 		if x.UTime > lastUTime {
 			lastUTime = x.UTime
 			winnerIdx = i
 		}
 	}
+
+	if deleted {
+		if !r.propagateObjectDeletion {
+			return false, errConflictExistOrDeleted
+		}
+
+		gr := enterrors.NewErrorGroupWrapper(r.logger)
+		for _, vote := range votes {
+			if vote.o.Deleted {
+				continue
+			}
+
+			vote := vote
+
+			gr.Go(func() error {
+				ups := []*objects.VObject{{
+					ID:      id,
+					Deleted: true,
+				}}
+				resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
+				if err != nil {
+					return fmt.Errorf("node %q could not repair deleted object: %w", vote.sender, err)
+				}
+				if len(resp) > 0 && resp[0].Err != "" {
+					return fmt.Errorf("overwrite deleted object %w %s: %s", errConflictObjectChanged, vote.sender, resp[0].Err)
+				}
+				return nil
+			})
+		}
+
+		return false, gr.Wait()
+	}
+
 	// fetch most recent object
 	winner := votes[winnerIdx]
 	resp, err := cl.FullRead(ctx, winner.sender, r.class, shard, id, search.SelectProperties{}, additional.Properties{}, 9)
@@ -274,8 +345,30 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		query := make([]*objects.VObject, 0, len(ids)/2)
 		m := make(map[string]int, len(ids)/2) //
 		for j, x := range lastTimes {
+			if result[j] == nil {
+				if x.Deleted {
+					continue
+				}
+
+				if !r.propagateObjectDeletion {
+					// note: errConflictExistOrDeleted may be returned instead
+					// but keeping equivalent logic to ensure existing behaviour
+					continue
+				}
+
+				obj := objects.VObject{
+					ID:      ids[j],
+					Deleted: true,
+				}
+				query = append(query, &obj)
+				m[string(ids[j])] = j
+
+				continue
+			}
+
 			cTime := vote.UpdateTimeAt(j)
-			if x.T != cTime && !x.Deleted && result[j] != nil && vote.Count[j] == nVotes {
+
+			if x.T != cTime && vote.Count[j] == nVotes {
 				obj := objects.VObject{
 					LatestObject:    &result[j].Object,
 					Vector:          result[j].Vector,
