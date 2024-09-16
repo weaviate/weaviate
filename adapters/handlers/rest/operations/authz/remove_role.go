@@ -24,40 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// GetRoleHandlerFunc turns a function with the right signature into a get role handler
-type GetRoleHandlerFunc func(GetRoleParams, *models.Principal) middleware.Responder
+// RemoveRoleHandlerFunc turns a function with the right signature into a remove role handler
+type RemoveRoleHandlerFunc func(RemoveRoleParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn GetRoleHandlerFunc) Handle(params GetRoleParams, principal *models.Principal) middleware.Responder {
+func (fn RemoveRoleHandlerFunc) Handle(params RemoveRoleParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// GetRoleHandler interface for that can handle valid get role params
-type GetRoleHandler interface {
-	Handle(GetRoleParams, *models.Principal) middleware.Responder
+// RemoveRoleHandler interface for that can handle valid remove role params
+type RemoveRoleHandler interface {
+	Handle(RemoveRoleParams, *models.Principal) middleware.Responder
 }
 
-// NewGetRole creates a new http.Handler for the get role operation
-func NewGetRole(ctx *middleware.Context, handler GetRoleHandler) *GetRole {
-	return &GetRole{Context: ctx, Handler: handler}
+// NewRemoveRole creates a new http.Handler for the remove role operation
+func NewRemoveRole(ctx *middleware.Context, handler RemoveRoleHandler) *RemoveRole {
+	return &RemoveRole{Context: ctx, Handler: handler}
 }
 
 /*
-	GetRole swagger:route GET /authz/role authz getRole
+	RemoveRole swagger:route DELETE /authz/role authz removeRole
 
-get roles for user or a key or users for specified role
+Remove a role from a user
 */
-type GetRole struct {
+type RemoveRole struct {
 	Context *middleware.Context
-	Handler GetRoleHandler
+	Handler RemoveRoleHandler
 }
 
-func (o *GetRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *RemoveRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewGetRoleParams()
+	var Params = NewRemoveRoleParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)

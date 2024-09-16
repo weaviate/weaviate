@@ -28,19 +28,19 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewGetRoleParams creates a new GetRoleParams object
+// NewRemoveRoleParams creates a new RemoveRoleParams object
 //
 // There are no default values defined in the spec.
-func NewGetRoleParams() GetRoleParams {
+func NewRemoveRoleParams() RemoveRoleParams {
 
-	return GetRoleParams{}
+	return RemoveRoleParams{}
 }
 
-// GetRoleParams contains all the bound params for the get role operation
+// RemoveRoleParams contains all the bound params for the remove role operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters getRole
-type GetRoleParams struct {
+// swagger:parameters removeRole
+type RemoveRoleParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -55,8 +55,8 @@ type GetRoleParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewGetRoleParams() beforehand.
-func (o *GetRoleParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewRemoveRoleParams() beforehand.
+func (o *RemoveRoleParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r

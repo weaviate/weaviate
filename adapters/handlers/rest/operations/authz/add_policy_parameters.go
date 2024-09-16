@@ -28,19 +28,19 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// NewGetRoleParams creates a new GetRoleParams object
+// NewAddPolicyParams creates a new AddPolicyParams object
 //
 // There are no default values defined in the spec.
-func NewGetRoleParams() GetRoleParams {
+func NewAddPolicyParams() AddPolicyParams {
 
-	return GetRoleParams{}
+	return AddPolicyParams{}
 }
 
-// GetRoleParams contains all the bound params for the get role operation
+// AddPolicyParams contains all the bound params for the add policy operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters getRole
-type GetRoleParams struct {
+// swagger:parameters addPolicy
+type AddPolicyParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
@@ -49,21 +49,21 @@ type GetRoleParams struct {
 	  Required: true
 	  In: body
 	*/
-	Body *models.RoleAssignmentRequest
+	Body *models.Policy
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewGetRoleParams() beforehand.
-func (o *GetRoleParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewAddPolicyParams() beforehand.
+func (o *AddPolicyParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
 
 	if runtime.HasBody(r) {
 		defer r.Body.Close()
-		var body models.RoleAssignmentRequest
+		var body models.Policy
 		if err := route.Consumer.Consume(r.Body, &body); err != nil {
 			if err == io.EOF {
 				res = append(res, errors.Required("body", "body", ""))
