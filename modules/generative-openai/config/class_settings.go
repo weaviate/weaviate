@@ -154,9 +154,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: %v", availableApiVersions)
 	}
 
-	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
-	if err != nil {
-		return err
+	if ic.IsAzure() {
+		err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -165,6 +167,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
 	return &asString
+}
+
+func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
+	asBool := ic.propertyValuesHelper.GetPropertyAsBool(ic.cfg, name, false)
+	return &asBool
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
@@ -229,7 +236,7 @@ func (ic *classSettings) DeploymentID() string {
 }
 
 func (ic *classSettings) IsAzure() bool {
-	return ic.ResourceName() != "" && ic.DeploymentID() != ""
+	return *ic.getBoolProperty("isAzure", false) || (ic.ResourceName() != "" && ic.DeploymentID() != "")
 }
 
 func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
