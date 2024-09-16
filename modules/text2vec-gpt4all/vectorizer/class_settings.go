@@ -29,7 +29,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
 }
 
 func (cs *classSettings) Validate(class *models.Class) error {
