@@ -43,7 +43,7 @@ func NewRemoveRole(ctx *middleware.Context, handler RemoveRoleHandler) *RemoveRo
 }
 
 /*
-	RemoveRole swagger:route DELETE /authz/role authz removeRole
+	RemoveRole swagger:route DELETE /authz/roles authz removeRole
 
 Remove a role from a user
 */

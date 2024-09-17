@@ -32,14 +32,17 @@ import (
 type Policy struct {
 
 	// HTTP Method like actions the user/key can perform on an object
+	// Required: true
 	// Enum: [GET POST DELETE PUT PATCH HEAD OPTIONS]
-	Action string `json:"action,omitempty"`
+	Action *string `json:"action"`
 
 	// object the user/key can do an action on
-	Object string `json:"object,omitempty"`
+	// Required: true
+	Object *string `json:"object"`
 
 	// role to assigned to key or user
-	Role string `json:"role,omitempty"`
+	// Required: true
+	Role *string `json:"role"`
 }
 
 // Validate validates this policy
@@ -47,6 +50,14 @@ func (m *Policy) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateAction(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateObject(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateRole(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -101,12 +112,31 @@ func (m *Policy) validateActionEnum(path, location string, value string) error {
 }
 
 func (m *Policy) validateAction(formats strfmt.Registry) error {
-	if swag.IsZero(m.Action) { // not required
-		return nil
+
+	if err := validate.Required("action", "body", m.Action); err != nil {
+		return err
 	}
 
 	// value enum
-	if err := m.validateActionEnum("action", "body", m.Action); err != nil {
+	if err := m.validateActionEnum("action", "body", *m.Action); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Policy) validateObject(formats strfmt.Registry) error {
+
+	if err := validate.Required("object", "body", m.Object); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Policy) validateRole(formats strfmt.Registry) error {
+
+	if err := validate.Required("role", "body", m.Role); err != nil {
 		return err
 	}
 

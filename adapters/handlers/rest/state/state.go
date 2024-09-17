@@ -51,7 +51,7 @@ type State struct {
 	AnonymousAccess *anonymous.Client
 	APIKey          *apikey.Client
 	Authorizer      authorization.Authorizer
-	RBACEnforcer    *casbin.Enforcer
+	RBACEnforcer    *casbin.SyncedCachedEnforcer
 
 	ServerConfig          *config.WeaviateConfig
 	Locks                 locks.ConnectorSchemaLock
