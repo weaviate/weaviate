@@ -12,11 +12,9 @@
 package rest
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -31,7 +29,6 @@ import (
 
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
-	"github.com/casbin/casbin/v2/persist"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	"github.com/weaviate/fgprof"
 
@@ -1617,7 +1614,7 @@ func rbacMiddleware(appState *state.State) func(handler http.Handler) http.Handl
 	}
 }
 
-func initializeCasbin(authConfig config.APIKey) (*casbin.Enforcer, error) {
+func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, error) {
 	numRoles := len(authConfig.Roles)
 	if numRoles == 0 {
 		log.Printf("no roles found")
@@ -1635,10 +1632,12 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.Enforcer, error) {
 		return nil, fmt.Errorf("load rbac model: %w", err)
 	}
 
-	enforcer, err := casbin.NewEnforcer(m)
+	enforcer, err := casbin.NewSyncedCachedEnforcer(m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create enforcer: %w", err)
 	}
+	// TODO: make configurable
+	enforcer.EnableCache(false)
 
 	// TODO: make configurable
 	enforcer.SetAdapter(fileadapter.NewAdapter("./rbac/policy.csv"))
@@ -1652,6 +1651,8 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.Enforcer, error) {
 		//
 		// if _, err := enforcer.AddPolicy(authConfig.Roles[i], "/v1/meta", "GET"); err != nil {
 		//
+		// TODO: objects has to be mapped e.g.
+		//  v1/schema.class.ABC  [path.objectType.objectName]
 		if _, err := enforcer.AddPolicy(authConfig.Roles[i], "", ""); err != nil {
 			return nil, fmt.Errorf("add policy: %w", err)
 		}
@@ -1665,60 +1666,4 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.Enforcer, error) {
 	}
 
 	return enforcer, nil
-}
-
-const (
-	errInvalidFilePath = "invalid file path, file path cannot be empty"
-	errNotImplemented  = "not implemented"
-)
-
-type Adapter struct {
-	fsys     fs.FS
-	filePath string
-}
-
-func NewAdapter(fsys fs.FS, filePath string) *Adapter {
-	return &Adapter{fsys, filePath}
-}
-
-func (a *Adapter) LoadPolicy(model model.Model) error {
-	if a.filePath == "" {
-		return errors.New(errInvalidFilePath)
-	}
-
-	return a.loadPolicyFile(model, persist.LoadPolicyLine)
-}
-
-func (a *Adapter) loadPolicyFile(model model.Model, handler func(string, model.Model) error) error {
-	f, err := a.fsys.Open(a.filePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		err = handler(line, model)
-		if err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
-}
-
-func (a *Adapter) SavePolicy(model model.Model) error {
-	return errors.New(errNotImplemented)
-}
-
-func (a *Adapter) AddPolicy(sec string, ptype string, rule []string) error {
-	return errors.New(errNotImplemented)
-}
-
-func (a *Adapter) RemovePolicy(sec string, ptype string, rule []string) error {
-	return errors.New(errNotImplemented)
-}
-
-func (a *Adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
-	return errors.New(errNotImplemented)
 }
