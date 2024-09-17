@@ -72,11 +72,8 @@ GetUsersForRoleParams contains all the parameters to send to the API endpoint
 */
 type GetUsersForRoleParams struct {
 
-	/* ID.
-
-	   role ID
-	*/
-	ID string
+	// Body.
+	Body GetUsersForRoleBody
 
 	timeout    time.Duration
 	Context    context.Context
@@ -131,15 +128,15 @@ func (o *GetUsersForRoleParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
-// WithID adds the id to the get users for role params
-func (o *GetUsersForRoleParams) WithID(id string) *GetUsersForRoleParams {
-	o.SetID(id)
+// WithBody adds the body to the get users for role params
+func (o *GetUsersForRoleParams) WithBody(body GetUsersForRoleBody) *GetUsersForRoleParams {
+	o.SetBody(body)
 	return o
 }
 
-// SetID adds the id to the get users for role params
-func (o *GetUsersForRoleParams) SetID(id string) {
-	o.ID = id
+// SetBody adds the body to the get users for role params
+func (o *GetUsersForRoleParams) SetBody(body GetUsersForRoleBody) {
+	o.Body = body
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -149,9 +146,7 @@ func (o *GetUsersForRoleParams) WriteToRequest(r runtime.ClientRequest, reg strf
 		return err
 	}
 	var res []error
-
-	// path param id
-	if err := r.SetPathParam("id", o.ID); err != nil {
+	if err := r.SetBodyParam(o.Body); err != nil {
 		return err
 	}
 

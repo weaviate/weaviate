@@ -113,11 +113,11 @@ func (o *RemoveRoleOK) Code() int {
 }
 
 func (o *RemoveRoleOK) Error() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleOK ", 200)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleOK ", 200)
 }
 
 func (o *RemoveRoleOK) String() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleOK ", 200)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleOK ", 200)
 }
 
 func (o *RemoveRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -170,11 +170,11 @@ func (o *RemoveRoleBadRequest) Code() int {
 }
 
 func (o *RemoveRoleBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *RemoveRoleBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *RemoveRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -237,11 +237,11 @@ func (o *RemoveRoleUnauthorized) Code() int {
 }
 
 func (o *RemoveRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleUnauthorized ", 401)
 }
 
 func (o *RemoveRoleUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleUnauthorized ", 401)
 }
 
 func (o *RemoveRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -294,11 +294,11 @@ func (o *RemoveRoleForbidden) Code() int {
 }
 
 func (o *RemoveRoleForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *RemoveRoleForbidden) String() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *RemoveRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -362,11 +362,11 @@ func (o *RemoveRoleInternalServerError) Code() int {
 }
 
 func (o *RemoveRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *RemoveRoleInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /authz/role][%d] removeRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /authz/roles][%d] removeRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *RemoveRoleInternalServerError) GetPayload() *models.ErrorResponse {
