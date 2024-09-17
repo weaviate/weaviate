@@ -140,7 +140,7 @@ func TestGetAnswer(t *testing.T) {
 			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
-		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
+		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
 
 		require.NotNil(t, err)
 		assert.Error(t, err, "connection to OpenAI failed with status: 500 request-id: some-request-id error: some error from the server")
