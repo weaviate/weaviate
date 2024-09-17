@@ -9,24 +9,24 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modpalm
+package modgoogle
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
 
-func (m *PalmModule) initNearText() error {
+func (m *GoogleModule) initNearText() error {
 	m.searcher = nearText.NewSearcher(m.vectorizer)
 	m.graphqlProvider = nearText.New(m.nearTextTransformer)
 	return nil
 }
 
-func (m *PalmModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+func (m *GoogleModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return m.graphqlProvider.Arguments()
 }
 
-func (m *PalmModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
+func (m *GoogleModule) VectorSearches() map[string]modulecapabilities.VectorForParams {
 	return m.searcher.VectorSearches()
 }
 

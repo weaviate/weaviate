@@ -50,7 +50,7 @@ func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
 
 func composeModules(palmApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecPaLM(palmApiKey).
+		WithText2VecGoogle(palmApiKey).
 		WithGenerativePaLM(palmApiKey)
 	return
 }

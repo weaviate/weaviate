@@ -25,7 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
@@ -33,7 +33,7 @@ func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &palm{
+		c := &google{
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
@@ -64,7 +64,7 @@ func TestClient(t *testing.T) {
 	t.Run("when the context is expired", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &palm{
+		c := &google{
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
@@ -88,7 +88,7 @@ func TestClient(t *testing.T) {
 			serverError: errors.Errorf("nope, not gonna happen"),
 		})
 		defer server.Close()
-		c := &palm{
+		c := &google{
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
@@ -107,7 +107,7 @@ func TestClient(t *testing.T) {
 	t.Run("when Palm key is passed using X-Palm-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &palm{
+		c := &google{
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
@@ -133,7 +133,7 @@ func TestClient(t *testing.T) {
 	t.Run("when Palm key is empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &palm{
+		c := &google{
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
@@ -156,7 +156,7 @@ func TestClient(t *testing.T) {
 	t.Run("when X-Palm-Api-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
-		c := &palm{
+		c := &google{
 			apiKey:       "",
 			googleApiKey: apikey.NewGoogleApiKey(),
 			httpClient:   &http.Client{},
