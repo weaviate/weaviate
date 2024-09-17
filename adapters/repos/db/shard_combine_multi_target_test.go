@@ -180,6 +180,19 @@ func TestCombiner(t *testing.T) {
 			},
 			out: []search.Result{res(1, 0.05), res(0, 0.375), res(2, 0.60833)},
 		},
+		{
+			name:       "many documents missing entry (score fusion)",
+			targets:    []string{"target1", "target2", "target3", "target4"},
+			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{1, 0.5, 0.25, 0.1}},
+			in: [][]search.Result{
+				{res(0, 0.5), res(1, 0.6), res(2, 0.8), res(3, 0.9)},
+				{res(1, 0.2), res(0, 0.4), res(2, 0.6), res(5, 0.8)},
+				{res(1, 0.2), res(2, 0.4), res(3, 0.6), res(4, 0.8)},
+				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
+			},
+			out:             []search.Result{res(1, 0.1666), res(0, 0.30555)},
+			missingElements: map[uint64][]string{6: {"target3"}},
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
