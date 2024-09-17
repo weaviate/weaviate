@@ -47,8 +47,8 @@ type IndexQueue struct {
 
 	IndexQueueOptions
 
-	// indexCh is the channel used to send vectors to the shared indexing workers.
-	indexCh chan job
+	// centralJobQueue is the channel used to send vectors to the shared indexing workers.
+	centralJobQueue jobQueue
 
 	// context used to close pending tasks
 	// if canceled, prevents new vectors from being added to the queue.
@@ -144,7 +144,7 @@ func NewIndexQueue(
 	targetVector string,
 	shard shardStatusUpdater,
 	index batchIndexer,
-	centralJobQueue chan job,
+	centralJobQueue jobQueue,
 	checkpoints *indexcheckpoint.Checkpoints,
 	opts IndexQueueOptions,
 	promMetrics *monitoring.PrometheusMetrics,
@@ -200,7 +200,7 @@ func NewIndexQueue(
 		IndexQueueOptions: opts,
 		Shard:             shard,
 		index:             index,
-		indexCh:           centralJobQueue,
+		centralJobQueue:   centralJobQueue,
 		pqMaxPool:         newPqMaxPool(0),
 		Checkpoints:       checkpoints,
 		metrics:           NewIndexQueueMetrics(opts.Logger, promMetrics, className, shard.Name(), targetVector),
@@ -488,17 +488,29 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 
 		count += int64(len(ids))
 
+		jobEnqueuedCh := make(chan error)
+
+		enterrors.GoWrapper(func() {
+			err := q.centralJobQueue.EnqueueJob(job{
+				indexer: q.index,
+				ctx:     q.ctx,
+				ids:     ids,
+				vectors: vectors,
+				done:    q.processingJobs.Decr,
+			})
+			jobEnqueuedCh <- err
+		}, q.Logger)
+
 		select {
 		case <-q.ctx.Done():
 			q.processingJobs.Decr()
 			return count
-		case q.indexCh <- job{
-			indexer: q.index,
-			ctx:     q.ctx,
-			ids:     ids,
-			vectors: vectors,
-			done:    q.processingJobs.Decr,
-		}:
+		case err := <-jobEnqueuedCh:
+			if err != nil {
+				q.Logger.WithError(err).Error("failed enqueing vectors for indexing")
+				q.processingJobs.Decr()
+				return count
+			}
 		}
 	}
 

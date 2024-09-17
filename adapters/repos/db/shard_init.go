@@ -31,7 +31,7 @@ import (
 )
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	shardName string, index *Index, class *models.Class, jobQueue jobQueue,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (_ *Shard, err error) {
 	before := time.Now()
@@ -51,7 +51,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		slowQueryReporter:     helpers.NewSlowQueryReporterFromEnv(index.logger),
 		stopDimensionTracking: make(chan struct{}),
 		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:       jobQueueCh,
+		centralJobQueue:       jobQueue,
 		indexCheckpoints:      indexCheckpoints,
 
 		shut:         false,

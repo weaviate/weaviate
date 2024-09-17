@@ -134,7 +134,7 @@ type ShardLike interface {
 	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
-	addJobToQueue(job job)
+	addJobToQueue(ctx context.Context, job job) error
 	uuidFromDocID(docID uint64) (strfmt.UUID, error)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID) error
 	putObjectLSM(object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
@@ -184,7 +184,7 @@ type Shard struct {
 	stopDimensionTracking        chan struct{}
 	dimensionTrackingInitialized atomic.Bool
 
-	centralJobQueue chan job // reference to queue used by all shards
+	centralJobQueue jobQueue // reference to queue used by all shards
 
 	docIdLock []sync.Mutex
 	// replication
