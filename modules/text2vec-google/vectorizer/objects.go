@@ -17,7 +17,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )

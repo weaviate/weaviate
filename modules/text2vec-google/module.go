@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modpalm
+package modgoogle
 
 import (
 	"context"
@@ -27,18 +27,26 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/clients"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-google/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 )
 
-const Name = "text2vec-palm"
+const (
+	Name       = "text2vec-google"
+	LegacyName = "text2vec-palm"
+)
 
-func New() *PalmModule {
-	return &PalmModule{}
+func New() *GoogleModule {
+	return &GoogleModule{}
 }
 
-type PalmModule struct {
+func NewWithLegacyName() *GoogleModule {
+	return &GoogleModule{withLegacyName: true}
+}
+
+type GoogleModule struct {
+	withLegacyName               bool
 	vectorizer                   text2vecbase.TextVectorizer
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -48,15 +56,18 @@ type PalmModule struct {
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
 
-func (m *PalmModule) Name() string {
-	return "text2vec-palm"
+func (m *GoogleModule) Name() string {
+	if m.withLegacyName {
+		return LegacyName
+	}
+	return Name
 }
 
-func (m *PalmModule) Type() modulecapabilities.ModuleType {
+func (m *GoogleModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2Vec
 }
 
-func (m *PalmModule) Init(ctx context.Context,
+func (m *GoogleModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
@@ -72,7 +83,7 @@ func (m *PalmModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *PalmModule) InitExtension(modules []modulecapabilities.Module) error {
+func (m *GoogleModule) InitExtension(modules []modulecapabilities.Module) error {
 	for _, module := range modules {
 		if module.Name() == m.Name() {
 			continue
@@ -90,7 +101,7 @@ func (m *PalmModule) InitExtension(modules []modulecapabilities.Module) error {
 	return nil
 }
 
-func (m *PalmModule) initVectorizer(ctx context.Context, timeout time.Duration,
+func (m *GoogleModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("GOOGLE_APIKEY")
@@ -107,41 +118,41 @@ func (m *PalmModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	return nil
 }
 
-func (m *PalmModule) initAdditionalPropertiesProvider() error {
+func (m *GoogleModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
 	return nil
 }
 
-func (m *PalmModule) RootHandler() http.Handler {
+func (m *GoogleModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *PalmModule) VectorizeObject(ctx context.Context,
+func (m *GoogleModule) VectorizeObject(ctx context.Context,
 	obj *models.Object, cfg moduletools.ClassConfig,
 ) ([]float32, models.AdditionalProperties, error) {
 	return m.vectorizer.Object(ctx, obj, cfg)
 }
 
-func (m *PalmModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
+func (m *GoogleModule) VectorizeBatch(ctx context.Context, objs []*models.Object, skipObject []bool, cfg moduletools.ClassConfig) ([][]float32, []models.AdditionalProperties, map[int]error) {
 	return batch.VectorizeBatch(ctx, objs, skipObject, cfg, m.logger, m.vectorizer.Object)
 }
 
-func (m *PalmModule) MetaInfo() (map[string]interface{}, error) {
+func (m *GoogleModule) MetaInfo() (map[string]interface{}, error) {
 	return m.metaProvider.MetaInfo()
 }
 
-func (m *PalmModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *GoogleModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 
-func (m *PalmModule) VectorizeInput(ctx context.Context,
+func (m *GoogleModule) VectorizeInput(ctx context.Context,
 	input string, cfg moduletools.ClassConfig,
 ) ([]float32, error) {
 	return m.vectorizer.Texts(ctx, []string{input}, cfg)
 }
 
-func (m *PalmModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
+func (m *GoogleModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool, []string, error) {
 	return true, nil, nil
 }
 

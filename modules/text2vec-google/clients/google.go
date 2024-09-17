@@ -25,7 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
 )
 
 type taskType string
@@ -49,7 +49,7 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID string) strin
 	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
 }
 
-type palm struct {
+type google struct {
 	apiKey        string
 	googleApiKey  *apikey.GoogleApiKey
 	useGoogleAuth bool
@@ -58,8 +58,8 @@ type palm struct {
 	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *palm {
-	return &palm{
+func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *google {
+	return &google{
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
 		googleApiKey:  apikey.NewGoogleApiKey(),
@@ -71,19 +71,19 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 	}
 }
 
-func (v *palm) Vectorize(ctx context.Context, input []string,
+func (v *google) Vectorize(ctx context.Context, input []string,
 	config ent.VectorizationConfig, titlePropertyValue string,
 ) (*ent.VectorizationResult, error) {
 	return v.vectorize(ctx, input, retrievalDocument, titlePropertyValue, config)
 }
 
-func (v *palm) VectorizeQuery(ctx context.Context, input []string,
+func (v *google) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	return v.vectorize(ctx, input, retrievalQuery, "", config)
 }
 
-func (v *palm) vectorize(ctx context.Context, input []string, taskType taskType,
+func (v *google) vectorize(ctx context.Context, input []string, taskType taskType,
 	titlePropertyValue string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(config)
@@ -131,11 +131,11 @@ func (v *palm) vectorize(ctx context.Context, input []string, taskType taskType,
 	return v.parseEmbeddingsResponse(res.StatusCode, bodyBytes, input)
 }
 
-func (v *palm) useGenerativeAIEndpoint(config ent.VectorizationConfig) bool {
+func (v *google) useGenerativeAIEndpoint(config ent.VectorizationConfig) bool {
 	return v.getApiEndpoint(config) == "generativelanguage.googleapis.com"
 }
 
-func (v *palm) getPayload(useGenerativeAI bool, input []string,
+func (v *google) getPayload(useGenerativeAI bool, input []string,
 	taskType taskType, title string, config ent.VectorizationConfig,
 ) interface{} {
 	if useGenerativeAI {
@@ -172,7 +172,7 @@ func (v *palm) getPayload(useGenerativeAI bool, input []string,
 	return embeddingsRequest{instances}
 }
 
-func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
+func (v *google) checkResponse(statusCode int, palmApiError *palmApiError) error {
 	if statusCode != 200 || palmApiError != nil {
 		if palmApiError != nil {
 			return fmt.Errorf("connection to Google failed with status: %v error: %v",
@@ -183,11 +183,11 @@ func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
 	return nil
 }
 
-func (v *palm) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
+func (v *google) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
 	return v.googleApiKey.GetApiKey(ctx, v.apiKey, useGenerativeAIEndpoint, v.useGoogleAuth)
 }
 
-func (v *palm) parseGenerativeAIApiResponse(statusCode int,
+func (v *google) parseGenerativeAIApiResponse(statusCode int,
 	bodyBytes []byte, input []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	var resBody batchEmbedTextResponse
@@ -219,7 +219,7 @@ func (v *palm) parseGenerativeAIApiResponse(statusCode int,
 	return v.getResponse(input, dimensions, vectors)
 }
 
-func (v *palm) parseEmbeddingsResponse(statusCode int,
+func (v *google) parseEmbeddingsResponse(statusCode int,
 	bodyBytes []byte, input []string,
 ) (*ent.VectorizationResult, error) {
 	var resBody embeddingsResponse
@@ -244,7 +244,7 @@ func (v *palm) parseEmbeddingsResponse(statusCode int,
 	return v.getResponse(input, dimensions, vectors)
 }
 
-func (v *palm) getResponse(input []string, dimensions int, vectors [][]float32) (*ent.VectorizationResult, error) {
+func (v *google) getResponse(input []string, dimensions int, vectors [][]float32) (*ent.VectorizationResult, error) {
 	return &ent.VectorizationResult{
 		Texts:      input,
 		Dimensions: dimensions,
@@ -252,19 +252,19 @@ func (v *palm) getResponse(input []string, dimensions int, vectors [][]float32) 
 	}, nil
 }
 
-func (v *palm) getApiEndpoint(config ent.VectorizationConfig) string {
+func (v *google) getApiEndpoint(config ent.VectorizationConfig) string {
 	return config.ApiEndpoint
 }
 
-func (v *palm) getProjectID(config ent.VectorizationConfig) string {
+func (v *google) getProjectID(config ent.VectorizationConfig) string {
 	return config.ProjectID
 }
 
-func (v *palm) getModel(config ent.VectorizationConfig) string {
+func (v *google) getModel(config ent.VectorizationConfig) string {
 	return config.Model
 }
 
-func (v *palm) isLegacy(config ent.VectorizationConfig) bool {
+func (v *google) isLegacy(config ent.VectorizationConfig) bool {
 	return isLegacyModel(config.Model)
 }
 
