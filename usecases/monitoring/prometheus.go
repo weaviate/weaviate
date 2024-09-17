@@ -81,6 +81,9 @@ type PrometheusMetrics struct {
 	VectorIndexTombstoneCleanupThreads *prometheus.GaugeVec
 	VectorIndexTombstoneCleanedCount   *prometheus.CounterVec
 	VectorIndexTombstoneUnexpected     *prometheus.CounterVec
+	VectorIndexTombstoneCycleStart     *prometheus.GaugeVec
+	VectorIndexTombstoneCycleEnd       *prometheus.GaugeVec
+	VectorIndexTombstoneCycleProgress  *prometheus.GaugeVec
 	VectorIndexOperations              *prometheus.GaugeVec
 	VectorIndexDurations               *prometheus.SummaryVec
 	VectorIndexSize                    *prometheus.GaugeVec
@@ -173,6 +176,9 @@ func (pm *PrometheusMetrics) DeleteShard(className, shardName string) error {
 	pm.VectorIndexTombstoneCleanupThreads.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneCleanedCount.DeletePartialMatch(labels)
 	pm.VectorIndexTombstoneUnexpected.DeletePartialMatch(labels)
+	pm.VectorIndexTombstoneCycleStart.DeletePartialMatch(labels)
+	pm.VectorIndexTombstoneCycleEnd.DeletePartialMatch(labels)
+	pm.VectorIndexTombstoneCycleProgress.DeletePartialMatch(labels)
 	pm.VectorIndexOperations.DeletePartialMatch(labels)
 	pm.VectorIndexMaintenanceDurations.DeletePartialMatch(labels)
 	pm.VectorIndexDurations.DeletePartialMatch(labels)
@@ -396,6 +402,18 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		VectorIndexTombstoneUnexpected: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "vector_index_tombstone_unexpected_total",
 			Help: "Total number of unexpected tombstones that were found, for example because a vector was not found for an existing id in the index",
+		}, []string{"class_name", "shard_name", "operation"}),
+		VectorIndexTombstoneCycleStart: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_tombstone_cycle_start_timestamp_seconds",
+			Help: "Unix epoch timestamp of the start of the current tombstone cleanup cycle",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexTombstoneCycleEnd: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_tombstone_cycle_end_timestamp_seconds",
+			Help: "Unix epoch timestamp of the end of the last tombstone cleanup cycle. A negative value indicates that the cycle is still running",
+		}, []string{"class_name", "shard_name"}),
+		VectorIndexTombstoneCycleProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "vector_index_tombstone_cycle_progress",
+			Help: "A ratio (percentage) of the progress of the current tombstone cleanup cycle. 0 indicates the very beginning, 1 is a complete cycle.",
 		}, []string{"class_name", "shard_name"}),
 		VectorIndexOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "vector_index_operations",

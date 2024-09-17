@@ -12,27 +12,23 @@
 package main
 
 import (
-	"context"
 	"net"
+	"os"
 
 	"github.com/jessevdk/go-flags"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/handlers/rest"
 	"github.com/weaviate/weaviate/exp/query"
+	"github.com/weaviate/weaviate/exp/querytenant"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
-	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
-	"github.com/weaviate/weaviate/usecases/config"
+	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
+	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
 
 const (
 	TargetQuerier = "querier"
-
-	// For mocking purpose
-	authAnonymousEnabled = true
 )
 
 // TODO: We want this to be part of original `cmd/weaviate-server`.
@@ -47,42 +43,45 @@ func main() {
 
 	_, err := flags.Parse(&opts)
 	if err != nil {
-		log.Fatal("failed to parse command line args", err)
+		if err.(*flags.Error).Type == flags.ErrHelp {
+			os.Exit(1)
+		}
+		log.WithField("err", err).Fatal("failed to parse command line args")
 	}
 
 	switch opts.Target {
 	case "querier":
 		log = log.WithField("target", "querier")
-		myConfig := config.GetConfigOptionGroup()
-		appState := rest.MakeAppState(context.TODO(), myConfig)
+		s3module := modsloads3.New()
+		s3module.DataPath = opts.Query.DataPath
+		s3module.Endpoint = opts.Query.S3Endpoint
 
-		cfg := config.Config{
-			QueryDefaults: config.QueryDefaults{Limit: 25},
-		}
-		weaviateOIDC, err := oidc.New(cfg)
-		if err != nil {
-			log.WithField("cause", err).Error("failed to create OIDC")
-		}
+		// This functionality is already in `go-client` of weaviate.
+		// TODO(kavi): Find a way to share this functionality in both go-client and in querytenant.
+		tenantInfo := querytenant.NewTenantInfo(opts.Query.SchemaAddr, querytenant.DefaultSchemaPath)
 
-		weaviateApiKey, err := apikey.New(cfg)
-		if err != nil {
-			log.WithField("cause", err).Error("failed to generate api key")
-		}
-		a := query.NewAPI(
-			appState.Traverser,
-			composer.New(cfg.Authentication, weaviateOIDC, weaviateApiKey),
-			authAnonymousEnabled,
-			appState.SchemaManager,
-			appState.BatchManager,
-			&cfg,
-			log,
-		)
-		grpcQuerier := query.NewGRPC(a, log)
-		listener, err := net.Listen("tcp", opts.GRPCListenAddr)
+		vclient, err := client.NewClient(opts.Query.VectorizerAddr, log)
 		if err != nil {
 			log.WithFields(logrus.Fields{
-				"cause": err,
-				"addrs": opts.GRPCListenAddr,
+				"err":   err,
+				"addrs": opts.Query.VectorizerAddr,
+			}).Fatal("failed to talk to vectorizer")
+		}
+
+		a := query.NewAPI(
+			tenantInfo,
+			s3module,
+			vectorizer.New(vclient),
+			&opts.Query,
+			log,
+		)
+
+		grpcQuerier := query.NewGRPC(a, log)
+		listener, err := net.Listen("tcp", opts.Query.GRPCListenAddr)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"err":   err,
+				"addrs": opts.Query.GRPCListenAddr,
 			}).Fatal("failed to bind grpc server addr")
 		}
 
@@ -90,7 +89,7 @@ func main() {
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
-		log.WithField("addr", opts.GRPCListenAddr).Info("starting querier over grpc")
+		log.WithField("addr", opts.Query.GRPCListenAddr).Info("starting querier over grpc")
 		if err := grpcServer.Serve(listener); err != nil {
 			log.Fatal("failed to start grpc server", err)
 		}
@@ -100,19 +99,8 @@ func main() {
 	}
 }
 
-// Options represents Command line options
+// Options represents Command line options passed to weaviate binary
 type Options struct {
-	Target            string `long:"target" description:"how should weaviate-server be running as e.g: querier, ingester, etc"`
-	GRPCListenAddr    string `long:"query.grpc.listen" description:"gRPC address that query node listens at" default:"0.0.0.0:9090"`
-	SchemaManagerAddr string `long:"schema.grpc.addr" description:"gRPC address to get schema information" default:"0.0.0.0:50051"`
-}
-
-type DummyLock struct{}
-
-func (d *DummyLock) LockConnector() (func() error, error) {
-	return func() error { return nil }, nil
-}
-
-func (d *DummyLock) LockSchema() (func() error, error) {
-	return func() error { return nil }, nil
+	Target string       `long:"target" description:"how should weaviate-server be running as e.g: querier, ingester, etc"`
+	Query  query.Config `group:"query" namespace:"query"`
 }
