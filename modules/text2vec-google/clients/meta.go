@@ -11,7 +11,7 @@
 
 package clients
 
-func (v *palm) MetaInfo() (map[string]interface{}, error) {
+func (v *google) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
 		"name":              "Google PaLM Module",
 		"documentationHref": "https://cloud.google.com/vertex-ai/docs/generative-ai/embeddings/get-text-embeddings",

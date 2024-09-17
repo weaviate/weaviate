@@ -31,7 +31,7 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
 				Vectorizer: map[string]interface{}{
-					"text2vec-palm": map[string]interface{}{
+					"text2vec-google": map[string]interface{}{
 						"properties":         []interface{}{"description"},
 						"vectorizeClassName": false,
 						"projectId":          gcpProject,
