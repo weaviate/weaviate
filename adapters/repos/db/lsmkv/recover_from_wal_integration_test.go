@@ -642,7 +642,8 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 			err = b.RoaringSetRangeAdd(key3, orig3...)
 			require.NoError(t, err)
 
-			reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange, nullLogger())
+			reader := b.ReaderRoaringSetRange()
+			defer reader.Close()
 
 			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
@@ -689,7 +690,8 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 				33, // newly added
 			} // 32 deleted
 
-			reader := NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange, nullLogger())
+			reader := b.ReaderRoaringSetRange()
+			defer reader.Close()
 
 			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
@@ -745,7 +747,8 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 				33, // newly added
 			} // 32 deleted
 
-			reader := NewBucketReaderRoaringSetRange(bRec.CursorRoaringSetRange, nullLogger())
+			reader := bRec.ReaderRoaringSetRange()
+			defer reader.Close()
 
 			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
