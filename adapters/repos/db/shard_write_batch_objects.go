@@ -278,13 +278,16 @@ func (ob *objectsBatcher) storeAdditionalStorageWithWorkers(ctx context.Context)
 		}
 
 		ob.wg.Add(1)
-		ob.shard.addJobToQueue(job{
+		err := ob.shard.addJobToQueue(ctx, job{
 			object:  object,
 			status:  status,
 			index:   i,
 			ctx:     ctx,
 			batcher: ob,
 		})
+		if err != nil {
+			ob.setErrorAtIndex(err, i)
+		}
 	}
 }
 

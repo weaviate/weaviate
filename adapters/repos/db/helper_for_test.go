@@ -264,7 +264,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		vectorIndexUserConfig: vic,
 		logger:                logger,
 		getSchema:             schemaGetter,
-		centralJobQueue:       repo.jobQueueCh,
+		centralJobQueue:       repo,
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
 		allocChecker:          memwatch.NewDummyMonitor(),

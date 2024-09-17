@@ -53,7 +53,7 @@ type LazyLoadShard struct {
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
-	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
+	shardName string, index *Index, class *models.Class, jobQueue jobQueue,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
 ) *LazyLoadShard {
 	if memMonitor == nil {
@@ -66,7 +66,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			name:             shardName,
 			index:            index,
 			class:            class,
-			jobQueueCh:       jobQueueCh,
+			jobQueue:         jobQueue,
 			indexCheckpoints: indexCheckpoints,
 		},
 		memMonitor: memMonitor,
@@ -78,7 +78,7 @@ type deferredShardOpts struct {
 	name             string
 	index            *Index
 	class            *models.Class
-	jobQueueCh       chan job
+	jobQueue         jobQueue
 	indexCheckpoints *indexcheckpoint.Checkpoints
 }
 
@@ -110,7 +110,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
+		l.shardOpts.class, l.shardOpts.jobQueue, l.shardOpts.indexCheckpoints)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
@@ -558,9 +558,11 @@ func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {
 	l.shard.setFallbackToSearchable(fallback)
 }
 
-func (l *LazyLoadShard) addJobToQueue(job job) {
-	l.mustLoad()
-	l.shard.addJobToQueue(job)
+func (l *LazyLoadShard) addJobToQueue(ctx context.Context, job job) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.addJobToQueue(ctx, job)
 }
 
 func (l *LazyLoadShard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {

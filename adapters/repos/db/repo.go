@@ -87,6 +87,26 @@ type DB struct {
 	// in the case of metrics grouping we need to observe some metrics
 	// node-centric, rather than shard-centric
 	metricsObserver *nodeWideMetricsObserver
+
+	shutdownRWMutex sync.RWMutex
+	isShutdown      bool
+}
+
+type jobQueue interface {
+	EnqueueJob(job job) error
+}
+
+func (db *DB) EnqueueJob(job job) error {
+	db.shutdownRWMutex.RLock()
+	defer db.shutdownRWMutex.RUnlock()
+
+	if db.isShutdown {
+		return errAlreadyShutdown
+	}
+
+	db.jobQueueCh <- job
+
+	return nil
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -280,6 +300,15 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
+	db.shutdownRWMutex.Lock()
+	defer db.shutdownRWMutex.Unlock()
+
+	if db.isShutdown {
+		return errAlreadyShutdown
+	}
+
+	db.isShutdown = true
+
 	db.shutdown <- struct{}{}
 
 	if !asyncEnabled() {
@@ -289,6 +318,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 				index: -1,
 			}
 		}
+		close(db.jobQueueCh)
 	}
 
 	if db.metricsObserver != nil {
@@ -323,7 +353,7 @@ func (db *DB) batchWorker(first bool) {
 	for jobToAdd := range db.jobQueueCh {
 		if jobToAdd.index < 0 {
 			db.shutDownWg.Done()
-			return
+			continue
 		}
 		jobToAdd.batcher.storeSingleObjectInAdditionalStorage(jobToAdd.ctx, jobToAdd.object, jobToAdd.status, jobToAdd.index)
 		jobToAdd.batcher.wg.Done()

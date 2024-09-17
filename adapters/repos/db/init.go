@@ -103,7 +103,7 @@ func (db *DB) init(ctx context.Context) error {
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.indexCheckpoints,
+				db.replicaClient, db.promMetrics, class, db, db.indexCheckpoints,
 				db.memMonitor)
 			if err != nil {
 				return errors.Wrap(err, "create index")

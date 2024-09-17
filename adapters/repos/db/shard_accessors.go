@@ -14,6 +14,8 @@
 package db
 
 import (
+	"context"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -81,8 +83,8 @@ func (s *Shard) setFallbackToSearchable(fallback bool) {
 	s.fallbackToSearchable = fallback
 }
 
-func (s *Shard) addJobToQueue(job job) {
-	s.centralJobQueue <- job
+func (s *Shard) addJobToQueue(_ context.Context, job job) error {
+	return s.centralJobQueue.EnqueueJob(job)
 }
 
 func (s *Shard) hasGeoIndex() bool {

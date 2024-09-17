@@ -38,11 +38,22 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func startWorker(t testing.TB, n int, retryInterval ...time.Duration) chan job {
+type simpleJobQueue struct {
+	queue chan job
+}
+
+func (q *simpleJobQueue) EnqueueJob(job job) error {
+	q.queue <- job
+	return nil
+}
+
+func startWorker(t testing.TB, n int, retryInterval ...time.Duration) jobQueue {
 	t.Helper()
-	ch := make(chan job)
+
+	jobQueue := &simpleJobQueue{queue: make(chan job)}
+
 	t.Cleanup(func() {
-		close(ch)
+		close(jobQueue.queue)
 	})
 
 	itv := time.Millisecond
@@ -54,11 +65,11 @@ func startWorker(t testing.TB, n int, retryInterval ...time.Duration) chan job {
 		go func() {
 			logger := logrus.New()
 			logger.Level = logrus.ErrorLevel
-			asyncWorker(ch, logger, itv)
+			asyncWorker(jobQueue.queue, logger, itv)
 		}()
 	}
 
-	return ch
+	return jobQueue
 }
 
 func newCheckpointManager(t testing.TB) *indexcheckpoint.Checkpoints {
