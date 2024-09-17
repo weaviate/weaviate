@@ -91,7 +91,6 @@ c.out
 /cmd/weaviate-server/build_artifacts/
 
 esbackups/
-**/testdata/
 
 # coverage files
 coverage*.txt
