@@ -20,24 +20,25 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func TestText2VecPaLM_VertexAI_SingleNode(t *testing.T) {
+func TestText2VecGoogle_VertexAI_SingleNode(t *testing.T) {
 	gcpProject := os.Getenv("GCP_PROJECT")
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")
 	}
-	palmApiKey := os.Getenv("PALM_APIKEY")
-	if palmApiKey == "" {
-		t.Skip("skipping, PALM_APIKEY environment variable not present")
+	googleApiKey := os.Getenv("GOOGLE_APIKEY")
+	if googleApiKey == "" {
+		t.Skip("skipping, GOOGLE_APIKEY environment variable not present")
 	}
 	ctx := context.Background()
-	compose, err := createSingleNodeEnvironment(ctx, palmApiKey)
+	compose, err := createSingleNodeEnvironment(ctx, googleApiKey)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 	endpoint := compose.GetWeaviate().URI()
 
-	t.Run("tests", testText2VecPaLM(endpoint, gcpProject))
+	t.Run("text2vec-google", testText2VecGoogle(endpoint, gcpProject, "text2vec-google"))
+	t.Run("text2vec-palm", testText2VecGoogle(endpoint, gcpProject, "text2vec-palm"))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
@@ -50,7 +51,7 @@ func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
 
 func composeModules(palmApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecPaLM(palmApiKey).
+		WithText2VecGoogle(palmApiKey).
 		WithGenerativePaLM(palmApiKey)
 	return
 }
