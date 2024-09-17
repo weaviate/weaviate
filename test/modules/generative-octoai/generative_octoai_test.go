@@ -28,7 +28,7 @@ func testGenerativeOctoAI(host, octoAIApiEndpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
-		companies := companies.Companies()
+		companies := companies.Companies
 		// Define class
 		className := "CompaniesGenerativeTest"
 		class := &models.Class{
