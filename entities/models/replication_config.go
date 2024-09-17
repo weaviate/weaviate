@@ -32,7 +32,7 @@ type ReplicationConfig struct {
 	Factor int64 `json:"factor,omitempty"`
 
 	// Propagate object deletion
-	PropagateObjectDeletion bool `json:"propagateObjectDeletion,omitempty"`
+	PropagateObjectDeletion bool `json:"propagateObjectDeletion"`
 }
 
 // Validate validates this replication config

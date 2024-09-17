@@ -385,7 +385,8 @@
         },
         "propagateObjectDeletion": {
           "description": "Propagate object deletion",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         }
       },
       "type": "object"
