@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 type RemoteIncomingRepo interface {
@@ -45,6 +46,10 @@ type RemoteIndexIncomingRepo interface {
 	FetchObject(ctx context.Context, shardName string, id strfmt.UUID) (objects.Replica, error)
 	FetchObjects(ctx context.Context, shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
 	DigestObjects(ctx context.Context, shardName string, ids []strfmt.UUID) (result []RepairResponse, err error)
+	DigestObjectsInTokenRange(ctx context.Context, shardName string,
+		initialToken, finalToken uint64, limit int) (result []RepairResponse, lastTokenRead uint64, err error)
+	HashTreeLevel(ctx context.Context, shardName string,
+		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
 type RemoteReplicaIncoming struct {
@@ -198,4 +203,25 @@ func (rri *RemoteReplicaIncoming) indexForIncomingWrite(ctx context.Context, ind
 		return nil, &SimpleResponse{Errors: []Error{{Err: fmt.Errorf("local index %q not found", indexName)}}}
 	}
 	return index, nil
+}
+
+func (rri *RemoteReplicaIncoming) DigestObjectsInTokenRange(ctx context.Context,
+	indexName, shardName string, initialToken, finalToken uint64, limit int,
+) (result []RepairResponse, lastTokenRead uint64, err error) {
+	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
+	if simpleResp != nil {
+		return []RepairResponse{}, 0, simpleResp.Errors[0].Err
+	}
+	return index.DigestObjectsInTokenRange(ctx, shardName, initialToken, finalToken, limit)
+}
+
+func (rri *RemoteReplicaIncoming) HashTreeLevel(ctx context.Context,
+	indexName, shardName string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	index, simpleResp := rri.indexForIncomingRead(ctx, indexName)
+	if simpleResp != nil {
+		return []hashtree.Digest{}, simpleResp.Errors[0].Err
+	}
+
+	return index.HashTreeLevel(ctx, shardName, level, discriminant)
 }

@@ -26,11 +26,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
-	"github.com/weaviate/weaviate/entities/locks"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -258,7 +258,9 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			RootPath:            tmpDir,
 			ClassName:           schema.ClassName(class.Class),
 			QueryMaximumResults: maxResults,
+			ReplicationFactor:   NewAtomicInt64(1),
 		},
+		partitioningEnabled:   shardState.PartitioningEnabled,
 		invertedIndexConfig:   iic,
 		vectorIndexUserConfig: vic,
 		logger:                logger,
@@ -267,8 +269,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		stopwords:             sd,
 		indexCheckpoints:      checkpts,
 		allocChecker:          memwatch.NewDummyMonitor(),
-		shardCreateLocks:      locks.NewNamedLocks(),
-		shardInUseLocks:       locks.NewNamedRWLocks(),
+		shardCreateLocks:      esync.NewKeyLocker(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -277,8 +278,11 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	}
 
 	shardName := shardState.AllPhysicalShards()[0]
-	err = idx.initAndStoreShard(ctx, shardName, class, nil)
+
+	shard, err := idx.initShard(ctx, shardName, class, nil, idx.Config.DisableLazyLoadShards)
 	require.NoError(t, err)
+
+	idx.shards.Store(shardName, shard)
 
 	return idx.shards.Load(shardName), idx
 }
@@ -294,7 +298,7 @@ func testObject(className string) *storobj.Object {
 	}
 }
 
-func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.Object {
+func createRandomObjects(r *rand.Rand, className string, numObj int, vectorDim int) []*storobj.Object {
 	obj := make([]*storobj.Object, numObj)
 
 	for i := 0; i < numObj; i++ {
@@ -304,7 +308,11 @@ func createRandomObjects(r *rand.Rand, className string, numObj int) []*storobj.
 				ID:    strfmt.UUID(uuid.NewString()),
 				Class: className,
 			},
-			Vector: []float32{r.Float32(), r.Float32(), r.Float32(), r.Float32()},
+			Vector: make([]float32, vectorDim),
+		}
+
+		for d := 0; d < vectorDim; d++ {
+			obj[i].Vector[d] = r.Float32()
 		}
 	}
 	return obj

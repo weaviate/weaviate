@@ -19,10 +19,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -192,12 +198,11 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 			node := nodes[rnd.Intn(len(nodes))]
 			res, err := node.repo.VectorSearch(context.Background(), dto.GetParams{
-				SearchVector: query,
 				Pagination: &filters.Pagination{
 					Limit: 25,
 				},
 				ClassName: distributedClass,
-			})
+			}, []string{""}, [][]float32{query})
 			assert.Nil(t, err)
 			for i, obj := range res {
 				assert.Equal(t, groundTruth[i].ID, obj.ID, fmt.Sprintf("at pos %d", i))
@@ -349,8 +354,9 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			IncludeMetaCount: true,
 		}
 
+		logger, _ := test.NewNullLogger()
 		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params, nil)
+		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger))
 		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{
@@ -561,6 +567,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 					ClassName:  distributedClass,
 					Sort:       td.sort,
 					Pagination: &filters.Pagination{Limit: 100},
+					Properties: search.SelectProperties{{Name: "description"}},
 				}
 
 				node := nodes[rnd.Intn(len(nodes))]
@@ -668,4 +675,122 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 			node.repo.Shutdown(context.Background())
 		}
 	})
+}
+
+func TestDistributedVectorDistance(t *testing.T) {
+	dirName := t.TempDir()
+	rnd := getRandomSeed()
+	ctx := context.Background()
+	cases := []struct {
+		asyncIndexing bool
+	}{
+		{asyncIndexing: true},
+		{asyncIndexing: false},
+	}
+	for _, tt := range cases {
+		t.Run("async indexing:"+strconv.FormatBool(tt.asyncIndexing), func(t *testing.T) {
+			os.Setenv("ASYNC_INDEXING", strconv.FormatBool(tt.asyncIndexing))
+
+			collection := multiVectorClass(tt.asyncIndexing)
+
+			overallShardState := multiShardState(numberOfNodes)
+			shardStateSerialized, err := json.Marshal(overallShardState)
+			require.Nil(t, err)
+
+			var nodes []*node
+			for i := 0; i < numberOfNodes; i++ {
+				node := &node{
+					name: fmt.Sprintf("node-%d", i),
+				}
+
+				node.init(dirName, shardStateSerialized, &nodes)
+				nodes = append(nodes, node)
+			}
+
+			for i := range nodes {
+				require.Nil(t, nodes[i].migrator.AddClass(context.Background(), collection,
+					nodes[i].schemaManager.shardState))
+				nodes[i].schemaManager.schema.Objects.Classes = append(nodes[i].schemaManager.schema.Objects.Classes,
+					collection)
+			}
+
+			uid := strfmt.UUID(uuid.New().String())
+
+			vectors := [][]float32{
+				{1, 0, 0, 0},
+				{0, 1, 0, 0},
+				{0, 0, 1, 0},
+				{0, 0, 0, 1},
+			}
+
+			t.Run("get all targets", func(t *testing.T) {
+				obj := &models.Object{
+					ID:      uid,
+					Class:   collection.Class,
+					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
+				}
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+
+				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2", "custom3"}, [][]float32{vectors[1], vectors[2], vectors[3]})
+				require.Nil(t, err)
+				require.Equal(t, res[0].ID, obj.ID)
+				require.Equal(t, res[0].Dist, float32(1))
+
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+			})
+
+			t.Run("get some targets", func(t *testing.T) {
+				obj := &models.Object{
+					ID:      uid,
+					Class:   collection.Class,
+					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1], "custom3": vectors[2]},
+				}
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+
+				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, nil), []string{"custom1", "custom2"}, [][]float32{vectors[1], vectors[2]})
+				require.Nil(t, err)
+				require.Equal(t, res[0].ID, obj.ID)
+				require.Equal(t, res[0].Dist, float32(1))
+
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.DeleteObject(context.Background(), collection.Class, obj.ID, nil, "", 0))
+			})
+
+			t.Run("get non-existing target", func(t *testing.T) {
+				start := time.Now()
+				obj := &models.Object{
+					ID:      uid,
+					Class:   collection.Class,
+					Vectors: map[string]models.Vector{"custom1": vectors[0], "custom2": vectors[1]},
+				}
+				require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+
+				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, map[string]float32{"custom1": 1, "custom3": 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
+				require.Nil(t, err)
+				require.Len(t, res, 0) // no results because we are searching for target custom3 which the only object does not have
+
+				require.True(t, time.Since(start) < 19*time.Second) // this will fail if the remote call is retried and should be long enough to never be triggerd in normal conditions
+			})
+
+			t.Run("Multiple objects", func(t *testing.T) {
+				ids := make([]strfmt.UUID, 50)
+				for i := range ids {
+					obj := &models.Object{
+						ID:      strfmt.UUID(uuid.New().String()),
+						Class:   collection.Class,
+						Vectors: map[string]models.Vector{"custom1": vectors[i%len(vectors)], "custom2": vectors[(i+1)%len(vectors)], "custom3": vectors[(i+2)%len(vectors)]},
+					}
+					ids[i] = obj.ID
+					require.Nil(t, nodes[rnd.Intn(len(nodes))].repo.PutObject(context.Background(), obj, nil, obj.Vectors, nil, 0))
+				}
+
+				res, err := nodes[rnd.Intn(len(nodes))].repo.VectorSearch(ctx, createParams(collection.Class, map[string]float32{"custom1": 1, "custom3": 1}), []string{"custom1", "custom3"}, [][]float32{vectors[1], vectors[2]})
+				require.Nil(t, err)
+				require.Greater(t, len(res), 0)
+			})
+
+			for _, node := range nodes {
+				node.repo.Shutdown(context.Background())
+			}
+		})
+	}
 }

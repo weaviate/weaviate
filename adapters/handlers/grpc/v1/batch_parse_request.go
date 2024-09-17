@@ -33,7 +33,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 	return tmpArray
 }
 
-func batchFromProto(req *pb.BatchObjectsRequest, getClass func(string) *models.Class) ([]*models.Object, map[int]int, map[int]error) {
+func BatchFromProto(req *pb.BatchObjectsRequest, getClass func(string) *models.Class) ([]*models.Object, map[int]int, map[int]error) {
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)

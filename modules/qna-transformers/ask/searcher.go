@@ -40,7 +40,7 @@ func (s *vectorFromAskParam) vectorFromAskParam(ctx context.Context,
 	rawNearTextParam := map[string]interface{}{}
 	rawNearTextParam["concepts"] = []interface{}{params.Question}
 
-	nearTextParam := arg.ExtractFunction(rawNearTextParam)
+	nearTextParam, _, _ := arg.ExtractFunction(rawNearTextParam)
 	vectorSearchFn := s.nearTextDep.VectorSearch()
 
 	return vectorSearchFn(ctx, nearTextParam, className, findVectorFn, cfg)

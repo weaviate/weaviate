@@ -74,22 +74,24 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context, batch
 		return result
 	}
 
-	wg := &sync.WaitGroup{}
+	eg := enterrors.NewErrorGroupWrapper(b.shard.Index().logger)
+	eg.SetLimit(_NUMCPU) // prevent unbounded concurrency
+
 	for j, docID := range batch {
 		index := j
 		docID := docID
-		wg.Add(1)
-		f := func() {
-			defer wg.Done()
+		f := func() error {
 			// perform delete
 			obj := b.deleteObjectOfBatchInLSM(ctx, docID, dryRun)
 			objLock.Lock()
 			result[index] = obj
 			objLock.Unlock()
+			return nil
 		}
-		enterrors.GoWrapper(f, b.shard.Index().logger)
+		eg.Go(f, index, docID)
 	}
-	wg.Wait()
+	// safe to ignore error, as the internal routines never return an error
+	eg.Wait()
 
 	return result
 }
@@ -131,7 +133,7 @@ func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
 		}
 	}
 
-	if err := b.shard.GetPropertyLengthTracker().Flush(false); err != nil {
+	if err := b.shard.GetPropertyLengthTracker().Flush(); err != nil {
 		for i := range b.objects {
 			b.setErrorAtIndex(err, i)
 		}
@@ -172,6 +174,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter) ([]
 			// TODO: More than likely this will occur due to an object which has already been deleted.
 			//       However, this is not a guarantee. This can be improved by logging, or handling
 			//       errors other than `id not found` rather than skipping them entirely.
+			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", doc).WithError(err).Debug("failed to find UUID for docID")
 			continue
 		}
 		uuids[currIdx] = uuid

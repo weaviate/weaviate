@@ -282,8 +282,8 @@ func PutCode8(code byte, buffer []byte, index int) {
 	buffer[index] = code
 }
 
-func (pq *ProductQuantizer) ExposeFields() PQData {
-	return PQData{
+func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) {
+	logger.AddPQCompression(PQData{
 		Dimensions:          uint16(pq.dimensions),
 		EncoderType:         pq.encoderType,
 		Ks:                  uint16(pq.ks),
@@ -291,7 +291,7 @@ func (pq *ProductQuantizer) ExposeFields() PQData {
 		EncoderDistribution: byte(pq.encoderDistribution),
 		Encoders:            pq.kms,
 		TrainingLimit:       pq.trainingLimit,
-	}
+	})
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
@@ -307,15 +307,6 @@ func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float
 		dist += pq.globalDistances[i*pq.ks*pq.ks+int(cX)*pq.ks+int(cY)]
 	}
 
-	return pq.distance.Wrap(dist), nil
-}
-
-func (pq *ProductQuantizer) DistanceBetweenCompressedAndUncompressedVectors(x []float32, encoded []byte) (float32, error) {
-	dist := float32(0)
-	for i := 0; i < pq.m; i++ {
-		cY := pq.kms[i].Centroid(ExtractCode8(encoded, i))
-		dist += pq.distance.Step(x[i*pq.ds:(i+1)*pq.ds], cY)
-	}
 	return pq.distance.Wrap(dist), nil
 }
 
@@ -349,24 +340,22 @@ func (pq *ProductQuantizer) ReturnDistancer(d *PQDistancer) {
 	pq.dlutPool.Return(d.lut)
 }
 
-func (d *PQDistancer) Distance(x []byte) (float32, bool, error) {
+func (d *PQDistancer) Distance(x []byte) (float32, error) {
 	if d.lut == nil {
-		dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
-		return dist, err == nil, err
+		return d.pq.DistanceBetweenCompressedVectors(d.compressed, x)
 	}
 	if len(x) != d.pq.m {
-		return 0, false, fmt.Errorf("inconsistent compressed vector length")
+		return 0, fmt.Errorf("inconsistent compressed vector length")
 	}
-	return d.pq.Distance(x, d.lut), true, nil
+	return d.pq.Distance(x, d.lut), nil
 }
 
-func (d *PQDistancer) DistanceToFloat(x []float32) (float32, bool, error) {
+func (d *PQDistancer) DistanceToFloat(x []float32) (float32, error) {
 	if d.lut != nil {
 		return d.pq.distance.SingleDist(x, d.lut.flatCenter)
 	}
 	xComp := d.pq.Encode(x)
-	dist, err := d.pq.DistanceBetweenCompressedVectors(d.compressed, xComp)
-	return dist, err == nil, err
+	return d.pq.DistanceBetweenCompressedVectors(d.compressed, xComp)
 }
 
 func (pq *ProductQuantizer) Fit(data [][]float32) error {

@@ -12,6 +12,7 @@
 package helper
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -23,8 +24,11 @@ import (
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/replica"
 )
+
+var grpcClient pb.WeaviateClient
 
 func SetupClient(uri string) {
 	host, port := "", ""
@@ -36,13 +40,15 @@ func SetupClient(uri string) {
 	ServerPort = port
 }
 
+func SetupGRPCClient(t *testing.T, uri string) {
+	grpcClient = ClientGRPC(t, uri)
+}
+
 func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
 	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
-	// TODO shall be removed with the DB is idempotent
-	// delete class before trying to create in case it was existing.
-	if err != nil && strings.Contains(err.Error(), "exists") {
+	if err != nil {
 		return
 	}
 	AssertRequestOk(t, resp, err, nil)
@@ -72,6 +78,16 @@ func CreateObject(t *testing.T, object *models.Object) error {
 	return err
 }
 
+func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Object, error) {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
 func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)
@@ -87,6 +103,17 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 		WithBody(batch.BatchObjectsCreateBody{
 			Objects: objects,
 		})
+	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	CheckObjectsBatchResponse(t, resp.Payload, err)
+}
+
+func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsCreateParams().
+		WithBody(batch.BatchObjectsCreateBody{
+			Objects: objects,
+		}).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
@@ -144,9 +171,18 @@ func DeleteObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete) {
+func DeleteObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) {
+	cls := string(cl)
+	params := objects.NewObjectsClassDeleteParams().
+		WithClassName(object.Class).WithID(object.ID).WithConsistencyLevel(&cls)
+	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl replica.ConsistencyLevel) {
 	t.Helper()
-	params := batch.NewBatchObjectsDeleteParams().WithBody(body)
+	cls := string(cl)
+	params := batch.NewBatchObjectsDeleteParams().WithBody(body).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
@@ -157,6 +193,19 @@ func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
 	t.Helper()
 	params := batch.NewBatchObjectsDeleteParams().
 		WithBody(body).WithTenant(&tenant)
+	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, nil
+}
+
+func DeleteTenantObjectsBatchCL(t *testing.T, body *models.BatchDelete,
+	tenant string, cl replica.ConsistencyLevel,
+) (*models.BatchDeleteResponse, error) {
+	cls := string(cl)
+	params := batch.NewBatchObjectsDeleteParams().
+		WithBody(body).WithTenant(&tenant).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	if err != nil {
 		return nil, err
@@ -231,10 +280,24 @@ func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func UpdateTenants(t *testing.T, class string, tenants []*models.Tenant) {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	resp, err := Client(t).Schema.TenantsUpdate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+}
+
 func CreateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
 	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
 	_, err := Client(t).Schema.TenantsCreate(params, nil)
+	return err
+}
+
+func UpdateTenantsReturnError(t *testing.T, class string, tenants []*models.Tenant) error {
+	t.Helper()
+	params := schema.NewTenantsUpdateParams().WithClassName(class).WithBody(tenants)
+	_, err := Client(t).Schema.TenantsUpdate(params, nil)
 	return err
 }
 
@@ -243,6 +306,11 @@ func GetTenants(t *testing.T, class string) (*schema.TenantsGetOK, error) {
 	params := schema.NewTenantsGetParams().WithClassName(class)
 	resp, err := Client(t).Schema.TenantsGet(params, nil)
 	return resp, err
+}
+
+func GetTenantsGRPC(t *testing.T, class string) (*pb.TenantsGetReply, error) {
+	t.Helper()
+	return grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{Collection: class})
 }
 
 func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExistsOK, error) {
@@ -268,4 +336,10 @@ func GetMeta(t *testing.T) *models.Meta {
 	resp, err := Client(t).Meta.MetaGet(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
+}
+
+func ObjectContentsProp(contents string) map[string]interface{} {
+	props := map[string]interface{}{}
+	props["contents"] = contents
+	return props
 }

@@ -43,7 +43,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 
 		tke, err := tiktoken.EncodingForModel(icheck.Model())
 		if err != nil { // fail all objects as they all have the same model
-			return nil, nil, false, err
+			tke, _ = tiktoken.EncodingForModel("text-embedding-ada-002")
 		}
 
 		// prepare input for vectorizer, and send it to the queue. Prepare here to avoid work in the queue-worker
@@ -63,7 +63,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 	// there does not seem to be a limit
 	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
 
-	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger), batchTokenizer)
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger, "openai"), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed

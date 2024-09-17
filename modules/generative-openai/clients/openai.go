@@ -28,15 +28,16 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/generative-openai/config"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	openaiparams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
 )
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
-	if resourceName != "" && deploymentID != "" {
+func buildUrlFn(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+	if isAzure {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
 			// Fall back to old assumption
@@ -57,7 +58,7 @@ type openai struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
-	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
+	buildUrl           func(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
@@ -75,31 +76,33 @@ func New(openAIApiKey, openAIOrganization, azureApiKey string, timeout time.Dura
 	}
 }
 
-func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *openai) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forPrompt)
+	return v.Generate(ctx, cfg, forPrompt, options, debug)
 }
 
-func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *openai) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
 	}
-	return v.Generate(ctx, cfg, forTask)
+	return v.Generate(ctx, cfg, forTask, options, debug)
 }
 
-func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
+	params := v.getParameters(cfg, options)
+	debugInformation := v.getDebugInformation(debug, prompt)
 
 	oaiUrl, err := v.buildOpenAIUrl(ctx, settings)
 	if err != nil {
 		return nil, errors.Wrap(err, "url join path")
 	}
 
-	input, err := v.generateInput(prompt, settings)
+	input, err := v.generateInput(prompt, params, settings)
 	if err != nil {
 		return nil, errors.Wrap(err, "generate input")
 	}
@@ -130,6 +133,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 	defer res.Body.Close()
 
+	requestID := res.Header.Get("x-request-id")
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
@@ -141,14 +145,17 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error, settings.IsAzure())
+		return nil, v.getError(res.StatusCode, requestID, resBody.Error, settings.IsAzure())
 	}
 
+	responseParams := v.getResponseParams(resBody.Usage)
 	textResponse := resBody.Choices[0].Text
 	if len(resBody.Choices) > 0 && textResponse != "" {
 		trimmedResponse := strings.Trim(textResponse, "\n")
-		return &generativemodels.GenerateResponse{
+		return &modulecapabilities.GenerateResponse{
 			Result: &trimmedResponse,
+			Debug:  debugInformation,
+			Params: responseParams,
 		}, nil
 	}
 
@@ -156,34 +163,104 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	if message != nil {
 		textResponse = message.Content
 		trimmedResponse := strings.Trim(textResponse, "\n")
-		return &generativemodels.GenerateResponse{
+		return &modulecapabilities.GenerateResponse{
 			Result: &trimmedResponse,
+			Debug:  debugInformation,
+			Params: responseParams,
 		}, nil
 	}
 
-	return &generativemodels.GenerateResponse{
+	return &modulecapabilities.GenerateResponse{
 		Result: nil,
+		Debug:  debugInformation,
 	}, nil
+}
+
+func (v *openai) getParameters(cfg moduletools.ClassConfig, options interface{}) openaiparams.Params {
+	settings := config.NewClassSettings(cfg)
+
+	var params openaiparams.Params
+	if p, ok := options.(openaiparams.Params); ok {
+		params = p
+	}
+
+	if params.Model == "" {
+		params.Model = settings.Model()
+	}
+	if params.Temperature == nil {
+		temperature := settings.Temperature()
+		params.Temperature = &temperature
+	}
+	if params.TopP == nil {
+		topP := settings.TopP()
+		params.TopP = &topP
+	}
+	if params.FrequencyPenalty == nil {
+		frequencyPenalty := settings.FrequencyPenalty()
+		params.FrequencyPenalty = &frequencyPenalty
+	}
+	if params.PresencePenalty == nil {
+		presencePenalty := settings.PresencePenalty()
+		params.PresencePenalty = &presencePenalty
+	}
+	if params.MaxTokens == nil {
+		maxTokens := int(settings.MaxTokens())
+		params.MaxTokens = &maxTokens
+	}
+	return params
+}
+
+func (v *openai) getDebugInformation(debug bool, prompt string) *modulecapabilities.GenerateDebugInformation {
+	if debug {
+		return &modulecapabilities.GenerateDebugInformation{
+			Prompt: prompt,
+		}
+	}
+	return nil
+}
+
+func (v *openai) getResponseParams(usage *usage) map[string]interface{} {
+	if usage != nil {
+		return map[string]interface{}{"openai": map[string]interface{}{"usage": usage}}
+	}
+	return nil
 }
 
 func (v *openai) buildOpenAIUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
 	baseURL := settings.BaseURL()
+
+	deploymentID := settings.DeploymentID()
+	resourceName := settings.ResourceName()
+
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
-	return v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), baseURL, settings.ApiVersion())
+
+	if headerDeploymentID := v.getValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
+		deploymentID = headerDeploymentID
+	}
+
+	if headerResourceName := v.getValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+		resourceName = headerResourceName
+	}
+
+	return v.buildUrl(settings.IsLegacy(), settings.IsAzure(), resourceName, deploymentID, baseURL, settings.ApiVersion())
 }
 
-func (v *openai) generateInput(prompt string, settings config.ClassSettings) (generateInput, error) {
+func (v *openai) generateInput(prompt string, params openaiparams.Params, settings config.ClassSettings) (generateInput, error) {
 	if settings.IsLegacy() {
 		return generateInput{
 			Prompt:           prompt,
-			Model:            settings.Model(),
-			MaxTokens:        settings.MaxTokens(),
-			Temperature:      settings.Temperature(),
-			FrequencyPenalty: settings.FrequencyPenalty(),
-			PresencePenalty:  settings.PresencePenalty(),
-			TopP:             settings.TopP(),
+			Model:            params.Model,
+			FrequencyPenalty: params.FrequencyPenalty,
+			Logprobs:         params.Logprobs,
+			TopLogprobs:      params.TopLogprobs,
+			MaxTokens:        params.MaxTokens,
+			N:                params.N,
+			PresencePenalty:  params.PresencePenalty,
+			Stop:             params.Stop,
+			Temperature:      params.Temperature,
+			TopP:             params.TopP,
 		}, nil
 	} else {
 		var input generateInput
@@ -191,46 +268,63 @@ func (v *openai) generateInput(prompt string, settings config.ClassSettings) (ge
 			Role:    "user",
 			Content: prompt,
 		}}
-		tokens, err := v.determineTokens(settings.GetMaxTokensForModel(settings.Model()), settings.MaxTokens(), settings.Model(), messages)
+
+		var tokens int
+		var err error
+		if settings.IsThirdPartyProvider() {
+			tokens, err = v.determineTokens(settings.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
+		} else {
+			tokens = int(settings.MaxTokens())
+		}
+
 		if err != nil {
 			return input, errors.Wrap(err, "determine tokens count")
 		}
 		input = generateInput{
 			Messages:         messages,
-			MaxTokens:        tokens,
-			Temperature:      settings.Temperature(),
-			FrequencyPenalty: settings.FrequencyPenalty(),
-			PresencePenalty:  settings.PresencePenalty(),
-			TopP:             settings.TopP(),
+			Stream:           false,
+			FrequencyPenalty: params.FrequencyPenalty,
+			Logprobs:         params.Logprobs,
+			TopLogprobs:      params.TopLogprobs,
+			MaxTokens:        &tokens,
+			N:                params.N,
+			PresencePenalty:  params.PresencePenalty,
+			Stop:             params.Stop,
+			Temperature:      params.Temperature,
+			TopP:             params.TopP,
 		}
 		if !settings.IsAzure() {
 			// model is mandatory for OpenAI calls, but obsolete for Azure calls
-			input.Model = settings.Model()
+			input.Model = params.Model
 		}
 		return input, nil
 	}
 }
 
-func (v *openai) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
+func (v *openai) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
 	endpoint := "OpenAI API"
 	if isAzure {
 		endpoint = "Azure OpenAI API"
 	}
-	if resBodyError != nil {
-		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
+	errorMsg := fmt.Sprintf("connection to: %s failed with status: %d", endpoint, statusCode)
+	if requestID != "" {
+		errorMsg = fmt.Sprintf("%s request-id: %s", errorMsg, requestID)
 	}
-	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
+	if resBodyError != nil {
+		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
+	}
+	return errors.New(errorMsg)
 }
 
-func (v *openai) determineTokens(maxTokensSetting float64, classSetting float64, model string, messages []message) (float64, error) {
+func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (int, error) {
 	tokenMessagesCount, err := getTokensCount(model, messages)
 	if err != nil {
 		return 0, err
 	}
-	messageTokens := float64(tokenMessagesCount)
-	if messageTokens+classSetting >= maxTokensSetting {
+	messageTokens := tokenMessagesCount
+	if messageTokens+classSetting >= int(maxTokensSetting) {
 		// max token limit must be in range: [1, maxTokensSetting) that's why -1 is added
-		return maxTokensSetting - messageTokens - 1, nil
+		return int(maxTokensSetting) - messageTokens - 1, nil
 	}
 	return messageTokens, nil
 }
@@ -267,28 +361,27 @@ func (v *openai) generateForPrompt(textProperties map[string]string, prompt stri
 }
 
 func (v *openai) getApiKey(ctx context.Context, isAzure bool) (string, error) {
-	var apiKey, envVar string
+	var apiKey, envVarValue, envVar string
 
 	if isAzure {
 		apiKey = "X-Azure-Api-Key"
 		envVar = "AZURE_APIKEY"
-		if len(v.azureApiKey) > 0 {
-			return v.azureApiKey, nil
-		}
+		envVarValue = v.azureApiKey
 	} else {
 		apiKey = "X-Openai-Api-Key"
 		envVar = "OPENAI_APIKEY"
-		if len(v.openAIApiKey) > 0 {
-			return v.openAIApiKey, nil
-		}
+		envVarValue = v.openAIApiKey
 	}
 
-	return v.getApiKeyFromContext(ctx, apiKey, envVar)
+	return v.getApiKeyFromContext(ctx, apiKey, envVarValue, envVar)
 }
 
-func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVar string) (string, error) {
+func (v *openai) getApiKeyFromContext(ctx context.Context, apiKey, envVarValue, envVar string) (string, error) {
 	if apiKeyValue := v.getValueFromContext(ctx, apiKey); apiKeyValue != "" {
 		return apiKeyValue, nil
+	}
+	if envVarValue != "" {
+		return envVarValue, nil
 	}
 	return "", fmt.Errorf("no api key found neither in request header: %s nor in environment variable under %s", apiKey, envVar)
 }
@@ -317,13 +410,17 @@ func (v *openai) getOpenAIOrganization(ctx context.Context) string {
 type generateInput struct {
 	Prompt           string    `json:"prompt,omitempty"`
 	Messages         []message `json:"messages,omitempty"`
+	Stream           bool      `json:"stream,omitempty"`
 	Model            string    `json:"model,omitempty"`
-	MaxTokens        float64   `json:"max_tokens"`
-	Temperature      float64   `json:"temperature"`
-	Stop             []string  `json:"stop"`
-	FrequencyPenalty float64   `json:"frequency_penalty"`
-	PresencePenalty  float64   `json:"presence_penalty"`
-	TopP             float64   `json:"top_p"`
+	FrequencyPenalty *float64  `json:"frequency_penalty,omitempty"`
+	Logprobs         *bool     `json:"logprobs,omitempty"`
+	TopLogprobs      *int      `json:"top_logprobs,omitempty"`
+	MaxTokens        *int      `json:"max_tokens,omitempty"`
+	N                *int      `json:"n,omitempty"`
+	PresencePenalty  *float64  `json:"presence_penalty,omitempty"`
+	Stop             []string  `json:"stop,omitempty"`
+	Temperature      *float64  `json:"temperature,omitempty"`
+	TopP             *float64  `json:"top_p,omitempty"`
 }
 
 type message struct {
@@ -334,6 +431,7 @@ type message struct {
 
 type generateResponse struct {
 	Choices []choice
+	Usage   *usage          `json:"usage,omitempty"`
 	Error   *openAIApiError `json:"error,omitempty"`
 }
 
@@ -350,6 +448,12 @@ type openAIApiError struct {
 	Type    string     `json:"type"`
 	Param   string     `json:"param"`
 	Code    openAICode `json:"code"`
+}
+
+type usage struct {
+	PromptTokens     *int `json:"prompt_tokens,omitempty"`
+	CompletionTokens *int `json:"completion_tokens,omitempty"`
+	TotalTokens      *int `json:"total_tokens,omitempty"`
 }
 
 type openAICode string

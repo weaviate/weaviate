@@ -31,7 +31,7 @@ func graphqlSearch(t *testing.T) {
 	defer cancel()
 
 	compose, err := docker.New().
-		With2NodeCluster().
+		WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		Start(ctx)
 	require.Nil(t, err)

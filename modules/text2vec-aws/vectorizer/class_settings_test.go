@@ -90,7 +90,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"model":   "wrong-model",
 				},
 			},
-			wantErr: errors.Errorf("wrong model, available models are: [amazon.titan-embed-text-v1 cohere.embed-english-v3 cohere.embed-multilingual-v3]"),
+			wantErr: errors.Errorf("wrong model, available models are: [amazon.titan-embed-text-v1 amazon.titan-embed-text-v2:0 cohere.embed-english-v3 cohere.embed-multilingual-v3]"),
 		},
 		{
 			name: "all wrong",

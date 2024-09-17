@@ -55,59 +55,51 @@ func TestGRPCTenantsGet(t *testing.T) {
 	}
 	helper.CreateTenants(t, className, tenants)
 
-	t.Run("Gets consistent tenants of a class", func(t *testing.T) {
-		for _, isConsistent := range []bool{true, false} {
-			resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-				Collection:   className,
-				IsConsistent: isConsistent,
-			})
-			if err != nil {
-				t.Fatalf("error while getting tenants: %v", err)
-			}
-			for _, tenant := range resp.Tenants {
-				require.Equal(t, slices.Contains(tenantNames, tenant.Name), true)
-				require.Equal(t, tenant.ActivityStatus, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT)
-			}
+	t.Run("Gets tenants of a class", func(t *testing.T) {
+		resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
+			Collection: className,
+		})
+		if err != nil {
+			t.Fatalf("error while getting tenants: %v", err)
+		}
+		for _, tenant := range resp.Tenants {
+			require.Equal(t, slices.Contains(tenantNames, tenant.Name), true)
+			require.Equal(t, tenant.ActivityStatus, pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT)
 		}
 	})
 
 	t.Run("Gets two tenants by their names", func(t *testing.T) {
-		for _, isConsistent := range []bool{true, false} {
-			resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-				Collection:   className,
-				IsConsistent: isConsistent,
-				Params: &pb.TenantsGetRequest_Names{
-					Names: &pb.TenantNames{
-						Values: []string{tenantNames[0], tenantNames[2]},
-					},
+		resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
+			Collection: className,
+			Params: &pb.TenantsGetRequest_Names{
+				Names: &pb.TenantNames{
+					Values: []string{tenantNames[0], tenantNames[2]},
 				},
-			})
-			if err != nil {
-				t.Fatalf("error while getting tenants: %v", err)
-			}
-			require.Equal(t, resp.Tenants, []*pb.Tenant{{
-				Name:           tenantNames[0],
-				ActivityStatus: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
-			}, {
-				Name:           tenantNames[2],
-				ActivityStatus: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
-			}})
+			},
+		})
+		if err != nil {
+			t.Fatalf("error while getting tenants: %v", err)
 		}
+		require.Equal(t, resp.Tenants, []*pb.Tenant{{
+			Name:           tenantNames[0],
+			ActivityStatus: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
+		}, {
+			Name:           tenantNames[2],
+			ActivityStatus: pb.TenantActivityStatus_TENANT_ACTIVITY_STATUS_HOT,
+		}})
 	})
 
 	t.Run("Returns error when tenant names are missing", func(t *testing.T) {
 		_, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-			Collection:   className,
-			IsConsistent: true,
-			Params:       &pb.TenantsGetRequest_Names{},
+			Collection: className,
+			Params:     &pb.TenantsGetRequest_Names{},
 		})
 		require.NotNil(t, err)
 	})
 
 	t.Run("Returns error when tenant names are specified empty", func(t *testing.T) {
 		_, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-			Collection:   className,
-			IsConsistent: true,
+			Collection: className,
 			Params: &pb.TenantsGetRequest_Names{
 				Names: &pb.TenantNames{
 					Values: []string{},
@@ -118,18 +110,15 @@ func TestGRPCTenantsGet(t *testing.T) {
 	})
 
 	t.Run("Returns nothing when tenant names are not found", func(t *testing.T) {
-		for _, isConsistent := range []bool{true, false} {
-			resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
-				Collection:   className,
-				IsConsistent: isConsistent,
-				Params: &pb.TenantsGetRequest_Names{
-					Names: &pb.TenantNames{
-						Values: []string{"NonExistentTenant"},
-					},
+		resp, err := grpcClient.TenantsGet(context.TODO(), &pb.TenantsGetRequest{
+			Collection: className,
+			Params: &pb.TenantsGetRequest_Names{
+				Names: &pb.TenantNames{
+					Values: []string{"NonExistentTenant"},
 				},
-			})
-			require.Nil(t, err)
-			require.Empty(t, resp.Tenants)
-		}
+			},
+		})
+		require.Nil(t, err)
+		require.Empty(t, resp.Tenants)
 	})
 }

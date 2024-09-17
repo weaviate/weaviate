@@ -105,7 +105,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 
 	var nearVectorParams *searchparams.NearVector
 	if nearVector, ok := p.Args["nearVector"]; ok {
-		p, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}))
+		p, _, err := common_filters.ExtractNearVector(nearVector.(map[string]interface{}), nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearVector params: %w", err)
 		}
@@ -114,7 +114,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 
 	var nearObjectParams *searchparams.NearObject
 	if nearObject, ok := p.Args["nearObject"]; ok {
-		p, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
+		p, _, err := common_filters.ExtractNearObject(nearObject.(map[string]interface{}))
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract nearObject params: %w", err)
 		}
@@ -123,7 +123,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 
 	var moduleParams map[string]interface{}
 	if modulesProvider != nil {
-		extractedParams := modulesProvider.ExtractSearchParams(p.Args, class.Class)
+		extractedParams, _ := modulesProvider.ExtractSearchParams(p.Args, class.Class)
 		if len(extractedParams) > 0 {
 			moduleParams = extractedParams
 		}
@@ -134,7 +134,7 @@ func resolveAggregate(p graphql.ResolveParams, modulesProvider ModulesProvider, 
 	// refactored
 	var hybridParams *searchparams.HybridSearch
 	if hybrid, ok := p.Args["hybrid"]; ok {
-		p, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), false)
+		p, _, err := common_filters.ExtractHybridSearch(hybrid.(map[string]interface{}), false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to extract hybrid params: %w", err)
 		}

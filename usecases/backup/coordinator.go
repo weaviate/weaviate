@@ -16,11 +16,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/store"
+	"github.com/weaviate/weaviate/cluster/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/sirupsen/logrus"
@@ -129,12 +130,35 @@ func newCoordinator(
 	}
 }
 
+func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]string, error) {
+	leader := c.nodeResolver.LeaderID()
+	if leader == "" {
+		return nil, fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
+	}
+	groups, err := c.groupByShard(ctx, req.Classes, leader)
+	if err != nil {
+		return nil, err
+	}
+
+	res := map[string]string{}
+
+	for k := range groups {
+		host, found := c.nodeResolver.NodeHostname(k)
+		if !found {
+			return nil, fmt.Errorf("cannot resolve hostname for %q", k)
+		}
+		res[k] = host
+	}
+
+	return res, nil
+}
+
 // Backup coordinates a distributed backup among participants
 func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
-		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, store.ErrLeaderNotFound)
+		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
 	}
 	groups, err := c.groupByShard(ctx, req.Classes, leader)
 	if err != nil {
@@ -311,6 +335,14 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
 	defer cancel()
 
+	c.log.WithFields(logrus.Fields{
+		"action":   "coordinator_can_commit",
+		"duration": c.timeoutCanCommit,
+		"level":    req.Level,
+		"method":   req.Method,
+		"backend":  req.Backend,
+	}).Debug("context.WithTimeout")
+
 	type nodeHost struct {
 		node, host string
 	}
@@ -421,6 +453,11 @@ func (c *coordinator) commit(ctx context.Context,
 		if p.Status != backup.Success {
 			status = backup.Failed
 			reason = p.Reason
+
+			if strings.Contains(p.Reason, context.Canceled.Error()) {
+				status = backup.Cancelled
+				st.Status = backup.Cancelled
+			}
 		}
 		groups[node] = st
 	}
@@ -434,6 +471,14 @@ func (c *coordinator) commit(ctx context.Context,
 func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
 	ctx, cancel := context.WithTimeout(ctx, c.timeoutQueryStatus)
 	defer cancel()
+
+	c.log.WithFields(logrus.Fields{
+		"action":   "coordinator_query_all",
+		"duration": c.timeoutQueryStatus,
+		"nodes":    nodes,
+		"method":   req.Method,
+		"backend":  req.Backend,
+	}).Debug("context.WithTimeout")
 
 	rs := make([]partialStatus, len(nodes))
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
@@ -466,6 +511,9 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 			n++
 			st.Status = backup.Failed
 			st.Reason = fmt.Sprintf("node %q might be down: %v", r.node, r.err.Error())
+			if strings.Contains(st.Reason, context.Canceled.Error()) {
+				st.Status = backup.Cancelled
+			}
 			delete(nodes, r.node)
 		}
 		c.Participants[r.node] = st
@@ -503,6 +551,9 @@ func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes m
 	for x := range errChan {
 		st := c.Participants[x.node]
 		st.Status = backup.Failed
+		if strings.Contains(st.Reason, context.Canceled.Error()) {
+			st.Status = backup.Cancelled
+		}
 		st.Reason = "might be down:" + x.err.Error()
 		c.Participants[x.node] = st
 		c.log.WithField("action", req.Method).

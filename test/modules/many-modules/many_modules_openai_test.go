@@ -24,6 +24,8 @@ import (
 
 func createSchemaOpenAISanityChecks(endpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
+		helper.SetupClient(endpoint)
+
 		vectorizer := "text2vec-openai"
 		class := &models.Class{
 			Class: "OpenAI",

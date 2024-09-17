@@ -168,6 +168,25 @@ func TestClient(t *testing.T) {
 		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 error: nope, not gonna happen")
 	})
 
+	t.Run("when the server returns an error with request id", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{
+			t:               t,
+			serverError:     errors.Errorf("nope, not gonna happen"),
+			headerRequestID: "some-request-id",
+		})
+		defer server.Close()
+		c := New("apiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
+			return server.URL, nil
+		}
+
+		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+			fakeClassConfig{})
+
+		require.NotNil(t, err)
+		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 request-id: some-request-id error: nope, not gonna happen")
+	})
+
 	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
@@ -232,8 +251,6 @@ func TestClient(t *testing.T) {
 	})
 
 	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
 
 		config := ent.VectorizationConfig{
@@ -254,35 +271,50 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
 
+	t.Run("when X-Azure-* headers are passed", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+
+		config := ent.VectorizationConfig{
+			IsAzure:    true,
+			ApiVersion: "",
+		}
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Azure-Deployment-Id", []string{"spoofDeployment"})
+		ctxWithValue = context.WithValue(ctxWithValue,
+			"X-Azure-Resource-Name", []string{"spoofResource"})
+
+		buildURL, err := c.buildURL(ctxWithValue, config)
+		require.NoError(t, err)
+		assert.Equal(t, "https://spoofResource.openai.azure.com/openai/deployments/spoofDeployment/embeddings?api-version=", buildURL)
+	})
+
 	t.Run("pass rate limit headers requests", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Ratelimit-RequestPM-Embedding", []string{"50"})
 
-		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		rl := c.GetVectorizerRateLimit(ctxWithValue, fakeClassConfig{})
 		assert.Equal(t, 50, rl.LimitRequests)
 		assert.Equal(t, 50, rl.RemainingRequests)
 	})
 
 	t.Run("pass rate limit headers tokens", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
 		c := New("", "", "", 0, nullLogger())
 
 		ctxWithValue := context.WithValue(context.Background(), "X-Openai-Ratelimit-TokenPM-Embedding", []string{"60"})
 
-		rl := c.GetVectorizerRateLimit(ctxWithValue)
+		rl := c.GetVectorizerRateLimit(ctxWithValue, fakeClassConfig{})
 		assert.Equal(t, 60, rl.LimitTokens)
 		assert.Equal(t, 60, rl.RemainingTokens)
 	})
 }
 
 type fakeHandler struct {
-	t           *testing.T
-	serverError error
+	t               *testing.T
+	serverError     error
+	headerRequestID string
 }
 
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -299,6 +331,9 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		outBytes, err := json.Marshal(embedding)
 		require.Nil(f.t, err)
 
+		if f.headerRequestID != "" {
+			w.Header().Add("x-request-id", f.headerRequestID)
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write(outBytes)
 		return
@@ -409,7 +444,8 @@ func Test_getModelString(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				v := New("apiKey", "", "", 0, nullLogger())
-				if got := v.getModelString(tt.args.docType, tt.args.model, "document", tt.args.version); got != tt.want {
+				config := ent.VectorizationConfig{Type: tt.args.docType, Model: tt.args.model, ModelVersion: tt.args.version}
+				if got := v.getModelString(config, "document"); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
 			})
@@ -479,7 +515,9 @@ func Test_getModelString(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				v := New("apiKey", "", "", 0, nullLogger())
-				if got := v.getModelString(tt.args.docType, tt.args.model, "query", tt.args.version); got != tt.want {
+				config := ent.VectorizationConfig{Type: tt.args.docType, Model: tt.args.model, ModelVersion: tt.args.version}
+
+				if got := v.getModelString(config, "query"); got != tt.want {
 					t.Errorf("vectorizer.getModelString() = %v, want %v", got, tt.want)
 				}
 			})

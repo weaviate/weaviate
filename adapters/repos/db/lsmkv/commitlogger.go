@@ -63,6 +63,9 @@ const (
 	// only appends in a collection strategy
 	CommitTypeCollection
 	CommitTypeRoaringSet
+	// new version of roaringset that stores data as a list of uint64 values,
+	// instead of a roaring bitmap
+	CommitTypeRoaringSetList
 )
 
 func (ct CommitType) String() string {
@@ -73,6 +76,8 @@ func (ct CommitType) String() string {
 		return "collection"
 	case CommitTypeRoaringSet:
 		return "roaringset"
+	case CommitTypeRoaringSetList:
+		return "roaringsetlist"
 	default:
 		return "unknown"
 	}
@@ -173,7 +178,7 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 	return cl.writeEntry(CommitTypeCollection, cl.bufNode.Bytes())
 }
 
-func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
+func (cl *commitLogger) add(node *roaringset.SegmentNodeList) error {
 	if cl.paused {
 		return nil
 	}
@@ -188,7 +193,7 @@ func (cl *commitLogger) add(node *roaringset.SegmentNode) error {
 		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 
-	return cl.writeEntry(CommitTypeRoaringSet, cl.bufNode.Bytes())
+	return cl.writeEntry(CommitTypeRoaringSetList, cl.bufNode.Bytes())
 }
 
 // Size returns the amount of data that has been written since the commit

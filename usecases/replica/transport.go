@@ -17,9 +17,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
 const (
@@ -47,6 +49,7 @@ const (
 	StatusConflict = iota + 300
 	StatusPreconditionFailed
 	StatusReadOnly
+	StatusObjectNotFound
 )
 
 // Error reports error happening during replication
@@ -103,6 +106,8 @@ func statusText(code StatusCode) string {
 		return "local index not ready"
 	case StatusReadOnly:
 		return "read only"
+	case StatusObjectNotFound:
+		return "object not found"
 	default:
 		return ""
 	}
@@ -164,6 +169,17 @@ func fromReplicas(xs []objects.Replica) []*storobj.Object {
 	return rs
 }
 
+type DigestObjectsInTokenRangeReq struct {
+	InitialToken uint64 `json:"initialToken,omitempty"`
+	FinalToken   uint64 `json:"finalToken,omitempty"`
+	Limit        int    `json:"limit,omitempty"`
+}
+
+type DigestObjectsInTokenRangeResp struct {
+	Digests       []RepairResponse `json:"digests,omitempty"`
+	LastTokenRead uint64           `json:"lastTokenRead,omitempty"`
+}
+
 // wClient is the client used to write to replicas
 type wClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
@@ -187,7 +203,7 @@ type rClient interface {
 	// FetchObject fetches one object
 	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties) (objects.Replica, error)
+		additional additional.Properties, numRetries int) (objects.Replica, error)
 
 	// FetchObjects fetches objects specified in ids list.
 	FetchObjects(_ context.Context, host, index, shard string,
@@ -202,7 +218,16 @@ type rClient interface {
 	// number of bytes transferred over the network when fetching a replicated
 	// object
 	DigestObjects(ctx context.Context, host, index, shard string,
-		ids []strfmt.UUID) ([]RepairResponse, error)
+		ids []strfmt.UUID, numRetries int) ([]RepairResponse, error)
+
+	FindUUIDs(ctx context.Context, host, index, shard string,
+		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+
+	DigestObjectsInTokenRange(ctx context.Context, host, index, shard string,
+		initialToken, finalToken uint64, limit int) ([]RepairResponse, uint64, error)
+
+	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
+		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
 // finderClient extends RClient with consistency checks
@@ -216,21 +241,35 @@ func (fc finderClient) FullRead(ctx context.Context,
 	id strfmt.UUID,
 	props search.SelectProperties,
 	additional additional.Properties,
+	numRetries int,
 ) (objects.Replica, error) {
-	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional)
+	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
+}
+
+func (fc finderClient) HashTreeLevel(ctx context.Context,
+	host, index, shard string, level int, discriminant *hashtree.Bitset,
+) (digests []hashtree.Digest, err error) {
+	return fc.cl.HashTreeLevel(ctx, host, index, shard, level, discriminant)
 }
 
 // DigestReads reads digests of all specified objects
 func (fc finderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
-	ids []strfmt.UUID,
+	ids []strfmt.UUID, numRetries int,
 ) ([]RepairResponse, error) {
 	n := len(ids)
-	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids)
+	rs, err := fc.cl.DigestObjects(ctx, host, index, shard, ids, numRetries)
 	if err == nil && len(rs) != n {
 		err = fmt.Errorf("malformed digest read response: length expected %d got %d", n, len(rs))
 	}
 	return rs, err
+}
+
+func (fc finderClient) DigestObjectsInTokenRange(ctx context.Context,
+	host, index, shard string,
+	initialToken, finalToken uint64, limit int,
+) ([]RepairResponse, uint64, error) {
+	return fc.cl.DigestObjectsInTokenRange(ctx, host, index, shard, initialToken, finalToken, limit)
 }
 
 // FullReads read full objects
@@ -252,4 +291,10 @@ func (fc finderClient) Overwrite(ctx context.Context,
 	xs []*objects.VObject,
 ) ([]RepairResponse, error) {
 	return fc.cl.OverwriteObjects(ctx, host, index, shard, xs)
+}
+
+func (fc finderClient) FindUUIDs(ctx context.Context,
+	host, class, shard string, filters *filters.LocalFilter,
+) ([]strfmt.UUID, error) {
+	return fc.cl.FindUUIDs(ctx, host, class, shard, filters)
 }

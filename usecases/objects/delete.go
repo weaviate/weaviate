@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -64,26 +65,22 @@ func (m *Manager) DeleteObject(ctx context.Context,
 		return fmt.Errorf("could not get class %s: %w", class, err)
 	}
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
-	if err != nil {
-		switch err.(type) {
-		case ErrMultiTenancy:
-			return NewErrMultiTenancy(fmt.Errorf("check object existence: %w", err))
-		default:
-			return NewErrInternal("check object existence: %v", err)
-		}
-	}
-	if !ok {
-		return NewErrNotFound("object %v could not be found", path)
-	}
-
 	// Ensure that the local schema has caught up to the version we used to validate
 	if err := m.schemaManager.WaitForUpdate(ctx, vclasses[class].Version); err != nil {
 		return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", vclasses[class].Version, err)
 	}
 	if err = m.vectorRepo.DeleteObject(ctx, class, id, repl, tenant, vclasses[class].Version); err != nil {
+		var e1 ErrMultiTenancy
+		if errors.As(err, &e1) {
+			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
+		}
+		var e2 ErrInvalidUserInput
+		if errors.As(err, &e2) {
+			return NewErrMultiTenancy(fmt.Errorf("delete object from vector repo: %w", err))
+		}
 		return NewErrInternal("could not delete object from vector repo: %v", err)
 	}
+
 	return nil
 }
 

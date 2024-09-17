@@ -122,6 +122,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"isAzure":          true,
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
 					"maxTokens":        4097,
@@ -148,6 +149,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config with baseURL",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"isAzure":          true,
 					"baseURL":          "some-base-url",
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
@@ -212,6 +214,22 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("Wrong temperature configuration, values are between 0.0 and 1.0"),
 		},
 		{
+			name: "Third party provider, use max tokens",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"model":     "model-that-openai-does-not-have",
+					"baseURL":   "https://something-else.com",
+					"maxTokens": 4097,
+				},
+			},
+			wantMaxTokens:  4097,
+			wantBaseURL:    "https://something-else.com",
+			wantApiVersion: "2024-02-01",
+			wantModel:      "model-that-openai-does-not-have",
+			wantTopP:       1,
+			wantErr:        nil,
+		},
+		{
 			name: "Wrong frequencyPenalty configured",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -243,6 +261,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"resourceName": "resource-name",
+					"isAzure":      true,
 				},
 			},
 			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
@@ -252,6 +271,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"deploymentId": "deployment-name",
+					"isAzure":      true,
 				},
 			},
 			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
@@ -266,7 +286,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: " +
 				"[2022-12-01 2023-03-15-preview 2023-05-15 2023-06-01-preview 2023-07-01-preview " +
 				"2023-08-01-preview 2023-09-01-preview 2023-12-01-preview 2024-02-15-preview " +
-				"2024-03-01-preview 2024-02-01]"),
+				"2024-03-01-preview 2024-02-01 2024-06-01]"),
 		},
 	}
 	for _, tt := range tests {

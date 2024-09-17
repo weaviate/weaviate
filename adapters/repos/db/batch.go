@@ -89,6 +89,9 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
 		errs := index.putObjectBatch(ctx, queue.objects, repl, schemaVersion)
+		index.metrics.BatchCount(len(queue.objects))
+		index.metrics.BatchCountBytes(estimateStorBatchMemory(queue.objects))
+
 		// remove index from map to skip releasing its lock in defer
 		indexByClass[class] = nil
 		index.dropIndex.RUnlock()
@@ -170,7 +173,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}
 
 	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant)
+	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}
@@ -215,6 +218,15 @@ func estimateBatchMemory(objs objects.BatchObjects) int64 {
 	var sum int64
 	for _, item := range objs {
 		sum += memwatch.EstimateObjectMemory(item.Object)
+	}
+
+	return sum
+}
+
+func estimateStorBatchMemory(objs []*storobj.Object) int64 {
+	var sum int64
+	for _, item := range objs {
+		sum += memwatch.EstimateStorObjectMemory(item)
 	}
 
 	return sum

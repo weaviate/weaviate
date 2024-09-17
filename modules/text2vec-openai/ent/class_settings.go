@@ -13,6 +13,7 @@ package ent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 
@@ -81,7 +82,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
 }
 
 func (cs *classSettings) Model() string {
@@ -113,8 +114,12 @@ func (cs *classSettings) ApiVersion() string {
 	return cs.BaseClassSettings.GetPropertyAsString("apiVersion", DefaultApiVersion)
 }
 
+func (cs *classSettings) IsThirdPartyProvider() bool {
+	return !(strings.Contains(cs.BaseURL(), "api.openai.com") || cs.IsAzure())
+}
+
 func (cs *classSettings) IsAzure() bool {
-	return cs.ResourceName() != "" && cs.DeploymentID() != ""
+	return cs.BaseClassSettings.GetPropertyAsBool("isAzure", false) || (cs.ResourceName() != "" && cs.DeploymentID() != "")
 }
 
 func (cs *classSettings) Dimensions() *int64 {
@@ -132,14 +137,17 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong OpenAI type name, available model names are: %v", availableOpenAITypes)
 	}
 
-	availableModels := append(availableOpenAIModels, availableV3Models...)
 	model := cs.Model()
-	if !basesettings.ValidateSetting[string](model, availableModels) {
-		return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableModels)
+	// only validate models for openAI endpoints
+	if !cs.IsThirdPartyProvider() {
+		availableModels := append(availableOpenAIModels, availableV3Models...)
+		if !basesettings.ValidateSetting[string](model, availableModels) {
+			return errors.Errorf("wrong OpenAI model name, available model names are: %v", availableModels)
+		}
 	}
 
 	dimensions := cs.Dimensions()
-	if dimensions != nil {
+	if !cs.IsThirdPartyProvider() && dimensions != nil {
 		if !basesettings.ValidateSetting[string](model, availableV3Models) {
 			return errors.Errorf("dimensions setting can only be used with V3 embedding models: %v", availableV3Models)
 		}
@@ -154,9 +162,11 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
-	if err != nil {
-		return err
+	if cs.IsAzure() {
+		err := cs.validateAzureConfig(cs.ResourceName(), cs.DeploymentID(), cs.ApiVersion())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

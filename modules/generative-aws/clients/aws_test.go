@@ -24,7 +24,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
 func nullLogger() logrus.FieldLogger {
@@ -41,7 +41,7 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "123",
@@ -55,11 +55,11 @@ func TestGetAnswer(t *testing.T) {
 		}
 
 		textProperties := []map[string]string{{"prop": "My name is john"}}
-		expected := generativemodels.GenerateResponse{
+		expected := modulecapabilities.GenerateResponse{
 			Result: ptString("John"),
 		}
 
-		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
+		res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
@@ -72,7 +72,7 @@ func TestGetAnswer(t *testing.T) {
 		})
 		defer server.Close()
 
-		c := &aws{
+		c := &awsClient{
 			httpClient:   &http.Client{},
 			logger:       nullLogger(),
 			awsAccessKey: "123",
@@ -87,7 +87,7 @@ func TestGetAnswer(t *testing.T) {
 
 		textProperties := []map[string]string{{"prop": "My name is john"}}
 
-		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil)
+		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
 
 		require.NotNil(t, err)
 		assert.EqualError(t, err, "connection to AWS failed with status: 200 error: some error from the server")

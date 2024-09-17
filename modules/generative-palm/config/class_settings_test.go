@@ -43,8 +43,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "chat-bison",
-			wantTemperature: 0.2,
-			wantTokenLimit:  256,
+			wantTemperature: 1.0,
+			wantTokenLimit:  1024,
 			wantTopK:        40,
 			wantTopP:        0.95,
 			wantErr:         nil,
@@ -92,16 +92,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("tokenLimit has to be an integer value between 1 and 1024"),
 		},
 		{
-			name: "wrong topK",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId": "cloud-project",
-					"topK":      2000,
-				},
-			},
-			wantErr: errors.Errorf("topK has to be an integer value between 1 and 40"),
-		},
-		{
 			name: "wrong topP",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -125,7 +115,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("projectId cannot be empty, " +
 				"temperature has to be float value between 0 and 1, " +
 				"tokenLimit has to be an integer value between 1 and 1024, " +
-				"topK has to be an integer value between 1 and 40, " +
 				"topP has to be float value between 0 and 1"),
 		},
 		{
@@ -138,8 +127,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "chat-bison-001",
-			wantTemperature: 0.2,
-			wantTokenLimit:  256,
+			wantTemperature: 1.0,
+			wantTokenLimit:  1024,
 			wantTopK:        40,
 			wantTopP:        0.95,
 			wantErr:         nil,
@@ -155,8 +144,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "chat-bison-001",
-			wantTemperature: 0.2,
-			wantTokenLimit:  256,
+			wantTemperature: 1.0,
+			wantTokenLimit:  1024,
 			wantTopK:        40,
 			wantTopP:        0.95,
 			wantErr:         nil,
@@ -172,8 +161,8 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "gemini-ultra",
-			wantTemperature: 0.2,
-			wantTokenLimit:  256,
+			wantTemperature: 1.0,
+			wantTokenLimit:  1024,
 			wantTopK:        40,
 			wantTopP:        0.95,
 			wantErr:         nil,
@@ -187,8 +176,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: fmt.Errorf("unsupported-model is not supported available models are: " +
-				"[chat-bison-001 gemini-pro gemini-pro-vision gemini-ultra " +
-				"chat-bison chat-bison-32k chat-bison@002 chat-bison-32k@002 chat-bison@001]"),
+				"[chat-bison-001 gemini-pro gemini-ultra gemini-1.5-flash-latest gemini-1.5-pro-latest chat-bison chat-bison-32k chat-bison@002 chat-bison-32k@002 chat-bison@001 gemini-1.5-pro-preview-0514 gemini-1.5-pro-preview-0409 gemini-1.5-flash-preview-0514 gemini-1.0-pro-002 gemini-1.0-pro-001 gemini-1.0-pro]"),
 		},
 	}
 	for _, tt := range tests {

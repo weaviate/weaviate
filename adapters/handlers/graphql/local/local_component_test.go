@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
+	usecaseModules "github.com/weaviate/weaviate/usecases/modules"
 )
 
 // These tests are component tests for the local package including all its
@@ -207,7 +207,8 @@ type testCases []testCase
 func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			modules := modules.NewProvider()
+			logger, _ := logrus.NewNullLogger()
+			modules := usecaseModules.NewProvider(logger)
 			localSchema, err := Build(&test.localSchema, nil, config.Config{}, modules)
 			require.Nil(t, err, test.name)
 
@@ -240,8 +241,8 @@ func (tests testCases) AssertNoError(t *testing.T) {
 func (tests testCases) AssertErrorLogs(t *testing.T, expectedMsg string) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			modules := modules.NewProvider()
 			logger, logsHook := logrus.NewNullLogger()
+			modules := usecaseModules.NewProvider(logger)
 			localSchema, err := Build(&test.localSchema, logger, config.Config{}, modules)
 			require.Nil(t, err, test.name)
 

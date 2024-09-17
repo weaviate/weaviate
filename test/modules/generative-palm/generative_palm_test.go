@@ -12,47 +12,33 @@
 package generative_palm_tests
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
-	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
-	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
 func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
-		companies := companies.Companies()
+		data := planets.Planets
 		// Define class
-		className := "CompaniesGenerativeTest"
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					Name: "name", DataType: []string{schema.DataTypeText.String()},
-				},
-				{
-					Name: "description", DataType: []string{schema.DataTypeText.String()},
-				},
-			},
-			VectorConfig: map[string]models.VectorConfig{
-				"description": {
-					Vectorizer: map[string]interface{}{
-						"text2vec-palm": map[string]interface{}{
-							"properties":         []interface{}{"description"},
-							"vectorizeClassName": false,
-							"projectId":          gcpProject,
-							"modelId":            "textembedding-gecko@001",
-						},
+		class := planets.BaseClass("PlanetsGenerativeTest")
+		class.VectorConfig = map[string]models.VectorConfig{
+			"description": {
+				Vectorizer: map[string]interface{}{
+					"text2vec-palm": map[string]interface{}{
+						"properties":         []interface{}{"description"},
+						"vectorizeClassName": false,
+						"projectId":          gcpProject,
+						"modelId":            "textembedding-gecko@001",
 					},
-					VectorIndexType: "flat",
 				},
+				VectorIndexType: "flat",
 			},
 		}
 		tests := []struct {
@@ -79,6 +65,30 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				name:            "chat-bison@001",
 				generativeModel: "chat-bison@001",
 			},
+			{
+				name:            "gemini-1.5-pro-preview-0514",
+				generativeModel: "gemini-1.5-pro-preview-0514",
+			},
+			{
+				name:            "gemini-1.5-pro-preview-0409",
+				generativeModel: "gemini-1.5-pro-preview-0409",
+			},
+			{
+				name:            "gemini-1.5-flash-preview-0514",
+				generativeModel: "gemini-1.5-flash-preview-0514",
+			},
+			{
+				name:            "gemini-1.0-pro-002",
+				generativeModel: "gemini-1.0-pro-002",
+			},
+			{
+				name:            "gemini-1.0-pro-001",
+				generativeModel: "gemini-1.0-pro-001",
+			},
+			{
+				name:            "gemini-1.0-pro",
+				generativeModel: "gemini-1.0-pro",
+			},
 		}
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
@@ -93,21 +103,10 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				defer helper.DeleteClass(t, class.Class)
 				// create objects
 				t.Run("create objects", func(t *testing.T) {
-					for _, company := range companies {
-						obj := &models.Object{
-							Class: class.Class,
-							ID:    company.ID,
-							Properties: map[string]interface{}{
-								"name":        company.Name,
-								"description": company.Description,
-							},
-						}
-						helper.CreateObject(t, obj)
-						helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
-					}
+					planets.InsertObjects(t, class.Class)
 				})
 				t.Run("check objects existence", func(t *testing.T) {
-					for _, company := range companies {
+					for _, company := range data {
 						t.Run(company.ID.String(), func(t *testing.T) {
 							obj, err := helper.GetObject(t, class.Class, company.ID, "vector")
 							require.NoError(t, err)
@@ -119,46 +118,11 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				})
 				// generative task
 				t.Run("create a tweet", func(t *testing.T) {
-					prompt := "Generate a funny tweet out of this content: {description}"
-					query := fmt.Sprintf(`
-						{
-							Get {
-								%s{
-									name
-									_additional {
-										generate(
-											singleResult: {
-												prompt: """
-													%s
-												"""
-											}
-										) {
-											singleResult
-											error
-										}
-									}
-								}
-							}
-						}
-					`, class.Class, prompt)
-					result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, query)
-					objs := result.Get("Get", class.Class).AsSlice()
-					require.Len(t, objs, 2)
-					for _, obj := range objs {
-						name := obj.(map[string]interface{})["name"]
-						assert.NotEmpty(t, name)
-						additional, ok := obj.(map[string]interface{})["_additional"].(map[string]interface{})
-						require.True(t, ok)
-						require.NotNil(t, additional)
-						generate, ok := additional["generate"].(map[string]interface{})
-						require.True(t, ok)
-						require.NotNil(t, generate)
-						require.Nil(t, generate["error"])
-						require.NotNil(t, generate["singleResult"])
-						singleResult, ok := generate["singleResult"].(string)
-						require.True(t, ok)
-						require.NotEmpty(t, singleResult)
-					}
+					planets.CreateTweetTest(t, class.Class)
+				})
+				t.Run("create a tweet with params", func(t *testing.T) {
+					params := "google:{topP:0.1 topK:40}"
+					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
 			})
 		}

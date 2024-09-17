@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/weaviate/weaviate/entities/schema"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
@@ -102,6 +103,7 @@ func buildGraphqlSchema(dbSchema *schema.Schema, logger logrus.FieldLogger,
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
+				entsentry.Recover(r)
 				err = fmt.Errorf("%v at %s", r, debug.Stack())
 			}
 		}()

@@ -67,25 +67,30 @@ func (s *segment) get(key []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	return s.replaceStratParseData(contentsCopy)
+	_, v, err := s.replaceStratParseData(contentsCopy)
+	if err != nil {
+		return nil, err
+	}
+
+	return v, nil
 }
 
-func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, error, []byte) {
+func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
 	if s.strategy != segmentindex.StrategyReplace {
-		return nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace), nil
+		return nil, nil, nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
 
 	if pos > len(s.secondaryIndices) || s.secondaryIndices[pos] == nil {
-		return nil, fmt.Errorf("no secondary index at pos %d", pos), nil
+		return nil, nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
 	}
 
 	if s.useBloomFilter && !s.secondaryBloomFilters[pos].Test(key) {
-		return nil, lsmkv.NotFound, nil
+		return nil, nil, nil, lsmkv.NotFound
 	}
 
 	node, err := s.secondaryIndices[pos].Get(key)
 	if err != nil {
-		return nil, err, nil
+		return nil, nil, nil, err
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -106,15 +111,20 @@ func (s *segment) getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) (
 		contentsCopy = make([]byte, node.End-node.Start)
 	}
 	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
-		return nil, err, nil
+		return nil, nil, nil, err
 	}
-	currContent, err := s.replaceStratParseData(contentsCopy)
-	return currContent, err, contentsCopy
+
+	primaryKey, currContent, err := s.replaceStratParseData(contentsCopy)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return primaryKey, currContent, contentsCopy, err
 }
 
-func (s *segment) replaceStratParseData(in []byte) ([]byte, error) {
+func (s *segment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	if len(in) == 0 {
-		return nil, lsmkv.NotFound
+		return nil, nil, lsmkv.NotFound
 	}
 
 	// byte         meaning
@@ -124,10 +134,12 @@ func (s *segment) replaceStratParseData(in []byte) ([]byte, error) {
 
 	// check the tombstone byte
 	if in[0] == 0x01 {
-		return nil, lsmkv.Deleted
+		return nil, nil, lsmkv.Deleted
 	}
 
 	valueLength := binary.LittleEndian.Uint64(in[1:9])
 
-	return in[9 : 9+valueLength], nil
+	pkLength := binary.LittleEndian.Uint32(in[9+valueLength:])
+
+	return in[9+valueLength+4 : 9+valueLength+4+uint64(pkLength)], in[9 : 9+valueLength], nil
 }

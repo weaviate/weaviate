@@ -26,7 +26,10 @@ import (
 // Version of backup structure
 const (
 	// Version > version1 support compression
+	// "2.1" support restore on 2 phases
 	Version = "2.1"
+	// "2.0" support compression
+	// Version = "2.0"
 	// version1 store plain files without compression
 	version1 = "1.0"
 )

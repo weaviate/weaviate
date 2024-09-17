@@ -41,6 +41,9 @@ type NestedProperty struct {
 	// index filterable
 	IndexFilterable *bool `json:"indexFilterable,omitempty"`
 
+	// index range filters
+	IndexRangeFilters *bool `json:"indexRangeFilters,omitempty"`
+
 	// index searchable
 	IndexSearchable *bool `json:"indexSearchable,omitempty"`
 

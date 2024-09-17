@@ -14,6 +14,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -38,8 +40,12 @@ import (
 // spec only needs to be parsed once.
 var ServerVersion string
 
-// GitHash keeps the current git hash commit information
-var GitHash = "unknown"
+var (
+	// GitHash keeps the current git hash commit information, value injected by the compiler using ldflags -X at build time.
+	GitHash = "unknown"
+	// ImageTag keeps the docker tag the weaviate binary was built in, value injected by the compiler using ldflags -X at build time.
+	ImageTag = "localhost"
+)
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -97,6 +103,7 @@ type Config struct {
 	DefaultVectorizerModule             string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric         string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                       string                   `json:"enable_modules" yaml:"enable_modules"`
+	EnableApiBasedModules               bool                     `json:"enable_api_based_modules" yaml:"enable_api_based_modules"`
 	ModulesPath                         string                   `json:"modules_path" yaml:"modules_path"`
 	ModuleHttpClientTimeout             time.Duration            `json:"modules_client_timeout" yaml:"modules_client_timeout"`
 	AutoSchema                          AutoSchema               `json:"auto_schema" yaml:"auto_schema"`
@@ -111,6 +118,7 @@ type Config struct {
 	TrackVectorDimensions               bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
+	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
@@ -118,6 +126,8 @@ type Config struct {
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
+	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -215,10 +225,19 @@ type Persistence struct {
 	MemtablesMaxSizeMB                int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
+	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
 const DefaultPersistenceDataPath string = "./data"
+
+// DefaultPersistenceLSMMaxSegmentSize is effectively unlimited for backward
+// compatibility. TODO: consider changing this in a future release and make
+// some noise about it. This is technically a breaking change.
+const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
+
+const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -276,7 +295,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Friendli-Token, X-Friendli-Baseurl"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -292,19 +311,24 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port              int
-	InternalRPCPort   int
-	RPCMessageMaxSize int
-	Join              []string
-	SnapshotThreshold uint64
-	HeartbeatTimeout  time.Duration
-	RecoveryTimeout   time.Duration
-	ElectionTimeout   time.Duration
-	SnapshotInterval  time.Duration
+	Port                   int
+	InternalRPCPort        int
+	RPCMessageMaxSize      int
+	Join                   []string
+	SnapshotThreshold      uint64
+	HeartbeatTimeout       time.Duration
+	ElectionTimeout        time.Duration
+	SnapshotInterval       time.Duration
+	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
+
+	ForceOneNodeRecovery bool
+
+	EnableFQDNResolver bool
+	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
@@ -352,6 +376,19 @@ func (r *Raft) Validate() error {
 	if r.BootstrapExpect > len(r.Join) {
 		return fmt.Errorf("raft.bootstrap.expect must be less than or equal to the length of raft.join")
 	}
+
+	if r.SnapshotInterval <= 0 {
+		return fmt.Errorf("raft.bootstrap.snapshot_interval must be more than 0")
+	}
+
+	if r.SnapshotThreshold <= 0 {
+		return fmt.Errorf("raft.bootstrap.snapshot_threshold must be more than 0")
+	}
+
+	if r.ConsistencyWaitTimeout <= 0 {
+		return fmt.Errorf("raft.bootstrap.consistency_wait_timeout must be more than 0")
+	}
+
 	return nil
 }
 

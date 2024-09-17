@@ -49,7 +49,7 @@ func TestMonitor(t *testing.T) {
 		limiter := &fakeLimitSetter{limit: 100000}
 
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh()
+		m.Refresh(true)
 
 		assert.Equal(t, 0.3, m.Ratio())
 	})
@@ -59,7 +59,7 @@ func TestMonitor(t *testing.T) {
 		limiter := &fakeLimitSetter{limit: 1 * GiB}
 
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh()
+		m.Refresh(true)
 
 		err := m.CheckAlloc(100 * MiB)
 		assert.NoError(t, err, "with 700 allocated, an additional 100 would be about 80% which is not a problem")
@@ -76,7 +76,7 @@ func TestMonitor(t *testing.T) {
 		limiter := &fakeLimitSetter{limit: 1 * GiB}
 
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh()
+		m.Refresh(true)
 
 		err := m.CheckAlloc(1 * B)
 		assert.Error(t, err,
@@ -154,14 +154,14 @@ func TestMappings(t *testing.T) {
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh()
+		m.Refresh(true)
 
 		mappingsLeft := getMaxMemoryMappings() - currentMappings
 		assert.InDelta(t, mappingsLeft, addMappings, 10) // other things can happen at the same time
 		path := t.TempDir()
 		// use up available mappings
 		for i := 0; i < int(mappingsLeft)+5; i++ {
-			m.Refresh()
+			m.Refresh(true)
 			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
 			require.Nil(t, err)
 			defer file.Close()
@@ -193,13 +193,38 @@ func TestMappings(t *testing.T) {
 		}
 	})
 
+	t.Run("check mappings for dummy", func(t *testing.T) {
+		m := NewDummyMonitor()
+		m.Refresh(true)
+
+		path := t.TempDir()
+		// use many mappings, dummy monitor should never block
+		for i := 0; i < 100; i++ {
+			m.Refresh(true)
+			file, err := os.OpenFile(path+"example"+strconv.FormatInt(int64(i), 10)+".txt", os.O_CREATE|os.O_RDWR, 0o666)
+			require.Nil(t, err)
+			defer file.Close()
+			_, err = file.Write([]byte("Hello"))
+			require.Nil(t, err)
+
+			fileInfo, err := file.Stat()
+			require.Nil(t, err)
+
+			require.Nil(t, m.CheckMappingAndReserve(1, 1))
+			data, err := syscall.Mmap(int(file.Fd()), 0, int(fileInfo.Size()), syscall.PROT_READ, syscall.MAP_SHARED)
+			require.Nil(t, err)
+
+			defer syscall.Munmap(data)
+		}
+	})
+
 	t.Run("check reservations", func(t *testing.T) {
 		currentMappings := getCurrentMappings()
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		maxMappings := getMaxMemoryMappings()
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
-		m.Refresh()
+		m.Refresh(true)
 
 		// reserve up available mappings
 		for i := 0; i < int(addMappings)+5; i++ {
@@ -229,7 +254,7 @@ func TestMappingsReservationClearing(t *testing.T) {
 		{name: "no reservations", reservations: map[int]int64{}, expectedClearing: 0},
 		{name: "reservations present, no expiration", nowShift: 1, reservations: map[int]int64{1: 45, 2: 14}, expectedClearing: 0},
 		{name: "reservations present, one expiration", nowShift: 1, reservations: map[int]int64{1: 45, 31: 14}, expectedClearing: 14},
-		{name: "reservations present, clear all", nowShift: 60, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 59: 1}, expectedClearing: 4},
+		{name: "reservations present, clear all", nowShift: 62, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 59: 1}, expectedClearing: 4},
 		{name: "reservations present, clear nothing (same time)", reservations: map[int]int64{0: 1, 30: 1, 2: 1, 59: 1}, expectedClearing: 0},
 		{name: "clear range", nowShift: 20, reservations: map[int]int64{0: 10, 29: 10, 30: 1, 31: 1, 50: 1, 51: 10}, expectedClearing: 2},
 		{name: "clear over minute wraparound", nowShift: 45, reservations: map[int]int64{0: 1, 1: 1, 2: 1, 29: 10, 59: 1}, expectedClearing: 4},
@@ -239,7 +264,7 @@ func TestMappingsReservationClearing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			baseTimeLocal := baseTime.Add(time.Duration(tt.baseLineShift) * time.Second)
 			now := baseTime.Add(time.Duration(tt.nowShift) * time.Second)
-			reservationBuffer := make([]int64, 60)
+			reservationBuffer := make([]int64, 62)
 			for i, v := range tt.reservations {
 				reservationBuffer[i] = v
 			}

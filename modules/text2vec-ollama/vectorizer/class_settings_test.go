@@ -27,7 +27,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		name            string
 		cfg             moduletools.ClassConfig
 		wantApiEndpoint string
-		wantModelID     string
+		wantModel       string
 		wantErr         error
 	}{
 		{
@@ -36,7 +36,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				classConfig: map[string]interface{}{},
 			},
 			wantApiEndpoint: "http://localhost:11434",
-			wantModelID:     "nomic-embed-text",
+			wantModel:       "nomic-embed-text",
 			wantErr:         nil,
 		},
 		{
@@ -44,11 +44,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint": "https://localhost:11434",
-					"modelId":     "future-text-embed",
+					"model":       "future-text-embed",
 				},
 			},
 			wantApiEndpoint: "https://localhost:11434",
-			wantModelID:     "future-text-embed",
+			wantModel:       "future-text-embed",
 			wantErr:         nil,
 		},
 		{
@@ -56,7 +56,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint": "",
-					"modelId":     "test",
+					"model":       "test",
 				},
 			},
 			wantErr: errors.Errorf("apiEndpoint cannot be empty"),
@@ -66,10 +66,10 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint": "http://localhost:8080",
-					"modelId":     "",
+					"model":       "",
 				},
 			},
-			wantErr: errors.Errorf("modelId cannot be empty"),
+			wantErr: errors.Errorf("model cannot be empty"),
 		},
 	}
 	for _, tt := range tests {
@@ -84,7 +84,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				}}), tt.wantErr.Error())
 			} else {
 				assert.Equal(t, tt.wantApiEndpoint, ic.ApiEndpoint())
-				assert.Equal(t, tt.wantModelID, ic.ModelID())
+				assert.Equal(t, tt.wantModel, ic.Model())
 			}
 		})
 	}

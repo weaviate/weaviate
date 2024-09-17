@@ -30,7 +30,13 @@ const (
 
 var (
 	availableVoyageAIModels = []string{
-		"voyage-large-2", "voyage-code-2", "voyage-2",
+		"voyage-large-2",
+		"voyage-code-2",
+		"voyage-2",
+		"voyage-law-2",
+		"voyage-large-2-instruct",
+		"voyage-finance-2",
+		"voyage-multilingual-2",
 	}
 	experimetnalVoyageAIModels = []string{}
 )
@@ -41,7 +47,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, false)}
 }
 
 func (cs *classSettings) Model() string {

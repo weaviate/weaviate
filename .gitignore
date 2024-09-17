@@ -111,5 +111,12 @@ cmd/weaviate-server/__debug_bin*
 
 # python test
 .venv
+venv
 **/__pycache__
 *.pyc
+
+# weaviate binaries
+cmd/weaviate/weaviate
+/weaviate
+cmd/weaviate-server/weviate-server
+weaviate-server

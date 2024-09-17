@@ -44,10 +44,10 @@ var availableOctoAIModels = []string{
 
 // note it might not like this -- might want int values for e.g. MaxTokens
 var (
-	DefaultBaseURL           = "https://text.octoai.run"
-	DefaultOctoAIModel       = "mistral-7b-instruct"
-	DefaultOctoAITemperature = 0
-	DefaultOctoAIMaxTokens   = 2048
+	DefaultBaseURL                   = "https://text.octoai.run"
+	DefaultOctoAIModel               = "mistral-7b-instruct"
+	DefaultOctoAITemperature float64 = 0
+	DefaultOctoAIMaxTokens           = 2048
 )
 
 type classSettings struct {
@@ -82,12 +82,17 @@ func (ic *classSettings) getIntProperty(name string, defaultValue *int) *int {
 	return ic.propertyValuesHelper.GetPropertyAsIntWithNotExists(ic.cfg, name, &wrongVal, defaultValue)
 }
 
+func (ic *classSettings) getFloat64Property(name string, defaultValue *float64) *float64 {
+	var wrongVal float64 = -1
+	return ic.propertyValuesHelper.GetPropertyAsFloat64WithNotExists(ic.cfg, name, &wrongVal, defaultValue)
+}
+
 func (ic *classSettings) GetMaxTokensForModel(model string) int {
 	return DefaultOctoAIMaxTokens
 }
 
 func (ic *classSettings) validateModel(model string) bool {
-	return contains(availableOctoAIModels, model)
+	return basesettings.ValidateSetting(model, availableOctoAIModels)
 }
 
 func (ic *classSettings) BaseURL() string {
@@ -102,15 +107,6 @@ func (ic *classSettings) MaxTokens() int {
 	return *ic.getIntProperty(maxTokensProperty, &DefaultOctoAIMaxTokens)
 }
 
-func (ic *classSettings) Temperature() int {
-	return *ic.getIntProperty(temperatureProperty, &DefaultOctoAITemperature)
-}
-
-func contains[T comparable](s []T, e T) bool {
-	for _, v := range s {
-		if v == e {
-			return true
-		}
-	}
-	return false
+func (ic *classSettings) Temperature() float64 {
+	return *ic.getFloat64Property(temperatureProperty, &DefaultOctoAITemperature)
 }

@@ -62,10 +62,12 @@ func compactionRoaringSetStrategy_Random(ctx context.Context, t *testing.T, opts
 		if r.Float64() < flushChance {
 			require.Nil(t, b.FlushAndSwitch())
 
-			for compacted, err := b.disk.compactOnce(); err == nil && compacted; compacted, err = b.disk.compactOnce() {
-				require.Nil(t, err)
+			var compacted bool
+			var err error
+			for compacted, err = b.disk.compactOnce(); err == nil && compacted; compacted, err = b.disk.compactOnce() {
 				compactions++
 			}
+			require.Nil(t, err)
 		}
 
 	}

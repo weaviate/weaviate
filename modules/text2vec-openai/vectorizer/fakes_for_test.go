@@ -14,9 +14,12 @@ package vectorizer
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/modules/text2vec-openai/ent"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 
@@ -33,7 +36,9 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 	if c.defaultResetRate == 0 {
 		c.defaultResetRate = 60
 	}
-
+	if len(text) == 0 {
+		panic("Vectorize() called with empty text array")
+	}
 	vectors := make([][]float32, len(text))
 	errors := make([]error, len(text))
 	rateLimit := &modulecomponents.RateLimits{RemainingTokens: 100, RemainingRequests: 100, LimitTokens: 200, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
@@ -48,6 +53,14 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 			rate, _ := strconv.Atoi(text[i][tok:])
 			rateLimit.RemainingTokens = rate
 			rateLimit.LimitTokens = 2 * rate
+		}
+
+		azureTok := len("azure_tokens ")
+		if len(text[i]) >= azureTok && text[i][:azureTok] == "azure_tokens " {
+			rate, _ := strconv.Atoi(text[i][azureTok:])
+			header := make(http.Header)
+			header.Add("x-ratelimit-remaining-tokens", strconv.Itoa(rate))
+			rateLimit = ent.GetRateLimitsFromHeader(header)
 		}
 
 		req := len("requests ")
@@ -82,7 +95,7 @@ func (c *fakeBatchClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
-func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (c *fakeBatchClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{RemainingTokens: 0, RemainingRequests: 0, LimitTokens: 0, ResetTokens: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second), ResetRequests: time.Now().Add(time.Duration(c.defaultResetRate) * time.Second)}
 }
 
@@ -119,7 +132,7 @@ func (c *fakeClient) VectorizeQuery(ctx context.Context,
 	}, nil
 }
 
-func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context) *modulecomponents.RateLimits {
+func (c *fakeClient) GetVectorizerRateLimit(ctx context.Context, cfg moduletools.ClassConfig) *modulecomponents.RateLimits {
 	return &modulecomponents.RateLimits{}
 }
 

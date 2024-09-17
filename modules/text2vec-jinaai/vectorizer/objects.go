@@ -51,7 +51,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 	// There is a limit of 8192 tokens per batch, however we cannot easily precompute how many tokens an object will.
 	// Therefore, we use a dummy value and let the jina API fail in case of a too large input object.
 	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
-	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger), batchTokenizer)
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger, "jinaai"), batchTokenizer)
 }
 
 // IndexCheck returns whether a property of a class should be indexed
@@ -61,4 +61,5 @@ type ClassSettings interface {
 	VectorizeClassName() bool
 	Model() string
 	BaseURL() string
+	Dimensions() *int64
 }

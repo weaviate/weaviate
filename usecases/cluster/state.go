@@ -22,6 +22,23 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// NodeSelector is an interface to select a portion of the available nodes in memberlist
+type NodeSelector interface {
+	// StorageCandidates returns list of storage nodes (names)
+	// sorted by the free amount of disk space in descending orders
+	StorageCandidates() []string
+	// NonStorageNodes return nodes from member list which
+	// they are configured not to be voter only
+	NonStorageNodes() []string
+	// SortCandidates Sort passed nodes names by the
+	// free amount of disk space in descending order
+	SortCandidates(nodes []string) []string
+	// LocalName() return local node name
+	LocalName() string
+	// NodeHostname return hosts address for a specific node name
+	NodeHostname(name string) (string, bool)
+}
+
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
@@ -41,6 +58,9 @@ type Config struct {
 	AuthConfig              AuthConfig `json:"auth" yaml:"auth"`
 	AdvertiseAddr           string     `json:"advertiseAddr" yaml:"advertiseAddr"`
 	AdvertisePort           int        `json:"advertisePort" yaml:"advertisePort"`
+	// FastFailureDetection mostly for testing purpose, it will make memberlist sensitive and detect
+	// failures (down nodes) faster.
+	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
 }
@@ -89,6 +109,10 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 		cfg.AdvertisePort = userConfig.AdvertisePort
 	}
 
+	if userConfig.FastFailureDetection {
+		cfg.SuspicionMult = 1
+	}
+
 	if state.list, err = memberlist.Create(cfg); err != nil {
 		logger.WithFields(logrus.Fields{
 			"action":    "memberlist_init",
@@ -128,6 +152,9 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -147,9 +174,13 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	if s.list == nil {
 		return []string{}
 	}
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -164,6 +195,9 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	mem := s.list.Members()
 	out := make([]string, len(mem))
 
@@ -175,10 +209,14 @@ func (s *State) AllNames() []string {
 }
 
 // StorageNodes returns all nodes except non storage nodes
-func (s *State) StorageNodes() []string {
+func (s *State) storageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
+
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	members := s.list.Members()
 	out := make([]string, len(members))
 	n := 0
@@ -193,26 +231,56 @@ func (s *State) StorageNodes() []string {
 	return out[:n]
 }
 
-// Candidates returns list of nodes (names) sorted by the
+// StorageCandidates returns list of storage nodes (names)
+// sorted by the free amount of disk space in descending order
+func (s *State) StorageCandidates() []string {
+	return s.delegate.sortCandidates(s.storageNodes())
+}
+
+// NonStorageNodes return nodes from member list which
+// they are configured not to be voter only
+func (s *State) NonStorageNodes() []string {
+	nonStorage := []string{}
+	for name := range s.nonStorageNodes {
+		nonStorage = append(nonStorage, name)
+	}
+
+	return nonStorage
+}
+
+// SortCandidates Sort passed nodes names by the
 // free amount of disk space in descending order
-func (s *State) Candidates() []string {
-	return s.delegate.sortCandidates(s.StorageNodes())
+func (s *State) SortCandidates(nodes []string) []string {
+	return s.delegate.sortCandidates(nodes)
 }
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.NumMembers()
 }
 
+// LocalName() return local node name
 func (s *State) LocalName() string {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.LocalNode().Name
 }
 
 func (s *State) ClusterHealthScore() int {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	return s.list.GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
+	s.listLock.RLock()
+	defer s.listLock.RUnlock()
+
 	for _, mem := range s.list.Members() {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on

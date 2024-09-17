@@ -28,7 +28,7 @@ func (v *Vectorizer) Texts(ctx context.Context, inputs []string,
 	for i := range inputs {
 		res, err := v.client.Vectorize(ctx, inputs[i], ent.VectorizationConfig{
 			ApiEndpoint: settings.ApiEndpoint(),
-			Model:       settings.ModelID(),
+			Model:       settings.Model(),
 		})
 		if err != nil {
 			return nil, errors.Wrap(err, "remote client vectorize")

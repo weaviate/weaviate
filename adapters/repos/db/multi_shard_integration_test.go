@@ -388,7 +388,8 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 					Pagination: &filters.Pagination{
 						Limit: limit,
 					},
-					ClassName: "TestClass",
+					ClassName:  "TestClass",
+					Properties: search.SelectProperties{{Name: "boolProp"}},
 				})
 				assert.Nil(t, err)
 
@@ -410,12 +411,11 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 		t.Run("retrieve through class-level vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
 				res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-					SearchVector: queryVec,
 					Pagination: &filters.Pagination{
 						Limit: limit,
 					},
 					ClassName: "TestClass",
-				})
+				}, []string{""}, [][]float32{queryVec})
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {
@@ -824,7 +824,7 @@ func bruteForceObjectsByQuery(objs []*models.Object,
 	distances := make([]distanceAndObj, len(objs))
 
 	for i := range objs {
-		dist, _, _ := distProv.SingleDist(normalize(query), normalize(objs[i].Vector))
+		dist, _ := distProv.SingleDist(normalize(query), normalize(objs[i].Vector))
 		distances[i] = distanceAndObj{
 			distance: dist,
 			obj:      objs[i],

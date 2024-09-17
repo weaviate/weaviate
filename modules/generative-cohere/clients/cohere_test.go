@@ -71,8 +71,8 @@ func TestGetAnswer(t *testing.T) {
 
 			c := New("apiKey", test.timeout, nullLogger())
 
-			settings := &fakeClassConfig{baseURL: server.URL}
-			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", settings)
+			cfg := &fakeClassConfig{baseURL: server.URL}
+			res, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, cfg)
 
 			if test.answer.Message != "" {
 				assert.Contains(t, err.Error(), test.answer.Message)
