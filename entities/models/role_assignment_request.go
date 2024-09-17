@@ -19,11 +19,15 @@ package models
 import (
 	"context"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // RoleAssignmentRequest RBAC role assignment request
+//
+// Min Properties: 2
 //
 // swagger:model RoleAssignmentRequest
 type RoleAssignmentRequest struct {
@@ -32,7 +36,8 @@ type RoleAssignmentRequest struct {
 	Key *string `json:"key,omitempty"`
 
 	// the role that the key/user assigned to
-	Role string `json:"role,omitempty"`
+	// Required: true
+	Role *string `json:"role"`
 
 	// the user to be assigned to a role
 	User *string `json:"user,omitempty"`
@@ -40,6 +45,24 @@ type RoleAssignmentRequest struct {
 
 // Validate validates this role assignment request
 func (m *RoleAssignmentRequest) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateRole(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *RoleAssignmentRequest) validateRole(formats strfmt.Registry) error {
+
+	if err := validate.Required("role", "body", m.Role); err != nil {
+		return err
+	}
+
 	return nil
 }
 

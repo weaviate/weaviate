@@ -286,20 +286,33 @@ func init() {
         ]
       }
     },
-    "/authz/role": {
+    "/authz/roles": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get roles for user or a key or users for specified role ",
-        "operationId": "getRole",
+        "summary": "get roles for user or a key",
+        "operationId": "getUsersForRole",
         "parameters": [
           {
             "name": "body",
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/RoleAssignmentRequest"
+              "description": "RBAC role assignment request",
+              "type": "object",
+              "properties": {
+                "key": {
+                  "description": "the key to be assigned to a role",
+                  "type": "string",
+                  "x-nullable": true
+                },
+                "user": {
+                  "description": "the user to be assigned to a role",
+                  "type": "string",
+                  "x-nullable": true
+                }
+              }
             }
           }
         ],
@@ -307,7 +320,10 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "$ref": "#/definitions/RoleAssignmentResponse"
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "400": {
@@ -326,7 +342,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role is not found."
+            "description": "no role found for user/key"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -336,7 +352,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.get.role"
+          "weaviate.authz.get.users.roles"
         ]
       },
       "post": {
@@ -432,6 +448,70 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.delete.role"
+        ]
+      }
+    },
+    "/authz/users": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles for user or a key",
+        "operationId": "getRolesForUsers",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "RBAC role assignment request",
+              "type": "object",
+              "properties": {
+                "role": {
+                  "description": "the role that the key/user assigned to",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user/key"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.users"
         ]
       }
     },
@@ -5077,6 +5157,11 @@ func init() {
     },
     "Policy": {
       "type": "object",
+      "required": [
+        "role",
+        "object",
+        "action"
+      ],
       "properties": {
         "action": {
           "description": "HTTP Method like actions the user/key can perform on an object",
@@ -5357,6 +5442,10 @@ func init() {
     "RoleAssignmentRequest": {
       "description": "RBAC role assignment request",
       "type": "object",
+      "minProperties": 2,
+      "required": [
+        "role"
+      ],
       "properties": {
         "key": {
           "description": "the key to be assigned to a role",
@@ -6218,20 +6307,33 @@ func init() {
         ]
       }
     },
-    "/authz/role": {
+    "/authz/roles": {
       "get": {
         "tags": [
           "authz"
         ],
-        "summary": "get roles for user or a key or users for specified role ",
-        "operationId": "getRole",
+        "summary": "get roles for user or a key",
+        "operationId": "getUsersForRole",
         "parameters": [
           {
             "name": "body",
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/RoleAssignmentRequest"
+              "description": "RBAC role assignment request",
+              "type": "object",
+              "properties": {
+                "key": {
+                  "description": "the key to be assigned to a role",
+                  "type": "string",
+                  "x-nullable": true
+                },
+                "user": {
+                  "description": "the user to be assigned to a role",
+                  "type": "string",
+                  "x-nullable": true
+                }
+              }
             }
           }
         ],
@@ -6239,7 +6341,10 @@ func init() {
           "200": {
             "description": "Role assigned users",
             "schema": {
-              "$ref": "#/definitions/RoleAssignmentResponse"
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           },
           "400": {
@@ -6258,7 +6363,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role is not found."
+            "description": "no role found for user/key"
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -6268,7 +6373,7 @@ func init() {
           }
         },
         "x-serviceIds": [
-          "weaviate.authz.get.role"
+          "weaviate.authz.get.users.roles"
         ]
       },
       "post": {
@@ -6364,6 +6469,70 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.delete.role"
+        ]
+      }
+    },
+    "/authz/users": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles for user or a key",
+        "operationId": "getRolesForUsers",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "description": "RBAC role assignment request",
+              "type": "object",
+              "properties": {
+                "role": {
+                  "description": "the role that the key/user assigned to",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned users",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no role found for user/key"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.roles.users"
         ]
       }
     },
@@ -11311,6 +11480,11 @@ func init() {
     },
     "Policy": {
       "type": "object",
+      "required": [
+        "role",
+        "object",
+        "action"
+      ],
       "properties": {
         "action": {
           "description": "HTTP Method like actions the user/key can perform on an object",
@@ -11591,6 +11765,10 @@ func init() {
     "RoleAssignmentRequest": {
       "description": "RBAC role assignment request",
       "type": "object",
+      "minProperties": 2,
+      "required": [
+        "role"
+      ],
       "properties": {
         "key": {
           "description": "the key to be assigned to a role",
