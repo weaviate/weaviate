@@ -119,11 +119,11 @@ func (o *AddRoleOK) Code() int {
 }
 
 func (o *AddRoleOK) Error() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleOK ", 200)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleOK ", 200)
 }
 
 func (o *AddRoleOK) String() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleOK ", 200)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleOK ", 200)
 }
 
 func (o *AddRoleOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -176,11 +176,11 @@ func (o *AddRoleBadRequest) Code() int {
 }
 
 func (o *AddRoleBadRequest) Error() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *AddRoleBadRequest) String() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *AddRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -243,11 +243,11 @@ func (o *AddRoleUnauthorized) Code() int {
 }
 
 func (o *AddRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleUnauthorized ", 401)
 }
 
 func (o *AddRoleUnauthorized) String() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleUnauthorized ", 401)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleUnauthorized ", 401)
 }
 
 func (o *AddRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -300,11 +300,11 @@ func (o *AddRoleForbidden) Code() int {
 }
 
 func (o *AddRoleForbidden) Error() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *AddRoleForbidden) String() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *AddRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -367,11 +367,11 @@ func (o *AddRoleNotFound) Code() int {
 }
 
 func (o *AddRoleNotFound) Error() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleNotFound ", 404)
 }
 
 func (o *AddRoleNotFound) String() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleNotFound ", 404)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleNotFound ", 404)
 }
 
 func (o *AddRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -424,11 +424,11 @@ func (o *AddRoleInternalServerError) Code() int {
 }
 
 func (o *AddRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *AddRoleInternalServerError) String() string {
-	return fmt.Sprintf("[POST /authz/role][%d] addRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /authz/roles][%d] addRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *AddRoleInternalServerError) GetPayload() *models.ErrorResponse {

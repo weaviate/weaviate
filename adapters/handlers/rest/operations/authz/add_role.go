@@ -43,7 +43,7 @@ func NewAddRole(ctx *middleware.Context, handler AddRoleHandler) *AddRole {
 }
 
 /*
-	AddRole swagger:route POST /authz/role authz addRole
+	AddRole swagger:route POST /authz/roles authz addRole
 
 Assign a role to a user
 */

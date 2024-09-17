@@ -17,11 +17,13 @@ package authz
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"io"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -83,7 +85,7 @@ func NewGetUsersForRoleOK() *GetUsersForRoleOK {
 /*
 GetUsersForRoleOK describes a response with status code 200, with default header values.
 
-Users assigned to this role
+Role assigned users
 */
 type GetUsersForRoleOK struct {
 	Payload []string
@@ -120,11 +122,11 @@ func (o *GetUsersForRoleOK) Code() int {
 }
 
 func (o *GetUsersForRoleOK) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUsersForRoleOK) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleOK  %+v", 200, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleOK  %+v", 200, o.Payload)
 }
 
 func (o *GetUsersForRoleOK) GetPayload() []string {
@@ -186,11 +188,11 @@ func (o *GetUsersForRoleBadRequest) Code() int {
 }
 
 func (o *GetUsersForRoleBadRequest) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetUsersForRoleBadRequest) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *GetUsersForRoleBadRequest) GetPayload() *models.ErrorResponse {
@@ -253,11 +255,11 @@ func (o *GetUsersForRoleUnauthorized) Code() int {
 }
 
 func (o *GetUsersForRoleUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleUnauthorized ", 401)
 }
 
 func (o *GetUsersForRoleUnauthorized) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleUnauthorized ", 401)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleUnauthorized ", 401)
 }
 
 func (o *GetUsersForRoleUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -310,11 +312,11 @@ func (o *GetUsersForRoleForbidden) Code() int {
 }
 
 func (o *GetUsersForRoleForbidden) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUsersForRoleForbidden) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleForbidden  %+v", 403, o.Payload)
 }
 
 func (o *GetUsersForRoleForbidden) GetPayload() *models.ErrorResponse {
@@ -377,11 +379,11 @@ func (o *GetUsersForRoleNotFound) Code() int {
 }
 
 func (o *GetUsersForRoleNotFound) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleNotFound ", 404)
 }
 
 func (o *GetUsersForRoleNotFound) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleNotFound ", 404)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleNotFound ", 404)
 }
 
 func (o *GetUsersForRoleNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -434,11 +436,11 @@ func (o *GetUsersForRoleInternalServerError) Code() int {
 }
 
 func (o *GetUsersForRoleInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUsersForRoleInternalServerError) String() string {
-	return fmt.Sprintf("[GET /authz/roles/{id}/users][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /authz/roles][%d] getUsersForRoleInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *GetUsersForRoleInternalServerError) GetPayload() *models.ErrorResponse {
@@ -454,5 +456,46 @@ func (o *GetUsersForRoleInternalServerError) readResponse(response runtime.Clien
 		return err
 	}
 
+	return nil
+}
+
+/*
+GetUsersForRoleBody RBAC role assignment request
+swagger:model GetUsersForRoleBody
+*/
+type GetUsersForRoleBody struct {
+
+	// the key to be assigned to a role
+	Key *string `json:"key,omitempty"`
+
+	// the user to be assigned to a role
+	User *string `json:"user,omitempty"`
+}
+
+// Validate validates this get users for role body
+func (o *GetUsersForRoleBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this get users for role body based on context it is used
+func (o *GetUsersForRoleBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *GetUsersForRoleBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *GetUsersForRoleBody) UnmarshalBinary(b []byte) error {
+	var res GetUsersForRoleBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

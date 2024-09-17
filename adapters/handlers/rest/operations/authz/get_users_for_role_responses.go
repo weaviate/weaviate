@@ -28,7 +28,7 @@ import (
 const GetUsersForRoleOKCode int = 200
 
 /*
-GetUsersForRoleOK Users assigned to this role
+GetUsersForRoleOK Role assigned users
 
 swagger:response getUsersForRoleOK
 */
