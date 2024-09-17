@@ -35,8 +35,8 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
-	endpoint, err := buildUrlFn(isLegacy, resourceName, deploymentID, baseURL, apiVersion)
+func fakeBuildUrl(serverURL string, isAzure, isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+	endpoint, err := buildUrlFn(isLegacy, isAzure, resourceName, deploymentID, baseURL, apiVersion)
 	if err != nil {
 		return "", err
 	}
@@ -46,23 +46,23 @@ func fakeBuildUrl(serverURL string, isLegacy bool, resourceName, deploymentID, b
 
 func TestBuildUrlFn(t *testing.T) {
 	t.Run("buildUrlFn returns default OpenAI Client", func(t *testing.T) {
-		url, err := buildUrlFn(false, "", "", config.DefaultOpenAIBaseURL, config.DefaultApiVersion)
+		url, err := buildUrlFn(false, false, "", "", config.DefaultOpenAIBaseURL, config.DefaultApiVersion)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://api.openai.com/v1/chat/completions", url)
 	})
-	t.Run("buildUrlFn returns Azure Client", func(t *testing.T) {
-		url, err := buildUrlFn(false, "resourceID", "deploymentID", "", config.DefaultApiVersion)
+	t.Run("buildUrlFn returns Azure Client when isAzure is true", func(t *testing.T) {
+		url, err := buildUrlFn(false, true, "resourceID", "deploymentID", "", config.DefaultApiVersion)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://resourceID.openai.azure.com/openai/deployments/deploymentID/chat/completions?api-version=2024-02-01", url)
 	})
 	t.Run("buildUrlFn loads from environment variable", func(t *testing.T) {
-		url, err := buildUrlFn(false, "", "", "https://foobar.some.proxy", config.DefaultApiVersion)
+		url, err := buildUrlFn(false, false, "", "", "https://foobar.some.proxy", config.DefaultApiVersion)
 		assert.Nil(t, err)
 		assert.Equal(t, "https://foobar.some.proxy/v1/chat/completions", url)
 		os.Unsetenv("OPENAI_BASE_URL")
 	})
 	t.Run("buildUrlFn returns Azure Client with custom baseURL", func(t *testing.T) {
-		url, err := buildUrlFn(false, "resourceID", "deploymentID", "customBaseURL", config.DefaultApiVersion)
+		url, err := buildUrlFn(false, true, "resourceID", "deploymentID", "customBaseURL", config.DefaultApiVersion)
 		assert.Nil(t, err)
 		assert.Equal(t, "customBaseURL/openai/deployments/deploymentID/chat/completions?api-version=2024-02-01", url)
 	})
@@ -87,8 +87,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
-			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
+		c.buildUrl = func(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+			return fakeBuildUrl(server.URL, isAzure, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
 		expected := modulecapabilities.GenerateResponse{
@@ -113,8 +113,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
-			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
+		c.buildUrl = func(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+			return fakeBuildUrl(server.URL, isAzure, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
 		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
@@ -139,6 +139,25 @@ func TestGetAnswer(t *testing.T) {
 		buildURL, err = c.buildOpenAIUrl(context.TODO(), settings)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/chat/completions", buildURL)
+	})
+
+	t.Run("when X-Azure-DeploymentId is passed", func(t *testing.T) {
+		settings := &fakeClassSettings{
+			isAzure:      true,
+			resourceName: "classResourceName",
+			deploymentID: "classDeploymentId",
+			apiVersion:   "2024-02-01",
+		}
+		c := New("", "", "", 0, nullLogger())
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Azure-Deployment-Id", []string{"headerDeploymentId"})
+		ctxWithValue = context.WithValue(ctxWithValue,
+			"X-Azure-Resource-Name", []string{"headerResourceName"})
+
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, settings)
+		require.NoError(t, err)
+		assert.Equal(t, "https://headerResourceName.openai.azure.com/openai/deployments/headerDeploymentId/chat/completions?api-version=2024-02-01", buildURL)
 	})
 }
 

@@ -30,6 +30,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	if pv.operator == filters.OperatorWithinGeoRange {
 		return s.docBitmapGeo(ctx, pv)
 	}
+
 	// all other operators perform operations on the inverted index which we
 	// can serve directly
 	switch b.Strategy() {
@@ -88,7 +89,8 @@ func (s *Searcher) docBitmapInvertedRoaringSetRange(ctx context.Context, b *lsmk
 		return newDocBitmap(), fmt.Errorf("readerRoaringSetRange: invalid value length %d, should be 8 bytes", len(pv.value))
 	}
 
-	reader := lsmkv.NewBucketReaderRoaringSetRange(b.CursorRoaringSetRange, s.logger)
+	reader := b.ReaderRoaringSetRange()
+	defer reader.Close()
 
 	docIds, err := reader.Read(ctx, binary.BigEndian.Uint64(pv.value), pv.operator)
 	if err != nil {
