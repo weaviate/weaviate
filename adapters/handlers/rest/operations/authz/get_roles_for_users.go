@@ -27,40 +27,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// GetUsersForRoleHandlerFunc turns a function with the right signature into a get users for role handler
-type GetUsersForRoleHandlerFunc func(GetUsersForRoleParams, *models.Principal) middleware.Responder
+// GetRolesForUsersHandlerFunc turns a function with the right signature into a get roles for users handler
+type GetRolesForUsersHandlerFunc func(GetRolesForUsersParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn GetUsersForRoleHandlerFunc) Handle(params GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
+func (fn GetRolesForUsersHandlerFunc) Handle(params GetRolesForUsersParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// GetUsersForRoleHandler interface for that can handle valid get users for role params
-type GetUsersForRoleHandler interface {
-	Handle(GetUsersForRoleParams, *models.Principal) middleware.Responder
+// GetRolesForUsersHandler interface for that can handle valid get roles for users params
+type GetRolesForUsersHandler interface {
+	Handle(GetRolesForUsersParams, *models.Principal) middleware.Responder
 }
 
-// NewGetUsersForRole creates a new http.Handler for the get users for role operation
-func NewGetUsersForRole(ctx *middleware.Context, handler GetUsersForRoleHandler) *GetUsersForRole {
-	return &GetUsersForRole{Context: ctx, Handler: handler}
+// NewGetRolesForUsers creates a new http.Handler for the get roles for users operation
+func NewGetRolesForUsers(ctx *middleware.Context, handler GetRolesForUsersHandler) *GetRolesForUsers {
+	return &GetRolesForUsers{Context: ctx, Handler: handler}
 }
 
 /*
-	GetUsersForRole swagger:route GET /authz/roles authz getUsersForRole
+	GetRolesForUsers swagger:route GET /authz/users authz getRolesForUsers
 
 get roles for user or a key
 */
-type GetUsersForRole struct {
+type GetRolesForUsers struct {
 	Context *middleware.Context
-	Handler GetUsersForRoleHandler
+	Handler GetRolesForUsersHandler
 }
 
-func (o *GetUsersForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *GetRolesForUsers) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewGetUsersForRoleParams()
+	var Params = NewGetRolesForUsersParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -84,30 +84,27 @@ func (o *GetUsersForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 }
 
-// GetUsersForRoleBody RBAC role assignment request
+// GetRolesForUsersBody RBAC role assignment request
 //
-// swagger:model GetUsersForRoleBody
-type GetUsersForRoleBody struct {
+// swagger:model GetRolesForUsersBody
+type GetRolesForUsersBody struct {
 
-	// the key to be assigned to a role
-	Key *string `json:"key,omitempty" yaml:"key,omitempty"`
-
-	// the user to be assigned to a role
-	User *string `json:"user,omitempty" yaml:"user,omitempty"`
+	// the role that the key/user assigned to
+	Role string `json:"role,omitempty" yaml:"role,omitempty"`
 }
 
-// Validate validates this get users for role body
-func (o *GetUsersForRoleBody) Validate(formats strfmt.Registry) error {
+// Validate validates this get roles for users body
+func (o *GetRolesForUsersBody) Validate(formats strfmt.Registry) error {
 	return nil
 }
 
-// ContextValidate validates this get users for role body based on context it is used
-func (o *GetUsersForRoleBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+// ContextValidate validates this get roles for users body based on context it is used
+func (o *GetRolesForUsersBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	return nil
 }
 
 // MarshalBinary interface implementation
-func (o *GetUsersForRoleBody) MarshalBinary() ([]byte, error) {
+func (o *GetRolesForUsersBody) MarshalBinary() ([]byte, error) {
 	if o == nil {
 		return nil, nil
 	}
@@ -115,8 +112,8 @@ func (o *GetUsersForRoleBody) MarshalBinary() ([]byte, error) {
 }
 
 // UnmarshalBinary interface implementation
-func (o *GetUsersForRoleBody) UnmarshalBinary(b []byte) error {
-	var res GetUsersForRoleBody
+func (o *GetRolesForUsersBody) UnmarshalBinary(b []byte) error {
+	var res GetRolesForUsersBody
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

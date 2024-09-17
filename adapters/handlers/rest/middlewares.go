@@ -141,7 +141,10 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		}
 
 		// Create a new middleware for RBAC Authz
-		handler = rbacMiddleware(appState)(handler)
+		if appState.RBACEnforcer != nil {
+			handler = rbacMiddleware(appState)(handler)
+		}
+
 		// Must be the last middleware as it might skip the next handler
 		handler = addClusterHandlerMiddleware(handler, appState)
 		if appState.ServerConfig.Config.Sentry.Enabled {
