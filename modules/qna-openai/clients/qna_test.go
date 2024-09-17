@@ -100,8 +100,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string) (string, error) {
-			return buildUrl(server.URL, resourceName, deploymentID)
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+			return buildUrl(server.URL, resourceName, deploymentID, isAzure)
 		}
 
 		_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
