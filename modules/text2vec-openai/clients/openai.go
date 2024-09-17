@@ -170,6 +170,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 	defer res.Body.Close()
 
+	requestID := res.Header.Get("x-request-id")
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "read response body")
@@ -181,7 +182,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, nil, v.getError(res.StatusCode, resBody.Error, config.IsAzure)
+		return nil, nil, v.getError(res.StatusCode, requestID, resBody.Error, config.IsAzure)
 	}
 	rateLimit := ent.GetRateLimitsFromHeader(res.Header)
 
@@ -192,7 +193,7 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 		texts[i] = resBody.Data[i].Object
 		embeddings[i] = resBody.Data[i].Embedding
 		if resBody.Data[i].Error != nil {
-			openAIerror[i] = v.getError(res.StatusCode, resBody.Data[i].Error, config.IsAzure)
+			openAIerror[i] = v.getError(res.StatusCode, requestID, resBody.Data[i].Error, config.IsAzure)
 		}
 	}
 
@@ -212,15 +213,19 @@ func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (
 	return v.buildUrlFn(baseURL, resourceName, deploymentID, apiVersion, isAzure)
 }
 
-func (v *client) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
+func (v *client) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
 	endpoint := "OpenAI API"
 	if isAzure {
 		endpoint = "Azure OpenAI API"
 	}
-	if resBodyError != nil {
-		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
+	errorMsg := fmt.Sprintf("connection to: %s failed with status: %d", endpoint, statusCode)
+	if requestID != "" {
+		errorMsg = fmt.Sprintf("%s request-id: %s", errorMsg, requestID)
 	}
-	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
+	if resBodyError != nil {
+		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
+	}
+	return errors.New(errorMsg)
 }
 
 func (v *client) getEmbeddingsRequest(input []string, model string, isAzure bool, dimensions *int64) embeddingsRequest {
