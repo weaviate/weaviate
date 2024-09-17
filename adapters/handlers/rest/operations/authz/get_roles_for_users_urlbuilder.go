@@ -22,15 +22,15 @@ import (
 	golangswaggerpaths "path"
 )
 
-// RemoveRoleURL generates an URL for the remove role operation
-type RemoveRoleURL struct {
+// GetRolesForUsersURL generates an URL for the get roles for users operation
+type GetRolesForUsersURL struct {
 	_basePath string
 }
 
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *RemoveRoleURL) WithBasePath(bp string) *RemoveRoleURL {
+func (o *GetRolesForUsersURL) WithBasePath(bp string) *GetRolesForUsersURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -38,15 +38,15 @@ func (o *RemoveRoleURL) WithBasePath(bp string) *RemoveRoleURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *RemoveRoleURL) SetBasePath(bp string) {
+func (o *GetRolesForUsersURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *RemoveRoleURL) Build() (*url.URL, error) {
+func (o *GetRolesForUsersURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/roles"
+	var _path = "/authz/users"
 
 	_basePath := o._basePath
 	if _basePath == "" {
@@ -58,7 +58,7 @@ func (o *RemoveRoleURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *RemoveRoleURL) Must(u *url.URL, err error) *url.URL {
+func (o *GetRolesForUsersURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -69,17 +69,17 @@ func (o *RemoveRoleURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *RemoveRoleURL) String() string {
+func (o *GetRolesForUsersURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *RemoveRoleURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *GetRolesForUsersURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on RemoveRoleURL")
+		return nil, errors.New("scheme is required for a full url on GetRolesForUsersURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on RemoveRoleURL")
+		return nil, errors.New("host is required for a full url on GetRolesForUsersURL")
 	}
 
 	base, err := o.Build()
@@ -93,6 +93,6 @@ func (o *RemoveRoleURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *RemoveRoleURL) StringFull(scheme, host string) string {
+func (o *GetRolesForUsersURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }
