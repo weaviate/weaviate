@@ -229,6 +229,9 @@ func (m *metaClass) AddTenants(nodeID string, req *command.AddTenantsRequest, re
 			continue
 		}
 		p := sharding.Physical{Name: t.Name, Status: t.Status, BelongsToNodes: part}
+		if m.Sharding.Physical == nil {
+			m.Sharding.Physical = make(map[string]sharding.Physical, 128)
+		}
 		m.Sharding.Physical[t.Name] = p
 		// TODO-RAFT: Check here why we set =nil if it is "owned by another node"
 		if !slices.Contains(part, nodeID) {

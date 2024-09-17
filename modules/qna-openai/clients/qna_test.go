@@ -87,6 +87,29 @@ func TestGetAnswer(t *testing.T) {
 		assert.Error(t, err, "connection to OpenAI failed with status: 500 error: some error from the server")
 	})
 
+	t.Run("when the server has a an error and request id header", func(t *testing.T) {
+		server := httptest.NewServer(&testAnswerHandler{
+			t: t,
+			answer: answersResponse{
+				Error: &openAIApiError{
+					Message: "some error from the server",
+				},
+			},
+			headerRequestID: "some-request-id",
+		})
+		defer server.Close()
+
+		c := New("openAIApiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+			return buildUrl(server.URL, resourceName, deploymentID, isAzure)
+		}
+
+		_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
+
+		require.NotNil(t, err)
+		assert.Error(t, err, "connection to OpenAI failed with status: 500 request-id: some-request-id error: some error from the server")
+	})
+
 	t.Run("when X-OpenAI-BaseURL header is passed", func(t *testing.T) {
 		c := New("openAIApiKey", "", "", 0, nullLogger())
 
@@ -119,7 +142,8 @@ func TestGetAnswer(t *testing.T) {
 type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed
-	answer answersResponse
+	answer          answersResponse
+	headerRequestID string
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -130,6 +154,9 @@ func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		outBytes, err := json.Marshal(f.answer)
 		require.Nil(f.t, err)
 
+		if f.headerRequestID != "" {
+			w.Header().Add("x-request-id", f.headerRequestID)
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write(outBytes)
 		return

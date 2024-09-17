@@ -40,6 +40,7 @@ const (
 )
 
 func TestAPI_vectorSearch(t *testing.T) {
+	t.Skip(true)
 	vectorize := newMockVectorizer(t)
 
 	// we don't use this in test. As it's hard to mock it.

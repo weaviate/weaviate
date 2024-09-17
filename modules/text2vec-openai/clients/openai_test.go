@@ -168,6 +168,25 @@ func TestClient(t *testing.T) {
 		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 error: nope, not gonna happen")
 	})
 
+	t.Run("when the server returns an error with request id", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{
+			t:               t,
+			serverError:     errors.Errorf("nope, not gonna happen"),
+			headerRequestID: "some-request-id",
+		})
+		defer server.Close()
+		c := New("apiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
+			return server.URL, nil
+		}
+
+		_, _, err := c.Vectorize(context.Background(), []string{"This is my text"},
+			fakeClassConfig{})
+
+		require.NotNil(t, err)
+		assert.EqualError(t, err, "connection to: OpenAI API failed with status: 500 request-id: some-request-id error: nope, not gonna happen")
+	})
+
 	t.Run("when OpenAI key is passed using X-Openai-Api-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
@@ -293,8 +312,9 @@ func TestClient(t *testing.T) {
 }
 
 type fakeHandler struct {
-	t           *testing.T
-	serverError error
+	t               *testing.T
+	serverError     error
+	headerRequestID string
 }
 
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -311,6 +331,9 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		outBytes, err := json.Marshal(embedding)
 		require.Nil(f.t, err)
 
+		if f.headerRequestID != "" {
+			w.Header().Add("x-request-id", f.headerRequestID)
+		}
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write(outBytes)
 		return
