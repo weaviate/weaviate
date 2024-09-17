@@ -4665,7 +4665,8 @@ func init() {
         },
         "propagateObjectDeletion": {
           "description": "Propagate object deletion",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
@@ -10116,7 +10117,8 @@ func init() {
         },
         "propagateObjectDeletion": {
           "description": "Propagate object deletion",
-          "type": "boolean"
+          "type": "boolean",
+          "x-omitempty": false
         }
       }
     },
