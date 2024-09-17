@@ -136,8 +136,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrl = func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
-			return fakeBuildUrl(server.URL, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
+		c.buildUrl = func(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+			return fakeBuildUrl(server.URL, isAzure, isLegacy, resourceName, deploymentID, baseURL, apiVersion)
 		}
 
 		_, err := c.GenerateAllResults(context.Background(), textProperties, "What is my name?", nil, false, nil)
