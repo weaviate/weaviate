@@ -25,17 +25,25 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/multi2vec-palm/clients"
-	"github.com/weaviate/weaviate/modules/multi2vec-palm/vectorizer"
+	"github.com/weaviate/weaviate/modules/multi2vec-google/clients"
+	"github.com/weaviate/weaviate/modules/multi2vec-google/vectorizer"
 )
 
-const Name = "multi2vec-palm"
+const (
+	Name       = "multi2vec-google"
+	LegacyName = "multi2vec-palm"
+)
 
 func New() *Module {
 	return &Module{}
 }
 
+func NewWithLegacyName() *Module {
+	return &Module{withLegacyName: true}
+}
+
 type Module struct {
+	withLegacyName           bool
 	imageVectorizer          imageVectorizer
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
 	nearImageSearcher        modulecapabilities.Searcher
@@ -71,6 +79,9 @@ type videoVectorizer interface {
 }
 
 func (m *Module) Name() string {
+	if m.withLegacyName {
+		return LegacyName
+	}
 	return Name
 }
 
