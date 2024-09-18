@@ -765,5 +765,7 @@ func parseClusterConfig() (cluster.Config, error) {
 
 	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
 
+	cfg.MaintenanceNodes = strings.Split(os.Getenv("MAINTENANCE_NODES"), ",")
+
 	return cfg, nil
 }

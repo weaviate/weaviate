@@ -19,11 +19,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -64,9 +62,10 @@ type localScaler interface {
 }
 
 type replicatedIndices struct {
-	shards replicator
-	scaler localScaler
-	auth   auth
+	shards                 replicator
+	scaler                 localScaler
+	auth                   auth
+	maintenanceModeEnabled bool
 }
 
 var (
@@ -86,11 +85,12 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled bool) *replicatedIndices {
 	return &replicatedIndices{
-		shards: shards,
-		scaler: scaler,
-		auth:   auth,
+		shards:                 shards,
+		scaler:                 scaler,
+		auth:                   auth,
+		maintenanceModeEnabled: maintenanceModeEnabled,
 	}
 }
 
@@ -101,7 +101,7 @@ func (i *replicatedIndices) Indices() http.Handler {
 func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if entcfg.Enabled(os.Getenv("MAINTENANCE_MODE")) {
+		if i.maintenanceModeEnabled {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}

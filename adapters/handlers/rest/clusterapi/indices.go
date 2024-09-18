@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 
 	"github.com/go-openapi/strfmt"
@@ -27,7 +26,6 @@ import (
 	reposdb "github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -42,6 +40,7 @@ type indices struct {
 	shards                 shards
 	db                     db
 	auth                   auth
+	maintenanceModeEnabled bool
 	regexpObjects          *regexp.Regexp
 	regexpObjectsOverwrite *regexp.Regexp
 	regexObjectsDigest     *regexp.Regexp
@@ -145,7 +144,7 @@ type db interface {
 	StartupComplete() bool
 }
 
-func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *indices {
+func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled bool, logger logrus.FieldLogger) *indices {
 	return &indices{
 		regexpObjects:          regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite: regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -164,6 +163,7 @@ func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *ind
 		shards:                    shards,
 		db:                        db,
 		auth:                      auth,
+		maintenanceModeEnabled:    maintenanceModeEnabled,
 		logger:                    logger,
 	}
 }
@@ -175,7 +175,7 @@ func (i *indices) Indices() http.Handler {
 func (i *indices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if entcfg.Enabled(os.Getenv("MAINTENANCE_MODE")) {
+		if i.maintenanceModeEnabled {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}

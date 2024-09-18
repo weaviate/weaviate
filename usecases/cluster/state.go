@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 
@@ -63,6 +64,8 @@ type Config struct {
 	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
+	// MaintenanceNodes TODO
+	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
 }
 
 type AuthConfig struct {
@@ -288,4 +291,13 @@ func (s *State) SkipSchemaRepair() bool {
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
+}
+
+// TODO comment
+func (s *State) MaintenanceModeEnabled() bool {
+	return s.nodeInMaintenanceMode(s.config.Hostname)
+}
+
+func (s *State) nodeInMaintenanceMode(node string) bool {
+	return slices.Contains(s.config.MaintenanceNodes, node)
 }
