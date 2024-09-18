@@ -114,7 +114,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "Weaviate Inference API key")
+		return nil, errors.Wrap(err, "Weaviate Embedding API key")
 	}
 
 	req.Header.Set("Authorization", apiKey)
