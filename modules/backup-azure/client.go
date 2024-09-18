@@ -133,7 +133,7 @@ func (a *azureClient) GetObject(ctx context.Context, backupID, key string) ([]by
 	return downloadData, nil
 }
 
-func (a *azureClient) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (a *azureClient) PutFile(ctx context.Context, backupID, key, srcPath, bucketName, bucketPath string) error {
 	filePath := path.Join(a.dataPath, srcPath)
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -157,7 +157,7 @@ func (a *azureClient) PutFile(ctx context.Context, backupID, key, srcPath string
 	return nil
 }
 
-func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data []byte) error {
+func (a *azureClient) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, data []byte) error {
 	objectName := a.makeObjectName(backupID, key)
 
 	reader := bytes.NewReader(data)
@@ -179,7 +179,7 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key string, data 
 func (a *azureClient) Initialize(ctx context.Context, backupID string) error {
 	key := "access-check"
 
-	if err := a.PutObject(ctx, backupID, key, []byte("")); err != nil {
+	if err := a.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check Azure backup module")
 	}
 

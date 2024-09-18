@@ -188,7 +188,7 @@ func (g *gcsClient) PutFile(ctx context.Context, backupID, key, srcPath, bucketN
 	return nil
 }
 
-func (g *gcsClient) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (g *gcsClient) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return errors.Wrap(err, "find bucket")
@@ -219,7 +219,7 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key string, byes []
 func (g *gcsClient) Initialize(ctx context.Context, backupID string) error {
 	key := "access-check"
 
-	if err := g.PutObject(ctx, backupID, key, []byte("")); err != nil {
+	if err := g.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check gcs backup module")
 	}
 

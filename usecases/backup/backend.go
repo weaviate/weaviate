@@ -103,7 +103,7 @@ func (s *objStore) putMeta(ctx context.Context, key string, desc interface{}) er
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.b.PutObject(ctx, s.BasePath, key, bytes); err != nil {
+	if err := s.b.PutObject(ctx, s.BasePath, key, "", "", bytes); err != nil {
 		return fmt.Errorf("upload meta file %q: %w", key, err)
 	}
 	return nil
