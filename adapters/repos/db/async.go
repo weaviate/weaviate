@@ -23,8 +23,22 @@ type job struct {
 	done    func()
 }
 
-func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) {
-	for job := range ch {
+type AsyncWorker struct {
+	logger        logrus.FieldLogger
+	retryInterval time.Duration
+	ch            chan job
+}
+
+func NewAsyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) *AsyncWorker {
+	return &AsyncWorker{
+		logger:        logger,
+		retryInterval: retryInterval,
+		ch:            ch,
+	}
+}
+
+func (a *AsyncWorker) Run() {
+	for job := range a.ch {
 		stop := func() bool {
 			defer job.done()
 
@@ -35,13 +49,13 @@ func asyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Dura
 				}
 
 				if errors.Is(err, context.Canceled) {
-					logger.WithError(err).Debug("skipping indexing batch due to context cancellation")
+					a.logger.WithError(err).Debug("skipping indexing batch due to context cancellation")
 					return true
 				}
 
-				logger.WithError(err).Infof("failed to index vectors, retrying in %s", retryInterval.String())
+				a.logger.WithError(err).Infof("failed to index vectors, retrying in %s", a.retryInterval.String())
 
-				t := time.NewTimer(retryInterval)
+				t := time.NewTimer(a.retryInterval)
 				select {
 				case <-job.ctx.Done():
 					// drain the timer
