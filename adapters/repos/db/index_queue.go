@@ -76,8 +76,8 @@ type IndexQueue struct {
 	// tracks the jobs that are currently being processed
 	processingJobs *common.SharedGauge
 
-	// tracks the last time vectors were added to the queue
-	lastPushed atomic.Pointer[time.Time]
+	// tracks the last time vectors operations were added to the queue
+	lastModified atomic.Pointer[time.Time]
 
 	// tracks the dimensions of the vectors in the queue
 	dims atomic.Int32
@@ -268,7 +268,7 @@ func (q *IndexQueue) ResetWith(v batchIndexer) error {
 		return errors.Wrap(err, "update checkpoint")
 	}
 
-	q.lastPushed.Store(nil)
+	q.lastModified.Store(nil)
 	q.dims.Store(0)
 	q.queue.Reset()
 	return nil
@@ -288,7 +288,7 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	now := time.Now()
 	defer q.metrics.Push(now, len(vectors))
 
-	q.lastPushed.Store(&now)
+	q.lastModified.Store(&now)
 
 	// ensure the vector length is the same
 	for i := range vectors {
@@ -350,6 +350,8 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 
 	start := time.Now()
 	defer q.metrics.Delete(start, len(ids))
+
+	q.lastModified.Store(&start)
 
 	if !asyncEnabled() {
 		return q.index.Delete(ids...)
@@ -424,7 +426,7 @@ func (q *IndexQueue) indexer() {
 				continue
 			}
 
-			lastPushed := q.lastPushed.Load()
+			lastPushed := q.lastModified.Load()
 			var vectorsSent int64
 			if !q.Throttle || lastPushed == nil || time.Since(*lastPushed) > time.Second {
 				// send at most maxPerTick chunks at a time, without waiting for them to be indexed

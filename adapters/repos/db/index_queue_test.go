@@ -894,7 +894,7 @@ func TestIndexQueue(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, exists)
 		require.EqualValues(t, 0, checkpoint)
-		require.Nil(t, q.lastPushed.Load())
+		require.Nil(t, q.lastModified.Load())
 		require.Zero(t, q.dims.Load())
 
 		// insert some data
