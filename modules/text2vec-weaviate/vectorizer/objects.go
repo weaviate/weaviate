@@ -52,7 +52,7 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 	}
 	// there is no limit
 	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int { return 500000 }
-	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger), batchTokenizer)
+	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, MaxTimePerBatch, logger, "weaviate"), batchTokenizer)
 }
 
 type ClassSettings interface {
