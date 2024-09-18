@@ -12,8 +12,8 @@
 package ent
 
 type VectorizationConfig struct {
-	Model    string
-	Truncate string
-	BaseURL  string
+	Model      string
+	Truncate   string
+	BaseURL    string
 	Dimensions *int64
 }
