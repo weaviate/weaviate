@@ -1056,6 +1056,10 @@
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "path": {
           "description": "destination path of backup files proper to selected backend",
           "type": "string"

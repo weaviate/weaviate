@@ -34,6 +34,9 @@ type BackupCreateResponse struct {
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
+	// Name of the S3 bucket
+	Bucket string `json:"bucket,omitempty"`
+
 	// The list of classes for which the backup creation process was started
 	Classes []string `json:"classes"`
 

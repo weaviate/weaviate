@@ -129,6 +129,12 @@ type BackupRequest struct {
 	// Backend specify on which backend to store backups (gcs, s3, ..)
 	Backend string
 
+	// Which bucket to backup
+	Bucket string
+
+	// Target path for backup files
+	Path string
+
 	// Include is list of class which need to be backed up
 	// The same class cannot appear in both Include and Exclude in the same request
 	Include []string

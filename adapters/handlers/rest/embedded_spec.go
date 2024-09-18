@@ -3316,6 +3316,10 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -8929,6 +8933,10 @@ func init() {
       "properties": {
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
+          "type": "string"
+        },
+        "bucket": {
+          "description": "Name of the S3 bucket",
           "type": "string"
         },
         "classes": {

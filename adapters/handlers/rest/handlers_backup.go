@@ -94,6 +94,8 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.Body.ID,
 		Backend:     params.Backend,
+		Bucket:      params.Body.Bucket,
+		Path:        params.Body.Path,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 		Compression: compressionFromBCfg(params.Body.Config),
