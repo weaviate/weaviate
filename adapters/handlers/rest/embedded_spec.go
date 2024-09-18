@@ -3204,6 +3204,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -3230,6 +3234,14 @@ func init() {
             "BestCompression"
           ],
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },
@@ -8771,6 +8783,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -8797,6 +8813,14 @@ func init() {
             "BestCompression"
           ],
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },

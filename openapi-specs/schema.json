@@ -766,13 +766,13 @@
           ]
         },
         "nestedProperties": {
-            "description": "The properties of the nested object(s). Applies to object and object[] data types.",
-            "items": {
-              "$ref": "#/definitions/NestedProperty"
-            },
-            "type": "array",
-            "x-omitempty": true
-          }
+          "description": "The properties of the nested object(s). Applies to object and object[] data types.",
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "type": "array",
+          "x-omitempty": true
+        }
       },
       "type": "object"
     },
@@ -829,12 +829,12 @@
           ]
         },
         "nestedProperties": {
-            "items": {
-              "$ref": "#/definitions/NestedProperty"
-            },
-            "type": "array",
-            "x-omitempty": true
-          }
+          "items": {
+            "$ref": "#/definitions/NestedProperty"
+          },
+          "type": "array",
+          "x-omitempty": true
+        }
       },
       "type": "object"
     },
@@ -941,8 +941,20 @@
     },
     "BackupConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
+        "Endpoint": {
+          "type": "string",
+          "description": "S3 endpoint, e.g. s3.amazonaws.com"
+        },
+        "Bucket": {
+          "type": "string",
+          "description": "Name of the S3 bucket"
+        },
+        "Path": {
+          "type": "string",
+          "description": "Path within the bucket"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -974,20 +986,20 @@
     },
     "RestoreConfig": {
       "description": "Backup custom configuration",
-      "type": "object",      
+      "type": "object",
       "properties": {
         "Endpoint": {
-              "type": "string",
-              "description": "S3 endpoint, e.g. s3.amazonaws.com"
-            },
-            "Bucket": {
-              "type": "string",
-              "description": "Name of the S3 bucket"
-            },
-            "Path": {
-              "type": "string",
-              "description": "Path within the bucket"
-            },
+          "type": "string",
+          "description": "S3 endpoint, e.g. s3.amazonaws.com"
+        },
+        "Bucket": {
+          "type": "string",
+          "description": "Name of the S3 bucket"
+        },
+        "Path": {
+          "type": "string",
+          "description": "Path within the bucket"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -995,7 +1007,7 @@
           "minimum": 1,
           "maximum": 80,
           "x-nullable": false
-        }       
+        }
       }
     },
     "BackupCreateRequest": {
@@ -1086,10 +1098,10 @@
             "items": {
               "type": "string"
             }
-          },             
+          },
           "status": {
             "description": "status of backup process",
-            "type": "string",          
+            "type": "string",
             "enum": [
               "STARTED",
               "TRANSFERRING",
@@ -4196,7 +4208,7 @@
             "default": true,
             "type": "boolean",
             "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
-           }
+          }
         ],
         "responses": {
           "200": {
@@ -4796,8 +4808,8 @@
           }
         }
       }
-    },    
-    "/backups/{backend}/": {
+    },
+    "/backups/{backend}": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "operationId": "backups.create",
@@ -4841,7 +4853,6 @@
             "required": false,
             "type": "string"
           }
-
         ],
         "responses": {
           "200": {
@@ -4894,7 +4905,7 @@
         "responses": {
           "200": {
             "description": "Existed backups",
-            "schema": {              
+            "schema": {
               "$ref": "#/definitions/BackupListResponse"
             }
           },
@@ -5007,7 +5018,7 @@
             "required": true,
             "type": "string",
             "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
-          }           
+          }
         ],
         "responses": {
           "204": {
@@ -5021,7 +5032,7 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
-          },   
+          },
           "422": {
             "description": "Invalid backup cancellation attempt.",
             "schema": {
