@@ -319,6 +319,9 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		db.metricsObserver.Shutdown()
 	}
 
+	// shut down the workers
+	close(db.jobQueueCh)
+
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
 	for id, index := range db.indices {
@@ -326,9 +329,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 			return errors.Wrapf(err, "shutdown index %q", id)
 		}
 	}
-
-	// shut down the workers
-	close(db.jobQueueCh)
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
