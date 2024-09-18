@@ -113,8 +113,8 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 			case *pb.GenerativeProvider_Openai:
 				options = p.openai(query.GetOpenai())
 				providerName = openaiParams.Name
-			case *pb.GenerativeProvider_Palm:
-				options = p.palm(query.GetPalm())
+			case *pb.GenerativeProvider_Google:
+				options = p.palm(query.GetGoogle())
 				providerName = palmParams.Name
 			default:
 				// do nothing
@@ -262,7 +262,7 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 	}
 }
 
-func (p *Parser) palm(in *pb.GenerativePaLM) map[string]any {
+func (p *Parser) palm(in *pb.GenerativeGoogle) map[string]any {
 	if in == nil {
 		return nil
 	}

@@ -131,8 +131,8 @@ func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 					planets.CreateTweetTestGRPC(t, class.Class)
 				})
 				t.Run("create a tweet with params using grpc", func(t *testing.T) {
-					params := &pb.GenerativeProvider_Palm{
-						Palm: &pb.GenerativePaLM{
+					params := &pb.GenerativeProvider_Google{
+						Google: &pb.GenerativeGoogle{
 							MaxTokens:        grpchelper.ToPtr(int64(90)),
 							Model:            grpchelper.ToPtr(tt.generativeModel),
 							Temperature:      grpchelper.ToPtr(0.9),

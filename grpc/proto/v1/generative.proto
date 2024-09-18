@@ -42,7 +42,7 @@ message GenerativeProvider {
     GenerativeOctoAI octoai = 8;
     GenerativeOllama ollama = 9;
     GenerativeOpenAI openai = 10;
-    GenerativePaLM palm = 11;
+    GenerativeGoogle google = 11;
   }
 }
 
@@ -118,7 +118,7 @@ message GenerativeOpenAI{
   optional int64 top_log_probs = 10;
 }
 
-message GenerativePaLM{
+message GenerativeGoogle{
   optional double frequency_penalty = 1;
   optional int64 max_tokens = 2;
   optional string model = 3;

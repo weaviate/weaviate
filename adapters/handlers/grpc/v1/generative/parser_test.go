@@ -202,7 +202,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-anthropic": anthropic.Params{},
+					"anthropic": anthropic.Params{},
 				},
 			},
 		},
@@ -216,6 +216,7 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Anthropic{
 								Anthropic: &pb.GenerativeAnthropic{
+									BaseUrl:     makeStrPtr("url"),
 									MaxTokens:   makeInt64Ptr(10),
 									Model:       makeStrPtr("model"),
 									Temperature: makeFloat64Ptr(0.5),
@@ -233,7 +234,8 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-anthropic": anthropic.Params{
+					"anthropic": anthropic.Params{
+						BaseURL:       "url",
 						MaxTokens:     makeIntPtr(10),
 						Model:         "model",
 						Temperature:   makeFloat64Ptr(0.5),
@@ -280,7 +282,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-anyscale": anyscale.Params{},
+					"anyscale": anyscale.Params{},
 				},
 			},
 		},
@@ -294,6 +296,7 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Anyscale{
 								Anyscale: &pb.GenerativeAnyscale{
+									BaseUrl:     makeStrPtr("url"),
 									Model:       makeStrPtr("model"),
 									Temperature: makeFloat64Ptr(0.5),
 								},
@@ -305,7 +308,8 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-anyscale": anyscale.Params{
+					"anyscale": anyscale.Params{
+						BaseURL:     "url",
 						Model:       "model",
 						Temperature: makeFloat64Ptr(0.5),
 					},
@@ -348,7 +352,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-aws": aws.Params{},
+					"aws": aws.Params{},
 				},
 			},
 		},
@@ -373,7 +377,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-aws": aws.Params{
+					"aws": aws.Params{
 						Model:       "model",
 						Temperature: makeFloat64Ptr(0.5),
 					},
@@ -416,7 +420,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-cohere": cohere.Params{},
+					"cohere": cohere.Params{},
 				},
 			},
 		},
@@ -430,6 +434,7 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Cohere{
 								Cohere: &pb.GenerativeCohere{
+									BaseUrl:          makeStrPtr("url"),
 									MaxTokens:        makeInt64Ptr(10),
 									Model:            makeStrPtr("model"),
 									Temperature:      makeFloat64Ptr(0.5),
@@ -449,7 +454,8 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-cohere": cohere.Params{
+					"cohere": cohere.Params{
+						BaseURL:          "url",
 						MaxTokens:        makeIntPtr(10),
 						Model:            "model",
 						Temperature:      makeFloat64Ptr(0.5),
@@ -498,7 +504,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-mistral": mistral.Params{},
+					"mistral": mistral.Params{},
 				},
 			},
 		},
@@ -512,6 +518,7 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Mistral{
 								Mistral: &pb.GenerativeMistral{
+									BaseUrl:     makeStrPtr("url"),
 									MaxTokens:   makeInt64Ptr(10),
 									Model:       makeStrPtr("model"),
 									Temperature: makeFloat64Ptr(0.5),
@@ -525,7 +532,8 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-mistral": mistral.Params{
+					"mistral": mistral.Params{
+						BaseURL:     "url",
 						MaxTokens:   makeIntPtr(10),
 						Model:       "model",
 						Temperature: makeFloat64Ptr(0.5),
@@ -570,7 +578,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-octoai": octoai.Params{},
+					"octoai": octoai.Params{},
 				},
 			},
 		},
@@ -584,6 +592,7 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Octoai{
 								Octoai: &pb.GenerativeOctoAI{
+									BaseUrl:     makeStrPtr("url"),
 									MaxTokens:   makeInt64Ptr(10),
 									Model:       makeStrPtr("model"),
 									Temperature: makeFloat64Ptr(0.5),
@@ -598,7 +607,8 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-octoai": octoai.Params{
+					"octoai": octoai.Params{
+						BaseURL:     "url",
 						MaxTokens:   makeIntPtr(10),
 						Model:       "model",
 						Temperature: makeFloat64Ptr(0.5),
@@ -644,7 +654,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-ollama": ollama.Params{},
+					"ollama": ollama.Params{},
 				},
 			},
 		},
@@ -658,6 +668,7 @@ func Test_RequestParser(t *testing.T) {
 						{
 							Kind: &pb.GenerativeProvider_Ollama{
 								Ollama: &pb.GenerativeOllama{
+									ApiEndpoint: makeStrPtr("url"),
 									Model:       makeStrPtr("model"),
 									Temperature: makeFloat64Ptr(0.5),
 								},
@@ -669,7 +680,8 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-ollama": ollama.Params{
+					"ollama": ollama.Params{
+						ApiEndpoint: "url",
 						Model:       "model",
 						Temperature: makeFloat64Ptr(0.5),
 					},
@@ -712,7 +724,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-openai": openai.Params{},
+					"openai": openai.Params{},
 				},
 			},
 		},
@@ -747,7 +759,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-openai": openai.Params{
+					"openai": openai.Params{
 						MaxTokens:        makeIntPtr(10),
 						Model:            "model",
 						Temperature:      makeFloat64Ptr(0.5),
@@ -763,14 +775,14 @@ func Test_RequestParser(t *testing.T) {
 			},
 		},
 		{
-			name:       "generative search; single response; nil dynamic palm",
+			name:       "generative search; single response; nil dynamic google",
 			uses127Api: true,
 			in: &pb.GenerativeSearch{
 				Single: &pb.GenerativeSearch_Single{
 					Prompt: "prompt",
 					Queries: []*pb.GenerativeProvider{
 						{
-							Kind: &pb.GenerativeProvider_Palm{},
+							Kind: &pb.GenerativeProvider_Google{},
 						},
 					},
 				},
@@ -781,15 +793,15 @@ func Test_RequestParser(t *testing.T) {
 			},
 		},
 		{
-			name:       "generative search; single response; empty dynamic palm",
+			name:       "generative search; single response; empty dynamic google",
 			uses127Api: true,
 			in: &pb.GenerativeSearch{
 				Single: &pb.GenerativeSearch_Single{
 					Prompt: "prompt",
 					Queries: []*pb.GenerativeProvider{
 						{
-							Kind: &pb.GenerativeProvider_Palm{
-								Palm: &pb.GenerativePaLM{},
+							Kind: &pb.GenerativeProvider_Google{
+								Google: &pb.GenerativeGoogle{},
 							},
 						},
 					},
@@ -798,20 +810,20 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-palm": palm.Params{},
+					"google": palm.Params{},
 				},
 			},
 		},
 		{
-			name:       "generative search; single response; full dynamic palm",
+			name:       "generative search; single response; full dynamic google",
 			uses127Api: true,
 			in: &pb.GenerativeSearch{
 				Single: &pb.GenerativeSearch_Single{
 					Prompt: "prompt",
 					Queries: []*pb.GenerativeProvider{
 						{
-							Kind: &pb.GenerativeProvider_Palm{
-								Palm: &pb.GenerativePaLM{
+							Kind: &pb.GenerativeProvider_Google{
+								Google: &pb.GenerativeGoogle{
 									MaxTokens:        makeInt64Ptr(10),
 									Model:            makeStrPtr("model"),
 									Temperature:      makeFloat64Ptr(0.5),
@@ -831,7 +843,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"generative-palm": palm.Params{
+					"google": palm.Params{
 						MaxTokens:        makeIntPtr(10),
 						Model:            "model",
 						Temperature:      makeFloat64Ptr(0.5),
