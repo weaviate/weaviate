@@ -68,11 +68,10 @@ func (v *octoai) GenerateAllResults(ctx context.Context, textProperties []map[st
 }
 
 func (v *octoai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	octoAIUrl, isImage, err := v.getOctoAIUrl(ctx, settings.BaseURL())
+	octoAIUrl, isImage, err := v.getOctoAIUrl(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "join OctoAI API host and path")
 	}
@@ -169,7 +168,9 @@ func (v *octoai) getParameters(cfg moduletools.ClassConfig, options interface{})
 	if p, ok := options.(octoparams.Params); ok {
 		params = p
 	}
-
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
+	}
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}

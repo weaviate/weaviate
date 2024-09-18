@@ -68,11 +68,10 @@ func (v *mistral) GenerateAllResults(ctx context.Context, textProperties []map[s
 }
 
 func (v *mistral) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	mistralUrl, err := v.getMistralUrl(ctx, settings.BaseURL())
+	mistralUrl, err := v.getMistralUrl(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "join Mistral API host and path")
 	}
@@ -161,6 +160,9 @@ func (v *mistral) getParameters(cfg moduletools.ClassConfig, options interface{}
 	var params mistralparams.Params
 	if p, ok := options.(mistralparams.Params); ok {
 		params = p
+	}
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
 	}
 	if params.Model == "" {
 		model := settings.Model()

@@ -68,11 +68,10 @@ func (v *cohere) GenerateAllResults(ctx context.Context, textProperties []map[st
 }
 
 func (v *cohere) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	cohereUrl, err := v.getCohereUrl(ctx, settings.BaseURL())
+	cohereUrl, err := v.getCohereUrl(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "join Cohere API host and path")
 	}
@@ -145,7 +144,10 @@ func (v *cohere) getParameters(cfg moduletools.ClassConfig, options interface{})
 	if p, ok := options.(cohereparams.Params); ok {
 		params = p
 	}
-
+	if params.BaseURL == "" {
+		baseURL := settings.BaseURL()
+		params.BaseURL = baseURL
+	}
 	if params.Model == "" {
 		model := settings.Model()
 		params.Model = model

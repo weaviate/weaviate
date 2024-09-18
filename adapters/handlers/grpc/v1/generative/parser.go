@@ -143,6 +143,7 @@ func (p *Parser) anthropic(in *pb.GenerativeAnthropic) map[string]any {
 	}
 	return map[string]any{
 		anthropicParams.Name: anthropicParams.Params{
+			BaseURL:       in.GetBaseUrl(),
 			Model:         in.GetModel(),
 			Temperature:   in.Temperature,
 			MaxTokens:     p.int64ToInt(in.MaxTokens),
@@ -159,6 +160,7 @@ func (p *Parser) anyscale(in *pb.GenerativeAnyscale) map[string]any {
 	}
 	return map[string]any{
 		anyscaleParams.Name: anyscaleParams.Params{
+			BaseURL:     in.GetBaseUrl(),
 			Model:       in.GetModel(),
 			Temperature: in.Temperature,
 		},
@@ -183,6 +185,7 @@ func (p *Parser) cohere(in *pb.GenerativeCohere) map[string]any {
 	}
 	return map[string]any{
 		cohereParams.Name: cohereParams.Params{
+			BaseURL:          in.GetBaseUrl(),
 			Model:            in.GetModel(),
 			Temperature:      in.Temperature,
 			MaxTokens:        p.int64ToInt(in.MaxTokens),
@@ -201,6 +204,7 @@ func (p *Parser) mistral(in *pb.GenerativeMistral) map[string]any {
 	}
 	return map[string]any{
 		mistralParams.Name: mistralParams.Params{
+			BaseURL:     in.GetBaseUrl(),
 			MaxTokens:   p.int64ToInt(in.MaxTokens),
 			Model:       in.GetModel(),
 			Temperature: in.Temperature,
@@ -215,6 +219,7 @@ func (p *Parser) octoai(in *pb.GenerativeOctoAI) map[string]any {
 	}
 	return map[string]any{
 		octoaiParams.Name: octoaiParams.Params{
+			BaseURL:     in.GetBaseUrl(),
 			Model:       in.GetModel(),
 			MaxTokens:   p.int64ToInt(in.MaxTokens),
 			Temperature: in.Temperature,
@@ -230,6 +235,7 @@ func (p *Parser) ollama(in *pb.GenerativeOllama) map[string]any {
 	}
 	return map[string]any{
 		ollamaParams.Name: ollamaParams.Params{
+			ApiEndpoint: in.GetApiEndpoint(),
 			Model:       in.GetModel(),
 			Temperature: in.Temperature,
 		},

@@ -68,11 +68,10 @@ func (a *anthropic) GenerateAllResults(ctx context.Context, textProperties []map
 }
 
 func (a *anthropic) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := a.getParameters(cfg, options)
 	debugInformation := a.getDebugInformation(debug, prompt)
 
-	anthropicURL, err := a.getAnthropicURL(ctx, settings.BaseURL())
+	anthropicURL, err := a.getAnthropicURL(ctx, params.BaseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "get anthropic url")
 	}
@@ -148,6 +147,10 @@ func (a *anthropic) getParameters(cfg moduletools.ClassConfig, options interface
 	var params anthropicparams.Params
 	if p, ok := options.(anthropicparams.Params); ok {
 		params = p
+	}
+
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
 	}
 
 	if params.Model == "" {
