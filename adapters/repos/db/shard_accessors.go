@@ -83,8 +83,8 @@ func (s *Shard) setFallbackToSearchable(fallback bool) {
 	s.fallbackToSearchable = fallback
 }
 
-func (s *Shard) addJobToQueue(_ context.Context, job job) error {
-	return s.centralJobQueue.EnqueueJob(job)
+func (s *Shard) addJobToQueue(ctx context.Context, job job) error {
+	return s.centralJobQueue.EnqueueJob(ctx, job)
 }
 
 func (s *Shard) hasGeoIndex() bool {
