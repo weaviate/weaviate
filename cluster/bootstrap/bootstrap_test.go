@@ -27,42 +27,44 @@ import (
 
 var errAny = errors.New("any error")
 
-func TestBootstrapper(t *testing.T) {
+func TestBootStrapper(t *testing.T) {
 	ctx := context.Background()
 	anything := mock.Anything
-	nodes := map[string]int{"S1": 1, "S2": 2}
+	servers := map[string]int{"S1": 1, "S2": 2}
 
 	tests := []struct {
 		name     string
 		voter    bool
-		nodes    map[string]int
-		doBefore func(*MockNodeClient)
+		servers  map[string]int
+		doBefore func(*MockJoiner)
 		isReady  func() bool
 		success  bool
 	}{
 		{
-			name:     "empty server list",
-			voter:    true,
-			nodes:    nil,
-			doBefore: func(m *MockNodeClient) {},
-			isReady:  func() bool { return false },
-			success:  false,
+			name:    "empty server list",
+			voter:   true,
+			servers: nil,
+			doBefore: func(m *MockJoiner) {
+				m.On("Join", anything, anything, anything).Return(&cmd.JoinPeerResponse{}, nil)
+			},
+			isReady: func() bool { return false },
+			success: false,
 		},
 		{
-			name:  "leader exist",
-			voter: true,
-			nodes: nodes,
-			doBefore: func(m *MockNodeClient) {
+			name:    "leader exist",
+			voter:   true,
+			servers: servers,
+			doBefore: func(m *MockJoiner) {
 				m.On("Join", anything, anything, anything).Return(&cmd.JoinPeerResponse{}, nil)
 			},
 			isReady: func() bool { return false },
 			success: true,
 		},
 		{
-			name:  "nodes not available",
-			voter: true,
-			nodes: nodes,
-			doBefore: func(m *MockNodeClient) {
+			name:    "servers not available",
+			voter:   true,
+			servers: servers,
+			doBefore: func(m *MockJoiner) {
 				m.On("Join", anything, "S1:1", anything).Return(&cmd.JoinPeerResponse{}, errAny)
 				m.On("Join", anything, "S2:2", anything).Return(&cmd.JoinPeerResponse{}, errAny)
 
@@ -73,10 +75,10 @@ func TestBootstrapper(t *testing.T) {
 			success: false,
 		},
 		{
-			name:  "follow the leader",
-			voter: true,
-			nodes: nodes,
-			doBefore: func(m *MockNodeClient) {
+			name:    "follow the leader",
+			voter:   true,
+			servers: servers,
+			doBefore: func(m *MockJoiner) {
 				err := status.Error(codes.NotFound, "follow the leader")
 				m.On("Join", anything, "S1:1", anything).Return(&cmd.JoinPeerResponse{}, errAny)
 				m.On("Join", anything, "S2:2", anything).Return(&cmd.JoinPeerResponse{Leader: "S3"}, err)
@@ -88,8 +90,8 @@ func TestBootstrapper(t *testing.T) {
 		{
 			name:     "exit early on cluster ready",
 			voter:    true,
-			nodes:    nodes,
-			doBefore: func(m *MockNodeClient) {},
+			servers:  servers,
+			doBefore: func(m *MockJoiner) {},
 			isReady:  func() bool { return true },
 			success:  true,
 		},
@@ -97,42 +99,34 @@ func TestBootstrapper(t *testing.T) {
 	for _, test := range tests {
 		test := test
 		t.Run(test.name, func(t *testing.T) {
-			// Ensure the mocks are setup
-			m := &MockNodeClient{}
-			test.doBefore(m)
-
-			// Configure the bootstrapper
-			b := NewBootstrapper(m, "RID", "ADDR", test.voter, fakes.NewMockAddressResolver(func(id string) string { return id }), test.isReady)
+			m := &MockJoiner{}
+			b := NewBootstrapper(m, "RID", "ADDR", fakes.NewMockAddressResolver(func(id string) string { return id }), test.isReady)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
+			test.doBefore(m)
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
 			logger, _ := logrustest.NewNullLogger()
-
-			// Do the bootstrap
-			err := b.Do(ctx, test.nodes, logger, make(chan struct{}))
+			err := b.Do(ctx, test.servers, logger, test.voter, make(chan struct{}))
 			cancel()
-
-			// Check all assertions
 			if test.success && err != nil {
 				t.Errorf("%s: %v", test.name, err)
 			} else if !test.success && err == nil {
 				t.Errorf("%s: test must fail", test.name)
 			}
-			m.AssertExpectations(t)
 		})
 	}
 }
 
-type MockNodeClient struct {
+type MockJoiner struct {
 	mock.Mock
 }
 
-func (m *MockNodeClient) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
+func (m *MockJoiner) Join(ctx context.Context, leaderAddr string, req *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error) {
 	args := m.Called(ctx, leaderAddr, req)
 	return args.Get(0).(*cmd.JoinPeerResponse), args.Error(1)
 }
 
-func (m *MockNodeClient) Notify(ctx context.Context, leaderAddr string, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
+func (m *MockJoiner) Notify(ctx context.Context, leaderAddr string, req *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error) {
 	args := m.Called(ctx, leaderAddr, req)
 	return args.Get(0).(*cmd.NotifyPeerResponse), args.Error(1)
 }

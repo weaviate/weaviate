@@ -11,10 +11,6 @@
 
 package resolver
 
-const (
-	invalidAddr = "256.256.256.256:99999999"
-)
-
 // NodeToAddress allows the resolver to compute node-id to ip addresses.
 type NodeToAddress interface {
 	// NodeAddress resolves node id into an ip address without the port.
@@ -26,11 +22,4 @@ type RaftConfig struct {
 	RaftPort          int
 	IsLocalHost       bool
 	NodeNameToPortMap map[string]int
-}
-
-type FQDNConfig struct {
-	RaftPort          int
-	IsLocalHost       bool
-	NodeNameToPortMap map[string]int
-	TLD               string
 }
