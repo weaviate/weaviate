@@ -508,8 +508,6 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 		case err := <-jobEnqueuedCh:
 			if err != nil {
 				q.Logger.WithError(err).Error("failed enqueing vectors for indexing")
-				q.processingJobs.Decr()
-				return count
 			}
 		}
 	}

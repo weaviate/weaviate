@@ -1966,7 +1966,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 func Test_PutPatchRestart(t *testing.T) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	testClass := &models.Class{
@@ -2020,8 +2020,20 @@ func Test_PutPatchRestart(t *testing.T) {
 		require.Nil(t, err)
 	})
 
+	require.Nil(t, repo.Shutdown(ctx))
+
 	t.Run("repeatedly put with nil vec, patch with vec, and restart", func(t *testing.T) {
 		for i := 0; i < 10; i++ {
+			repo, err := New(logger, Config{
+				MemtablesFlushDirtyAfter:  60,
+				RootPath:                  dirName,
+				QueryMaximumResults:       100,
+				MaxImportGoroutinesFactor: 1,
+			}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+			require.Nil(t, err)
+			repo.SetSchemaGetter(schemaGetter)
+			require.Nil(t, repo.WaitForStartup(ctx))
+
 			err = repo.PutObject(ctx, &models.Object{
 				ID:    testID,
 				Class: testClass.Class,
@@ -2043,11 +2055,21 @@ func Test_PutPatchRestart(t *testing.T) {
 			require.Nil(t, err)
 
 			require.Nil(t, repo.Shutdown(ctx))
-			require.Nil(t, repo.WaitForStartup(ctx))
 		}
 	})
 
 	t.Run("assert the final result is correct", func(t *testing.T) {
+		repo, err := New(logger, Config{
+			MemtablesFlushDirtyAfter:  60,
+			RootPath:                  dirName,
+			QueryMaximumResults:       100,
+			MaxImportGoroutinesFactor: 1,
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+		require.Nil(t, err)
+		repo.SetSchemaGetter(schemaGetter)
+		defer repo.Shutdown(context.Background())
+		require.Nil(t, repo.WaitForStartup(ctx))
+
 		findByIDFilter := &filters.LocalFilter{
 			Root: &filters.Clause{
 				Operator: filters.OperatorEqual,
