@@ -976,6 +976,18 @@
       "description": "Backup custom configuration",
       "type": "object",      
       "properties": {
+        "Endpoint": {
+              "type": "string",
+              "description": "S3 endpoint, e.g. s3.amazonaws.com"
+            },
+            "Bucket": {
+              "type": "string",
+              "description": "Name of the S3 bucket"
+            },
+            "Path": {
+              "type": "string",
+              "description": "Path within the bucket"
+            },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -4785,7 +4797,7 @@
         }
       }
     },    
-    "/backups/{backend}": {
+    "/backups/{backend}/": {
       "post": {
         "description": "Starts a process of creating a backup for a set of classes",
         "operationId": "backups.create",
