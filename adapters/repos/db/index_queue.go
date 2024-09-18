@@ -84,8 +84,9 @@ type IndexQueue struct {
 }
 
 type vectorDescriptor struct {
-	id     uint64
-	vector []float32
+	id      uint64
+	vector  []float32
+	deleted bool
 }
 
 type IndexQueueOptions struct {
@@ -316,7 +317,7 @@ func (q *IndexQueue) Push(ctx context.Context, vectors ...vectorDescriptor) erro
 	return nil
 }
 
-// Size returns the number of vectors waiting to be indexed.
+// Size returns the number of vectors waiting to be indexed or deleted.
 func (q *IndexQueue) Size() int64 {
 	var count int64
 	q.queue.fullChunks.Lock()
@@ -357,16 +358,15 @@ func (q *IndexQueue) Delete(ids ...uint64) error {
 	q.indexLock.RLock()
 	defer q.indexLock.RUnlock()
 
+	deleted := make([]vectorDescriptor, len(ids))
 	for i := range ids {
-		if q.index.ContainsNode(ids[i]) {
-			err := q.index.Delete(ids[i])
-			if err != nil {
-				q.Logger.WithError(err).Error("failed to delete vector from index")
-			}
-		} else {
-			q.queue.Delete(ids[i])
+		deleted[i] = vectorDescriptor{
+			id:      ids[i],
+			deleted: true,
 		}
 	}
+
+	q.queue.Add(deleted)
 
 	return nil
 }
