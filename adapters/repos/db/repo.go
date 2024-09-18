@@ -171,7 +171,7 @@ func New(logger logrus.FieldLogger, config Config,
 		for i := 0; i < w; i++ {
 			f := func() {
 				defer db.shutDownWg.Done()
-				asyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval)
+				NewAsyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval).Run()
 			}
 			enterrors.GoWrapper(f, db.logger)
 		}
