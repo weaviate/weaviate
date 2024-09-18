@@ -74,6 +74,15 @@ BackupsCreateParams contains all the parameters to send to the API endpoint
 */
 type BackupsCreateParams struct {
 
+	// XAwsAccessKey.
+	XAwsAccessKey *string
+
+	// XAwsSecretKey.
+	XAwsSecretKey *string
+
+	// XAwsSessionToken.
+	XAwsSessionToken *string
+
 	/* Backend.
 
 	   Backup backend name e.g. filesystem, gcs, s3.
@@ -136,6 +145,39 @@ func (o *BackupsCreateParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithXAwsAccessKey adds the xAwsAccessKey to the backups create params
+func (o *BackupsCreateParams) WithXAwsAccessKey(xAwsAccessKey *string) *BackupsCreateParams {
+	o.SetXAwsAccessKey(xAwsAccessKey)
+	return o
+}
+
+// SetXAwsAccessKey adds the xAwsAccessKey to the backups create params
+func (o *BackupsCreateParams) SetXAwsAccessKey(xAwsAccessKey *string) {
+	o.XAwsAccessKey = xAwsAccessKey
+}
+
+// WithXAwsSecretKey adds the xAwsSecretKey to the backups create params
+func (o *BackupsCreateParams) WithXAwsSecretKey(xAwsSecretKey *string) *BackupsCreateParams {
+	o.SetXAwsSecretKey(xAwsSecretKey)
+	return o
+}
+
+// SetXAwsSecretKey adds the xAwsSecretKey to the backups create params
+func (o *BackupsCreateParams) SetXAwsSecretKey(xAwsSecretKey *string) {
+	o.XAwsSecretKey = xAwsSecretKey
+}
+
+// WithXAwsSessionToken adds the xAwsSessionToken to the backups create params
+func (o *BackupsCreateParams) WithXAwsSessionToken(xAwsSessionToken *string) *BackupsCreateParams {
+	o.SetXAwsSessionToken(xAwsSessionToken)
+	return o
+}
+
+// SetXAwsSessionToken adds the xAwsSessionToken to the backups create params
+func (o *BackupsCreateParams) SetXAwsSessionToken(xAwsSessionToken *string) {
+	o.XAwsSessionToken = xAwsSessionToken
+}
+
 // WithBackend adds the backend to the backups create params
 func (o *BackupsCreateParams) WithBackend(backend string) *BackupsCreateParams {
 	o.SetBackend(backend)
@@ -165,6 +207,30 @@ func (o *BackupsCreateParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 		return err
 	}
 	var res []error
+
+	if o.XAwsAccessKey != nil {
+
+		// header param X-Aws-Access-Key
+		if err := r.SetHeaderParam("X-Aws-Access-Key", *o.XAwsAccessKey); err != nil {
+			return err
+		}
+	}
+
+	if o.XAwsSecretKey != nil {
+
+		// header param X-Aws-Secret-Key
+		if err := r.SetHeaderParam("X-Aws-Secret-Key", *o.XAwsSecretKey); err != nil {
+			return err
+		}
+	}
+
+	if o.XAwsSessionToken != nil {
+
+		// header param X-Aws-Session-Token
+		if err := r.SetHeaderParam("X-Aws-Session-Token", *o.XAwsSessionToken); err != nil {
+			return err
+		}
+	}
 
 	// path param backend
 	if err := r.SetPathParam("backend", o.Backend); err != nil {
