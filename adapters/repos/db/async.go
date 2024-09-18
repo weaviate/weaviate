@@ -39,38 +39,40 @@ func NewAsyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.D
 
 func (a *AsyncWorker) Run() {
 	for job := range a.ch {
-		stop := func() bool {
-			defer job.done()
-
-			for {
-				err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
-				if err == nil {
-					return false
-				}
-
-				if errors.Is(err, context.Canceled) {
-					a.logger.WithError(err).Debug("skipping indexing batch due to context cancellation")
-					return true
-				}
-
-				a.logger.WithError(err).Infof("failed to index vectors, retrying in %s", a.retryInterval.String())
-
-				t := time.NewTimer(a.retryInterval)
-				select {
-				case <-job.ctx.Done():
-					// drain the timer
-					if !t.Stop() {
-						<-t.C
-					}
-
-					return true
-				case <-t.C:
-				}
-			}
-		}()
+		stop := a.do(job)
 
 		if stop {
 			return
+		}
+	}
+}
+
+func (a *AsyncWorker) do(job job) (stop bool) {
+	defer job.done()
+
+	for {
+		err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
+		if err == nil {
+			return false
+		}
+
+		if errors.Is(err, context.Canceled) {
+			a.logger.WithError(err).Debug("skipping indexing batch due to context cancellation")
+			return true
+		}
+
+		a.logger.WithError(err).Infof("failed to index vectors, retrying in %s", a.retryInterval.String())
+
+		t := time.NewTimer(a.retryInterval)
+		select {
+		case <-job.ctx.Done():
+			// drain the timer
+			if !t.Stop() {
+				<-t.C
+			}
+
+			return true
+		case <-t.C:
 		}
 	}
 }
