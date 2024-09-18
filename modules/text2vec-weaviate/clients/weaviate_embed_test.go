@@ -95,7 +95,7 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, err.Error(), "Weaviate embed API error: 500 ")
 	})
 
-	t.Run("when Weaviate Inference key is passed using X-Weaviate-Inference-Key header", func(t *testing.T) {
+	t.Run("when Weaviate Embedding key is passed using X-Weaviate-Embedding-Key header", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &vectorizer{
@@ -108,7 +108,7 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Weaviate-Inference-Key", []string{"some-key"})
+			"X-Weaviate-Embedding-Key", []string{"some-key"})
 
 		expected := &modulecomponents.VectorizationResult{
 			Text:       []string{"This is my text"},
@@ -139,12 +139,12 @@ func TestClient(t *testing.T) {
 		_, _, err := c.Vectorize(ctx, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"baseURL": server.URL}})
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "Weaviate Inference API key: no api key found "+
-			"neither in request header: X-Weaviate-Inference-Key "+
-			"nor in environment variable under WEAVIATE_INFERENCE_KEY")
+		assert.Equal(t, err.Error(), "Weaviate Embedding API key: no api key found "+
+			"neither in request header: X-Weaviate-Embedding-Key "+
+			"nor in environment variable under WEAVIATE_EMBEDDING_KEY")
 	})
 
-	t.Run("when X-Weaviate-Inference-Key header is passed but empty", func(t *testing.T) {
+	t.Run("when X-Weaviate-Embedding-Key header is passed but empty", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
 		defer server.Close()
 		c := &vectorizer{
@@ -157,14 +157,14 @@ func TestClient(t *testing.T) {
 			logger: nullLogger(),
 		}
 		ctxWithValue := context.WithValue(context.Background(),
-			"X-Weaviate-Inference-Key", []string{""})
+			"X-Weaviate-Embedding-Key", []string{""})
 
 		_, _, err := c.Vectorize(ctxWithValue, []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{}})
 
 		require.NotNil(t, err)
-		assert.Equal(t, err.Error(), "Weaviate Inference API key: no api key found "+
-			"neither in request header: X-Weaviate-Inference-Key "+
-			"nor in environment variable under WEAVIATE_INFERENCE_KEY")
+		assert.Equal(t, err.Error(), "Weaviate Embedding API key: no api key found "+
+			"neither in request header: X-Weaviate-Embedding-Key "+
+			"nor in environment variable under WEAVIATE_EMBEDDING_KEY")
 	})
 
 	t.Run("when X-Weaviate-Baseurl header is passed", func(t *testing.T) {

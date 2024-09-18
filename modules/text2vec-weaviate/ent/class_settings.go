@@ -21,22 +21,30 @@ import (
 
 const (
 	// TODO: replace docker internal host with actual host
-	DefaultBaseURL               = "http://host.docker.internal:8000"
-	DefaultWeaviateModel         = "mixedbread-ai/mxbai-embed-large-v1"
+	DefaultBaseURL               = "https://embedding.labs.weaviate.io"
+	DefaultWeaviateModel         = "Snowflake/snowflake-arctic-embed-m-v1.5"
 	DefaultTruncate              = "right"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
 )
 
+const (
+	SnowflakeArcticEmbedM = "Snowflake/snowflake-arctic-embed-m-v1.5"
+)
+
 var (
 	availableWeaviateModels = []string{
-		"mixedbread-ai/mxbai-embed-large-v1",
-		"intfloat/multilingual-e5-large-instruct",
-		"Snowflake/snowflake-arctic-embed-s",
+		SnowflakeArcticEmbedM,
 	}
 	availableTruncates = []string{"left", "right"}
 )
+
+var SnowflakeArcticEmbedMDefaultDimensions int64 = 768
+
+var availableWeaviateModelsDimensions = map[string][]int64{
+	SnowflakeArcticEmbedM: {SnowflakeArcticEmbedMDefaultDimensions, 256},
+}
 
 type classSettings struct {
 	basesettings.BaseClassSettings
@@ -59,6 +67,11 @@ func (cs *classSettings) BaseURL() string {
 	return cs.BaseClassSettings.GetPropertyAsString("baseURL", DefaultBaseURL)
 }
 
+func (cs *classSettings) Dimensions() *int64 {
+	defaultValue := PickDefaultDimensions(cs.Model())
+	return cs.BaseClassSettings.GetPropertyAsInt64("dimensions", defaultValue)
+}
+
 func (cs *classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
@@ -73,5 +86,20 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
 	}
 
+	dimensions := cs.Dimensions()
+	if dimensions != nil {
+		availableDimensions := availableWeaviateModelsDimensions[model]
+		if !basesettings.ValidateSetting[int64](*dimensions, availableDimensions) {
+			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
+		}
+	}
+
+	return nil
+}
+
+func PickDefaultDimensions(model string) *int64 {
+	if model == SnowflakeArcticEmbedM {
+		return &SnowflakeArcticEmbedMDefaultDimensions
+	}
 	return nil
 }

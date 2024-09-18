@@ -38,6 +38,7 @@ const (
 type embeddingsRequest struct {
 	Texts         []string `json:"texts"`
 	IsSearchQuery bool     `json:"is_search_query,omitempty"`
+	Dimensions    *int64   `json:"dimensions,omitempty"`
 }
 
 type embeddingsResponse struct {
@@ -77,7 +78,7 @@ func (v *vectorizer) Vectorize(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, *modulecomponents.RateLimits, error) {
 	config := v.getVectorizationConfig(cfg)
-	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, false)
+	res, err := v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, false, config)
 	return res, nil, err
 }
 
@@ -85,7 +86,7 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 	cfg moduletools.ClassConfig,
 ) (*modulecomponents.VectorizationResult, error) {
 	config := v.getVectorizationConfig(cfg)
-	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, true)
+	return v.vectorize(ctx, input, config.Model, config.Truncate, config.BaseURL, true, config)
 }
 
 func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.VectorizationConfig {
@@ -98,12 +99,9 @@ func (v *vectorizer) getVectorizationConfig(cfg moduletools.ClassConfig) ent.Vec
 }
 
 func (v *vectorizer) vectorize(ctx context.Context, input []string,
-	model, truncate, baseURL string, isSearchQuery bool,
+	model, truncate, baseURL string, isSearchQuery bool, config ent.VectorizationConfig,
 ) (*modulecomponents.VectorizationResult, error) {
-	body, err := json.Marshal(embeddingsRequest{
-		Texts:         input,
-		IsSearchQuery: isSearchQuery,
-	})
+	body, err := json.Marshal(v.getEmbeddingsRequest(input, isSearchQuery, config.Dimensions))
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
 	}
@@ -122,6 +120,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	req.Header.Set("Authorization", apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Add("Request-Source", "unspecified:weaviate")
+	req.Header.Add("X-Model-Name", model)
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
@@ -160,6 +159,10 @@ func (v *vectorizer) getWeaviateEmbedURL(ctx context.Context, baseURL string) st
 		passedBaseURL = headerBaseURL
 	}
 	return v.urlBuilder.url(passedBaseURL)
+}
+
+func (v *vectorizer) getEmbeddingsRequest(texts []string, isSearchQuery bool, dimensions *int64) embeddingsRequest {
+	return embeddingsRequest{Texts: texts, IsSearchQuery: isSearchQuery, Dimensions: dimensions}
 }
 
 func (v *vectorizer) GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte {
@@ -208,13 +211,13 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Inference-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Embedding-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Weaviate-Inference-Key " +
-		"nor in environment variable under WEAVIATE_INFERENCE_KEY")
+		"neither in request header: X-Weaviate-Embedding-Key " +
+		"nor in environment variable under WEAVIATE_EMBEDDING_KEY")
 }

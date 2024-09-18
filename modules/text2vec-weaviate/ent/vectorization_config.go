@@ -15,4 +15,5 @@ type VectorizationConfig struct {
 	Model    string
 	Truncate string
 	BaseURL  string
+	Dimensions *int64
 }
