@@ -30,14 +30,14 @@ import (
 )
 
 type (
-	taskType      string
+	task          string
 	embeddingType string
 )
 
 const (
 	// taskType
-	retrievalQuery   taskType = "retrieval.query"
-	retrievalPassage taskType = "retrieval.passage"
+	retrievalQuery   task = "retrieval.query"
+	retrievalPassage task = "retrieval.passage"
 	// embeddingType
 	embeddingTypeFloat   embeddingType = "float"
 	embeddingTypeBase64  embeddingType = "base64"
@@ -50,7 +50,7 @@ type embeddingsRequest struct {
 	Model         string        `json:"model,omitempty"`
 	EmbeddingType embeddingType `json:"embedding_type,omitempty"`
 	Normalized    bool          `json:"normalized,omitempty"`
-	TaskType      *taskType     `json:"task_type,omitempty"`
+	Task          *task         `json:"task,omitempty"`
 	Dimensions    *int64        `json:"dimensions,omitempty"`
 }
 
@@ -107,9 +107,9 @@ func (v *vectorizer) VectorizeQuery(ctx context.Context, input []string,
 }
 
 func (v *vectorizer) vectorize(ctx context.Context,
-	input []string, model string, taskType taskType, config ent.VectorizationConfig,
+	input []string, model string, task task, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
-	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, taskType, config.Dimensions))
+	body, err := json.Marshal(v.getEmbeddingsRequest(input, model, task, config.Dimensions))
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal body")
 	}
@@ -173,11 +173,11 @@ func (v *vectorizer) getError(statusCode int, errorMessage string) error {
 	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
 }
 
-func (v *vectorizer) getEmbeddingsRequest(input []string, model string, taskType taskType, dimensions *int64) embeddingsRequest {
+func (v *vectorizer) getEmbeddingsRequest(input []string, model string, task task, dimensions *int64) embeddingsRequest {
 	req := embeddingsRequest{Input: input, Model: model, EmbeddingType: embeddingTypeFloat, Normalized: false}
 	if strings.Contains(model, "v3") {
 		// v3 models require taskType and dimensions params
-		req.TaskType = &taskType
+		req.Task = &task
 		req.Dimensions = dimensions
 	}
 	return req
