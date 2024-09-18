@@ -183,7 +183,7 @@ func TestCombiner(t *testing.T) {
 		{
 			name:       "many documents missing entry (score fusion)",
 			targets:    []string{"target1", "target2", "target3", "target4"},
-			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{1, 0.5, 0.25, 0.1}},
+			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: map[string]float32{"target1": 1, "target2": 0.5, "target3": 0.25, "target4": 0.1}},
 			in: [][]search.Result{
 				{res(0, 0.5), res(1, 0.6), res(2, 0.8), res(3, 0.9)},
 				{res(1, 0.2), res(0, 0.4), res(2, 0.6), res(5, 0.8)},
