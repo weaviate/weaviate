@@ -298,7 +298,7 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			}, store)
 			require.Nil(t, err)
 
-			index.Add(uint64(0), []float32{-1, 0})
+			index.Add(uint64(0), []float32{-2, 0})
 
 			dist := index.QueryVectorDistancer([]float32{0, 0})
 			require.NotNil(t, dist)
