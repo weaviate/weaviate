@@ -364,7 +364,8 @@ func TestConcurrentWriting_RoaringSetRange(t *testing.T) {
 	})
 
 	t.Run("verify reader", func(t *testing.T) {
-		reader := NewBucketReaderRoaringSetRange(bucket.CursorRoaringSetRange, logger)
+		reader := bucket.ReaderRoaringSetRange()
+		defer reader.Close()
 
 		for i := range keys {
 			// verify every 5th key to save time

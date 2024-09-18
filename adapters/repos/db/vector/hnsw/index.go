@@ -432,7 +432,7 @@ func (h *hnsw) findBestEntrypointForNode(currentMaxLevel, targetLevel int,
 
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "findBestEntrypointForNode")
 			continue
 		}
 		if err != nil {
@@ -486,7 +486,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -502,7 +502,7 @@ func (h *hnsw) distBetweenNodes(a, b uint64) (float32, error) {
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodes")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -533,7 +533,7 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distBetweenNodeAndVec")
 			return 0, nil
 		}
 		// not a typed error, we can recover from, return with err
@@ -766,11 +766,13 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 			visitedPairs[currentNode] = true
 			h.shardedNodeLocks.RLock(currentNode.nodeId)
 			node := h.nodes[currentNode.nodeId]
-			node.Lock()
-			neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
-			node.Unlock()
+			if node != nil {
+				node.Lock()
+				neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+				node.Unlock()
+				candidateList = append(candidateList, neighbors...)
+			}
 			h.shardedNodeLocks.RUnlock(currentNode.nodeId)
-			candidateList = append(candidateList, neighbors...)
 		}
 	}
 

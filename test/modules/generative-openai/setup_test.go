@@ -26,7 +26,7 @@ func TestGenerativeOpenAI_SingleNode(t *testing.T) {
 		t.Skip("skipping, OPENAI_APIKEY environment variable not present")
 	}
 	organization := os.Getenv("OPENAI_ORGANIZATION")
-	if apiKey == "" {
+	if organization == "" {
 		t.Skip("skipping, OPENAI_ORGANIZATION environment variable not present")
 	}
 	ctx := context.Background()

@@ -123,6 +123,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 
 	flatConfig := flat.Config{
 		ID:               cfg.ID,
+		RootPath:         cfg.RootPath,
 		TargetVector:     cfg.TargetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,

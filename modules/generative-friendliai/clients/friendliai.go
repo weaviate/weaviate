@@ -208,15 +208,15 @@ func (v *friendliai) generateForPrompt(textProperties map[string]string, prompt 
 }
 
 func (v *friendliai) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Friendli-Api-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Friendli-Token"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Friendli-Api-Key " +
-		"nor in environment variable under FRIENDLI_APIKEY")
+		"neither in request header: X-Friendli-Token " +
+		"nor in environment variable under FRIENDLI_TOKEN")
 }
 
 type generateInput struct {
