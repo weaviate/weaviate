@@ -33,9 +33,11 @@ type s3Client struct {
 	config   *clientConfig
 	logger   logrus.FieldLogger
 	dataPath string
+	bucket   string
+	path     string
 }
 
-func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string) (*s3Client, error) {
+func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket, path string) (*s3Client, error) {
 	region := os.Getenv("AWS_REGION")
 	if len(region) == 0 {
 		region = os.Getenv("AWS_DEFAULT_REGION")
@@ -61,7 +63,7 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath string)
 	if err != nil {
 		return nil, errors.Wrap(err, "create client")
 	}
-	return &s3Client{client, config, logger, dataPath}, nil
+	return &s3Client{client, config, logger, dataPath, bucket, path}, nil
 }
 
 func (s *s3Client) makeObjectName(parts ...string) string {
@@ -102,7 +104,8 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key string) ([]byte,
 	return contents, nil
 }
 
-func (s *s3Client) PutFile(ctx context.Context, backupID, key string, srcPath string) error {
+func (s *s3Client) PutFile(ctx context.Context, backupID, key, bucket, bucketPath string, srcPath string) error {
+	//FIXME handle bucketPath, bucket
 	objectName := s.makeObjectName(backupID, key)
 	srcPath = path.Join(s.dataPath, srcPath)
 	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
@@ -127,7 +130,8 @@ func (s *s3Client) PutFile(ctx context.Context, backupID, key string, srcPath st
 	return nil
 }
 
-func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (s *s3Client) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
+	//FIXME handle bucketPath, bucket
 	objectName := s.makeObjectName(backupID, key)
 	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 	reader := bytes.NewReader(byes)
@@ -149,9 +153,10 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key string, byes []b
 func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
 	key := "access-check"
 
-	if err := s.PutObject(ctx, backupID, key, []byte("")); err != nil {
-		return errors.Wrap(err, "failed to access-check s3 backup module")
-	}
+	//FIXME?  This can't work if the bucket is only provided later
+	//if err := s.PutObject(ctx, backupID, key, []byte("")); err != nil {
+	//	return errors.Wrap(err, "failed to access-check s3 backup module")
+	//}
 
 	objectName := s.makeObjectName(backupID, key)
 	opt := minio.RemoveObjectOptions{}

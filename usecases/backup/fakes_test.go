@@ -102,14 +102,14 @@ func (fb *fakeBackend) HomeDir(backupID string) string {
 	return args.String(0)
 }
 
-func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (fb *fakeBackend) PutFile(ctx context.Context, backupID, key, srcPath, bucketName, bucketPath string) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, srcPath)
 	return args.Error(0)
 }
 
-func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key string, bytes []byte) error {
+func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, bytes []byte) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, bytes)

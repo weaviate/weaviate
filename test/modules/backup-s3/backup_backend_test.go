@@ -108,7 +108,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = s3.PutObject(testCtx, backupID, metadataFilename, b)
+			err = s3.PutObject(testCtx, backupID, metadataFilename, "", "", b)
 			require.Nil(t, err)
 
 			dest := s3.HomeDir(backupID)
@@ -154,7 +154,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := s3.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := s3.PutObject(testCtx, backupID, key, "", "", []byte("hello"))
 			assert.Nil(t, err, "expected nil, got: %v", err)
 		})
 
@@ -194,7 +194,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 
 		t.Run("copy file to backend", func(t *testing.T) {
 			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := s3.PutFile(testCtx, backupID, key, srcPath)
+			err := s3.PutFile(testCtx, backupID, key, srcPath, "", "")
 			require.Nil(t, err)
 
 			contents, err := s3.GetObject(testCtx, backupID, key)

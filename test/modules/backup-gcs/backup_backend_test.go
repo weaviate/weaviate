@@ -86,7 +86,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		})
 
 		t.Run("backup meta does not exist yet", func(t *testing.T) {
-			meta, err := gcs.GetObject(testCtx, backupID, metadataFilename)
+			meta, err := gcs.GetObject(testCtx, backupID, metadataFilename, "", "")
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
@@ -118,7 +118,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		})
 
 		t.Run("assert backup meta contents", func(t *testing.T) {
-			obj, err := gcs.GetObject(testCtx, backupID, metadataFilename)
+			obj, err := gcs.GetObject(testCtx, backupID, metadataFilename, "", "")
 			require.Nil(t, err)
 
 			var meta backup.BackupDescriptor
@@ -169,7 +169,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		})
 
 		t.Run("get object from bucket", func(t *testing.T) {
-			meta, err := gcs.GetObject(testCtx, backupID, key)
+			meta, err := gcs.GetObject(testCtx, backupID, key, "", "")
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
@@ -215,10 +215,10 @@ func moduleLevelCopyFiles(t *testing.T) {
 
 		t.Run("copy file to backend", func(t *testing.T) {
 			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := gcs.PutFile(testCtx, backupID, key, srcPath)
+			err := gcs.PutFile(testCtx, backupID, key, srcPath, "", "") // FIXME?
 			require.Nil(t, err)
 
-			contents, err := gcs.GetObject(testCtx, backupID, key)
+			contents, err := gcs.GetObject(testCtx, backupID, key, "", "") // FIXME?
 			require.Nil(t, err)
 			assert.Equal(t, expectedContents, contents)
 		})

@@ -357,13 +357,13 @@ func (f *fakeBackupBackend) Name() string {
 	return "fakeBackupBackend"
 }
 
-func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (f *fakeBackupBackend) PutFile(ctx context.Context, backupID, key, srcPath, bucket, bucketPath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
 }
 
-func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil
