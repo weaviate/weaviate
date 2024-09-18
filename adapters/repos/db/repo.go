@@ -93,10 +93,10 @@ type DB struct {
 }
 
 type jobQueue interface {
-	EnqueueJob(job job) error
+	EnqueueJob(ctx context.Context, job job) error
 }
 
-func (db *DB) EnqueueJob(job job) error {
+func (db *DB) EnqueueJob(ctx context.Context, job job) error {
 	db.shutdownRWMutex.RLock()
 	defer db.shutdownRWMutex.RUnlock()
 
@@ -104,7 +104,11 @@ func (db *DB) EnqueueJob(job job) error {
 		return errAlreadyShutdown
 	}
 
-	db.jobQueueCh <- job
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case db.jobQueueCh <- job:
+	}
 
 	return nil
 }

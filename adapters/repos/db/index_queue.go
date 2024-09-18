@@ -488,27 +488,16 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 
 		count += int64(len(ids))
 
-		jobEnqueuedCh := make(chan error)
-
-		enterrors.GoWrapper(func() {
-			err := q.centralJobQueue.EnqueueJob(job{
-				indexer: q.index,
-				ctx:     q.ctx,
-				ids:     ids,
-				vectors: vectors,
-				done:    q.processingJobs.Decr,
-			})
-			jobEnqueuedCh <- err
-		}, q.Logger)
-
-		select {
-		case <-q.ctx.Done():
+		err := q.centralJobQueue.EnqueueJob(q.ctx, job{
+			indexer: q.index,
+			ctx:     q.ctx,
+			ids:     ids,
+			vectors: vectors,
+			done:    q.processingJobs.Decr,
+		})
+		if err != nil {
 			q.processingJobs.Decr()
-			return count
-		case err := <-jobEnqueuedCh:
-			if err != nil {
-				q.Logger.WithError(err).Error("failed enqueing vectors for indexing")
-			}
+			q.Logger.WithError(err).Error("failed enqueing vectors for indexing")
 		}
 	}
 

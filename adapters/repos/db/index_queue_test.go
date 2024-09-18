@@ -42,7 +42,7 @@ type simpleJobQueue struct {
 	queue chan job
 }
 
-func (q *simpleJobQueue) EnqueueJob(job job) error {
+func (q *simpleJobQueue) EnqueueJob(_ context.Context, job job) error {
 	q.queue <- job
 	return nil
 }
