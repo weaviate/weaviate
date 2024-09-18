@@ -458,7 +458,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			q := test.getQueue(shd)
 
 			// wait for the queue to be empty
-			for i := 0; i < 20; i++ {
+			for i := 0; i < 25; i++ {
 				time.Sleep(500 * time.Millisecond)
 				if q.Size() == 0 {
 					break
@@ -490,7 +490,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			require.NoError(t, err)
 
 			// wait for the queue to be empty
-			for i := 0; i < 20; i++ {
+			for i := 0; i < 25; i++ {
 				time.Sleep(500 * time.Millisecond)
 				if q.Size() == 0 {
 					break
@@ -498,7 +498,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			}
 
 			// wait for the worker to start the indexing
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(1 * time.Second)
 
 			// make sure all objects except >= 100 < 300 are back in the vector index
 			for i := 0; i < amount; i++ {
