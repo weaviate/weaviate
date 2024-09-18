@@ -315,16 +315,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.shutdown <- struct{}{}
 
-	if !asyncEnabled() {
-		// shut down the workers that add objects to
-		for i := 0; i < db.maxNumberGoroutines; i++ {
-			db.jobQueueCh <- job{
-				index: -1,
-			}
-		}
-		close(db.jobQueueCh)
-	}
-
 	if db.metricsObserver != nil {
 		db.metricsObserver.Shutdown()
 	}
@@ -337,10 +327,8 @@ func (db *DB) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if asyncEnabled() {
-		// shut down the async workers
-		close(db.jobQueueCh)
-	}
+	// shut down the workers
+	close(db.jobQueueCh)
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
 
@@ -352,13 +340,11 @@ func (db *DB) Shutdown(ctx context.Context) error {
 }
 
 func (db *DB) batchWorker(first bool) {
+	defer db.shutDownWg.Done()
+
 	objectCounter := 0
 	checkTime := time.Now().Add(time.Second)
 	for jobToAdd := range db.jobQueueCh {
-		if jobToAdd.index < 0 {
-			db.shutDownWg.Done()
-			continue
-		}
 		jobToAdd.batcher.storeSingleObjectInAdditionalStorage(jobToAdd.ctx, jobToAdd.object, jobToAdd.status, jobToAdd.index)
 		jobToAdd.batcher.wg.Done()
 		objectCounter += 1
