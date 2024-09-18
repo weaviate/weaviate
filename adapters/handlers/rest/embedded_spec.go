@@ -289,6 +289,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -350,6 +362,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -404,6 +428,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5746,6 +5782,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5807,6 +5855,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5861,6 +5921,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
