@@ -41,6 +41,7 @@ import (
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -290,6 +291,12 @@ func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureAp
 	return d
 }
 
+func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeAWS(accessKey, secretKey, sessionToken string) *Compose {
 	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
 	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
@@ -305,7 +312,7 @@ func (d *Compose) WithGenerativeCohere(apiKey string) *Compose {
 }
 
 func (d *Compose) WithGenerativeFriendliAI(apiKey string) *Compose {
-	d.weaviateEnvs["FRIENDLI_APIKEY"] = apiKey
+	d.weaviateEnvs["FRIENDLI_TOKEN"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativefriendliai.Name)
 	return d
 }
@@ -681,7 +688,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateAuth {
 		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
 		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.semi.technology/auth/realms/SeMI"
+		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"

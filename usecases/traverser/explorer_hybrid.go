@@ -15,6 +15,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/entities/additional"
@@ -194,18 +196,19 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: params.Pagination.Autocut,
 	}
 
+	// pagination is handled after combining results
 	vectorParams := params
 	vectorParams.Pagination = &filters.Pagination{
 		Limit:   params.Pagination.Limit,
-		Offset:  params.Pagination.Offset,
-		Autocut: params.Pagination.Autocut,
+		Offset:  0,
+		Autocut: -1,
 	}
 
 	keywordParams := params
 	keywordParams.Pagination = &filters.Pagination{
 		Limit:   params.Pagination.Limit,
-		Offset:  params.Pagination.Offset,
-		Autocut: params.Pagination.Autocut,
+		Offset:  0,
+		Autocut: -1,
 	}
 
 	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.GetSchemaSkipAuth(), params.ClassName, params.HybridSearch.TargetVectors)
@@ -230,34 +233,26 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	results = make([][]*search.Result, resultsCount)
 	weights = make([]float64, resultsCount)
 	names = make([]string, resultsCount)
+	var belowCutoffSet map[strfmt.UUID]struct{}
 
 	if (params.HybridSearch.Alpha) > 0 {
 		eg.Go(func() error {
 			params := vectorParams
+			var err error
+			var name string
+			var res []*search.Result
+			var errorText string
 			if params.HybridSearch.NearTextParams != nil {
-				res, name, err := nearTextSubSearch(ctx, e, params, targetVectors)
-				if err != nil {
-					e.logger.WithField("action", "hybrid").WithError(err).Error("nearTextSubSearch failed")
-					return err
-				} else {
-					weights[0] = params.HybridSearch.Alpha
-					results[0] = res
-					names[0] = name
-				}
+				res, name, err = nearTextSubSearch(ctx, e, params, targetVectors)
+				errorText = "nearTextSubSearch"
 			} else if params.HybridSearch.NearVectorParams != nil {
 				searchVectors := make([]*searchparams.NearVector, len(targetVectors))
 				for i, targetVector := range targetVectors {
 					searchVectors[i] = params.HybridSearch.NearVectorParams
 					searchVectors[i].TargetVectors = []string{targetVector}
 				}
-				res, name, err := denseSearch(ctx, e, params, "nearVector", targetVectors, searchVectors)
-				if err != nil {
-					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
-					return err
-				}
-				weights[0] = params.HybridSearch.Alpha
-				results[0] = res
-				names[0] = name
+				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, searchVectors)
+				errorText = "nearVectorSubSearch"
 			} else {
 				sch := e.schemaGetter.GetSchemaSkipAuth()
 				class := sch.FindClassByName(schema.ClassName(params.ClassName))
@@ -282,27 +277,44 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 							return err
 						})
 					}
-					err := eg2.Wait()
-					if err != nil {
+					if err := eg2.Wait(); err != nil {
 						return err
 					}
 				}
 
-				res, name, err := denseSearch(ctx, e, params, "hybridVector", targetVectors, searchVectors)
-				if err != nil {
-					e.logger.WithField("action", "hybrid").WithError(err).Error("denseSearch failed")
-					return err
-				} else {
-					weights[0] = params.HybridSearch.Alpha
-					results[0] = res
-					names[0] = name
+				res, name, err = denseSearch(ctx, e, params, "hybridVector", targetVectors, searchVectors)
+				errorText = "hybrid"
+			}
+
+			if params.HybridSearch.WithDistance {
+				belowCutoffSet = map[strfmt.UUID]struct{}{}
+				maxFound := -1
+				for i := range res {
+					if res[i].Dist <= params.HybridSearch.Distance {
+						belowCutoffSet[res[i].ID] = struct{}{}
+						maxFound = i
+					} else {
+						break
+					}
 				}
+				// sorted by distance, so just remove everything after the first entry we found
+				res = res[:maxFound+1]
+			}
+
+			if err != nil {
+				e.logger.WithField("action", "hybrid").WithError(err).Error(errorText + " failed")
+				return err
+			} else {
+				weights[0] = params.HybridSearch.Alpha
+				results[0] = res
+				names[0] = name
 			}
 
 			return nil
 		})
 	}
 
+	sparseSearchIndex := -1
 	if 1-params.HybridSearch.Alpha > 0 {
 		eg.Go(func() error {
 			// If the user has given any weight to the keyword search, do a keyword search
@@ -315,6 +327,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				weights[len(weights)-1] = 1 - params.HybridSearch.Alpha
 				results[len(weights)-1] = sparseResults
 				names[len(weights)-1] = name
+				sparseSearchIndex = len(weights) - 1
 			}
 
 			return nil
@@ -323,6 +336,17 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 
 	if err := eg.Wait(); err != nil {
 		return nil, err
+	}
+
+	// remove results with a vector distance above the cutoff from the BM25 results
+	if sparseSearchIndex >= 0 && belowCutoffSet != nil {
+		newResults := make([]*search.Result, 0, len(results[sparseSearchIndex]))
+		for i := range results[sparseSearchIndex] {
+			if _, ok := belowCutoffSet[results[sparseSearchIndex][i].ID]; ok {
+				newResults = append(newResults, results[sparseSearchIndex][i])
+			}
+		}
+		results[sparseSearchIndex] = newResults
 	}
 
 	// The postProcess function is used to limit the number of results and to resolve references

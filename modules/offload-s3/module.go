@@ -314,6 +314,7 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
 	}
+
 	return m.app.RunContext(ctx, cmd)
 }
 

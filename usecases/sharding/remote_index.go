@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"sync"
 
 	"github.com/weaviate/weaviate/entities/dto"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -426,25 +428,43 @@ func (ri *RemoteIndex) queryAllReplicas(
 	}
 
 	queryAll := func(replicas []string) (resp []ReplicasSearchResult, err error) {
+		var mu sync.Mutex // protect resp + errlist
 		var searchResult ReplicasSearchResult
 		var errList error
+
+		wg := sync.WaitGroup{}
 		for _, node := range replicas {
-			// Skip local node to ensure we don't query again our local shard -> it is handled separately in the search
+			node := node // prevent loop variable capture
 			if node == localNode {
+				// Skip local node to ensure we don't query again our local shard -> it is handled separately in the search
 				continue
 			}
 
-			if errC := ctx.Err(); errC != nil {
-				errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, errC))
-				continue
-			}
+			wg.Add(1)
+			enterrors.GoWrapper(func() {
+				defer wg.Done()
 
-			if searchResult, err = queryOne(node); err != nil {
-				errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
-				continue
-			}
-			resp = append(resp, searchResult)
+				if errC := ctx.Err(); errC != nil {
+					mu.Lock()
+					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, errC))
+					mu.Unlock()
+					return
+				}
+
+				if searchResult, err = queryOne(node); err != nil {
+					mu.Lock()
+					errList = errors.Join(errList, fmt.Errorf("error while searching shard=%s replica node=%s: %w", shard, node, err))
+					mu.Unlock()
+					return
+				}
+
+				mu.Lock()
+				resp = append(resp, searchResult)
+				mu.Unlock()
+			}, log)
 		}
+		wg.Wait()
+
 		if errList != nil {
 			// Simply log the errors but don't return them unless we have no valid result
 			log.Warnf("errors happened during full replicas search for shard '%s' errors: %s", shard, errList)

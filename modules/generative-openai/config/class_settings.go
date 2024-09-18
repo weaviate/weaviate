@@ -13,6 +13,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -100,6 +101,7 @@ type ClassSettings interface {
 	Validate(class *models.Class) error
 	BaseURL() string
 	ApiVersion() string
+	IsThirdPartyProvider() bool
 }
 
 type classSettings struct {
@@ -152,9 +154,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		return errors.Errorf("wrong Azure OpenAI apiVersion, available api versions are: %v", availableApiVersions)
 	}
 
-	err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
-	if err != nil {
-		return err
+	if ic.IsAzure() {
+		err := ic.validateAzureConfig(ic.ResourceName(), ic.DeploymentID())
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -163,6 +167,11 @@ func (ic *classSettings) Validate(class *models.Class) error {
 func (ic *classSettings) getStringProperty(name, defaultValue string) *string {
 	asString := ic.propertyValuesHelper.GetPropertyAsStringWithNotExists(ic.cfg, name, "", defaultValue)
 	return &asString
+}
+
+func (ic *classSettings) getBoolProperty(name string, defaultValue bool) *bool {
+	asBool := ic.propertyValuesHelper.GetPropertyAsBool(ic.cfg, name, false)
+	return &asBool
 }
 
 func (ic *classSettings) getFloatProperty(name string, defaultValue *float64) *float64 {
@@ -227,7 +236,7 @@ func (ic *classSettings) DeploymentID() string {
 }
 
 func (ic *classSettings) IsAzure() bool {
-	return ic.ResourceName() != "" && ic.DeploymentID() != ""
+	return *ic.getBoolProperty("isAzure", false) || (ic.ResourceName() != "" && ic.DeploymentID() != "")
 }
 
 func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId string) error {
@@ -235,6 +244,10 @@ func (ic *classSettings) validateAzureConfig(resourceName string, deploymentId s
 		return fmt.Errorf("both resourceName and deploymentId must be provided")
 	}
 	return nil
+}
+
+func (cs *classSettings) IsThirdPartyProvider() bool {
+	return !(strings.Contains(cs.BaseURL(), "api.openai.com") || cs.IsAzure())
 }
 
 func contains[T comparable](s []T, e T) bool {

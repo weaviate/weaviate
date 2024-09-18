@@ -19,6 +19,7 @@ import (
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
 )
 
 type DockerCompose struct {
@@ -86,7 +87,7 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 
 func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
 	if nodeIndex >= len(d.containers) {
-		return fmt.Errorf("requested container doesn't exists at %d", nodeIndex)
+		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
 	}
 	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
 		return err
@@ -101,7 +102,7 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 
 func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	if nodeIndex >= len(d.containers) {
-		return nil
+		return errors.Errorf("node index is greater than available nodes")
 	}
 
 	c := d.containers[nodeIndex]
@@ -116,6 +117,15 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 		}
 		endPoints[name] = endpoint{e.port, newURI}
+
+		// wait until node is ready
+		if name != HTTP {
+			continue
+		}
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port))
+		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
+			return err
+		}
 	}
 	c.endpoints = endPoints
 	return nil

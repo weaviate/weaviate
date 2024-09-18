@@ -251,10 +251,9 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 }
 
 func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
-	if h.tombstoneCleanupRunning.Load() {
+	if !h.tombstoneCleanupRunning.CompareAndSwap(false, true) {
 		return false, errors.New("tombstone cleanup already running")
 	}
-	h.tombstoneCleanupRunning.Store(true)
 	defer h.tombstoneCleanupRunning.Store(false)
 
 	h.compressActionLock.RLock()
@@ -301,6 +300,8 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		"tombstones_total":    total_tombstones,
 	}).Infof("class %s: shard %s: starting tombstone cleanup", h.className, h.shardName)
 
+	h.metrics.StartTombstoneCycle()
+
 	executed = true
 	if ok, err := h.reassignNeighborsOf(deleteList, breakCleanUpTombstonedNodes); err != nil {
 		return executed, err
@@ -336,6 +337,8 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 			"duration":            took,
 		}).Infof("class %s: shard %s: completed tombstone cleanup in %s", h.className, h.shardName, took)
 	}
+
+	h.metrics.EndTombstoneCycle()
 
 	return executed, nil
 }
@@ -457,6 +460,10 @@ LOOP:
 		}
 		select {
 		case ch <- uint64(i):
+			if i%1000 == 0 {
+				// updating the metric has virtually no cost, so we can do it every 1k
+				h.metrics.TombstoneCycleProgress(float64(i) / float64(size))
+			}
 			if i%1_000_000 == 0 {
 				// the interval of 1M is rather arbitrary, but if we have less than 1M
 				// nodes in the graph tombstones cleanup should be so fast, we don't
@@ -521,7 +528,7 @@ func (h *hnsw) reassignNeighbor(
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "reassignNeighbor")
 			return true, nil
 		} else {
 			// not a typed error, we can recover from, return with err

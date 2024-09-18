@@ -30,10 +30,15 @@ const (
 type BaseClassSettings struct {
 	cfg            moduletools.ClassConfig
 	propertyHelper *classPropertyValuesHelper
+	lowerCaseInput bool
 }
 
-func NewBaseClassSettings(cfg moduletools.ClassConfig) *BaseClassSettings {
-	return &BaseClassSettings{cfg: cfg, propertyHelper: &classPropertyValuesHelper{}}
+func NewBaseClassSettings(cfg moduletools.ClassConfig, lowerCaseInput bool) *BaseClassSettings {
+	return &BaseClassSettings{cfg: cfg, propertyHelper: &classPropertyValuesHelper{}, lowerCaseInput: lowerCaseInput}
+}
+
+func (s *BaseClassSettings) LowerCaseInput() bool {
+	return s.lowerCaseInput
 }
 
 func (s *BaseClassSettings) PropertyIndexed(propName string) bool {
