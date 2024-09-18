@@ -24,7 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/multi2vec-palm/ent"
+	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -33,7 +33,7 @@ func buildURL(location, projectID, model string) string {
 		location, projectID, location, model)
 }
 
-type palm struct {
+type google struct {
 	apiKey        string
 	useGoogleAuth bool
 	googleApiKey  *apikey.GoogleApiKey
@@ -42,8 +42,8 @@ type palm struct {
 	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *palm {
-	return &palm{
+func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *google {
+	return &google{
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
 		googleApiKey:  apikey.NewGoogleApiKey(),
@@ -55,19 +55,19 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 	}
 }
 
-func (v *palm) Vectorize(ctx context.Context,
+func (v *google) Vectorize(ctx context.Context,
 	texts, images, videos []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	return v.vectorize(ctx, texts, images, videos, config)
 }
 
-func (v *palm) VectorizeQuery(ctx context.Context, input []string,
+func (v *google) VectorizeQuery(ctx context.Context, input []string,
 	config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	return v.vectorize(ctx, input, nil, nil, config)
 }
 
-func (v *palm) vectorize(ctx context.Context,
+func (v *google) vectorize(ctx context.Context,
 	texts, images, videos []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
 	var textEmbeddings [][]float32
@@ -96,14 +96,14 @@ func (v *palm) vectorize(ctx context.Context,
 	return v.getResponse(textEmbeddings, imageEmbeddings, videoEmbeddings)
 }
 
-func (v *palm) safelyGet(input []string, i int) string {
+func (v *google) safelyGet(input []string, i int) string {
 	if i < len(input) {
 		return input[i]
 	}
 	return ""
 }
 
-func (v *palm) sendRequest(ctx context.Context,
+func (v *google) sendRequest(ctx context.Context,
 	endpointURL string, payload embeddingsRequest,
 ) (int, embeddingsResponse, error) {
 	body, err := json.Marshal(payload)
@@ -143,11 +143,11 @@ func (v *palm) sendRequest(ctx context.Context,
 	return res.StatusCode, resBody, nil
 }
 
-func (v *palm) getURL(config ent.VectorizationConfig) string {
+func (v *google) getURL(config ent.VectorizationConfig) string {
 	return v.urlBuilderFn(config.Location, config.ProjectID, config.Model)
 }
 
-func (v *palm) getPayload(text, img, vid string, config ent.VectorizationConfig) embeddingsRequest {
+func (v *google) getPayload(text, img, vid string, config ent.VectorizationConfig) embeddingsRequest {
 	inst := instance{}
 	if text != "" {
 		inst.Text = &text
@@ -170,22 +170,22 @@ func (v *palm) getPayload(text, img, vid string, config ent.VectorizationConfig)
 	return req
 }
 
-func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
-	if statusCode != 200 || palmApiError != nil {
-		if palmApiError != nil {
+func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
+	if statusCode != 200 || googleApiError != nil {
+		if googleApiError != nil {
 			return fmt.Errorf("connection to Google failed with status: %v error: %v",
-				statusCode, palmApiError.Message)
+				statusCode, googleApiError.Message)
 		}
 		return fmt.Errorf("connection to Google failed with status: %d", statusCode)
 	}
 	return nil
 }
 
-func (v *palm) getApiKey(ctx context.Context) (string, error) {
+func (v *google) getApiKey(ctx context.Context) (string, error) {
 	return v.googleApiKey.GetApiKey(ctx, v.apiKey, false, v.useGoogleAuth)
 }
 
-func (v *palm) getEmbeddingsFromResponse(statusCode int, resBody embeddingsResponse) (
+func (v *google) getEmbeddingsFromResponse(statusCode int, resBody embeddingsResponse) (
 	textEmbeddings [][]float32,
 	imageEmbeddings [][]float32,
 	videoEmbeddings [][]float32,
@@ -223,7 +223,7 @@ func (v *palm) getEmbeddingsFromResponse(statusCode int, resBody embeddingsRespo
 	return
 }
 
-func (v *palm) getResponse(textVectors, imageVectors, videoVectors [][]float32) (*ent.VectorizationResult, error) {
+func (v *google) getResponse(textVectors, imageVectors, videoVectors [][]float32) (*ent.VectorizationResult, error) {
 	return &ent.VectorizationResult{
 		TextVectors:  textVectors,
 		ImageVectors: imageVectors,
@@ -262,9 +262,9 @@ type videoSegmentConfig struct {
 }
 
 type embeddingsResponse struct {
-	Predictions     []prediction  `json:"predictions,omitempty"`
-	Error           *palmApiError `json:"error,omitempty"`
-	DeployedModelId string        `json:"deployedModelId,omitempty"`
+	Predictions     []prediction    `json:"predictions,omitempty"`
+	Error           *googleApiError `json:"error,omitempty"`
+	DeployedModelId string          `json:"deployedModelId,omitempty"`
 }
 
 type prediction struct {
@@ -279,7 +279,7 @@ type videoEmbedding struct {
 	Embedding      []float32 `json:"embedding,omitempty"`
 }
 
-type palmApiError struct {
+type googleApiError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Status  string `json:"status"`
