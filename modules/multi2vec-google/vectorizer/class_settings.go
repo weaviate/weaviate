@@ -137,7 +137,7 @@ func (ic *classSettings) field(name, property string) bool {
 		return false
 	}
 
-	fields, ok := ic.cfg.ClassByModuleName("multi2vec-palm")[name]
+	fields, ok := ic.cfg.Class()[name]
 	if !ok {
 		return false
 	}

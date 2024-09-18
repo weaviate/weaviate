@@ -18,7 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/multi2vec-palm/vectorizer"
+	"github.com/weaviate/weaviate/modules/multi2vec-google/vectorizer"
 )
 
 func (m *Module) ClassConfigDefaults() map[string]interface{} {
