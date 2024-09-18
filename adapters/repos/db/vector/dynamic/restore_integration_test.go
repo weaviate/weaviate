@@ -102,13 +102,15 @@ func TestBackup_Integration(t *testing.T) {
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
-	idx.Upgrade(func() {
+	err = idx.Upgrade(func() {
 		wg.Done()
 	})
+	require.Nil(t, err)
 	wg.Wait()
 	recall1, _ := recallAndLatency(queries, k, idx, truths)
 	assert.True(t, recall1 > 0.9)
 
+	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
 	idx, err = dynamic.New(config, uc, store)
 	require.Nil(t, err)
