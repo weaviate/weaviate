@@ -17,6 +17,7 @@ import (
 )
 
 type Params struct {
+	BaseURL     string
 	Model       string
 	MaxTokens   *int
 	Temperature *float64

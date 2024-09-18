@@ -47,17 +47,19 @@ message GenerativeProvider {
 }
 
 message GenerativeAnthropic{
-  optional int64 max_tokens = 1;
-  optional string model = 2;
-  optional double temperature = 3;
-  optional int64 top_k = 4;
-  optional double top_p = 5;
-  optional TextArray stop_sequences = 6;
+  optional string base_url = 1;
+  optional int64 max_tokens = 2;
+  optional string model = 3;
+  optional double temperature = 4;
+  optional int64 top_k = 5;
+  optional double top_p = 6;
+  optional TextArray stop_sequences = 7;
 }
 
 message GenerativeAnyscale{
-  optional string model = 1;
-  optional double temperature = 2;
+  optional string base_url = 1;
+  optional string model = 2;
+  optional double temperature = 3;
 }
 
 message GenerativeAWS{
@@ -66,37 +68,41 @@ message GenerativeAWS{
 }
 
 message GenerativeCohere{
-  optional double frequency_penalty = 1;
-  optional int64 max_tokens = 2;
-  optional string model = 3;
-  optional int64 k = 4;
-  optional double p = 5;
-  optional double presence_penalty = 6;
-  optional TextArray stop_sequences = 7;
-  optional double temperature = 8;
+  optional string base_url = 1;
+  optional double frequency_penalty = 2;
+  optional int64 max_tokens = 3;
+  optional string model = 4;
+  optional int64 k = 5;
+  optional double p = 6;
+  optional double presence_penalty = 7;
+  optional TextArray stop_sequences = 8;
+  optional double temperature = 9;
 }
 
 message GenerativeDummy{
 }
 
 message GenerativeMistral{
-  optional int64 max_tokens = 1;
-  optional string model = 2;
-  optional double temperature = 3;
-  optional double top_p = 4;
-}
-
-message GenerativeOctoAI{
-  optional int64 max_tokens = 1;
-  optional string model = 2;
-  optional int64 n = 3;
+  optional string base_url = 1;
+  optional int64 max_tokens = 2;
+  optional string model = 3;
   optional double temperature = 4;
   optional double top_p = 5;
 }
 
+message GenerativeOctoAI{
+  optional string base_url = 1;
+  optional int64 max_tokens = 2;
+  optional string model = 3;
+  optional int64 n = 4;
+  optional double temperature = 5;
+  optional double top_p = 6;
+}
+
 message GenerativeOllama{
-  optional string model = 1;
-  optional double temperature = 2;
+  optional string api_endpoint = 1;
+  optional string model = 2;
+  optional double temperature = 3;
 }
 
 message GenerativeOpenAI{
