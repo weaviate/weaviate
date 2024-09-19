@@ -17,13 +17,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeOctoAI(host, octoAIApiEndpoint string) func(t *testing.T) {
+func testGenerativeOctoAI(host, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		data := planets.Planets
 		// Define class
@@ -98,6 +101,25 @@ func testGenerativeOctoAI(host, octoAIApiEndpoint string) func(t *testing.T) {
 				// generative task
 				t.Run("create a tweet", func(t *testing.T) {
 					planets.CreateTweetTest(t, class.Class)
+				})
+				t.Run("create a tweet with params", func(t *testing.T) {
+					params := "octoai:{temperature:0.9 N:400}"
+					planets.CreateTweetTestWithParams(t, class.Class, params)
+				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					params := &pb.GenerativeProvider_Octoai{
+						Octoai: &pb.GenerativeOctoAI{
+							MaxTokens:   grpchelper.ToPtr(int64(90)),
+							Model:       grpchelper.ToPtr(tt.generativeModel),
+							Temperature: grpchelper.ToPtr(0.9),
+							N:           grpchelper.ToPtr(int64(90)),
+							TopP:        grpchelper.ToPtr(0.9),
+						},
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
 				})
 			})
 		}

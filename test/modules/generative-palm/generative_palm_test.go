@@ -17,13 +17,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
+func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		data := planets.Planets
 		// Define class
@@ -42,40 +45,56 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 			},
 		}
 		tests := []struct {
-			name            string
-			generativeModel string
+			name             string
+			generativeModel  string
+			frequencyPenalty *float64
+			presencePenalty  *float64
 		}{
 			{
-				name:            "chat-bison",
-				generativeModel: "chat-bison",
+				name:             "chat-bison",
+				generativeModel:  "chat-bison",
+				frequencyPenalty: grpchelper.ToPtr(0.5),
+				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:            "chat-bison-32k",
-				generativeModel: "chat-bison-32k",
+				name:             "chat-bison-32k",
+				generativeModel:  "chat-bison-32k",
+				frequencyPenalty: grpchelper.ToPtr(0.5),
+				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:            "chat-bison@002",
-				generativeModel: "chat-bison@002",
+				name:             "chat-bison@002",
+				generativeModel:  "chat-bison@002",
+				frequencyPenalty: grpchelper.ToPtr(0.5),
+				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:            "chat-bison-32k@002",
-				generativeModel: "chat-bison-32k@002",
+				name:             "chat-bison-32k@002",
+				generativeModel:  "chat-bison-32k@002",
+				frequencyPenalty: grpchelper.ToPtr(0.5),
+				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "chat-bison@001",
 				generativeModel: "chat-bison@001",
 			},
 			{
-				name:            "gemini-1.5-pro-preview-0514",
-				generativeModel: "gemini-1.5-pro-preview-0514",
+				name:             "gemini-1.5-pro-preview-0514",
+				generativeModel:  "gemini-1.5-pro-preview-0514",
+				frequencyPenalty: grpchelper.ToPtr(0.5),
+				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:            "gemini-1.5-pro-preview-0409",
-				generativeModel: "gemini-1.5-pro-preview-0409",
+				name:             "gemini-1.5-pro-preview-0409",
+				generativeModel:  "gemini-1.5-pro-preview-0409",
+				frequencyPenalty: grpchelper.ToPtr(0.5),
+				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:            "gemini-1.5-flash-preview-0514",
-				generativeModel: "gemini-1.5-flash-preview-0514",
+				name:             "gemini-1.5-flash-preview-0514",
+				generativeModel:  "gemini-1.5-flash-preview-0514",
+				frequencyPenalty: grpchelper.ToPtr(0.5),
+				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "gemini-1.0-pro-002",
@@ -123,6 +142,23 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := "google:{topP:0.1 topK:40}"
 					planets.CreateTweetTestWithParams(t, class.Class, params)
+				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					params := &pb.GenerativeProvider_Google{
+						Google: &pb.GenerativeGoogle{
+							MaxTokens:        grpchelper.ToPtr(int64(256)),
+							Model:            grpchelper.ToPtr(tt.generativeModel),
+							Temperature:      grpchelper.ToPtr(0.5),
+							TopK:             grpchelper.ToPtr(int64(40)),
+							TopP:             grpchelper.ToPtr(0.1),
+							FrequencyPenalty: tt.frequencyPenalty,
+							PresencePenalty:  tt.presencePenalty,
+						},
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
 				})
 			})
 		}

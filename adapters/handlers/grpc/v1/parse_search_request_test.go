@@ -1730,9 +1730,10 @@ func TestGRPCRequest(t *testing.T) {
 		},
 	}
 
+	parser := NewParser(false, scheme.GetClass)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchParamsFromProto(tt.req, scheme.GetClass, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 			if tt.error {
 				require.NotNil(t, err)
 			} else {

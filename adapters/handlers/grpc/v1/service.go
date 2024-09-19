@@ -201,9 +201,19 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	}
 
 	scheme := s.schemaManager.GetSchemaSkipAuth()
-	replier := NewReplier(req.Uses_123Api, req.Uses_125Api)
+	parser := NewParser(
+		req.Uses_127Api,
+		s.schemaManager.ReadOnlyClass,
+	)
+	replier := NewReplier(
+		req.Uses_123Api || req.Uses_125Api || req.Uses_127Api,
+		req.Uses_125Api || req.Uses_127Api,
+		req.Uses_127Api,
+		parser.generative,
+		s.logger,
+	)
 
-	searchParams, err := searchParamsFromProto(req, s.schemaManager.ReadOnlyClass, s.config)
+	searchParams, err := parser.Search(req, s.config)
 	if err != nil {
 		return nil, err
 	}

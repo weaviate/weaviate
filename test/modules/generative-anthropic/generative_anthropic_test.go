@@ -18,13 +18,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/helper"
+	grpchelper "github.com/weaviate/weaviate/test/helper/grpc"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativeAnthropic(host string) func(t *testing.T) {
+func testGenerativeAnthropic(rest, grpc string) func(t *testing.T) {
 	return func(t *testing.T) {
-		helper.SetupClient(host)
+		helper.SetupClient(rest)
+		helper.SetupGRPCClient(t, grpc)
 		// Data
 		data := planets.Planets
 		// Define class
@@ -32,7 +35,7 @@ func testGenerativeAnthropic(host string) func(t *testing.T) {
 		class.VectorConfig = map[string]models.VectorConfig{
 			"description": {
 				Vectorizer: map[string]interface{}{
-					"text2vec-transformers": map[string]interface{}{
+					"text2vec-contextionary": map[string]interface{}{
 						"properties":         []interface{}{"description"},
 						"vectorizeClassName": false,
 					},
@@ -93,6 +96,22 @@ func testGenerativeAnthropic(host string) func(t *testing.T) {
 				t.Run("create a tweet with params", func(t *testing.T) {
 					params := fmt.Sprintf("anthropic:{topP:0.9 topK:90 model:%q}", tt.generativeModel)
 					planets.CreateTweetTestWithParams(t, class.Class, params)
+				})
+				t.Run("create a tweet using grpc", func(t *testing.T) {
+					planets.CreateTweetTestGRPC(t, class.Class)
+				})
+				t.Run("create a tweet with params using grpc", func(t *testing.T) {
+					params := &pb.GenerativeProvider_Anthropic{
+						Anthropic: &pb.GenerativeAnthropic{
+							MaxTokens:     grpchelper.ToPtr(int64(90)),
+							Model:         grpchelper.ToPtr(tt.generativeModel),
+							Temperature:   grpchelper.ToPtr(0.9),
+							TopK:          grpchelper.ToPtr(int64(90)),
+							TopP:          grpchelper.ToPtr(0.9),
+							StopSequences: &pb.TextArray{Values: []string{"stop"}},
+						},
+					}
+					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
 				})
 			})
 		}
