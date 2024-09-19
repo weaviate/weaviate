@@ -23,7 +23,7 @@ import (
 	octoaiParams "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
-	palmParams "github.com/weaviate/weaviate/modules/generative-palm/parameters"
+	googleParams "github.com/weaviate/weaviate/modules/generative-palm/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
@@ -114,8 +114,8 @@ func (p *Parser) extract(req *pb.GenerativeSearch, class *models.Class) *generat
 				options = p.openai(query.GetOpenai())
 				providerName = openaiParams.Name
 			case *pb.GenerativeProvider_Google:
-				options = p.palm(query.GetGoogle())
-				providerName = palmParams.Name
+				options = p.google(query.GetGoogle())
+				providerName = googleParams.Name
 			default:
 				// do nothing
 			}
@@ -262,12 +262,12 @@ func (p *Parser) openai(in *pb.GenerativeOpenAI) map[string]any {
 	}
 }
 
-func (p *Parser) palm(in *pb.GenerativeGoogle) map[string]any {
+func (p *Parser) google(in *pb.GenerativeGoogle) map[string]any {
 	if in == nil {
 		return nil
 	}
 	return map[string]any{
-		palmParams.Name: palmParams.Params{
+		googleParams.Name: googleParams.Params{
 			Model:            in.GetModel(),
 			Temperature:      in.Temperature,
 			MaxTokens:        p.int64ToInt(in.MaxTokens),

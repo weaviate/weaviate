@@ -31,8 +31,8 @@ import (
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiClients "github.com/weaviate/weaviate/modules/generative-openai/clients"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
-	palmClients "github.com/weaviate/weaviate/modules/generative-palm/clients"
-	palmParams "github.com/weaviate/weaviate/modules/generative-palm/parameters"
+	googleClients "github.com/weaviate/weaviate/modules/generative-palm/clients"
+	googleParams "github.com/weaviate/weaviate/modules/generative-palm/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
@@ -226,40 +226,40 @@ func (r *Replier) extractGenerativeMetadata(results map[string]any) (*pb.Generat
 			}
 		}
 		metadata.Kind = &pb.GenerativeMetadata_Openai{Openai: openai}
-	case palmParams.Name:
-		params := palmClients.GetResponseParams(results)
+	case googleParams.Name:
+		params := googleClients.GetResponseParams(results)
 		if params == nil {
 			return nil, fmt.Errorf("could not get request metadata for provider: %s", providerName)
 		}
-		palm := &pb.GenerativePaLMMetadata{}
+		google := &pb.GenerativeGoogleMetadata{}
 		if params.Metadata != nil {
-			metadata := &pb.GenerativePaLMMetadata_Metadata{}
+			metadata := &pb.GenerativeGoogleMetadata_Metadata{}
 			if params.Metadata.TokenMetadata != nil {
-				tokenMetadata := &pb.GenerativePaLMMetadata_TokenMetadata{}
+				tokenMetadata := &pb.GenerativeGoogleMetadata_TokenMetadata{}
 				if params.Metadata.TokenMetadata.InputTokenCount != nil {
-					tokenMetadata.InputTokenCount = &pb.GenerativePaLMMetadata_TokenCount{
+					tokenMetadata.InputTokenCount = &pb.GenerativeGoogleMetadata_TokenCount{
 						TotalBillableCharacters: &params.Metadata.TokenMetadata.InputTokenCount.TotalBillableCharacters,
 						TotalTokens:             &params.Metadata.TokenMetadata.InputTokenCount.TotalTokens,
 					}
 				}
 				if params.Metadata.TokenMetadata.OutputTokenCount != nil {
-					tokenMetadata.OutputTokenCount = &pb.GenerativePaLMMetadata_TokenCount{
+					tokenMetadata.OutputTokenCount = &pb.GenerativeGoogleMetadata_TokenCount{
 						TotalBillableCharacters: &params.Metadata.TokenMetadata.OutputTokenCount.TotalBillableCharacters,
 						TotalTokens:             &params.Metadata.TokenMetadata.OutputTokenCount.TotalTokens,
 					}
 				}
 				metadata.TokenMetadata = tokenMetadata
 			}
-			palm.Metadata = metadata
+			google.Metadata = metadata
 		}
 		if params.UsageMetadata != nil {
-			palm.UsageMetadata = &pb.GenerativePaLMMetadata_UsageMetadata{
+			google.UsageMetadata = &pb.GenerativeGoogleMetadata_UsageMetadata{
 				PromptTokenCount:     convertIntToInt64Ptr(params.UsageMetadata.PromptTokenCount),
 				CandidatesTokenCount: convertIntToInt64Ptr(params.UsageMetadata.CandidatesTokenCount),
 				TotalTokenCount:      convertIntToInt64Ptr(params.UsageMetadata.TotalTokenCount),
 			}
 		}
-		metadata.Kind = &pb.GenerativeMetadata_Palm{Palm: palm}
+		metadata.Kind = &pb.GenerativeMetadata_Google{Google: google}
 	default:
 		return nil, fmt.Errorf("provider: %s, not supported", providerName)
 	}

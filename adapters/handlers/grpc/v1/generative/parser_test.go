@@ -25,7 +25,7 @@ import (
 	octoai "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 	ollama "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openai "github.com/weaviate/weaviate/modules/generative-openai/parameters"
-	palm "github.com/weaviate/weaviate/modules/generative-palm/parameters"
+	google "github.com/weaviate/weaviate/modules/generative-palm/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
@@ -810,7 +810,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"google": palm.Params{},
+					"google": google.Params{},
 				},
 			},
 		},
@@ -843,7 +843,7 @@ func Test_RequestParser(t *testing.T) {
 			expected: &generate.Params{
 				Prompt: makeStrPtr("prompt"),
 				Options: map[string]any{
-					"google": palm.Params{
+					"google": google.Params{
 						MaxTokens:        makeIntPtr(10),
 						Model:            "model",
 						Temperature:      makeFloat64Ptr(0.5),
