@@ -184,8 +184,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 	var worstResultDistance float32
 	var err error
-	var threshold = int(64)
-	var percentage = int(90)
+	var threshold = int(800)
+	//var percentage = int(40)
 	if h.compressed.Load() {
 		worstResultDistance, err = h.currentWorstResultDistanceToByte(results, compressorDistancer)
 	} else {
@@ -264,11 +264,12 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 				if h.ef != -1 {
 					hd := h.compressor.Manager(neighborID, compressorDistancer)
 					if hd > threshold {
-						distance = 1e30
+						//distance = float32(hd * int(math.Pow10(6)))
+						distance = float32(hd * int(math.Pow10(level)))
 						err = nil
 					} else {
 						distance, err = compressorDistancer.DistanceToNode(neighborID)
-						threshold = hd + (hd*percentage)/100
+						//threshold = hd + (hd*percentage)/100
 					}
 				} else {
 					distance, err = compressorDistancer.DistanceToNode(neighborID)
