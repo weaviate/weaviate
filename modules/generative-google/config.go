@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modgenerativepalm
+package modgenerativegoogle
 
 import (
 	"context"
@@ -18,20 +18,20 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/modules/generative-palm/config"
+	"github.com/weaviate/weaviate/modules/generative-google/config"
 )
 
-func (m *GenerativePaLMModule) ClassConfigDefaults() map[string]interface{} {
+func (m *GenerativeGoogleModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (m *GenerativePaLMModule) PropertyConfigDefaults(
+func (m *GenerativeGoogleModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{}
 }
 
-func (m *GenerativePaLMModule) ValidateClass(ctx context.Context,
+func (m *GenerativeGoogleModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	settings := config.NewClassSettings(cfg)

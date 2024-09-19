@@ -29,10 +29,10 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
-	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
@@ -293,9 +293,9 @@ func (d *Compose) WithGenerativeCohere() *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativePaLM(apiKey string) *Compose {
+func (d *Compose) WithGenerativeGoogle(apiKey string) *Compose {
 	d.withGoogleApiKey = apiKey
-	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
+	d.enableModules = append(d.enableModules, modgenerativegoogle.Name)
 	return d
 }
 

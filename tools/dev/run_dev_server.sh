@@ -407,14 +407,14 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  local-all-palm)
+  local-all-google)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       CLUSTER_IN_LOCALHOST=true \
-      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-google" \
+      ENABLE_MODULES="text2vec-contextionary,generative-google,text2vec-google" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -423,14 +423,14 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  local-all-openai-cohere-palm)
+  local-all-openai-cohere-google)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
       CLUSTER_IN_LOCALHOST=true \
-      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-google,qna-openai,generative-openai,text2vec-openai,generative-cohere,text2vec-cohere,reranker-cohere" \
+      ENABLE_MODULES="text2vec-contextionary,generative-google,text2vec-google,qna-openai,generative-openai,text2vec-openai,generative-cohere,text2vec-cohere,reranker-cohere" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -439,13 +439,13 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  local-all-openai-voyageai-palm)
+  local-all-openai-voyageai-google)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       QNA_INFERENCE_API="http://localhost:8001" \
       CLUSTER_HOSTNAME="weaviate-0" \
-      ENABLE_MODULES="text2vec-contextionary,generative-palm,text2vec-google,qna-openai,generative-openai,text2vec-openai,text2vec-voyageai,reranker-voyageai" \
+      ENABLE_MODULES="text2vec-contextionary,generative-google,text2vec-google,qna-openai,generative-openai,text2vec-openai,text2vec-voyageai,reranker-voyageai" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

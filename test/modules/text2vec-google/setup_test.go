@@ -41,17 +41,17 @@ func TestText2VecGoogle_VertexAI_SingleNode(t *testing.T) {
 	t.Run("text2vec-palm", testText2VecGoogle(endpoint, gcpProject, "text2vec-palm"))
 }
 
-func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
+func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
 ) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules(palmApiKey).
+	compose, err = composeModules(googleApiKey).
 		WithWeaviate().
 		Start(ctx)
 	return
 }
 
-func composeModules(palmApiKey string) (composeModules *docker.Compose) {
+func composeModules(googleApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecGoogle(palmApiKey).
-		WithGenerativePaLM(palmApiKey)
+		WithText2VecGoogle(googleApiKey).
+		WithGenerativeGoogle(googleApiKey)
 	return
 }
