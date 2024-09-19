@@ -134,7 +134,7 @@ message Tenant {
   string status = 2;
 }
 
-  // QuerierEvent is experimental, may be changed/removed
+// QuerierEvent is experimental, may be changed/removed
 message QuerierEvent {
   enum Type {
     UNSPECIFIED = 0;
@@ -142,7 +142,7 @@ message QuerierEvent {
   Type type = 1;
 }
 
-  // MetadataEvent is experimental, may be changed/removed
+// MetadataEvent is experimental, may be changed/removed
 message MetadataEvent {
   enum Type {
     UNSPECIFIED = 0;
@@ -152,7 +152,7 @@ message MetadataEvent {
   ClassTenant class_tenant = 2;
 }
 
-  // ClassTenant is experimental, may be changed/removed
+// ClassTenant is experimental, may be changed/removed
 message ClassTenant {
   string class_name = 1;
   string tenant_name = 2;

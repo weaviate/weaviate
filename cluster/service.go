@@ -68,7 +68,7 @@ func New(selector cluster.NodeSelector, cfg Config) *Service {
 		}
 	}
 	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
-	querierManager := querier.NewQuerierManager()
+	querierManager := querier.NewQuerierManager() // TODO pass in from outside for testing? or add that later if needed?, let's see if tests pass
 	cfg.querierManager = querierManager
 	fsm := NewFSM(cfg)
 	raft := NewRaft(selector, &fsm, cl)

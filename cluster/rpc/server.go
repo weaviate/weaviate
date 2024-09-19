@@ -189,7 +189,7 @@ func toRPCError(err error) error {
 func (s *Server) QuerierRegister(stream cmd.ClusterService_QuerierRegisterServer) error {
 	q := querier.NewQuerier()
 	s.querierManager.Register(q)
-	defer q.Close()
+	defer s.querierManager.Unregister(q)
 
 	streamClosed := make(chan struct{})
 	var returnErr error
@@ -200,37 +200,16 @@ func (s *Server) QuerierRegister(stream cmd.ClusterService_QuerierRegisterServer
 	// Process incoming querier events
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
+		defer func() { streamClosed <- struct{}{} }()
 
 		// Wait here until the stream is done (for now, we aren't expecting any messages from the querier)
 		_, err := stream.Recv()
 		if err == io.EOF {
-			streamClosed <- struct{}{}
 			return
 		}
 		if err != nil {
-			streamClosed <- struct{}{}
 			returnErr = fmt.Errorf("querier register stream recv: %w", err)
 			return
-		}
-
-		for {
-			in, err := stream.Recv()
-			if err == io.EOF {
-				s.querierManager.Unregister(q)
-				streamClosed <- struct{}{}
-				return
-			}
-			if err != nil {
-				s.querierManager.Unregister(q)
-				streamClosed <- struct{}{}
-				returnErr = fmt.Errorf("querier register stream recv: %w", err)
-				return
-			}
-			// TODO stream.context?
-			switch in.Type {
-			case cmd.QuerierEvent_UNSPECIFIED:
-				panic(fmt.Errorf("querier event type is unspecified"))
-			}
 		}
 	}, s.log)
 

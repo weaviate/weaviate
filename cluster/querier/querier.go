@@ -1,6 +1,8 @@
 package querier
 
 import (
+	"errors"
+	"fmt"
 	"sync"
 )
 
@@ -25,37 +27,39 @@ func (qm *QuerierManager) Unregister(q *Querier) {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
 	delete(qm.registeredQueriers, q)
+	close(q.classTenantDataUpdates)
 }
 
-func (qm *QuerierManager) NotifyClassTenantDataUpdate(ct ClassTenant) {
+func (qm *QuerierManager) NotifyClassTenantDataUpdate(ct ClassTenant) error {
 	qm.mu.Lock()
 	defer qm.mu.Unlock()
+	notifyFailedErrors := []error{}
 	for q := range qm.registeredQueriers {
-		q.classTenantDataUpdates <- ct
+		select {
+		case q.classTenantDataUpdates <- ct:
+			// TODO log debug
+			fmt.Println("sent class tenant data update to querier")
+		default:
+			// TODO better error
+			notifyFailedErrors = append(notifyFailedErrors, fmt.Errorf("failed to notify querier: %v", q))
+			continue
+		}
 	}
+	return errors.Join(notifyFailedErrors...)
 }
 
 type Querier struct {
-	nodeName               string
 	classTenantDataUpdates chan ClassTenant
 }
 
 func NewQuerier() *Querier {
 	return &Querier{
-		classTenantDataUpdates: make(chan ClassTenant, 10), // TODO is 10 a good buffer size?
+		classTenantDataUpdates: make(chan ClassTenant, 100), // TODO is 100 a good buffer size? config?
 	}
-}
-
-func (q *Querier) SetNodeName(nodeName string) {
-	q.nodeName = nodeName
 }
 
 func (q *Querier) ClassTenantDataUpdates() <-chan ClassTenant {
 	return q.classTenantDataUpdates
-}
-
-func (q *Querier) Close() {
-	close(q.classTenantDataUpdates)
 }
 
 type ClassTenant struct {

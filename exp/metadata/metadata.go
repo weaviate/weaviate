@@ -72,7 +72,7 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 					case protoapi.MetadataEvent_UNSPECIFIED:
 						panic("unspecified")
 					case protoapi.MetadataEvent_CLASS_TENANT_DATA_UPDATE:
-						// TODO locking...plan to discuss with kavi
+						// TODO locking...plan to discuss with kavi, should we download to new dir or delete/overwrite or swap?
 						err = btd.offload.Download(context.TODO(), in.ClassTenant.ClassName, in.ClassTenant.TenantName, nodeName)
 						if err != nil {
 							panic(err)
@@ -81,7 +81,9 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 				}
 			}()
 
-			// currently, we're not sending any messages to the metadata nodes from the querier
+			// currently, we're not sending any messages to the metadata nodes from the querier, we just use
+			// the existence of the stream to keep the connection alive so we can receive events, we can switch to
+			// a unidirectional stream later if we never want to send messages from the querier
 			wg.Wait()
 		}, logrus.New())
 	})

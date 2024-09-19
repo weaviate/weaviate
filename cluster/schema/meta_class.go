@@ -480,11 +480,16 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 
 		if count == len(processes) {
 			copy.Status = req.Tenant.Status
-			// TODO run async?
-			m.querierManager.NotifyClassTenantDataUpdate(querier.ClassTenant{
-				ClassName:  m.Class.Class,
-				TenantName: name,
-			})
+			err := m.querierManager.NotifyClassTenantDataUpdate(
+				querier.ClassTenant{
+					ClassName:  m.Class.Class,
+					TenantName: name,
+				},
+			)
+			if err != nil {
+				// TODO log
+				fmt.Println("failed to notify some queriers", err)
+			}
 		} else {
 			copy.Status = onAbortStatus
 			req.Tenant.Status = onAbortStatus
