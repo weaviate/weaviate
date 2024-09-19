@@ -71,7 +71,7 @@ import (
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
-	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
+	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modner "github.com/weaviate/weaviate/modules/ner-transformers"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
@@ -89,6 +89,7 @@ import (
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modcontextionary "github.com/weaviate/weaviate/modules/text2vec-contextionary"
 	moddatabricks "github.com/weaviate/weaviate/modules/text2vec-databricks"
+	modtext2vecgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modgpt4all "github.com/weaviate/weaviate/modules/text2vec-gpt4all"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
@@ -97,7 +98,6 @@ import (
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
-	modtext2vecpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
@@ -839,8 +839,8 @@ func registerModules(appState *state.State) error {
 		modjinaai.Name,
 		modoctoai.Name,
 		modopenai.Name,
-		modtext2vecpalm.Name,
-		modmulti2vecpalm.Name,
+		modtext2vecgoogle.Name,
+		modmulti2vecgoogle.Name,
 		modvoyageai.Name,
 	}
 	defaultGenerative := []string{
@@ -999,11 +999,18 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modmulti2vecpalm.Name]; ok {
-		appState.Modules.Register(modmulti2vecpalm.New())
+	_, enabledMulti2VecGoogle := enabledModules[modmulti2vecgoogle.Name]
+	_, enabledMulti2VecPaLM := enabledModules[modmulti2vecgoogle.LegacyName]
+	if enabledMulti2VecGoogle || enabledMulti2VecPaLM {
+		appState.Modules.Register(modmulti2vecgoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modmulti2vecpalm.Name).
+			WithField("module", modmulti2vecgoogle.Name).
+			Debug("enabled module")
+		appState.Modules.Register(modmulti2vecgoogle.NewWithLegacyName())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modmulti2vecgoogle.LegacyName).
 			Debug("enabled module")
 	}
 
@@ -1127,11 +1134,19 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 
 	}
-	if _, ok := enabledModules[modtext2vecpalm.Name]; ok {
-		appState.Modules.Register(modtext2vecpalm.New())
+
+	_, enabledText2vecGoogle := enabledModules[modtext2vecgoogle.Name]
+	_, enabledText2vecPaLM := enabledModules[modtext2vecgoogle.LegacyName]
+	if enabledText2vecGoogle || enabledText2vecPaLM {
+		appState.Modules.Register(modtext2vecgoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modtext2vecpalm.Name).
+			WithField("module", modtext2vecgoogle.Name).
+			Debug("enabled module")
+		appState.Modules.Register(modtext2vecgoogle.NewWithLegacyName())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modtext2vecgoogle.LegacyName).
 			Debug("enabled module")
 	}
 

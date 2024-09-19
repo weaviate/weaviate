@@ -67,11 +67,10 @@ func (v *friendliai) GenerateAllResults(ctx context.Context, textProperties []ma
 }
 
 func (v *friendliai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string, options interface{}, debug bool) (*modulecapabilities.GenerateResponse, error) {
-	settings := config.NewClassSettings(cfg)
 	params := v.getParameters(cfg, options)
 	debugInformation := v.getDebugInformation(debug, prompt)
 
-	friendliUrl := v.getFriendliUrl(ctx, settings.BaseURL())
+	friendliUrl := v.getFriendliUrl(ctx, params.BaseURL)
 	friendliPrompt := []map[string]string{
 		{"role": "user", "content": prompt},
 	}
@@ -143,7 +142,9 @@ func (v *friendliai) getParameters(cfg moduletools.ClassConfig, options interfac
 	if p, ok := options.(friendliparams.Params); ok {
 		params = p
 	}
-
+	if params.BaseURL == "" {
+		params.BaseURL = settings.BaseURL()
+	}
 	if params.Model == "" {
 		params.Model = settings.Model()
 	}

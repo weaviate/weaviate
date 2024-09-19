@@ -19,9 +19,9 @@ import (
 
 func input(prefix string) *graphql.InputObjectFieldConfig {
 	return &graphql.InputObjectFieldConfig{
-		Description: fmt.Sprintf("%s settings", name),
+		Description: fmt.Sprintf("%s settings", Name),
 		Type: graphql.NewInputObject(graphql.InputObjectConfig{
-			Name: fmt.Sprintf("%s%sInputObject", prefix, name),
+			Name: fmt.Sprintf("%s%sInputObject", prefix, Name),
 			Fields: graphql.InputObjectConfigFieldMap{
 				"model": &graphql.InputObjectFieldConfig{
 					Description: "model",

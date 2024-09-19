@@ -49,15 +49,16 @@ func TestGenerativeAWS_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	endpointREST := compose.GetWeaviate().URI()
+	endpointGRPC := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testGenerativeAWS(endpoint, region))
+	t.Run("tests", testGenerativeAWS(endpointREST, endpointGRPC, region))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, accessKey, secretKey, sessionToken string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(accessKey, secretKey, sessionToken).
-		WithWeaviate().
+		WithWeaviateWithGRPC().
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return

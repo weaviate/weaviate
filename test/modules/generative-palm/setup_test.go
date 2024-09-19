@@ -35,15 +35,16 @@ func TestGenerativePaLM_VertexAI_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	endpointREST := compose.GetWeaviate().URI()
+	endpointGRPC := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testGenerativePaLM(endpoint, gcpProject))
+	t.Run("tests", testGenerativePaLM(endpointREST, endpointGRPC, gcpProject))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(palmApiKey).
-		WithWeaviate().
+		WithWeaviateWithGRPC().
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
@@ -51,7 +52,7 @@ func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
 
 func composeModules(palmApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecPaLM(palmApiKey).
+		WithText2VecGoogle(palmApiKey).
 		WithGenerativePaLM(palmApiKey)
 	return
 }
