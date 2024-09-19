@@ -124,7 +124,7 @@ func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 					planets.CreateTweetTest(t, class.Class)
 				})
 				t.Run("create a tweet with params", func(t *testing.T) {
-					params := "palm:{topP:0.1 topK:40}"
+					params := "google:{topP:0.1 topK:40}"
 					planets.CreateTweetTestWithParams(t, class.Class, params)
 				})
 				t.Run("create a tweet using grpc", func(t *testing.T) {
