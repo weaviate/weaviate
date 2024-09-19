@@ -90,6 +90,7 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 						panic("unspecified")
 					case protoapi.QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE:
 						// TODO locking...plan to discuss with kavi, should we download to new dir or delete/overwrite or swap or other?
+						// TODO we shouldn't block here, instead we should offload the download to a worker pool or something
 						err = metadataSubscription.offload.Download(context.TODO(), in.ClassTenant.ClassName, in.ClassTenant.TenantName, nodeName)
 						if err != nil {
 							panic(err)
