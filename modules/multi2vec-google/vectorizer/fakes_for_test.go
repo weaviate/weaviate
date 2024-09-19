@@ -14,7 +14,7 @@ package vectorizer
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/modules/multi2vec-palm/ent"
+	"github.com/weaviate/weaviate/modules/multi2vec-google/ent"
 )
 
 type builder struct {

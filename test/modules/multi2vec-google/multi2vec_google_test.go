@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package multi2vec_palm_tests
+package tests
 
 import (
 	"encoding/base64"
@@ -30,7 +30,7 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-func testMulti2VecPaLM(host, gcpProject, location string) func(t *testing.T) {
+func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Helper methods
@@ -140,7 +140,7 @@ func testMulti2VecPaLM(host, gcpProject, location string) func(t *testing.T) {
 			VectorConfig: map[string]models.VectorConfig{
 				"clip_palm": {
 					Vectorizer: map[string]interface{}{
-						"multi2vec-palm": map[string]interface{}{
+						vectorizerName: map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
 							"vectorizeClassName": false,
 							"location":           location,
@@ -151,7 +151,7 @@ func testMulti2VecPaLM(host, gcpProject, location string) func(t *testing.T) {
 				},
 				"clip_palm_128": {
 					Vectorizer: map[string]interface{}{
-						"multi2vec-palm": map[string]interface{}{
+						vectorizerName: map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
 							"vectorizeClassName": false,
 							"location":           location,
@@ -163,7 +163,7 @@ func testMulti2VecPaLM(host, gcpProject, location string) func(t *testing.T) {
 				},
 				"clip_palm_256": {
 					Vectorizer: map[string]interface{}{
-						"multi2vec-palm": map[string]interface{}{
+						vectorizerName: map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
 							"vectorizeClassName": false,
 							"location":           location,
@@ -175,7 +175,7 @@ func testMulti2VecPaLM(host, gcpProject, location string) func(t *testing.T) {
 				},
 				"clip_palm_video": {
 					Vectorizer: map[string]interface{}{
-						"multi2vec-palm": map[string]interface{}{
+						vectorizerName: map[string]interface{}{
 							"videoFields":        []interface{}{"video"},
 							"vectorizeClassName": false,
 							"location":           location,
@@ -186,7 +186,7 @@ func testMulti2VecPaLM(host, gcpProject, location string) func(t *testing.T) {
 				},
 				"clip_palm_weights": {
 					Vectorizer: map[string]interface{}{
-						"multi2vec-palm": map[string]interface{}{
+						vectorizerName: map[string]interface{}{
 							"textFields":  []interface{}{"image_title", "image_description"},
 							"imageFields": []interface{}{"image"},
 							"weights": map[string]interface{}{

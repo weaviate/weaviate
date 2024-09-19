@@ -33,7 +33,7 @@ import (
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
-	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
+	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
@@ -221,9 +221,9 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 	return d
 }
 
-func (d *Compose) WithMulti2VecPaLM(apiKey string) *Compose {
+func (d *Compose) WithMulti2VecGoogle(apiKey string) *Compose {
 	d.withGoogleApiKey = apiKey
-	d.enableModules = append(d.enableModules, modmulti2vecpalm.Name)
+	d.enableModules = append(d.enableModules, modmulti2vecgoogle.Name)
 	return d
 }
 
@@ -572,7 +572,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		containers = append(containers, container)
 	}
 	if d.withGoogleApiKey != "" {
-		envSettings["PALM_APIKEY"] = d.withGoogleApiKey
+		envSettings["GOOGLE_APIKEY"] = d.withGoogleApiKey
 	}
 	if d.withOctoAIApiKey != "" {
 		envSettings["OCTOAI_APIKEY"] = d.withOctoAIApiKey

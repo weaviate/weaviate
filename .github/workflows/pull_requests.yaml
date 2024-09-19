@@ -188,7 +188,7 @@ jobs:
       fail-fast: false
       matrix:
         test: [
-          "--only-module-multi2vec-palm",
+          "--only-module-multi2vec-google",
           "--only-module-generative-palm",
           "--only-module-text2vec-google",
           "--only-module-text2vec-aws",
