@@ -74,7 +74,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*gcs
 }
 
 func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
-	backupID, objectName, bucketName, bucketPath string,
+	backupID, objectName string,
 ) ([]byte, error) {
 	// Create bucket reader
 	obj := bucket.Object(objectName)
@@ -118,7 +118,7 @@ func (g *gcsClient) makeObjectName(parts ...string) string {
 	return path.Join(g.config.BackupPath, base)
 }
 
-func (g *gcsClient) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
+func (g *gcsClient) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
 	objectName := g.makeObjectName(backupID, key)
 
 	if err := ctx.Err(); err != nil {
@@ -133,7 +133,7 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, bucketName, bu
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", objectName))
 	}
 
-	contents, err := g.getObject(ctx, bucket, backupID, objectName, bucketName, bucketPath)
+	contents, err := g.getObject(ctx, bucket, backupID, objectName)
 	if err != nil {
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))

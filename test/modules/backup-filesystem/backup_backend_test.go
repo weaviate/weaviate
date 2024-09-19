@@ -162,7 +162,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 
 		t.Run("copy file to backend", func(t *testing.T) {
 			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := fs.PutFile(testCtx, backupID, key, srcPath)
+			err := fs.PutFile(testCtx, backupID, key, srcPath, "", "")
 			require.Nil(t, err)
 
 			contents, err := fs.GetObject(testCtx, backupID, key)

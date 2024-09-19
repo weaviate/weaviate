@@ -109,7 +109,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = gcs.PutObject(testCtx, backupID, metadataFilename, b)
+			err = gcs.PutObject(testCtx, backupID, metadataFilename, "", "", b)
 			require.Nil(t, err)
 
 			dest := gcs.HomeDir(backupID)
@@ -164,7 +164,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := gcs.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := gcs.PutObject(testCtx, backupID, key, "", "", []byte("hello"))
 			assert.Nil(t, err)
 		})
 

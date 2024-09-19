@@ -105,7 +105,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = azure.PutObject(testCtx, backupID, metadataFilename, b)
+			err = azure.PutObject(testCtx, backupID, metadataFilename, "", "", b)
 			require.Nil(t, err)
 
 			dest := azure.HomeDir(backupID)
@@ -157,7 +157,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := azure.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := azure.PutObject(testCtx, backupID, key, "", "", []byte("hello"))
 			assert.Nil(t, err)
 		})
 
@@ -204,7 +204,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 
 		t.Run("copy file to backend", func(t *testing.T) {
 			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := azure.PutFile(testCtx, backupID, key, srcPath)
+			err := azure.PutFile(testCtx, backupID, key, srcPath, "", "") // FIXME?
 			require.Nil(t, err)
 
 			contents, err := azure.GetObject(testCtx, backupID, key)

@@ -59,7 +59,7 @@ func (m *Module) getObjectPath(ctx context.Context, backupID, key string) (strin
 	return metaPath, nil
 }
 
-func (m *Module) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (m *Module) PutFile(ctx context.Context, backupID, key, srcPath, bucket, bucketPath string) error {
 	sourcePath := path.Join(m.dataPath, srcPath)
 	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
 
@@ -107,7 +107,7 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	return written, nil
 }
 
-func (m *Module) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
 	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
 
 	dir := path.Dir(backupPath)
