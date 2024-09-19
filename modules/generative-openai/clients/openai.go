@@ -133,6 +133,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 	defer res.Body.Close()
 
+	requestID := res.Header.Get("x-request-id")
 	bodyBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, errors.Wrap(err, "read response body")
@@ -144,7 +145,7 @@ func (v *openai) Generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 	}
 
 	if res.StatusCode != 200 || resBody.Error != nil {
-		return nil, v.getError(res.StatusCode, resBody.Error, settings.IsAzure())
+		return nil, v.getError(res.StatusCode, requestID, resBody.Error, settings.IsAzure())
 	}
 
 	responseParams := v.getResponseParams(resBody.Usage)
@@ -254,7 +255,15 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params, settin
 			Role:    "user",
 			Content: prompt,
 		}}
-		tokens, err := v.determineTokens(settings.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
+
+		var tokens int
+		var err error
+		if settings.IsThirdPartyProvider() {
+			tokens, err = v.determineTokens(settings.GetMaxTokensForModel(params.Model), *params.MaxTokens, params.Model, messages)
+		} else {
+			tokens = int(settings.MaxTokens())
+		}
+
 		if err != nil {
 			return input, errors.Wrap(err, "determine tokens count")
 		}
@@ -279,15 +288,19 @@ func (v *openai) generateInput(prompt string, params openaiparams.Params, settin
 	}
 }
 
-func (v *openai) getError(statusCode int, resBodyError *openAIApiError, isAzure bool) error {
+func (v *openai) getError(statusCode int, requestID string, resBodyError *openAIApiError, isAzure bool) error {
 	endpoint := "OpenAI API"
 	if isAzure {
 		endpoint = "Azure OpenAI API"
 	}
-	if resBodyError != nil {
-		return fmt.Errorf("connection to: %s failed with status: %d error: %v", endpoint, statusCode, resBodyError.Message)
+	errorMsg := fmt.Sprintf("connection to: %s failed with status: %d", endpoint, statusCode)
+	if requestID != "" {
+		errorMsg = fmt.Sprintf("%s request-id: %s", errorMsg, requestID)
 	}
-	return fmt.Errorf("connection to: %s failed with status: %d", endpoint, statusCode)
+	if resBodyError != nil {
+		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
+	}
+	return errors.New(errorMsg)
 }
 
 func (v *openai) determineTokens(maxTokensSetting float64, classSetting int, model string, messages []message) (int, error) {
