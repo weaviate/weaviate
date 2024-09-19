@@ -89,8 +89,8 @@ ls -l /tmp/question/kavi
 insert some more data:
 
 ```py
+import time
 import weaviate
-import weaviate.classes.config as wvcc
 import weaviate.collections.classes.tenants as t
 
 client = weaviate.connect_to_local()
@@ -100,7 +100,7 @@ tenant_name = "kavi"
 collection = client.collections.get(collection_name)
 tenant = t.Tenant(name=tenant_name, activity_status=t.TenantCreateActivityStatus.ACTIVE)
 collection.tenants.update(tenant)
-
+time.sleep(1)
 collection_tenant = collection.with_tenant(tenant)
 uuid = collection_tenant.data.insert(
     properties={
@@ -112,7 +112,7 @@ uuid = collection_tenant.data.insert(
 client.close()
 ```
 
-Swap the tenant between ACTIVE/OFFLOADED a few times:
+Swap the tenant between ACTIVE/OFFLOADED:
 
 ```py
 import time
@@ -123,7 +123,7 @@ client = weaviate.connect_to_local()
 
 collection = client.collections.get("Question")
 
-for i in range(3):
+for i in range(1):
     t1_active = t.Tenant(name=f'kavi', activity_status=t.TenantUpdateActivityStatus.ACTIVE)
     collection.tenants.update(t1_active)
     time.sleep(1)

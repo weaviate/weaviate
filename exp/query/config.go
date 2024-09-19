@@ -26,6 +26,11 @@ type Config struct {
 
 	VectorizerAddr string `long:"vectorize-addr" description:"vectorizer address to be used to vectorize near-text query" default:"0.0.0.0:9999"`
 
+	// MetadataGRPCHost is the host which will be used to connect to the metadata gRPC server.
+	// Note that this should be replaced to avoid having a single metadata node as a single point of failure.
+	// If MetadataGRPCHost is empty, the querier will use the local IP address.
 	MetadataGRPCHost string `long:"metadata.grpc.host" description:"metadata grpc host" default:""`
-	MetadataGRPCPort int    `long:"metadata.grpc.port" description:"metadata grpc port" default:"8301"`
+	// MetadataGRPCPort is the port which will be used to connect to the metadata gRPC server. Like
+	// MetadataGRPCHost, this should be replaced too.
+	MetadataGRPCPort int `long:"metadata.grpc.port" description:"metadata grpc port" default:"8301"`
 }

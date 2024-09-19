@@ -480,6 +480,10 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 
 		if count == len(processes) {
 			copy.Status = req.Tenant.Status
+			// Whenever a tenant is frozen, we send a notification the querier nodes registered
+			// with the querier manager. This call to NotifyClassTenantDataUpdate is non-blocking
+			// and will skip/return an error for any querier nodes which have a full notification
+			// channel.
 			err := m.querierManager.NotifyClassTenantDataUpdate(
 				querier.ClassTenant{
 					ClassName:  m.Class.Class,

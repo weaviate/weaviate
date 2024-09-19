@@ -116,9 +116,12 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
-	a.metadataSubscription.EnsureStarted() // NOTE hacky way to ensure this doesn't run until the gRPC serving is working
+	// TODO come up with a better way to ensure this doesn't run until the gRPC serving is active
+	a.metadataSubscription.EnsureStarted()
 
-	// TODO we need to "lock" (rw?) localpath until the request is done, right? current setup incorrect if parallel requests download two diff versions of tenant
+	// TODO explore locking within this func and MetadataSubcription downloads as i expect
+	// vectorSearch/IterateObjects could fail if the files they operate on are being modified
+	// while they are running
 	store, localPath, err := a.loadOrDownloadLSM(ctx, req.Collection, req.Tenant)
 	if err != nil {
 		return nil, err
