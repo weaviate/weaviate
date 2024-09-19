@@ -407,12 +407,6 @@ func (q *IndexQueue) indexer() {
 				continue
 			}
 
-			// cleanup deleted vectors from the index
-			err := q.cleanupDeleted()
-			if err != nil {
-				q.Logger.WithError(err).Error("cleanup deleted vectors")
-			}
-
 			if q.Size() == 0 {
 				_, _ = q.Shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
 				q.indexLock.RUnlock()
@@ -468,15 +462,13 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 				minID = c.data[j].id
 			}
 
-			if q.queue.IsDeleted(c.data[j].id) {
+			if c.data[j].deleted {
 				deleted = append(deleted, c.data[j].id)
 			} else {
 				ids = append(ids, c.data[j].id)
 				vectors = append(vectors, c.data[j].vector)
 			}
 		}
-
-		q.queue.ResetDeleted(deleted...)
 
 		if len(ids) == 0 {
 			q.Logger.Debug("all vectors in the chunk are deleted. skipping")
@@ -496,6 +488,7 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 			ctx:     q.ctx,
 			ids:     ids,
 			vectors: vectors,
+			deleted: deleted,
 			done:    q.processingJobs.Decr,
 		}:
 		}
@@ -508,24 +501,6 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 	}
 
 	return count
-}
-
-func (q *IndexQueue) cleanupDeleted() error {
-	q.queue.deleted.Lock()
-	defer q.queue.deleted.Unlock()
-
-	for id := range q.queue.deleted.m {
-		if q.index.ContainsNode(id) {
-			err := q.index.Delete(id)
-			if err != nil {
-				return errors.Wrapf(err, "delete vector %d from index", id)
-			}
-
-			delete(q.queue.deleted.m, id)
-		}
-	}
-
-	return nil
 }
 
 func (q *IndexQueue) logStats(vectorsSent int64) {
@@ -758,11 +733,6 @@ type vectorQueue struct {
 
 		list *list.List
 	}
-	deleted struct {
-		sync.RWMutex
-
-		m map[uint64]struct{}
-	}
 }
 
 func newVectorQueue(iq *IndexQueue) *vectorQueue {
@@ -771,7 +741,6 @@ func newVectorQueue(iq *IndexQueue) *vectorQueue {
 	}
 
 	q.fullChunks.list = list.New()
-	q.deleted.m = make(map[uint64]struct{})
 
 	return &q
 }
@@ -942,7 +911,7 @@ func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vec
 				continue
 			}
 
-			if q.IsDeleted(c.data[i].id) {
+			if c.data[i].deleted {
 				continue
 			}
 
@@ -982,7 +951,7 @@ func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vec
 				continue
 			}
 
-			if q.IsDeleted(c.data[i].id) {
+			if c.data[i].deleted {
 				continue
 			}
 
@@ -1008,29 +977,6 @@ func (q *vectorQueue) Iterate(allowlist helpers.AllowList, fn func(objects []vec
 	return nil
 }
 
-func (q *vectorQueue) Delete(ids ...uint64) {
-	q.deleted.Lock()
-	for _, id := range ids {
-		q.deleted.m[id] = struct{}{}
-	}
-	q.deleted.Unlock()
-}
-
-func (q *vectorQueue) IsDeleted(id uint64) bool {
-	q.deleted.RLock()
-	_, ok := q.deleted.m[id]
-	q.deleted.RUnlock()
-	return ok
-}
-
-func (q *vectorQueue) ResetDeleted(ids ...uint64) {
-	q.deleted.Lock()
-	for _, id := range ids {
-		delete(q.deleted.m, id)
-	}
-	q.deleted.Unlock()
-}
-
 func (q *vectorQueue) Reset() {
 	q.fullChunks.Lock()
 	q.fullChunks.list = list.New()
@@ -1041,10 +987,6 @@ func (q *vectorQueue) Reset() {
 		q.curBatch.c = nil
 	}
 	q.curBatch.Unlock()
-
-	q.deleted.Lock()
-	q.deleted.m = make(map[uint64]struct{})
-	q.deleted.Unlock()
 }
 
 type chunk struct {
