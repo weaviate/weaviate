@@ -13,7 +13,7 @@ package clients
 
 func (v *google) MetaInfo() (map[string]interface{}, error) {
 	return map[string]interface{}{
-		"name":              "Google PaLM Module",
+		"name":              "Google Module",
 		"documentationHref": "https://cloud.google.com/vertex-ai/docs/generative-ai/embeddings/get-text-embeddings",
 	}, nil
 }

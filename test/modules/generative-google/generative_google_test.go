@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package generative_palm_tests
+package tests
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/planets"
 )
 
-func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
+func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(rest)
 		helper.SetupGRPCClient(t, grpc)
@@ -112,7 +112,7 @@ func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				class.ModuleConfig = map[string]interface{}{
-					"generative-palm": map[string]interface{}{
+					generativeGoogle: map[string]interface{}{
 						"projectId": gcpProject,
 						"modelId":   tt.generativeModel,
 					},

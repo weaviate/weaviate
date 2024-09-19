@@ -34,22 +34,22 @@ const (
 )
 
 var (
-	DefaultPaLMApiEndpoint            = "us-central1-aiplatform.googleapis.com"
-	DefaultPaLMModel                  = "chat-bison"
-	DefaultPaLMRegion                 = "us-central1"
-	DefaultPaLMTemperature            = 1.0
+	DefaultGoogleApiEndpoint          = "us-central1-aiplatform.googleapis.com"
+	DefaultGoogleModel                = "chat-bison"
+	DefaultGoogleRegion               = "us-central1"
+	DefaultGoogleTemperature          = 1.0
 	DefaultTokenLimit                 = 1024
 	DefaultTokenLimitGemini1_0        = 2048
 	DefaultTokenLimitGemini1_0_Vision = 4096
 	DefaultTokenLimitGemini1_5        = 8192
-	DefaultPaLMTopP                   = 0.95
-	DefaultPaLMTopK                   = 40
+	DefaultGoogleTopP                 = 0.95
+	DefaultGoogleTopK                 = 40
 	DefaulGenerativeAIApiEndpoint     = "generativelanguage.googleapis.com"
 	DefaulGenerativeAIModelID         = "chat-bison-001"
 )
 
 var supportedVertexAIModels = []string{
-	DefaultPaLMModel,
+	DefaultGoogleModel,
 	"chat-bison-32k",
 	"chat-bison@002",
 	"chat-bison-32k@002",
@@ -97,7 +97,10 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) ClassSettings {
-	return &classSettings{cfg: cfg, propertyValuesHelper: basesettings.NewPropertyValuesHelper("generative-palm")}
+	return &classSettings{
+		cfg:                  cfg,
+		propertyValuesHelper: basesettings.NewPropertyValuesHelperWitAltNames("generative-google", []string{"generative-palm"}),
+	}
 }
 
 func (ic *classSettings) Validate(class *models.Class) error {
@@ -161,7 +164,7 @@ func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
 	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
 		return DefaulGenerativeAIModelID
 	}
-	return DefaultPaLMModel
+	return DefaultGoogleModel
 }
 
 func (ic *classSettings) getDefaultTokenLimit(model string) int {
@@ -177,9 +180,9 @@ func (ic *classSettings) getDefaultTokenLimit(model string) int {
 	return DefaultTokenLimit
 }
 
-// PaLM params
+// Google params
 func (ic *classSettings) ApiEndpoint() string {
-	return ic.getStringProperty(apiEndpointProperty, DefaultPaLMApiEndpoint)
+	return ic.getStringProperty(apiEndpointProperty, DefaultGoogleApiEndpoint)
 }
 
 func (ic *classSettings) ProjectID() string {
@@ -195,14 +198,14 @@ func (ic *classSettings) ModelID() string {
 }
 
 func (ic *classSettings) Region() string {
-	return ic.getStringProperty(regionProperty, DefaultPaLMRegion)
+	return ic.getStringProperty(regionProperty, DefaultGoogleRegion)
 }
 
 // parameters
 
 // 0.0 - 1.0
 func (ic *classSettings) Temperature() float64 {
-	return ic.getFloatProperty(temperatureProperty, DefaultPaLMTemperature)
+	return ic.getFloatProperty(temperatureProperty, DefaultGoogleTemperature)
 }
 
 // 1 - 1024
@@ -212,12 +215,12 @@ func (ic *classSettings) TokenLimit() int {
 
 // 1 - 40
 func (ic *classSettings) TopK() int {
-	return ic.getIntProperty(topKProperty, DefaultPaLMTopK)
+	return ic.getIntProperty(topKProperty, DefaultGoogleTopK)
 }
 
 // 0.0 - 1.0
 func (ic *classSettings) TopP() float64 {
-	return ic.getFloatProperty(topPProperty, DefaultPaLMTopP)
+	return ic.getFloatProperty(topPProperty, DefaultGoogleTopP)
 }
 
 func contains[T comparable](s []T, e T) bool {

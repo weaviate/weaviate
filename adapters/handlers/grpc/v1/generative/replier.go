@@ -24,6 +24,8 @@ import (
 	awsParams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohereClients "github.com/weaviate/weaviate/modules/generative-cohere/clients"
 	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	googleClients "github.com/weaviate/weaviate/modules/generative-google/clients"
+	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralClients "github.com/weaviate/weaviate/modules/generative-mistral/clients"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 	octoaiClients "github.com/weaviate/weaviate/modules/generative-octoai/clients"
@@ -31,8 +33,6 @@ import (
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiClients "github.com/weaviate/weaviate/modules/generative-openai/clients"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
-	googleClients "github.com/weaviate/weaviate/modules/generative-palm/clients"
-	googleParams "github.com/weaviate/weaviate/modules/generative-palm/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 	additionalModels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )

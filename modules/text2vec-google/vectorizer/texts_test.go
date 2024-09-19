@@ -22,54 +22,54 @@ import (
 // as used in the nearText searcher
 func TestVectorizingTexts(t *testing.T) {
 	type testCase struct {
-		name              string
-		input             []string
-		expectedPalmModel string
-		palmModel         string
+		name                string
+		input               []string
+		expectedGoogleModel string
+		googleModel         string
 	}
 
 	tests := []testCase{
 		{
-			name:              "single word",
-			input:             []string{"hello"},
-			palmModel:         "textembedding-gecko@001",
-			expectedPalmModel: "textembedding-gecko@001",
+			name:                "single word",
+			input:               []string{"hello"},
+			googleModel:         "textembedding-gecko@001",
+			expectedGoogleModel: "textembedding-gecko@001",
 		},
 		{
-			name:              "multiple words",
-			input:             []string{"hello world, this is me!"},
-			palmModel:         "textembedding-gecko@001",
-			expectedPalmModel: "textembedding-gecko@001",
+			name:                "multiple words",
+			input:               []string{"hello world, this is me!"},
+			googleModel:         "textembedding-gecko@001",
+			expectedGoogleModel: "textembedding-gecko@001",
 		},
 		{
-			name:              "multiple sentences (joined with a dot)",
-			input:             []string{"this is sentence 1", "and here's number 2"},
-			palmModel:         "textembedding-gecko@001",
-			expectedPalmModel: "textembedding-gecko@001",
+			name:                "multiple sentences (joined with a dot)",
+			input:               []string{"this is sentence 1", "and here's number 2"},
+			googleModel:         "textembedding-gecko@001",
+			expectedGoogleModel: "textembedding-gecko@001",
 		},
 		{
-			name:              "multiple sentences already containing a dot",
-			input:             []string{"this is sentence 1.", "and here's number 2"},
-			palmModel:         "textembedding-gecko@001",
-			expectedPalmModel: "textembedding-gecko@001",
+			name:                "multiple sentences already containing a dot",
+			input:               []string{"this is sentence 1.", "and here's number 2"},
+			googleModel:         "textembedding-gecko@001",
+			expectedGoogleModel: "textembedding-gecko@001",
 		},
 		{
-			name:              "multiple sentences already containing a question mark",
-			input:             []string{"this is sentence 1?", "and here's number 2"},
-			palmModel:         "textembedding-gecko@001",
-			expectedPalmModel: "textembedding-gecko@001",
+			name:                "multiple sentences already containing a question mark",
+			input:               []string{"this is sentence 1?", "and here's number 2"},
+			googleModel:         "textembedding-gecko@001",
+			expectedGoogleModel: "textembedding-gecko@001",
 		},
 		{
-			name:              "multiple sentences already containing an exclamation mark",
-			input:             []string{"this is sentence 1!", "and here's number 2"},
-			palmModel:         "textembedding-gecko@001",
-			expectedPalmModel: "textembedding-gecko@001",
+			name:                "multiple sentences already containing an exclamation mark",
+			input:               []string{"this is sentence 1!", "and here's number 2"},
+			googleModel:         "textembedding-gecko@001",
+			expectedGoogleModel: "textembedding-gecko@001",
 		},
 		{
-			name:              "multiple sentences already containing comma",
-			input:             []string{"this is sentence 1,", "and here's number 2"},
-			palmModel:         "textembedding-gecko@001",
-			expectedPalmModel: "textembedding-gecko@001",
+			name:                "multiple sentences already containing comma",
+			input:               []string{"this is sentence 1,", "and here's number 2"},
+			googleModel:         "textembedding-gecko@001",
+			expectedGoogleModel: "textembedding-gecko@001",
 		},
 	}
 
@@ -83,7 +83,7 @@ func TestVectorizingTexts(t *testing.T) {
 				apiEndpoint: "",
 				projectID:   "",
 				endpointID:  "",
-				modelID:     test.palmModel,
+				modelID:     test.googleModel,
 			}
 			vec, err := v.Texts(context.Background(), test.input, cfg)
 
@@ -91,7 +91,7 @@ func TestVectorizingTexts(t *testing.T) {
 			assert.Equal(t, []float32{0.1, 1.1, 2.1, 3.1}, vec)
 			assert.Equal(t, test.input, client.lastInput)
 			assert.Equal(t, DefaultApiEndpoint, client.lastConfig.ApiEndpoint)
-			assert.Equal(t, test.palmModel, client.lastConfig.Model)
+			assert.Equal(t, test.googleModel, client.lastConfig.Model)
 		})
 	}
 }
