@@ -256,6 +256,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
+	st.raftResolver.SetRaft(st.raft)
+
 	if st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
 			return err
