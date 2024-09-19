@@ -50,6 +50,16 @@ func HammingDistanceGo(a, b []float32) float32 {
 	return sum
 }
 
+func HammingDistanceByteGo(a, b []uint8) uint32 {
+	var sum uint32
+	for i := range a {
+		if a[i] != b[i] {
+			sum += uint32(1)
+		}
+	}
+	return sum
+}
+
 type HammingProvider struct{}
 
 func NewHammingProvider() HammingProvider {
