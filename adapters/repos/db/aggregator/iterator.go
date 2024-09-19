@@ -82,16 +82,17 @@ func iteratorConcurrentlyReplace(b *lsmkv.Bucket, aggregateFunc func(b []byte) e
 	}
 
 	// S3: Read from last checkpoint to end:
-	enterrors.GoWrapper(func() {
+	eg.Go(func() error {
 		c := b.Cursor()
 		defer c.Close()
 
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
 			err := aggregateFunc(v)
 			if err != nil {
-				return
+				return err
 			}
 		}
+		return nil
 	}, logger)
 
 	return eg.Wait()
@@ -155,16 +156,17 @@ func iteratorConcurrentlySet(b *lsmkv.Bucket, aggregateFunc func(k []byte, v [][
 	}
 
 	// S3: Read from last checkpoint to end:
-	enterrors.GoWrapper(func() {
+	eg.Go(func() error {
 		c := b.SetCursor()
 		defer c.Close()
 
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
 			err := aggregateFunc(k, v)
 			if err != nil {
-				return
+				return err
 			}
 		}
+		return nil
 	}, logger)
 
 	return eg.Wait()
@@ -228,16 +230,17 @@ func iteratorConcurrentlyRoaringSet(b *lsmkv.Bucket, aggregateFunc func(k []byte
 	}
 
 	// S3: Read from last checkpoint to end:
-	enterrors.GoWrapper(func() {
+	eg.Go(func() error {
 		c := b.CursorRoaringSet()
 		defer c.Close()
 
 		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
 			err := aggregateFunc(k, v)
 			if err != nil {
-				return
+				return err
 			}
 		}
+		return nil
 	}, logger)
 
 	return eg.Wait()
