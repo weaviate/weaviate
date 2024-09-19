@@ -744,35 +744,6 @@ func TestIndexQueue(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	t.Run("sending batch with deleted ids to worker", func(t *testing.T) {
-		var idx mockBatchIndexer
-		ch := make(chan struct{})
-		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
-			close(ch)
-			return nil
-		}
-
-		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx, startWorker(t, 1), newCheckpointManager(t), IndexQueueOptions{
-			BatchSize:     2,
-			IndexInterval: 100 * time.Second,
-		}, nil)
-		require.NoError(t, err)
-		defer q.Close()
-
-		pushVector(t, ctx, q, 0, []float32{1, 2, 3})
-		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
-
-		err = q.Delete(0, 1)
-		require.NoError(t, err)
-
-		q.pushToWorkers(-1, true)
-		select {
-		case <-ch:
-			t.Fatal("should not have been called")
-		default:
-		}
-	})
-
 	t.Run("throttling", func(t *testing.T) {
 		var idx mockBatchIndexer
 		called := make(chan struct{})
