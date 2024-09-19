@@ -19,5 +19,5 @@ type GlobalConfig struct {
 	// forcing them to have replicated classes.
 	MinimumFactor int `json:"minimum_factor" yaml:"minimum_factor"`
 
-	ForceObjectDeletionPropagation bool `json:"force_object_deletion_propagation" yaml:"force_object_deletion_propagation"`
+	ForceObjectDeletionConflictResolution string `json:"force_object_deletion_conflict_resolution" yaml:"force_object_deletion_conflict_resolution"`
 }

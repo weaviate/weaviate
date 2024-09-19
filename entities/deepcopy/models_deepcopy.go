@@ -37,8 +37,8 @@ func Class(c *models.Class) *models.Class {
 	var replicationConf *models.ReplicationConfig = nil
 	if c.ReplicationConfig != nil {
 		replicationConf = &models.ReplicationConfig{
-			Factor:                  c.ReplicationConfig.Factor,
-			PropagateObjectDeletion: c.ReplicationConfig.PropagateObjectDeletion,
+			Factor:                           c.ReplicationConfig.Factor,
+			ObjectDeletionConflictResolution: c.ReplicationConfig.ObjectDeletionConflictResolution,
 		}
 	}
 

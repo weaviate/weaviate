@@ -372,9 +372,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	config.Replication.ForceObjectDeletionPropagation = false
-	if entcfg.Enabled(os.Getenv("REPLICATION_FORCE_OBJECT_DELETION_PROPAGATION")) {
-		config.Replication.ForceObjectDeletionPropagation = true
+	if v := os.Getenv("FORCE_OBJECT_DELETION_CONFLICT_RESOLUTION"); v != "" {
+		config.Replication.ForceObjectDeletionConflictResolution = v
 	}
 
 	config.DisableTelemetry = false

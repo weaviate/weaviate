@@ -142,7 +142,7 @@ func (m *Manager) addClass(ctx context.Context, class *models.Class,
 		class.ShardingConfig = sharding.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	m.setClassDefaults(class)
+	m.setNewClassDefaults(class)
 	err := m.validateCanAddClass(ctx, class, false)
 	if err != nil {
 		return nil, err
@@ -224,6 +224,22 @@ func (m *Manager) addClassApplyChanges(ctx context.Context, class *models.Class,
 
 	m.triggerSchemaUpdateCallbacks()
 	return nil
+}
+
+func (m *Manager) setNewClassDefaults(class *models.Class) {
+	m.setClassDefaults(class)
+
+	if class.ReplicationConfig == nil {
+		class.ReplicationConfig = &models.ReplicationConfig{
+			Factor:                           int64(m.config.Replication.MinimumFactor),
+			ObjectDeletionConflictResolution: models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion,
+		}
+		return
+	}
+
+	if class.ReplicationConfig.ObjectDeletionConflictResolution == "" {
+		class.ReplicationConfig.ObjectDeletionConflictResolution = models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion
+	}
 }
 
 func (m *Manager) setClassDefaults(class *models.Class) {
