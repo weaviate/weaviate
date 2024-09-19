@@ -946,6 +946,7 @@ func (index *flat) AlreadyIndexed() uint64 {
 
 func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var distFunc func(nodeID uint64) (float32, error)
+	queryVector = index.normalized(queryVector)
 	defaultDistFunc := func(nodeID uint64) (float32, error) {
 		vec, err := index.vectorById(nodeID)
 		if err != nil {
