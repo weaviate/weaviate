@@ -38,13 +38,14 @@ func TestCombiner(t *testing.T) {
 	searchesVectors := [][]float32{{1, 0, 0}, {0, 1, 0}, {0, 1, 0}, {0, 1, 0}} // not relevant for this test
 
 	cases := []struct {
-		name            string
-		targets         []string
-		in              [][]search.Result
-		out             []search.Result
-		joinMethod      *dto.TargetCombination
-		missingElements map[uint64][]string
-		targetDistance  float32
+		name                   string
+		targets                []string
+		in                     [][]search.Result
+		out                    []search.Result
+		joinMethod             *dto.TargetCombination
+		missingElements        map[uint64][]string
+		missingDistancesResult map[uint64]map[string]float32
+		targetDistance         float32
 	}{
 		{
 			name:       "no results (nil)",
@@ -190,13 +191,44 @@ func TestCombiner(t *testing.T) {
 				{res(1, 0.2), res(2, 0.4), res(3, 0.6), res(4, 0.8)},
 				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
 			},
-			out:             []search.Result{res(1, 0.1666), res(0, 0.30555)},
+			missingDistancesResult: map[uint64]map[string]float32{
+				0: {"target3": 1},
+				1: {"target4": 1.1},
+				3: {"target2": 1.2},
+				4: {"target1": 1, "target2": 1.1, "target4": 1.2},
+				5: {"target1": 1, "target3": 1.2, "target4": 1.3},
+			},
+			out:             []search.Result{res(1, 0.28), res(0, 0.3), res(2, 0.89), res(3, 1.46), res(5, 1.65), res(4, 1.69)},
 			missingElements: map[uint64][]string{6: {"target3"}},
+		},
+		{
+			name:       "all missing (score fusion)",
+			targets:    []string{"target1", "target2"},
+			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{1, 0.5}},
+			in: [][]search.Result{
+				{res(0, 0.5), res(1, 0.6)},
+				{res(2, 0.6), res(5, 0.8)},
+			},
+			out:             []search.Result{},
+			missingElements: map[uint64][]string{0: {"target1"}, 1: {"target1"}, 2: {"target2"}, 5: {"target2"}},
+		},
+		{
+			name:       "all missing except one (score fusion)",
+			targets:    []string{"target1", "target2", "target3", "target4"},
+			joinMethod: &dto.TargetCombination{Type: dto.RelativeScore, Weights: []float32{1, 0.5, 0.25, 0.1}},
+			in: [][]search.Result{
+				{res(0, 0.5), res(1, 0.6), res(2, 0.8), res(3, 0.9)},
+				{res(2, 0.6), res(5, 0.8)},
+				{res(1, 0.2), res(3, 0.6), res(4, 0.8)},
+				{res(6, 0.1), res(0, 0.3), res(2, 0.7), res(3, 0.9)},
+			},
+			out:             []search.Result{res(3, 1.85)}, // score is 1 for each if there is only one result, multiplied by the weight
+			missingElements: map[uint64][]string{0: {"target2"}, 1: {"target2"}, 2: {"target3"}, 4: {"target1", "target2", "target4"}, 5: {"target1", "target2", "target4"}, 6: {"target1", "target2", "target3"}},
 		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			searcher := fakeS{missingElements: tt.missingElements}
+			searcher := fakeS{missingElements: tt.missingElements, missingDistancesResult: tt.missingDistancesResult}
 
 			idsIn := make([][]uint64, len(tt.in))
 			distsIn := make([][]float32, len(tt.in))
@@ -227,7 +259,8 @@ func TestCombiner(t *testing.T) {
 }
 
 type fakeS struct {
-	missingElements map[uint64][]string
+	missingElements        map[uint64][]string
+	missingDistancesResult map[uint64]map[string]float32
 }
 
 func (f fakeS) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors [][]float32, targetVectors []string) ([]float32, error) {
@@ -238,6 +271,16 @@ func (f fakeS) VectorDistanceForQuery(ctx context.Context, id uint64, searchVect
 
 	missingTargets, ok := f.missingElements[id]
 	if !ok {
+		missingDistances, ok := f.missingDistancesResult[id]
+		if ok {
+			for i := range targetVectors {
+				score, ok := missingDistances[targetVectors[i]]
+				if ok {
+					returns[i] = score
+				}
+			}
+		}
+
 		return returns, nil
 	}
 
