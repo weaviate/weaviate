@@ -54,7 +54,7 @@ func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
 	return &classSettings{cfg: cfg, base: basesettings.NewBaseClassSettings(cfg)}
 }
 
-// PaLM params
+// Google params
 func (ic *classSettings) Location() string {
 	return ic.getStringProperty(locationProperty, "")
 }

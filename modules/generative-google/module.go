@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modgenerativepalm
+package modgenerativegoogle
 
 import (
 	"context"
@@ -22,18 +22,21 @@ import (
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-palm/clients"
+	"github.com/weaviate/weaviate/modules/generative-google/clients"
 	additionalprovider "github.com/weaviate/weaviate/usecases/modulecomponents/additional"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 )
 
-const Name = "generative-palm"
+const (
+	Name       = "generative-google"
+	LegacyName = "generative-palm"
+)
 
-func New() *GenerativePaLMModule {
-	return &GenerativePaLMModule{}
+func New() *GenerativeGoogleModule {
+	return &GenerativeGoogleModule{}
 }
 
-type GenerativePaLMModule struct {
+type GenerativeGoogleModule struct {
 	generative                   generativeClient
 	additionalPropertiesProvider modulecapabilities.AdditionalProperties
 }
@@ -45,15 +48,19 @@ type generativeClient interface {
 	MetaInfo() (map[string]interface{}, error)
 }
 
-func (m *GenerativePaLMModule) Name() string {
+func (m *GenerativeGoogleModule) Name() string {
 	return Name
 }
 
-func (m *GenerativePaLMModule) Type() modulecapabilities.ModuleType {
+func (m *GenerativeGoogleModule) AltNames() []string {
+	return []string{LegacyName}
+}
+
+func (m *GenerativeGoogleModule) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Text2TextGenerative
 }
 
-func (m *GenerativePaLMModule) Init(ctx context.Context,
+func (m *GenerativeGoogleModule) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	if err := m.initAdditional(ctx, params.GetConfig().ModuleHttpClientTimeout, params.GetLogger()); err != nil {
@@ -63,7 +70,7 @@ func (m *GenerativePaLMModule) Init(ctx context.Context,
 	return nil
 }
 
-func (m *GenerativePaLMModule) initAdditional(ctx context.Context, timeout time.Duration,
+func (m *GenerativeGoogleModule) initAdditional(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
 	apiKey := os.Getenv("GOOGLE_APIKEY")
@@ -80,16 +87,16 @@ func (m *GenerativePaLMModule) initAdditional(ctx context.Context, timeout time.
 	return nil
 }
 
-func (m *GenerativePaLMModule) MetaInfo() (map[string]interface{}, error) {
+func (m *GenerativeGoogleModule) MetaInfo() (map[string]interface{}, error) {
 	return m.generative.MetaInfo()
 }
 
-func (m *GenerativePaLMModule) RootHandler() http.Handler {
+func (m *GenerativeGoogleModule) RootHandler() http.Handler {
 	// TODO: remove once this is a capability interface
 	return nil
 }
 
-func (m *GenerativePaLMModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
+func (m *GenerativeGoogleModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
 	return m.additionalPropertiesProvider.AdditionalProperties()
 }
 

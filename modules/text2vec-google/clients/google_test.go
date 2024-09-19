@@ -185,7 +185,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if f.serverError != nil {
 		embeddingResponse := &embeddingsResponse{
-			Error: &palmApiError{
+			Error: &googleApiError{
 				Code:    http.StatusInternalServerError,
 				Status:  "error",
 				Message: f.serverError.Error(),

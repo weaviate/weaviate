@@ -37,7 +37,7 @@ const (
 	DefaulGenerativeAIModelID     = "embedding-001"
 )
 
-var availablePalmModels = []string{
+var availableGoogleModels = []string{
 	DefaultModelID,
 	"textembedding-gecko@latest",
 	"textembedding-gecko-multilingual@latest",
@@ -72,16 +72,16 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	apiEndpoint := ic.ApiEndpoint()
 	model := ic.ModelID()
 	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
-		if model != "" && !ic.validatePalmSetting(model, availableGenerativeAIModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available Generative AI model names are: %v", modelIDProperty, availableGenerativeAIModels))
+		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
 		}
 	} else {
 		projectID := ic.ProjectID()
 		if projectID == "" {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 		}
-		if model != "" && !ic.validatePalmSetting(model, availablePalmModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availablePalmModels))
+		if model != "" && !ic.validateGoogleSetting(model, availableGoogleModels) {
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available model names are: %v", modelIDProperty, availableGoogleModels))
 		}
 	}
 
@@ -92,7 +92,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	return nil
 }
 
-func (ic *classSettings) validatePalmSetting(value string, availableValues []string) bool {
+func (ic *classSettings) validateGoogleSetting(value string, availableValues []string) bool {
 	for i := range availableValues {
 		if value == availableValues[i] {
 			return true
@@ -112,7 +112,7 @@ func (ic *classSettings) getDefaultModel(apiEndpoint string) string {
 	return DefaultModelID
 }
 
-// PaLM params
+// Google params
 func (ic *classSettings) ApiEndpoint() string {
 	return ic.getStringProperty(apiEndpointProperty, DefaultApiEndpoint)
 }

@@ -25,7 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/generative-palm/config"
+	"github.com/weaviate/weaviate/modules/generative-google/config"
 	generativemodels "github.com/weaviate/weaviate/usecases/modulecomponents/additional/models"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
@@ -130,7 +130,7 @@ func buildURL(useGenerativeAI bool, apiEndoint, projectID, modelID, region strin
 	return fmt.Sprintf(urlTemplate, apiEndoint, projectID, modelID)
 }
 
-type palm struct {
+type google struct {
 	apiKey        string
 	useGoogleAuth bool
 	googleApiKey  *apikey.GoogleApiKey
@@ -139,8 +139,8 @@ type palm struct {
 	logger        logrus.FieldLogger
 }
 
-func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *palm {
-	return &palm{
+func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus.FieldLogger) *google {
+	return &google{
 		apiKey:        apiKey,
 		useGoogleAuth: useGoogleAuth,
 		googleApiKey:  apikey.NewGoogleApiKey(),
@@ -152,7 +152,7 @@ func New(apiKey string, useGoogleAuth bool, timeout time.Duration, logger logrus
 	}
 }
 
-func (v *palm) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *google) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forPrompt, err := v.generateForPrompt(textProperties, prompt)
 	if err != nil {
 		return nil, err
@@ -160,7 +160,7 @@ func (v *palm) GenerateSingleResult(ctx context.Context, textProperties map[stri
 	return v.Generate(ctx, cfg, forPrompt)
 }
 
-func (v *palm) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
+func (v *google) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, cfg moduletools.ClassConfig) (*generativemodels.GenerateResponse, error) {
 	forTask, err := v.generatePromptForTask(textProperties, task)
 	if err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func (v *palm) GenerateAllResults(ctx context.Context, textProperties []map[stri
 	return v.Generate(ctx, cfg, forTask)
 }
 
-func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
+func (v *google) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt string) (*generativemodels.GenerateResponse, error) {
 	settings := config.NewClassSettings(cfg)
 
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(settings.ApiEndpoint())
@@ -225,7 +225,7 @@ func (v *palm) Generate(ctx context.Context, cfg moduletools.ClassConfig, prompt
 	return v.parseResponse(res.StatusCode, bodyBytes)
 }
 
-func (v *palm) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
 	var resBody generateMessageResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -244,7 +244,7 @@ func (v *palm) parseGenerateMessageResponse(statusCode int, bodyBytes []byte) (*
 	}, nil
 }
 
-func (v *palm) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *google) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
 	var resBody generateContentResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -266,7 +266,7 @@ func (v *palm) parseGenerateContentResponse(statusCode int, bodyBytes []byte) (*
 	}, nil
 }
 
-func (v *palm) parseResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
+func (v *google) parseResponse(statusCode int, bodyBytes []byte) (*generativemodels.GenerateResponse, error) {
 	var resBody generateResponse
 	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
 		return nil, errors.Wrap(err, "unmarshal response body")
@@ -285,7 +285,7 @@ func (v *palm) parseResponse(statusCode int, bodyBytes []byte) (*generativemodel
 	}, nil
 }
 
-func (v *palm) getGenerateResponse(content string) (*generativemodels.GenerateResponse, error) {
+func (v *google) getGenerateResponse(content string) (*generativemodels.GenerateResponse, error) {
 	if content != "" {
 		trimmedResponse := strings.Trim(content, "\n")
 		return &generativemodels.GenerateResponse{
@@ -298,22 +298,22 @@ func (v *palm) getGenerateResponse(content string) (*generativemodels.GenerateRe
 	}, nil
 }
 
-func (v *palm) checkResponse(statusCode int, palmApiError *palmApiError) error {
-	if statusCode != 200 || palmApiError != nil {
-		if palmApiError != nil {
+func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
+	if statusCode != 200 || googleApiError != nil {
+		if googleApiError != nil {
 			return fmt.Errorf("connection to Google failed with status: %v error: %v",
-				statusCode, palmApiError.Message)
+				statusCode, googleApiError.Message)
 		}
 		return fmt.Errorf("connection to Google failed with status: %d", statusCode)
 	}
 	return nil
 }
 
-func (v *palm) useGenerativeAIEndpoint(apiEndpoint string) bool {
+func (v *google) useGenerativeAIEndpoint(apiEndpoint string) bool {
 	return apiEndpoint == "generativelanguage.googleapis.com"
 }
 
-func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.ClassSettings) any {
+func (v *google) getPayload(useGenerativeAI bool, prompt string, settings config.ClassSettings) any {
 	if useGenerativeAI {
 		if strings.HasPrefix(settings.ModelID(), "gemini") {
 			return v.getGeminiPayload(prompt, settings)
@@ -356,7 +356,7 @@ func (v *palm) getPayload(useGenerativeAI bool, prompt string, settings config.C
 	return input
 }
 
-func (v *palm) getGeminiPayload(prompt string, settings config.ClassSettings) any {
+func (v *google) getGeminiPayload(prompt string, settings config.ClassSettings) any {
 	input := generateContentRequest{
 		Contents: []content{
 			{
@@ -392,7 +392,7 @@ func (v *palm) getGeminiPayload(prompt string, settings config.ClassSettings) an
 	return input
 }
 
-func (v *palm) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
+func (v *google) generatePromptForTask(textProperties []map[string]string, task string) (string, error) {
 	marshal, err := json.Marshal(textProperties)
 	if err != nil {
 		return "", err
@@ -401,7 +401,7 @@ func (v *palm) generatePromptForTask(textProperties []map[string]string, task st
 %v`, task, string(marshal)), nil
 }
 
-func (v *palm) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
+func (v *google) generateForPrompt(textProperties map[string]string, prompt string) (string, error) {
 	all := compile.FindAll([]byte(prompt), -1)
 	for _, match := range all {
 		originalProperty := string(match)
@@ -416,11 +416,11 @@ func (v *palm) generateForPrompt(textProperties map[string]string, prompt string
 	return prompt, nil
 }
 
-func (v *palm) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
+func (v *google) getApiKey(ctx context.Context, useGenerativeAIEndpoint bool) (string, error) {
 	return v.googleApiKey.GetApiKey(ctx, v.apiKey, useGenerativeAIEndpoint, v.useGoogleAuth)
 }
 
-func (v *palm) decodeFinishReason(reason string) string {
+func (v *google) decodeFinishReason(reason string) string {
 	switch reason {
 	case FINISH_REASON_UNSPECIFIED:
 		return FINISH_REASON_UNSPECIFIED_EXPLANATION
@@ -474,12 +474,12 @@ type parameters struct {
 }
 
 type generateResponse struct {
-	Predictions      []prediction  `json:"predictions,omitempty"`
-	Error            *palmApiError `json:"error,omitempty"`
-	DeployedModelId  string        `json:"deployedModelId,omitempty"`
-	Model            string        `json:"model,omitempty"`
-	ModelDisplayName string        `json:"modelDisplayName,omitempty"`
-	ModelVersionId   string        `json:"modelVersionId,omitempty"`
+	Predictions      []prediction    `json:"predictions,omitempty"`
+	Error            *googleApiError `json:"error,omitempty"`
+	DeployedModelId  string          `json:"deployedModelId,omitempty"`
+	Model            string          `json:"model,omitempty"`
+	ModelDisplayName string          `json:"modelDisplayName,omitempty"`
+	ModelVersionId   string          `json:"modelVersionId,omitempty"`
 }
 
 type prediction struct {
@@ -498,7 +498,7 @@ type safetyAttributes struct {
 	Categories []string  `json:"categories,omitempty"`
 }
 
-type palmApiError struct {
+type googleApiError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Status  string `json:"status"`
@@ -544,7 +544,7 @@ type generateMessageResponse struct {
 	Candidates []generateMessage `json:"candidates,omitempty"`
 	Messages   []generateMessage `json:"messages,omitempty"`
 	Filters    []contentFilter   `json:"filters,omitempty"`
-	Error      *palmApiError     `json:"error,omitempty"`
+	Error      *googleApiError   `json:"error,omitempty"`
 }
 
 type contentFilter struct {
@@ -585,7 +585,7 @@ type generationConfig struct {
 type generateContentResponse struct {
 	Candidates     []generateContentCandidate `json:"candidates,omitempty"`
 	PromptFeedback *promptFeedback            `json:"promptFeedback,omitempty"`
-	Error          *palmApiError              `json:"error,omitempty"`
+	Error          *googleApiError            `json:"error,omitempty"`
 }
 
 type generateContentCandidate struct {

@@ -60,11 +60,11 @@ import (
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
+	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
-	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
 	modimage "github.com/weaviate/weaviate/modules/img2vec-neural"
 	modbind "github.com/weaviate/weaviate/modules/multi2vec-bind"
 	modclip "github.com/weaviate/weaviate/modules/multi2vec-clip"
@@ -1012,11 +1012,13 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modgenerativepalm.Name]; ok {
-		appState.Modules.Register(modgenerativepalm.New())
+	_, enabledGenerativeGoogle := enabledModules[modgenerativegoogle.Name]
+	_, enabledGenerativePaLM := enabledModules[modgenerativegoogle.LegacyName]
+	if enabledGenerativeGoogle || enabledGenerativePaLM {
+		appState.Modules.Register(modgenerativegoogle.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modgenerativepalm.Name).
+			WithField("module", modgenerativegoogle.Name).
 			Debug("enabled module")
 	}
 

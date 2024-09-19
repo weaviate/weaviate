@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package generative_palm_tests
+package tests
 
 import (
 	"fmt"
@@ -24,7 +24,7 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
+func testGenerativeGoogle(host, gcpProject string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
@@ -135,7 +135,7 @@ func testGenerativePaLM(host, gcpProject string) func(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				class.ModuleConfig = map[string]interface{}{
-					"generative-palm": map[string]interface{}{
+					generativeGoogle: map[string]interface{}{
 						"projectId": gcpProject,
 						"modelId":   tt.generativeModel,
 					},

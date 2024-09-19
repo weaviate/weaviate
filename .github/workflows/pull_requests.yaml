@@ -175,7 +175,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        test: ["--only-module-multi2vec-google", "--only-module-generative-palm", "--only-module-text2vec-google"]
+        test: ["--only-module-multi2vec-google", "--only-module-generative-google", "--only-module-text2vec-google"]
     steps:
       - uses: actions/checkout@v4
         with:
