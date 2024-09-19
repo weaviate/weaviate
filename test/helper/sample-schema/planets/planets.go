@@ -186,7 +186,7 @@ func CreateTweetTestWithParamsGRPC(t *testing.T, className string, params *pb.Ge
 				require.NotEmpty(t, metadata.GetOpenai())
 			}
 			if params.GetGoogle() != nil {
-				require.NotEmpty(t, metadata.GetPalm())
+				require.NotEmpty(t, metadata.GetGoogle())
 			}
 		}
 		t.Logf("Prompt: %s\nResult: %s\n", prompt, res.Generative.GetValues()[0].Result)

@@ -198,7 +198,7 @@ message GenerativeOpenAIMetadata {
   optional Usage usage = 1;
 }
 
-message GenerativePaLMMetadata {
+message GenerativeGoogleMetadata {
   message TokenCount {
     optional int64 total_billable_characters = 1;
     optional int64 total_tokens = 2;
@@ -230,7 +230,7 @@ message GenerativeMetadata {
     GenerativeOctoAIMetadata octoai = 7;
     GenerativeOllamaMetadata ollama = 8;
     GenerativeOpenAIMetadata openai = 9;
-    GenerativePaLMMetadata palm = 10;
+    GenerativeGoogleMetadata google = 10;
   }
 }
 
