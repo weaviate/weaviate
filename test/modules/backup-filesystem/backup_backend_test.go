@@ -118,7 +118,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := fs.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := fs.PutObject(testCtx, backupID, key, "", "", []byte("hello"))
 			assert.Nil(t, err)
 		})
 
