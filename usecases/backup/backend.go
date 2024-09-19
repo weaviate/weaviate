@@ -247,6 +247,17 @@ Loop:
 			if ctxerr != nil {
 				u.setStatus(backup.Cancelled)
 				desc.Status = string(backup.Cancelled)
+				for _, class := range desc.Classes {
+					className := class.Name
+					enterrors.GoWrapper(func() {
+						if err := u.sourcer.ReleaseBackup(context.Background(), desc.ID, className); err != nil {
+							u.log.WithFields(logrus.Fields{
+								"class":    className,
+								"backupID": desc.ID,
+							}).Error("failed to release backup")
+						}
+					}, u.log)
+				}
 			}
 			return ctxerr
 		}
@@ -269,7 +280,14 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	}
 	defer func() {
 		// backups need to be released anyway
-		enterrors.GoWrapper(func() { u.sourcer.ReleaseBackup(context.Background(), id, desc.Name) }, u.log)
+		enterrors.GoWrapper(func() {
+			if err := u.sourcer.ReleaseBackup(context.Background(), id, desc.Name); err != nil {
+				u.log.WithFields(logrus.Fields{
+					"class":    id,
+					"backupID": desc.Name,
+				}).Error("failed to release backup")
+			}
+		}, u.log)
 	}()
 	ctx, cancel := context.WithTimeout(ctx, storeTimeout)
 	defer cancel()
