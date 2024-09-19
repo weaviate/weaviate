@@ -1,15 +1,8 @@
 syntax = "proto3";
 
+// NOTE run `buf generate` from `cluster/proto` to regenerate code
 package weaviate.internal.cluster;
 
-// protoc \
-// --go_out=paths=source_relative:. \
-// --go-grpc_out=paths=source_relative:. \
-// --go-grpc_opt=require_unimplemented_servers=false \
-// api/*.proto
-
-// TODO can i use "--go_opt=M" to avoid needing this?
-// option go_package = "github.com/weaviate/weaviate/cluster/proto/api";
 
 service ClusterService {
   rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {}
