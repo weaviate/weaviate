@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package metadata
 
 import (
@@ -46,7 +57,7 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 				panic(err)
 			}
 			c := protoapi.NewClusterServiceClient(leaderRpcConn)
-			stream, err := c.QuerierRegister(context.Background())
+			stream, err := c.QuerierStream(context.Background())
 			if err != nil {
 				panic(err)
 			}
@@ -57,7 +68,7 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 			wg.Add(1)
 
 			// process events from metadata
-			go func() {
+			enterrors.GoWrapper(func() {
 				defer wg.Done()
 				for {
 					in, err := stream.Recv()
@@ -69,9 +80,9 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 						panic(err)
 					}
 					switch in.Type {
-					case protoapi.MetadataEvent_UNSPECIFIED:
+					case protoapi.QuerierStreamResponse_TYPE_UNSPECIFIED:
 						panic("unspecified")
-					case protoapi.MetadataEvent_CLASS_TENANT_DATA_UPDATE:
+					case protoapi.QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE:
 						// TODO locking...plan to discuss with kavi, should we download to new dir or delete/overwrite or swap?
 						err = btd.offload.Download(context.TODO(), in.ClassTenant.ClassName, in.ClassTenant.TenantName, nodeName)
 						if err != nil {
@@ -79,7 +90,7 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 						}
 					}
 				}
-			}()
+			}, logrus.New()) // TODO logrus.New here and other
 
 			// currently, we're not sending any messages to the metadata nodes from the querier, we just use
 			// the existence of the stream to keep the connection alive so we can receive events, we can switch to

@@ -19,12 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ClusterService_RemovePeer_FullMethodName      = "/weaviate.internal.cluster.ClusterService/RemovePeer"
-	ClusterService_JoinPeer_FullMethodName        = "/weaviate.internal.cluster.ClusterService/JoinPeer"
-	ClusterService_NotifyPeer_FullMethodName      = "/weaviate.internal.cluster.ClusterService/NotifyPeer"
-	ClusterService_Apply_FullMethodName           = "/weaviate.internal.cluster.ClusterService/Apply"
-	ClusterService_Query_FullMethodName           = "/weaviate.internal.cluster.ClusterService/Query"
-	ClusterService_QuerierRegister_FullMethodName = "/weaviate.internal.cluster.ClusterService/QuerierRegister"
+	ClusterService_RemovePeer_FullMethodName    = "/weaviate.internal.cluster.ClusterService/RemovePeer"
+	ClusterService_JoinPeer_FullMethodName      = "/weaviate.internal.cluster.ClusterService/JoinPeer"
+	ClusterService_NotifyPeer_FullMethodName    = "/weaviate.internal.cluster.ClusterService/NotifyPeer"
+	ClusterService_Apply_FullMethodName         = "/weaviate.internal.cluster.ClusterService/Apply"
+	ClusterService_Query_FullMethodName         = "/weaviate.internal.cluster.ClusterService/Query"
+	ClusterService_QuerierStream_FullMethodName = "/weaviate.internal.cluster.ClusterService/QuerierStream"
 )
 
 // ClusterServiceClient is the client API for ClusterService service.
@@ -36,8 +36,8 @@ type ClusterServiceClient interface {
 	NotifyPeer(ctx context.Context, in *NotifyPeerRequest, opts ...grpc.CallOption) (*NotifyPeerResponse, error)
 	Apply(ctx context.Context, in *ApplyRequest, opts ...grpc.CallOption) (*ApplyResponse, error)
 	Query(ctx context.Context, in *QueryRequest, opts ...grpc.CallOption) (*QueryResponse, error)
-	// QuerierRegister is experimental, may be changed/removed
-	QuerierRegister(ctx context.Context, opts ...grpc.CallOption) (ClusterService_QuerierRegisterClient, error)
+	// QuerierStream is experimental, may be changed/removed
+	QuerierStream(ctx context.Context, opts ...grpc.CallOption) (ClusterService_QuerierStreamClient, error)
 }
 
 type clusterServiceClient struct {
@@ -93,31 +93,31 @@ func (c *clusterServiceClient) Query(ctx context.Context, in *QueryRequest, opts
 	return out, nil
 }
 
-func (c *clusterServiceClient) QuerierRegister(ctx context.Context, opts ...grpc.CallOption) (ClusterService_QuerierRegisterClient, error) {
-	stream, err := c.cc.NewStream(ctx, &ClusterService_ServiceDesc.Streams[0], ClusterService_QuerierRegister_FullMethodName, opts...)
+func (c *clusterServiceClient) QuerierStream(ctx context.Context, opts ...grpc.CallOption) (ClusterService_QuerierStreamClient, error) {
+	stream, err := c.cc.NewStream(ctx, &ClusterService_ServiceDesc.Streams[0], ClusterService_QuerierStream_FullMethodName, opts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &clusterServiceQuerierRegisterClient{stream}
+	x := &clusterServiceQuerierStreamClient{stream}
 	return x, nil
 }
 
-type ClusterService_QuerierRegisterClient interface {
-	Send(*QuerierEvent) error
-	Recv() (*MetadataEvent, error)
+type ClusterService_QuerierStreamClient interface {
+	Send(*QuerierStreamRequest) error
+	Recv() (*QuerierStreamResponse, error)
 	grpc.ClientStream
 }
 
-type clusterServiceQuerierRegisterClient struct {
+type clusterServiceQuerierStreamClient struct {
 	grpc.ClientStream
 }
 
-func (x *clusterServiceQuerierRegisterClient) Send(m *QuerierEvent) error {
+func (x *clusterServiceQuerierStreamClient) Send(m *QuerierStreamRequest) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *clusterServiceQuerierRegisterClient) Recv() (*MetadataEvent, error) {
-	m := new(MetadataEvent)
+func (x *clusterServiceQuerierStreamClient) Recv() (*QuerierStreamResponse, error) {
+	m := new(QuerierStreamResponse)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -133,8 +133,8 @@ type ClusterServiceServer interface {
 	NotifyPeer(context.Context, *NotifyPeerRequest) (*NotifyPeerResponse, error)
 	Apply(context.Context, *ApplyRequest) (*ApplyResponse, error)
 	Query(context.Context, *QueryRequest) (*QueryResponse, error)
-	// QuerierRegister is experimental, may be changed/removed
-	QuerierRegister(ClusterService_QuerierRegisterServer) error
+	// QuerierStream is experimental, may be changed/removed
+	QuerierStream(ClusterService_QuerierStreamServer) error
 }
 
 // UnimplementedClusterServiceServer should be embedded to have forward compatible implementations.
@@ -156,8 +156,8 @@ func (UnimplementedClusterServiceServer) Apply(context.Context, *ApplyRequest) (
 func (UnimplementedClusterServiceServer) Query(context.Context, *QueryRequest) (*QueryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Query not implemented")
 }
-func (UnimplementedClusterServiceServer) QuerierRegister(ClusterService_QuerierRegisterServer) error {
-	return status.Errorf(codes.Unimplemented, "method QuerierRegister not implemented")
+func (UnimplementedClusterServiceServer) QuerierStream(ClusterService_QuerierStreamServer) error {
+	return status.Errorf(codes.Unimplemented, "method QuerierStream not implemented")
 }
 
 // UnsafeClusterServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -261,26 +261,26 @@ func _ClusterService_Query_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ClusterService_QuerierRegister_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(ClusterServiceServer).QuerierRegister(&clusterServiceQuerierRegisterServer{stream})
+func _ClusterService_QuerierStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(ClusterServiceServer).QuerierStream(&clusterServiceQuerierStreamServer{stream})
 }
 
-type ClusterService_QuerierRegisterServer interface {
-	Send(*MetadataEvent) error
-	Recv() (*QuerierEvent, error)
+type ClusterService_QuerierStreamServer interface {
+	Send(*QuerierStreamResponse) error
+	Recv() (*QuerierStreamRequest, error)
 	grpc.ServerStream
 }
 
-type clusterServiceQuerierRegisterServer struct {
+type clusterServiceQuerierStreamServer struct {
 	grpc.ServerStream
 }
 
-func (x *clusterServiceQuerierRegisterServer) Send(m *MetadataEvent) error {
+func (x *clusterServiceQuerierStreamServer) Send(m *QuerierStreamResponse) error {
 	return x.ServerStream.SendMsg(m)
 }
 
-func (x *clusterServiceQuerierRegisterServer) Recv() (*QuerierEvent, error) {
-	m := new(QuerierEvent)
+func (x *clusterServiceQuerierStreamServer) Recv() (*QuerierStreamRequest, error) {
+	m := new(QuerierStreamRequest)
 	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
@@ -317,8 +317,8 @@ var ClusterService_ServiceDesc = grpc.ServiceDesc{
 	},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "QuerierRegister",
-			Handler:       _ClusterService_QuerierRegister_Handler,
+			StreamName:    "QuerierStream",
+			Handler:       _ClusterService_QuerierStream_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

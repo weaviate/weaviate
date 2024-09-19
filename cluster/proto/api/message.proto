@@ -2,7 +2,11 @@ syntax = "proto3";
 
 package weaviate.internal.cluster;
 
-// protoc --go_out=paths=source_relative:. --go-grpc_out=paths=source_relative:. --go-grpc_opt=require_unimplemented_servers=false api/*.proto
+// protoc \
+// --go_out=paths=source_relative:. \
+// --go-grpc_out=paths=source_relative:. \
+// --go-grpc_opt=require_unimplemented_servers=false \
+// api/*.proto
 
 // TODO can i use "--go_opt=M" to avoid needing this?
 option go_package = "github.com/weaviate/weaviate/cluster/proto/api";
@@ -14,8 +18,8 @@ service ClusterService {
   rpc Apply(ApplyRequest) returns (ApplyResponse) {}
   rpc Query(QueryRequest) returns (QueryResponse) {}
 
-  // QuerierRegister is experimental, may be changed/removed
-  rpc QuerierRegister(stream QuerierEvent) returns (stream MetadataEvent) {}
+  // QuerierStream is experimental, may be changed/removed
+  rpc QuerierStream(stream QuerierStreamRequest) returns (stream QuerierStreamResponse) {}
 }
 
 message JoinPeerRequest {
@@ -135,18 +139,18 @@ message Tenant {
 }
 
 // QuerierEvent is experimental, may be changed/removed
-message QuerierEvent {
+message QuerierStreamRequest {
   enum Type {
-    UNSPECIFIED = 0;
+    TYPE_UNSPECIFIED = 0;
   }
   Type type = 1;
 }
 
 // MetadataEvent is experimental, may be changed/removed
-message MetadataEvent {
+message QuerierStreamResponse {
   enum Type {
-    UNSPECIFIED = 0;
-    CLASS_TENANT_DATA_UPDATE = 1;
+    TYPE_UNSPECIFIED = 0;
+    TYPE_CLASS_TENANT_DATA_UPDATE = 1;
   }
   Type type = 1;
   ClassTenant class_tenant = 2;

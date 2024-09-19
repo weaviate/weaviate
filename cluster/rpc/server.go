@@ -186,7 +186,7 @@ func toRPCError(err error) error {
 }
 
 // QuerierRegister is experimental
-func (s *Server) QuerierRegister(stream cmd.ClusterService_QuerierRegisterServer) error {
+func (s *Server) QuerierStream(stream cmd.ClusterService_QuerierStreamServer) error {
 	q := querier.NewQuerier()
 	s.querierManager.Register(q)
 	defer s.querierManager.Unregister(q)
@@ -226,8 +226,8 @@ func (s *Server) QuerierRegister(stream cmd.ClusterService_QuerierRegisterServer
 				close(streamClosed)
 				return
 			case ct := <-classTenantDataUpdates:
-				err := stream.Send(&cmd.MetadataEvent{
-					Type: cmd.MetadataEvent_CLASS_TENANT_DATA_UPDATE,
+				err := stream.Send(&cmd.QuerierStreamResponse{
+					Type: cmd.QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE,
 					ClassTenant: &cmd.ClassTenant{
 						ClassName:  ct.ClassName,
 						TenantName: ct.TenantName,
