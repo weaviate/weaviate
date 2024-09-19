@@ -104,13 +104,18 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key string) ([]byte,
 	return contents, nil
 }
 
-func (s *s3Client) PutFile(ctx context.Context, backupID, key, bucket, bucketPath string, srcPath string) error {
+func (s *s3Client) PutFile(ctx context.Context, backupID, key, bucketName, bucketPath string, srcPath string) error {
 	//FIXME handle bucketPath, bucket
-	objectName := s.makeObjectName(backupID, key)
+	bucket := s.config.Bucket
+	if bucketName != "" {
+		bucket = bucketName
+	}
+
+	objectName := s.makeObjectName(backupID, bucketPath, key)
 	srcPath = path.Join(s.dataPath, srcPath)
 	opt := minio.PutObjectOptions{ContentType: "application/octet-stream"}
 
-	_, err := s.client.FPutObject(ctx, s.config.Bucket, objectName, srcPath, opt)
+	_, err := s.client.FPutObject(ctx, bucket, objectName, srcPath, opt)
 	if err != nil {
 		return backup.NewErrInternal(
 			errors.Wrapf(err, "put file '%s'", objectName))
