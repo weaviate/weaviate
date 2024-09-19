@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
-	"github.com/weaviate/weaviate/exp/metadata"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -73,7 +72,7 @@ type API struct {
 
 	vectorizer text2vecbase.TextVectorizer
 
-	metadataSubscription *metadata.MetadataSubscription
+	metadataSubscription *MetadataSubscription
 }
 
 type TenantInfo interface {
@@ -87,7 +86,7 @@ func NewAPI(
 	config *Config,
 	log logrus.FieldLogger,
 ) *API {
-	metadataSubscription := metadata.NewMetadataSubscription(offload, config.MetadataGRPCHost, config.MetadataGRPCPort)
+	metadataSubscription := NewMetadataSubscription(offload, config.MetadataGRPCHost, config.MetadataGRPCPort)
 	return &API{
 		log:                  log,
 		config:               config,

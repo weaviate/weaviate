@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package metadata
+package query
 
 import (
 	"context"
@@ -26,10 +26,6 @@ import (
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-)
-
-const (
-	nodeName = "weaviate-0"
 )
 
 type MetadataSubscription struct {
