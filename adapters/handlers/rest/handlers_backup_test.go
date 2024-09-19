@@ -72,7 +72,7 @@ func TestCompressionBackupCfg(t *testing.T) {
 			cfg: &models.BackupConfig{
 				Bucket: "a bucket name",
 			},
-			expectedCompression: ubak.BestSpeed,
+			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
 			expectedChunkSize:   ubak.DefaultChunkSize,
 			expectedBucket:      "a bucket name",
@@ -81,7 +81,7 @@ func TestCompressionBackupCfg(t *testing.T) {
 			cfg: &models.BackupConfig{
 				Path: "a path",
 			},
-			expectedCompression: ubak.BestSpeed,
+			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
 			expectedChunkSize:   ubak.DefaultChunkSize,
 			expectedPath:        "a path",
