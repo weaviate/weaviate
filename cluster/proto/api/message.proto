@@ -2,12 +2,20 @@ syntax = "proto3";
 
 package weaviate.internal.cluster;
 
+// protoc --go_out=paths=source_relative:. --go-grpc_out=paths=source_relative:. --go-grpc_opt=require_unimplemented_servers=false api/*.proto
+
+// TODO can i use "--go_opt=M" to avoid needing this?
+option go_package = "github.com/weaviate/weaviate/cluster/proto/api";
+
 service ClusterService {
   rpc RemovePeer(RemovePeerRequest) returns (RemovePeerResponse) {}
   rpc JoinPeer(JoinPeerRequest) returns (JoinPeerResponse) {}
   rpc NotifyPeer(NotifyPeerRequest) returns (NotifyPeerResponse) {}
   rpc Apply(ApplyRequest) returns (ApplyResponse) {}
   rpc Query(QueryRequest) returns (QueryResponse) {}
+
+  // QuerierRegister is experimental, may be changed/removed
+  rpc QuerierRegister(stream QuerierEvent) returns (stream MetadataEvent) {}
 }
 
 message JoinPeerRequest {
@@ -124,4 +132,28 @@ message DeleteTenantsRequest {
 message Tenant {
   string name = 1;
   string status = 2;
+}
+
+  // QuerierEvent is experimental, may be changed/removed
+message QuerierEvent {
+  enum Type {
+    UNSPECIFIED = 0;
+  }
+  Type type = 1;
+}
+
+  // MetadataEvent is experimental, may be changed/removed
+message MetadataEvent {
+  enum Type {
+    UNSPECIFIED = 0;
+    CLASS_TENANT_DATA_UPDATE = 1;
+  }
+  Type type = 1;
+  ClassTenant class_tenant = 2;
+}
+
+  // ClassTenant is experimental, may be changed/removed
+message ClassTenant {
+  string class_name = 1;
+  string tenant_name = 2;
 }

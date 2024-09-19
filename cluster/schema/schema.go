@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/querier"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -49,7 +50,8 @@ type schema struct {
 	nodeID      string
 	shardReader shardReader
 	sync.RWMutex
-	Classes map[string]*metaClass
+	Classes        map[string]*metaClass
+	querierManager *querier.QuerierManager
 }
 
 func (s *schema) ClassInfo(class string) ClassInfo {
@@ -210,11 +212,12 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
-func NewSchema(nodeID string, shardReader shardReader) *schema {
+func NewSchema(nodeID string, shardReader shardReader, querierManager *querier.QuerierManager) *schema {
 	return &schema{
-		nodeID:      nodeID,
-		Classes:     make(map[string]*metaClass, 128),
-		shardReader: shardReader,
+		nodeID:         nodeID,
+		Classes:        make(map[string]*metaClass, 128),
+		shardReader:    shardReader,
+		querierManager: querierManager,
 	}
 }
 
@@ -246,7 +249,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		return ErrClassExists
 	}
 
-	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v}
+	s.Classes[cls.Class] = &metaClass{Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v, querierManager: s.querierManager}
 	return nil
 }
 

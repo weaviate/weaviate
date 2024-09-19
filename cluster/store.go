@@ -28,6 +28,7 @@ import (
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
+	"github.com/weaviate/weaviate/cluster/querier"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -133,6 +134,8 @@ type Config struct {
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
+
+	querierManager *querier.QuerierManager
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -206,7 +209,7 @@ func NewFSM(cfg Config) Store {
 		candidates:    make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
-		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
+		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.querierManager, cfg.Logger),
 	}
 }
 

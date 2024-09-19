@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/exp/metadata"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -71,6 +72,8 @@ type API struct {
 	omu sync.Mutex
 
 	vectorizer text2vecbase.TextVectorizer
+
+	metadataSubscription *metadata.MetadataSubscription
 }
 
 type TenantInfo interface {
@@ -84,12 +87,14 @@ func NewAPI(
 	config *Config,
 	log logrus.FieldLogger,
 ) *API {
+	metadataSubscription := metadata.NewMetadataSubscription(offload, config.MetadataGRPCHost, config.MetadataGRPCPort)
 	return &API{
-		log:        log,
-		config:     config,
-		tenant:     tenant,
-		offload:    offload,
-		vectorizer: vectorizer,
+		log:                  log,
+		config:               config,
+		tenant:               tenant,
+		offload:              offload,
+		vectorizer:           vectorizer,
+		metadataSubscription: metadataSubscription,
 	}
 }
 
@@ -112,6 +117,9 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
+	a.metadataSubscription.EnsureStarted() // NOTE hacky way to ensure this doesn't run until the gRPC serving is working
+
+	// TODO we need to "lock" (rw?) localpath until the request is done, right? current setup incorrect if parallel requests download two diff versions of tenant
 	store, localPath, err := a.loadOrDownloadLSM(ctx, req.Collection, req.Tenant)
 	if err != nil {
 		return nil, err

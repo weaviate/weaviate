@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
@@ -23,6 +25,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/querier"
 	"github.com/weaviate/weaviate/cluster/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -49,13 +52,14 @@ type Server struct {
 	log                *logrus.Logger
 	sentryEnabled      bool
 
-	grpcServer *grpc.Server
+	grpcServer     *grpc.Server
+	querierManager *querier.QuerierManager
 }
 
 // NewServer returns the Server implementing the RPC interface for RAFT peers management and execute/query commands.
 // The server must subsequently be started with Open().
 // The server will be configure the gRPC service with grpcMessageMaxSize.
-func NewServer(raftPeers raftPeers, raftFSM raftFSM, listenAddress string, log *logrus.Logger, grpcMessageMaxSize int, sentryEnabled bool) *Server {
+func NewServer(raftPeers raftPeers, raftFSM raftFSM, querierManager *querier.QuerierManager, listenAddress string, log *logrus.Logger, grpcMessageMaxSize int, sentryEnabled bool) *Server {
 	return &Server{
 		raftPeers:          raftPeers,
 		raftFSM:            raftFSM,
@@ -63,6 +67,7 @@ func NewServer(raftPeers raftPeers, raftFSM raftFSM, listenAddress string, log *
 		log:                log,
 		grpcMessageMaxSize: grpcMessageMaxSize,
 		sentryEnabled:      sentryEnabled,
+		querierManager:     querierManager,
 	}
 }
 
@@ -178,4 +183,86 @@ func toRPCError(err error) error {
 		ec = codes.Internal
 	}
 	return status.Error(ec, err.Error())
+}
+
+// QuerierRegister is experimental
+func (s *Server) QuerierRegister(stream cmd.ClusterService_QuerierRegisterServer) error {
+	q := querier.NewQuerier()
+	s.querierManager.Register(q)
+	defer q.Close()
+
+	streamClosed := make(chan struct{})
+	var returnErr error
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	// Process incoming querier events
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+
+		// Wait here until the stream is done (for now, we aren't expecting any messages from the querier)
+		_, err := stream.Recv()
+		if err == io.EOF {
+			streamClosed <- struct{}{}
+			return
+		}
+		if err != nil {
+			streamClosed <- struct{}{}
+			returnErr = fmt.Errorf("querier register stream recv: %w", err)
+			return
+		}
+
+		for {
+			in, err := stream.Recv()
+			if err == io.EOF {
+				s.querierManager.Unregister(q)
+				streamClosed <- struct{}{}
+				return
+			}
+			if err != nil {
+				s.querierManager.Unregister(q)
+				streamClosed <- struct{}{}
+				returnErr = fmt.Errorf("querier register stream recv: %w", err)
+				return
+			}
+			// TODO stream.context?
+			switch in.Type {
+			case cmd.QuerierEvent_UNSPECIFIED:
+				panic(fmt.Errorf("querier event type is unspecified"))
+			}
+		}
+	}, s.log)
+
+	// This channel will receive a message when a class/tenant's data has been updated
+	classTenantDataUpdates := q.ClassTenantDataUpdates()
+
+	// Send outgoing metadata events
+	enterrors.GoWrapper(func() {
+		defer wg.Done()
+		for {
+			// TODO think more about this select and stream context, do we need streamClosed?
+			select {
+			case <-streamClosed:
+				close(streamClosed)
+				return
+			case ct := <-classTenantDataUpdates:
+				err := stream.Send(&cmd.MetadataEvent{
+					Type: cmd.MetadataEvent_CLASS_TENANT_DATA_UPDATE,
+					ClassTenant: &cmd.ClassTenant{
+						ClassName:  ct.ClassName,
+						TenantName: ct.TenantName,
+					},
+				})
+				if err != nil {
+					returnErr = fmt.Errorf("querier register stream send: %w", err)
+					return
+				}
+			}
+		}
+	}, s.log)
+
+	wg.Wait()
+
+	return returnErr
 }

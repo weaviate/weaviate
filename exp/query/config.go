@@ -25,4 +25,7 @@ type Config struct {
 	DataPath string `long:"datapath" description:"place to look for tenant data after downloading it from object storage" default:"/tmp"`
 
 	VectorizerAddr string `long:"vectorize-addr" description:"vectorizer address to be used to vectorize near-text query" default:"0.0.0.0:9999"`
+
+	MetadataGRPCHost string `long:"metadata.grpc.host" description:"metadata grpc host" default:""`
+	MetadataGRPCPort int    `long:"metadata.grpc.port" description:"metadata grpc port" default:"8301"`
 }

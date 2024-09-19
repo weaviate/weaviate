@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/querier"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -35,6 +36,7 @@ type (
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
+		querierManager *querier.QuerierManager
 	}
 )
 
@@ -478,6 +480,11 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 
 		if count == len(processes) {
 			copy.Status = req.Tenant.Status
+			// TODO run async?
+			m.querierManager.NotifyClassTenantDataUpdate(querier.ClassTenant{
+				ClassName:  m.Class.Class,
+				TenantName: name,
+			})
 		} else {
 			copy.Status = onAbortStatus
 			req.Tenant.Status = onAbortStatus
