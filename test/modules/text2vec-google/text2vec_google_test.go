@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
 )
 
-func testText2VecPaLM(host, gcpProject string) func(t *testing.T) {
+func testText2VecGoogle(host, gcpProject, vectorizerName string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data
@@ -71,7 +71,7 @@ func testText2VecPaLM(host, gcpProject string) func(t *testing.T) {
 				class.VectorConfig = map[string]models.VectorConfig{
 					"description": {
 						Vectorizer: map[string]interface{}{
-							"text2vec-palm": map[string]interface{}{
+							vectorizerName: map[string]interface{}{
 								"properties":         []interface{}{"description"},
 								"vectorizeClassName": false,
 								"projectId":          gcpProject,

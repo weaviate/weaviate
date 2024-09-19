@@ -16,7 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/ent"
+	"github.com/weaviate/weaviate/modules/text2vec-google/ent"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
