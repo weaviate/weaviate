@@ -30,6 +30,7 @@ type job struct {
 	// async only
 	indexer batchIndexer
 	ids     []uint64
+	deleted []uint64
 	vectors [][]float32
 	done    func()
 }
@@ -61,8 +62,23 @@ func (a *AsyncWorker) Run() {
 func (a *AsyncWorker) do(job job) (stop bool) {
 	defer job.done()
 
+	if len(job.deleted) > 0 {
+		stop = a.withRetry(job.ctx, func() error {
+			return job.indexer.Delete(job.deleted...)
+		})
+		if stop {
+			return
+		}
+	}
+
+	return a.withRetry(job.ctx, func() error {
+		return job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
+	})
+}
+
+func (a *AsyncWorker) withRetry(ctx context.Context, fn func() error) bool {
 	for {
-		err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
+		err := fn()
 		if err == nil {
 			return false
 		}
@@ -72,11 +88,11 @@ func (a *AsyncWorker) do(job job) (stop bool) {
 			return true
 		}
 
-		a.logger.WithError(err).Infof("failed to index vectors, retrying in %s", a.retryInterval.String())
+		a.logger.WithError(err).Infof("failed to index or delete vectors, retrying in %s", a.retryInterval.String())
 
 		t := time.NewTimer(a.retryInterval)
 		select {
-		case <-job.ctx.Done():
+		case <-ctx.Done():
 			// drain the timer
 			if !t.Stop() {
 				<-t.C
