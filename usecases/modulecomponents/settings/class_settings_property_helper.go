@@ -35,10 +35,15 @@ type PropertyValuesHelper interface {
 
 type classPropertyValuesHelper struct {
 	moduleName string
+	altNames   []string
 }
 
 func NewPropertyValuesHelper(moduleName string) PropertyValuesHelper {
-	return &classPropertyValuesHelper{moduleName}
+	return &classPropertyValuesHelper{moduleName: moduleName}
+}
+
+func NewPropertyValuesHelperWitAltNames(moduleName string, altNames []string) PropertyValuesHelper {
+	return &classPropertyValuesHelper{moduleName, altNames}
 }
 
 func (h *classPropertyValuesHelper) GetPropertyAsInt(cfg moduletools.ClassConfig,
@@ -172,7 +177,14 @@ func (h *classPropertyValuesHelper) GetNumber(in interface{}) (float32, error) {
 
 func (h *classPropertyValuesHelper) getSettings(cfg moduletools.ClassConfig) map[string]interface{} {
 	if h.moduleName != "" {
-		return cfg.ClassByModuleName(h.moduleName)
+		if settings := cfg.ClassByModuleName(h.moduleName); len(settings) > 0 {
+			return settings
+		}
+		for _, altName := range h.altNames {
+			if settings := cfg.ClassByModuleName(altName); len(settings) > 0 {
+				return settings
+			}
+		}
 	}
 	return cfg.Class()
 }
