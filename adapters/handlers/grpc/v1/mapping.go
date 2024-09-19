@@ -176,9 +176,6 @@ func (m *Mapper) newObject(v map[string]interface{}, parent schema.PropertyInter
 				return nil, errors.Wrapf(err, "creating nested primitive value %s", selectProp.Name)
 			}
 		}
-		if err != nil {
-			return nil, errors.Wrapf(err, "serializing field %s", selectProp.Name)
-		}
 	}
 	return x, nil
 }

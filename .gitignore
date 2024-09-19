@@ -117,6 +117,6 @@ venv
 
 # weaviate binaries
 cmd/weaviate/weaviate
-weaviate
+/weaviate
 cmd/weaviate-server/weviate-server
 weaviate-server

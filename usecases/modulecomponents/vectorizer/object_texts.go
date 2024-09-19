@@ -14,7 +14,10 @@ package vectorizer
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -27,6 +30,7 @@ type ClassSettings interface {
 	VectorizePropertyName(propertyName string) bool
 	VectorizeClassName() bool
 	Properties() []string
+	LowerCaseInput() bool
 }
 
 type ObjectVectorizer struct{}
@@ -41,7 +45,7 @@ func (v *ObjectVectorizer) Texts(ctx context.Context, object *models.Object, ich
 	return text
 }
 
-func (v *ObjectVectorizer) camelCaseToLower(in string) string {
+func (v *ObjectVectorizer) separateCamelCase(in string, toLower bool) string {
 	parts := camelcase.Split(in)
 	var sb strings.Builder
 	for i, part := range parts {
@@ -53,7 +57,11 @@ func (v *ObjectVectorizer) camelCaseToLower(in string) string {
 			sb.WriteString(" ")
 		}
 
-		sb.WriteString(strings.ToLower(part))
+		if toLower {
+			part = strings.ToLower(part)
+		}
+
+		sb.WriteString(part)
 	}
 
 	return sb.String()
@@ -64,8 +72,13 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	var corpi []string
 	var titlePropertyValue []string
 
+	toLowerCase := icheck.LowerCaseInput()
+	if entcfg.Enabled(os.Getenv("LOWERCASE_VECTORIZATION_INPUT")) {
+		toLowerCase = true
+	}
+
 	if icheck.VectorizeClassName() {
-		corpi = append(corpi, v.camelCaseToLower(object.Class))
+		corpi = append(corpi, v.separateCamelCase(object.Class, toLowerCase))
 	}
 	if object.Properties != nil {
 		propMap := object.Properties.(map[string]interface{})
@@ -79,7 +92,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 			switch val := propMap[propName].(type) {
 			case []string:
 				if len(val) > 0 {
-					lowerPropertyName := v.camelCaseToLower(propName)
+					propName = v.separateCamelCase(propName, toLowerCase)
 
 					for i := range val {
 						str := strings.ToLower(val[i])
@@ -87,20 +100,24 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 							titlePropertyValue = append(titlePropertyValue, str)
 						}
 						if isNameVectorizable {
-							str = fmt.Sprintf("%s %s", lowerPropertyName, str)
+							str = fmt.Sprintf("%s %s", propName, str)
 						}
 						corpi = append(corpi, str)
 					}
 				}
 			case string:
-				str := strings.ToLower(val)
+				if toLowerCase {
+					val = strings.ToLower(val)
+				}
+				propName = v.separateCamelCase(propName, toLowerCase)
+
 				if isTitleProperty {
-					titlePropertyValue = append(titlePropertyValue, str)
+					titlePropertyValue = append(titlePropertyValue, val)
 				}
 				if icheck.VectorizePropertyName(propName) {
-					str = fmt.Sprintf("%s %s", v.camelCaseToLower(propName), str)
+					val = fmt.Sprintf("%s %s", propName, val)
 				}
-				corpi = append(corpi, str)
+				corpi = append(corpi, val)
 			default:
 				// properties that are not part of the object
 			}
@@ -108,7 +125,7 @@ func (v *ObjectVectorizer) TextsWithTitleProperty(ctx context.Context, object *m
 	}
 	if len(corpi) == 0 {
 		// fall back to using the class name
-		corpi = append(corpi, v.camelCaseToLower(object.Class))
+		corpi = append(corpi, v.separateCamelCase(object.Class, toLowerCase))
 	}
 
 	return strings.Join(corpi, " "), strings.Join(titlePropertyValue, " ")

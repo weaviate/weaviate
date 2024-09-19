@@ -24,6 +24,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
@@ -696,7 +697,6 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	}
 
 	segments := [][]MapPair{}
-	// before := time.Now()
 	disk, err := b.disk.getCollectionBySegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
@@ -720,11 +720,6 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		segments = append(segments, segmentDecoded)
 	}
 
-	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
-
 	if b.flushing != nil {
 		v, err := b.flushing.getMap(key)
 		if err != nil && !errors.Is(err, lsmkv.NotFound) {
@@ -734,18 +729,11 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		segments = append(segments, v)
 	}
 
-	// before = time.Now()
 	v, err := b.active.getMap(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
 	segments = append(segments, v)
-	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
-
-	// before = time.Now()
-	// defer func() {
-	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
-	// }()
 
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
@@ -1111,4 +1099,80 @@ func (b *Bucket) WriteWAL() error {
 	defer b.flushLock.RUnlock()
 
 	return b.active.writeWAL()
+}
+
+func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
+
+	segments := [][]terms.DocPointerWithScore{}
+	disk, err := b.disk.getCollectionBySegments(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+
+	for i := range disk {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
+		for j, v := range disk[i] {
+			if err := segmentDecoded[j].FromBytes(v.value, propBoost); err != nil {
+				return nil, err
+			}
+		}
+		segments = append(segments, segmentDecoded)
+	}
+
+	if b.flushing != nil {
+		mem, err := b.flushing.getMap(key)
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
+		}
+		docPointers := make([]terms.DocPointerWithScore, len(mem))
+		for i, v := range mem {
+			if len(v.Value) < 8 {
+				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
+				continue
+			}
+
+			if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
+				return nil, err
+			}
+		}
+		segments = append(segments, docPointers)
+	}
+
+	mem, err := b.active.getMap(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+	docPointers := make([]terms.DocPointerWithScore, len(mem))
+	for i, v := range mem {
+		if len(v.Value) < 8 {
+			b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
+			continue
+		}
+		if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
+			return nil, err
+		}
+	}
+	segments = append(segments, docPointers)
+
+	if c.legacyRequireManualSorting {
+		// Sort to support segments which were stored in an unsorted fashion
+		for i := range segments {
+			sort.Slice(segments[i], func(a, b int) bool {
+				return segments[i][a].Id < segments[i][b].Id
+			})
+		}
+	}
+
+	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
