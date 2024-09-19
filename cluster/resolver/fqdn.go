@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/raft"
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
@@ -38,6 +39,7 @@ type fqdn struct {
 
 	nodesLock        sync.Mutex
 	notResolvedNodes map[raftImpl.ServerID]struct{}
+	raft             *raft.Raft
 }
 
 func NewFQDN(cfg FQDNConfig) *fqdn {
@@ -48,6 +50,10 @@ func NewFQDN(cfg FQDNConfig) *fqdn {
 		NodeNameToPortMap: cfg.NodeNameToPortMap,
 		notResolvedNodes:  make(map[raftImpl.ServerID]struct{}),
 	}
+}
+
+func (r *fqdn) SetRaft(raft *raft.Raft) {
+	r.raft = raft
 }
 
 // NodeAddress resolves a node id to an IP address, returns empty string if host is not found.
@@ -76,7 +82,10 @@ func (r *fqdn) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	defer r.nodesLock.Unlock()
 	if err != nil || len(addr) < 1 {
 		r.notResolvedNodes[id] = struct{}{}
-		return raftImpl.ServerAddress(invalidAddr), nil
+		if r.raft != nil {
+			r.raft.RemoveServer(raftImpl.ServerID(id), 0, 0)
+		}
+		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
 	delete(r.notResolvedNodes, id)
 

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hashicorp/raft"
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
@@ -29,7 +30,7 @@ const (
 	raftTcpTimeout = 10 * time.Second
 )
 
-type raft struct {
+type raftResolver struct {
 	// NodeToAddress allows the raft to also be used to resolve node-ids to ip addresses.
 	NodeToAddress
 
@@ -44,10 +45,12 @@ type raft struct {
 
 	nodesLock        sync.Mutex
 	notResolvedNodes map[raftImpl.ServerID]struct{}
+
+	raft *raft.Raft
 }
 
-func NewRaft(cfg RaftConfig) *raft {
-	return &raft{
+func NewRaft(cfg RaftConfig) *raftResolver {
+	return &raftResolver{
 		NodeToAddress:     cfg.NodeToAddress,
 		RaftPort:          cfg.RaftPort,
 		IsLocalCluster:    cfg.IsLocalHost,
@@ -56,8 +59,12 @@ func NewRaft(cfg RaftConfig) *raft {
 	}
 }
 
+func (a *raftResolver) SetRaft(raft *raft.Raft) {
+	a.raft = raft
+}
+
 // ServerAddr resolves server ID to a RAFT address
-func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) {
+func (a *raftResolver) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) {
 	// Get the address from the node id
 	addr := a.NodeToAddress.NodeAddress(string(id))
 
@@ -66,7 +73,10 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	defer a.nodesLock.Unlock()
 	if addr == "" {
 		a.notResolvedNodes[id] = struct{}{}
-		return raftImpl.ServerAddress(invalidAddr), nil
+		if a.raft != nil {
+			a.raft.RemoveServer(raftImpl.ServerID(id), 0, 0)
+		}
+		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
 	delete(a.notResolvedNodes, id)
 
@@ -81,7 +91,7 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
 // this resolver to resolve addresses based on server IDs.
 // This is particularly crucial as K8s assigns new IPs on each node restart.
-func (a *raft) NewTCPTransport(
+func (a *raftResolver) NewTCPTransport(
 	bindAddr string,
 	advertise net.Addr,
 	maxPool int,
@@ -97,6 +107,6 @@ func (a *raft) NewTCPTransport(
 	return raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
 }
 
-func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
+func (a *raftResolver) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
 	return a.notResolvedNodes
 }
