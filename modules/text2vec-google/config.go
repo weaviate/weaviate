@@ -9,13 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modpalm
+package modgoogle
 
 import (
 	"context"
 
 	"github.com/weaviate/weaviate/modules/qna-openai/config"
-	"github.com/weaviate/weaviate/modules/text2vec-palm/vectorizer"
+	"github.com/weaviate/weaviate/modules/text2vec-google/vectorizer"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -23,13 +23,13 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (m *PalmModule) ClassConfigDefaults() map[string]interface{} {
+func (m *GoogleModule) ClassConfigDefaults() map[string]interface{} {
 	return map[string]interface{}{
 		"vectorizeClassName": vectorizer.DefaultVectorizeClassName,
 	}
 }
 
-func (m *PalmModule) PropertyConfigDefaults(
+func (m *GoogleModule) PropertyConfigDefaults(
 	dt *schema.DataType,
 ) map[string]interface{} {
 	return map[string]interface{}{
@@ -38,7 +38,7 @@ func (m *PalmModule) PropertyConfigDefaults(
 	}
 }
 
-func (m *PalmModule) ValidateClass(ctx context.Context,
+func (m *GoogleModule) ValidateClass(ctx context.Context,
 	class *models.Class, cfg moduletools.ClassConfig,
 ) error {
 	settings := config.NewClassSettings(cfg)
