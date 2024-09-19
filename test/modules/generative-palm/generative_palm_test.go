@@ -47,22 +47,27 @@ func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 		tests := []struct {
 			name            string
 			generativeModel string
+			presencePenalty *float64
 		}{
 			{
 				name:            "chat-bison",
 				generativeModel: "chat-bison",
+				presencePenalty: grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "chat-bison-32k",
 				generativeModel: "chat-bison-32k",
+				presencePenalty: grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "chat-bison@002",
 				generativeModel: "chat-bison@002",
+				presencePenalty: grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "chat-bison-32k@002",
 				generativeModel: "chat-bison-32k@002",
+				presencePenalty: grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "chat-bison@001",
@@ -71,14 +76,17 @@ func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 			{
 				name:            "gemini-1.5-pro-preview-0514",
 				generativeModel: "gemini-1.5-pro-preview-0514",
+				presencePenalty: grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "gemini-1.5-pro-preview-0409",
 				generativeModel: "gemini-1.5-pro-preview-0409",
+				presencePenalty: grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "gemini-1.5-flash-preview-0514",
 				generativeModel: "gemini-1.5-flash-preview-0514",
+				presencePenalty: grpchelper.ToPtr(0.5),
 			},
 			{
 				name:            "gemini-1.0-pro-002",
@@ -139,7 +147,7 @@ func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 							TopK:             grpchelper.ToPtr(int64(40)),
 							TopP:             grpchelper.ToPtr(0.1),
 							FrequencyPenalty: grpchelper.ToPtr(0.5),
-							PresencePenalty:  grpchelper.ToPtr(0.5),
+							PresencePenalty:  tt.presencePenalty,
 						},
 					}
 					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
