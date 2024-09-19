@@ -470,8 +470,8 @@ func (q *IndexQueue) pushToWorkers(max int, wait bool) int64 {
 			}
 		}
 
-		if len(ids) == 0 {
-			q.Logger.Debug("all vectors in the chunk are deleted. skipping")
+		if len(ids) == 0 && len(deleted) == 0 {
+			q.Logger.Debug("no operations to dequeue. skipping chunk")
 			continue
 		}
 

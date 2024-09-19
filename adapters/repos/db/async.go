@@ -71,9 +71,13 @@ func (a *AsyncWorker) do(job job) (stop bool) {
 		}
 	}
 
-	return a.withRetry(job.ctx, func() error {
-		return job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
-	})
+	if len(job.ids) > 0 {
+		return a.withRetry(job.ctx, func() error {
+			return job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
+		})
+	}
+
+	return false
 }
 
 func (a *AsyncWorker) withRetry(ctx context.Context, fn func() error) bool {

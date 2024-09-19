@@ -24,7 +24,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -355,18 +354,21 @@ func TestIndexQueue(t *testing.T) {
 		var count int32
 		indexingDone := make(chan struct{})
 		idx.addBatchFn = func(ids []uint64, vector [][]float32) error {
-			if atomic.AddInt32(&count, int32(len(ids))) == 17 {
+			if atomic.AddInt32(&count, int32(len(ids))) == 20 {
 				close(indexingDone)
 			}
-
 			return nil
 		}
 
 		var deletedCount int32
-		deletedDone := make(chan struct{})
+		firstDelete := make(chan struct{})
+		secondDelete := make(chan struct{})
 		idx.deleteFn = func(ids ...uint64) error {
-			if atomic.AddInt32(&deletedCount, int32(len(ids))) == 3 {
-				close(deletedDone)
+			count := atomic.AddInt32(&deletedCount, int32(len(ids)))
+			if count == 4 {
+				close(firstDelete)
+			} else if count == 8 {
+				close(secondDelete)
 			}
 			return nil
 		}
@@ -382,46 +384,30 @@ func TestIndexQueue(t *testing.T) {
 			pushVector(t, ctx, q, i, []float32{1, 2, 3})
 		}
 
-		err = q.Delete(5, 10, 15)
+		err = q.Delete(5, 10, 11, 15)
 		require.NoError(t, err)
 
 		<-indexingDone
-
-		// check what has been indexed
-		require.Equal(t, []uint64{0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
-
-		// the "deleted" mask should be empty
-		q.queue.deleted.Lock()
-		assert.Empty(t, q.queue.deleted.m)
-		q.queue.deleted.Unlock()
-
-		// now delete something that's already indexed
-		err = q.Delete(0, 4, 8)
-		require.NoError(t, err)
-
-		<-deletedDone
-
-		// the "deleted" mask should now be empty again
-		q.queue.deleted.Lock()
-		assert.Empty(t, q.queue.deleted.m)
-		q.queue.deleted.Unlock()
+		<-firstDelete
 
 		// check what's in the index
-		require.Equal(t, []uint64{1, 2, 3, 6, 7, 9, 11, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
+		require.Equal(t, []uint64{0, 1, 2, 3, 4, 6, 7, 8, 9, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
+
+		// delete again
+		err = q.Delete(0, 4, 8, 13)
+		require.NoError(t, err)
+
+		<-secondDelete
+
+		// check what's in the index
+		require.Equal(t, []uint64{1, 2, 3, 6, 7, 9, 12, 14, 16, 17, 18, 19}, idx.IDs())
 
 		// delete something that's not indexed yet
 		err = q.Delete(20, 21, 22)
 		require.NoError(t, err)
 
-		// the "deleted" mask should contain the deleted ids
-		q.queue.deleted.Lock()
-		var ids []int
-		for id := range q.queue.deleted.m {
-			ids = append(ids, int(id))
-		}
-		q.queue.deleted.Unlock()
-		sort.Ints(ids)
-		require.Equal(t, []int{20, 21, 22}, ids)
+		// check what's in the index
+		require.Equal(t, []uint64{1, 2, 3, 6, 7, 9, 12, 14, 16, 17, 18, 19}, idx.IDs())
 	})
 
 	t.Run("brute force upper limit", func(t *testing.T) {
