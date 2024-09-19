@@ -133,13 +133,13 @@ func testGenerativePaLM(rest, grpc, gcpProject string) func(t *testing.T) {
 				t.Run("create a tweet with params using grpc", func(t *testing.T) {
 					params := &pb.GenerativeProvider_Google{
 						Google: &pb.GenerativeGoogle{
-							MaxTokens:        grpchelper.ToPtr(int64(90)),
+							MaxTokens:        grpchelper.ToPtr(int64(256)),
 							Model:            grpchelper.ToPtr(tt.generativeModel),
-							Temperature:      grpchelper.ToPtr(0.9),
-							TopK:             grpchelper.ToPtr(int64(90)),
-							TopP:             grpchelper.ToPtr(0.9),
-							FrequencyPenalty: grpchelper.ToPtr(0.9),
-							PresencePenalty:  grpchelper.ToPtr(0.9),
+							Temperature:      grpchelper.ToPtr(0.5),
+							TopK:             grpchelper.ToPtr(int64(40)),
+							TopP:             grpchelper.ToPtr(0.1),
+							FrequencyPenalty: grpchelper.ToPtr(0.5),
+							PresencePenalty:  grpchelper.ToPtr(0.5),
 						},
 					}
 					planets.CreateTweetTestWithParamsGRPC(t, class.Class, &pb.GenerativeProvider{ReturnMetadata: true, Kind: params})
