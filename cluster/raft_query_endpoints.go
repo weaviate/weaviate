@@ -284,9 +284,10 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		))
 	defer t.ObserveDuration()
 
-	var err error
 	resp := &cmd.QueryResponse{}
-	backoff.Retry(func() error {
+	err := backoff.Retry(func() error {
+		var err error
+
 		if s.store.IsLeader() {
 			resp, err = s.store.Query(req)
 			return err
@@ -294,9 +295,9 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 
 		leader := s.store.Leader()
 		if leader == "" {
-			lErr := s.leaderErr()
-			s.log.Warnf("query: could not find leader: %s", lErr)
-			return lErr
+			err = s.leaderErr()
+			s.log.Warnf("query: could not find leader: %s", err)
+			return err
 		}
 
 		resp, err = s.cl.Query(ctx, leader, req)
