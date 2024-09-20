@@ -28,8 +28,8 @@ type BackupsCreateStatusURL struct {
 	Backend string
 	ID      string
 
-	Bucket *string
-	Path   *string
+	S3bucket *string
+	S3path   *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -79,20 +79,20 @@ func (o *BackupsCreateStatusURL) Build() (*url.URL, error) {
 
 	qs := make(url.Values)
 
-	var bucketQ string
-	if o.Bucket != nil {
-		bucketQ = *o.Bucket
+	var s3bucketQ string
+	if o.S3bucket != nil {
+		s3bucketQ = *o.S3bucket
 	}
-	if bucketQ != "" {
-		qs.Set("bucket", bucketQ)
+	if s3bucketQ != "" {
+		qs.Set("s3bucket", s3bucketQ)
 	}
 
-	var pathQ string
-	if o.Path != nil {
-		pathQ = *o.Path
+	var s3pathQ string
+	if o.S3path != nil {
+		s3pathQ = *o.S3path
 	}
-	if pathQ != "" {
-		qs.Set("path", pathQ)
+	if s3pathQ != "" {
+		qs.Set("s3path", s3pathQ)
 	}
 
 	_result.RawQuery = qs.Encode()

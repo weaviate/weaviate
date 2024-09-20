@@ -47,13 +47,15 @@ func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, backe
 
 // Backup is called by the User
 func (b *backupper) Backup(ctx context.Context,
-	store nodeStore, id string, classes []string,
+	store nodeStore, id string, classes []string, bucketName, bucketPath string,
 ) (*backup.CreateMeta, error) {
 	// make sure there is no active backup
 	req := Request{
-		Method:  OpCreate,
-		ID:      id,
-		Classes: classes,
+		Method:   OpCreate,
+		ID:       id,
+		Classes:  classes,
+		S3Bucket: bucketName,
+		S3Path:   bucketPath,
 	}
 	if _, err := b.backup(store, &req); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -167,7 +169,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		defer close(done)
 
 		logFields := logrus.Fields{"action": "create_backup", "backup_id": req.ID}
-		if err := provider.all(ctx, req.Classes, &result); err != nil {
+		if err := provider.all(ctx, req.Classes, &result, req.S3Bucket, req.S3Path); err != nil {
 			b.logger.WithFields(logFields).Error(err)
 			b.lastAsyncError = err
 

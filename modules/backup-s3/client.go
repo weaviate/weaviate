@@ -104,7 +104,6 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key string) ([]byte,
 	return contents, nil
 }
 
-
 func (s *s3Client) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
 	//FIXME handle bucketPath, bucket
 	objectName := s.makeObjectName(backupID, key)
@@ -172,7 +171,6 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, bucketName, bucketP
 		bucket = bucketName
 	}
 
-
 	info, err := s.client.PutObject(ctx, bucket, path, r, -1, opt)
 	if err != nil {
 		return info.Size, fmt.Errorf("write object %q", path)
@@ -187,13 +185,12 @@ func (s *s3Client) Write(ctx context.Context, backupID, key, bucketName, bucketP
 
 func (s *s3Client) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
-	path := s.makeObjectName(backupID,bucketPath, key)
+	path := s.makeObjectName(backupID, bucketPath, key)
 
 	bucket := s.config.Bucket
 	if bucketName != "" {
 		bucket = bucketName
 	}
-
 
 	obj, err := s.client.GetObject(ctx, bucket, path, minio.GetObjectOptions{})
 	if err != nil {

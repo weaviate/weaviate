@@ -163,7 +163,7 @@ func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath 
 	return args.Error(0)
 }
 
-func (fb *fakeBackend) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (fb *fakeBackend) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	fb.Lock()
 	defer fb.Unlock()
 	defer w.Close()
@@ -179,7 +179,7 @@ func (fb *fakeBackend) Read(ctx context.Context, backupID, key string, w io.Writ
 	return 0, args.Error(1)
 }
 
-func (fb *fakeBackend) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (fb *fakeBackend) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	fb.Lock()
 	defer fb.Unlock()
 	defer r.Close()

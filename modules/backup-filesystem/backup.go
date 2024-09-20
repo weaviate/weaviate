@@ -59,7 +59,6 @@ func (m *Module) getObjectPath(ctx context.Context, backupID, key string) (strin
 	return metaPath, nil
 }
 
-
 func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	source, err := os.Open(sourcePath)
 	defer func() error {

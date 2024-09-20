@@ -292,14 +292,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The name of the bucket",
-            "name": "bucket",
+            "description": "The name of the S3 bucket",
+            "name": "s3bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the bucket",
-            "name": "path",
+            "description": "The path within the S3 bucket",
+            "name": "s3path",
             "in": "query"
           }
         ],
@@ -3316,10 +3316,6 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
-        "bucket": {
-          "description": "Name of the S3 bucket",
-          "type": "string"
-        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -3335,8 +3331,12 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
+        "s3bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "s3path": {
+          "description": "destination path of backup files proper to selected bucket",
           "type": "string"
         },
         "status": {
@@ -5789,14 +5789,14 @@ func init() {
           },
           {
             "type": "string",
-            "description": "The name of the bucket",
-            "name": "bucket",
+            "description": "The name of the S3 bucket",
+            "name": "s3bucket",
             "in": "query"
           },
           {
             "type": "string",
-            "description": "The path within the bucket",
-            "name": "path",
+            "description": "The path within the S3 bucket",
+            "name": "s3path",
             "in": "query"
           }
         ],
@@ -8935,10 +8935,6 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
-        "bucket": {
-          "description": "Name of the S3 bucket",
-          "type": "string"
-        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -8954,8 +8950,12 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
+        "s3bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "s3path": {
+          "description": "destination path of backup files proper to selected bucket",
           "type": "string"
         },
         "status": {

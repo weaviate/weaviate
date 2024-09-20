@@ -133,7 +133,6 @@ func (a *azureClient) GetObject(ctx context.Context, backupID, key string) ([]by
 	return downloadData, nil
 }
 
-
 func (a *azureClient) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, data []byte) error {
 	objectName := a.makeObjectName(backupID, key)
 
@@ -192,7 +191,7 @@ func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath s
 	return nil
 }
 
-func (a *azureClient) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (written int64, err error) {
+func (a *azureClient) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (written int64, err error) {
 	path := a.makeObjectName(backupID, key)
 	reader := &reader{src: r}
 	defer func() {
@@ -214,7 +213,7 @@ func (a *azureClient) Write(ctx context.Context, backupID, key string, r io.Read
 	return
 }
 
-func (a *azureClient) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (a *azureClient) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
 	path := a.makeObjectName(backupID, key)

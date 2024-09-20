@@ -86,7 +86,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = fs.PutObject(testCtx, backupID, metadataFilename, "","", b)
+			err = fs.PutObject(testCtx, backupID, metadataFilename, "", "", b)
 			require.Nil(t, err)
 
 			dest := fs.HomeDir(backupID)
@@ -158,8 +158,6 @@ func moduleLevelCopyFiles(t *testing.T) {
 		t.Run("verify source data path", func(t *testing.T) {
 			assert.Equal(t, dataDir, fs.SourceDataPath())
 		})
-
-
 
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"

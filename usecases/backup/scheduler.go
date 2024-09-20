@@ -99,6 +99,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Backend:     req.Backend,
 		Classes:     classes,
 		Compression: req.Compression,
+		S3Bucket:    req.S3Bucket,
+		S3Path:      req.S3Path,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)

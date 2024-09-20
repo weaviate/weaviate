@@ -36,7 +36,11 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	if err := store.Initialize(ctx); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
-	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes); err != nil {
+
+	bucketName := req.S3Bucket
+	bucketPath := req.S3Path
+
+	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes, bucketName, bucketPath); err != nil {
 		return nil, err
 	} else {
 		status := string(meta.Status)
@@ -151,6 +155,8 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 			Classes:  []string{"class1"},
 			Backend:  "s3",
 			Duration: time.Millisecond * 20,
+			S3Bucket: "bucket", // FIXME
+			S3Path:   "path",   // FIXME
 		}
 		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, "unknown backup operation")

@@ -145,6 +145,12 @@ type BackupRequest struct {
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty
 	NodeMapping map[string]string
+
+	// S3 bucket
+	S3Bucket string
+
+	// S3 Path
+	S3Path string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate
@@ -191,7 +197,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = err.Error()
 			return ret
 		}
-		res, err := m.restorer.restore(req, meta, store)
+		res, err := m.restorer.restore(req, meta, store, bucketName, bucketPath)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret

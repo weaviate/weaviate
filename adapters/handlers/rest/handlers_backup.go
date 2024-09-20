@@ -94,11 +94,13 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.Body.ID,
 		Backend:     params.Backend,
-		Bucket:      params.Body.Config.Bucket,
-		Path:        params.Body.Config.Path,
+		Bucket:      params.Body.Config.S3Bucket,
+		Path:        params.Body.Config.S3Path,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 		Compression: compressionFromBCfg(params.Body.Config),
+		S3Bucket:    params.Body.Config.S3Bucket,
+		S3Path:      params.Body.Config.S3Path,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

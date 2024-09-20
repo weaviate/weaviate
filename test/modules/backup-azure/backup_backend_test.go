@@ -201,8 +201,6 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, dataDir, azure.SourceDataPath())
 		})
 
-
-
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 

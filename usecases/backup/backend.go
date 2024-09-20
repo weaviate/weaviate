@@ -83,12 +83,12 @@ func (s *objStore) SourceDataPath() string {
 	return s.b.SourceDataPath()
 }
 
-func (s *objStore) Write(ctx context.Context, key string, r io.ReadCloser) (int64, error) {
-	return s.b.Write(ctx, s.BasePath, key, r)
+func (s *objStore) Write(ctx context.Context, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
+	return s.b.Write(ctx, s.BasePath, key, bucketName, bucketPath, r)
 }
 
-func (s *objStore) Read(ctx context.Context, key string, w io.WriteCloser) (int64, error) {
-	return s.b.Read(ctx, s.BasePath, key, w)
+func (s *objStore) Read(ctx context.Context, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
+	return s.b.Read(ctx, s.BasePath, key, bucketName, bucketPath, w)
 }
 
 func (s *objStore) Initialize(ctx context.Context) error {
@@ -96,14 +96,14 @@ func (s *objStore) Initialize(ctx context.Context) error {
 }
 
 // meta marshals and uploads metadata
-func (s *objStore) putMeta(ctx context.Context, key string, desc interface{}) error {
+func (s *objStore) putMeta(ctx context.Context, key, bucketName, bucketPath string, desc interface{}) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
 		return fmt.Errorf("marshal meta file %q: %w", key, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.b.PutObject(ctx, s.BasePath, key, "", "", bytes); err != nil {
+	if err := s.b.PutObject(ctx, s.BasePath, key, bucketName, bucketPath, bytes); err != nil {
 		return fmt.Errorf("upload meta file %q: %w", key, err)
 	}
 	return nil
@@ -145,8 +145,8 @@ func (s *nodeStore) Meta(ctx context.Context, backupID string, adjustBasePath bo
 }
 
 // meta marshals and uploads metadata
-func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor) error {
-	return s.putMeta(ctx, BackupFile, desc)
+func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor, bucketName, bucketPath string) error {
+	return s.putMeta(ctx, BackupFile, bucketName, bucketPath, desc)
 }
 
 type coordStore struct {
@@ -154,8 +154,8 @@ type coordStore struct {
 }
 
 // PutMeta puts coordinator's global metadata into object store
-func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.DistributedBackupDescriptor) error {
-	return s.putMeta(ctx, filename, desc)
+func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.DistributedBackupDescriptor, bucketName, bucketPath string) error {
+	return s.putMeta(ctx, filename, bucketName, bucketPath, desc)
 }
 
 // Meta gets coordinator's global metadata from object store
@@ -203,7 +203,7 @@ func (u *uploader) withCompression(cfg zipConfig) *uploader {
 }
 
 // all uploads all files in addition to the metadata file
-func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor) (err error) {
+func (u *uploader) all(ctx context.Context, classes []string, desc *backup.BackupDescriptor, bucketName, bucketPath string) (err error) {
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
@@ -216,10 +216,10 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 				u.setStatus(backup.Cancelled)
 				desc.Status = string(backup.Cancelled)
 			}
-			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc))
+			err = fmt.Errorf("upload %w: %v", err, u.backend.PutMeta(ctx, desc, bucketName, bucketPath))
 		} else {
 			u.log.Info("start uploading meta data")
-			if err = u.backend.PutMeta(ctx, desc); err != nil {
+			if err = u.backend.PutMeta(ctx, desc, bucketName, bucketPath); err != nil {
 				desc.Status = string(backup.Transferred)
 			}
 			u.setStatus(backup.Success)
@@ -237,7 +237,7 @@ Loop:
 				return cdesc.Error
 			}
 			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			if err := u.class(ctx, desc.ID, &cdesc); err != nil {
+			if err := u.class(ctx, desc.ID, &cdesc, bucketName, bucketPath); err != nil {
 				return err
 			}
 			desc.Classes = append(desc.Classes, cdesc)
@@ -269,7 +269,7 @@ Loop:
 }
 
 // class uploads one class
-func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor) (err error) {
+func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, bucketName, bucketPath string) (err error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
@@ -354,7 +354,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 							return err
 						}
 						chunk := atomic.AddInt32(&lastChunk, 1)
-						shards, err := u.compress(ctx, desc.Name, chunk, sender)
+						shards, err := u.compress(ctx, desc.Name, chunk, sender, bucketName, bucketPath)
 						if err != nil {
 							return err
 						}
@@ -386,6 +386,7 @@ func (u *uploader) compress(ctx context.Context,
 	class string, // class name
 	chunk int32, // chunk index
 	ch <-chan *backup.ShardDescriptor, // chan of shards
+	bucketName, bucketPath string, // bucket name and path
 ) ([]string, error) {
 	var (
 		chunkKey = chunkKey(class, chunk)
@@ -419,7 +420,7 @@ func (u *uploader) compress(ctx context.Context,
 	// consumer
 	eg := enterrors.NewErrorGroupWrapper(u.log)
 	eg.Go(func() error {
-		if _, err := u.backend.Write(ctx, chunkKey, reader); err != nil {
+		if _, err := u.backend.Write(ctx, chunkKey, bucketName, bucketPath, reader); err != nil {
 			return err
 		}
 		return nil
@@ -469,13 +470,13 @@ func (fw *fileWriter) WithPoolPercentage(p int) *fileWriter {
 func (fw *fileWriter) setMigrator(m func(classPath string) error) { fw.migrator = m }
 
 // Write downloads files and put them in the destination directory
-func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (err error) {
+func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor, bucketName, bucketPath string) (err error) {
 	if len(desc.Shards) == 0 { // nothing to copy
 		return nil
 	}
 	classTempDir := path.Join(fw.tempDir, desc.Name)
 
-	if err := fw.writeTempFiles(ctx, classTempDir, desc); err != nil {
+	if err := fw.writeTempFiles(ctx, classTempDir, bucketName, bucketPath, desc); err != nil {
 		return fmt.Errorf("get files: %w", err)
 	}
 
@@ -491,7 +492,7 @@ func (fw *fileWriter) Write(ctx context.Context, desc *backup.ClassDescriptor) (
 // writeTempFiles writes class files into a temporary directory
 // temporary directory path = d.tempDir/className
 // Function makes sure that created files will be removed in case of an error
-func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, desc *backup.ClassDescriptor) (err error) {
+func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, bucketName, bucketPath string, desc *backup.ClassDescriptor) (err error) {
 	if err := os.RemoveAll(classTempDir); err != nil {
 		return fmt.Errorf("remove %s: %w", classTempDir, err)
 	}
@@ -520,7 +521,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir string, d
 		eg.Go(func() error {
 			uz, w := NewUnzip(classTempDir)
 			enterrors.GoWrapper(func() {
-				fw.backend.Read(ctx, chunk, w)
+				fw.backend.Read(ctx, chunk, bucketName, bucketPath, w)
 			}, fw.logger)
 			_, err := uz.ReadChunk()
 			return err

@@ -40,6 +40,6 @@ type BackupBackend interface {
 	// Initialize initializes backup provider and make sure that app have access rights to write into the object store.
 	Initialize(ctx context.Context, backupID string) error
 
-	Write(ctx context.Context, backupID, key, bucket, path, bucketName, bucketPath string, r io.ReadCloser) (int64, error)
-	Read(ctx context.Context, backupID, key, bucket, path, bucketName, bucketPath string, w io.WriteCloser) (int64, error)
+	Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error)
+	Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error)
 }

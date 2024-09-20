@@ -70,7 +70,7 @@ func TestCompressionBackupCfg(t *testing.T) {
 		},
 		"with partial config [Bucket]": {
 			cfg: &models.BackupConfig{
-				Bucket: "a bucket name",
+				S3Bucket: "a bucket name",
 			},
 			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
@@ -79,7 +79,7 @@ func TestCompressionBackupCfg(t *testing.T) {
 		},
 		"with partial config [Path]": {
 			cfg: &models.BackupConfig{
-				Path: "a path",
+				S3Path: "a path",
 			},
 			expectedCompression: ubak.DefaultCompression,
 			expectedCPU:         ubak.DefaultCPUPercentage,
