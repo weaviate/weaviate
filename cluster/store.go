@@ -179,13 +179,15 @@ type Store struct {
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	stateSetRaft func(raft *raft.Raft)
 }
 
-func NewFSM(cfg Config) Store {
+func NewFSM(cfg Config, stateSetRaft func(raft *raft.Raft)) Store {
 	// We have different resolver in raft so that depending on the environment we can resolve a node-id to an IP using
 	// different methods.
 	var raftResolver types.RaftResolver
-	raftResolver = resolver.NewRaft(resolver.RaftConfig{
+	raftResolver = resolver.NewRaftResolver(resolver.RaftConfig{
 		NodeToAddress:     cfg.NodeToAddressResolver,
 		RaftPort:          cfg.RaftPort,
 		IsLocalHost:       cfg.IsLocalHost,
@@ -207,6 +209,7 @@ func NewFSM(cfg Config) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, cfg.Logger),
+		stateSetRaft:  stateSetRaft,
 	}
 }
 
@@ -256,7 +259,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
-	st.raftResolver.SetRaft(st.raft)
+	st.stateSetRaft(st.raft)
 
 	if st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2) {
 		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {

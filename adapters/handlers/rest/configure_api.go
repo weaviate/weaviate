@@ -324,6 +324,15 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
+	appState.Cluster.SetDBShutdown(func(ctx context.Context) error {
+		if err := appState.ClusterService.Close(ctx); err != nil {
+			return err
+		}
+		if err := appState.DB.Shutdown(ctx); err != nil {
+			return err
+		}
+		return nil
+	})
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
@@ -732,7 +741,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
 		nonStorageNodes = parseVotersNames(cfg)
 	}
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, nonStorageNodes, logger, appState.DB.Shutdown)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")

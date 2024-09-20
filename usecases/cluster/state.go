@@ -12,12 +12,14 @@
 package cluster
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strings"
 	"sync"
 
 	"github.com/hashicorp/memberlist"
+	"github.com/hashicorp/raft"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -37,15 +39,18 @@ type NodeSelector interface {
 	LocalName() string
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
+
+	SetRaft(raft *raft.Raft)
 }
 
 type State struct {
 	config Config
 	// that lock to serialize access to memberlist
-	listLock        sync.RWMutex
-	list            *memberlist.Memberlist
-	nonStorageNodes map[string]struct{}
-	delegate        delegate
+	listLock         sync.RWMutex
+	list             *memberlist.Memberlist
+	nonStorageNodes  map[string]struct{}
+	delegate         delegate
+	conflictDelegate conflictDelegate
 }
 
 type Config struct {
@@ -78,7 +83,7 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger, shutdown func(context.Context) error) (_ *State, err error) {
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
@@ -90,6 +95,7 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 			dataPath: dataPath,
 			log:      logger,
 		},
+		conflictDelegate: conflictDelegate{localID: cfg.Name, logger: logger, shutdown: shutdown},
 	}
 	if err := state.delegate.init(diskSpace); err != nil {
 		logger.WithField("action", "init_state.delete_init").WithError(err).
@@ -97,6 +103,7 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 	}
 	cfg.Delegate = &state.delegate
 	cfg.Events = events{&state.delegate}
+	cfg.Conflict = &state.conflictDelegate
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
@@ -147,6 +154,14 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 		}
 	}
 	return &state, nil
+}
+
+func (s *State) SetRaft(raft *raft.Raft) {
+	s.conflictDelegate.SetRaft(raft)
+}
+
+func (s *State) SetDBShutdown(shutdown func(context.Context) error) {
+	s.conflictDelegate.SetDBShutdown(shutdown)
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include

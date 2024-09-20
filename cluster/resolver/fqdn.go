@@ -52,10 +52,6 @@ func NewFQDN(cfg FQDNConfig) *fqdn {
 	}
 }
 
-func (r *fqdn) SetRaft(raft *raft.Raft) {
-	r.raft = raft
-}
-
 // NodeAddress resolves a node id to an IP address, returns empty string if host is not found.
 // This is useful to implement as it is the same interface implemented by cluster state to do memberlist based lookups
 func (r *fqdn) NodeAddress(id string) string {
@@ -82,9 +78,6 @@ func (r *fqdn) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	defer r.nodesLock.Unlock()
 	if err != nil || len(addr) < 1 {
 		r.notResolvedNodes[id] = struct{}{}
-		if r.raft != nil {
-			r.raft.RemoveServer(raftImpl.ServerID(id), 0, 0)
-		}
 		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
 	delete(r.notResolvedNodes, id)
