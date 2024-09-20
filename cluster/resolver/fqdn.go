@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/raft"
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
@@ -39,7 +38,6 @@ type fqdn struct {
 
 	nodesLock        sync.Mutex
 	notResolvedNodes map[raftImpl.ServerID]struct{}
-	raft             *raft.Raft
 }
 
 func NewFQDN(cfg FQDNConfig) *fqdn {
