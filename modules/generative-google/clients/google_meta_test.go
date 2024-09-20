@@ -57,7 +57,7 @@ func (f *testMetaHandler) metaInfo() string {
 	return `{
   "hostname": "http://127.0.0.1:8080",
   "modules": {
-    "generative-palm": {
+    "generative-google": {
       "documentationHref": "to be announced",
       "name": "Google Generative Module"
     }

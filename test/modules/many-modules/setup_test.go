@@ -89,7 +89,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithText2VecAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
 		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
-		WithGenerativePaLM(os.Getenv("GOOGLE_APIKEY")).
+		WithGenerativeGoogle(os.Getenv("GOOGLE_APIKEY")).
 		WithGenerativeAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeAnyscale().
 		WithGenerativeAnthropic(os.Getenv("ANTHROPIC_APIKEY")).

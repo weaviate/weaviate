@@ -52,7 +52,7 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(handler)
 		defer server.Close()
 
-		c := &palm{
+		c := &google{
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
@@ -77,14 +77,14 @@ func TestGetAnswer(t *testing.T) {
 		server := httptest.NewServer(&testAnswerHandler{
 			t: t,
 			answer: generateResponse{
-				Error: &palmApiError{
+				Error: &googleApiError{
 					Message: "some error from the server",
 				},
 			},
 		})
 		defer server.Close()
 
-		c := &palm{
+		c := &google{
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),

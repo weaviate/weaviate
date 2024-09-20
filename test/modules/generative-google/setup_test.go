@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package generative_palm_tests
+package tests
 
 import (
 	"context"
@@ -20,17 +20,17 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func TestGenerativePaLM_VertexAI_SingleNode(t *testing.T) {
+func TestGenerativeGoogle_VertexAI_SingleNode(t *testing.T) {
 	gcpProject := os.Getenv("GCP_PROJECT")
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")
 	}
-	palmApiKey := os.Getenv("PALM_APIKEY")
-	if palmApiKey == "" {
-		t.Skip("skipping, PALM_APIKEY environment variable not present")
+	googleApiKey := os.Getenv("GOOGLE_APIKEY")
+	if googleApiKey == "" {
+		t.Skip("skipping, GOOGLE_APIKEY environment variable not present")
 	}
 	ctx := context.Background()
-	compose, err := createSingleNodeEnvironment(ctx, palmApiKey)
+	compose, err := createSingleNodeEnvironment(ctx, googleApiKey)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
@@ -38,21 +38,22 @@ func TestGenerativePaLM_VertexAI_SingleNode(t *testing.T) {
 	endpointREST := compose.GetWeaviate().URI()
 	endpointGRPC := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testGenerativePaLM(endpointREST, endpointGRPC, gcpProject))
+	t.Run("generative-google", testGenerativeGoogle(endpointREST, endpointGRPC, gcpProject, "generative-google"))
+	t.Run("generative-palm", testGenerativeGoogle(endpointREST, endpointGRPC, gcpProject, "generative-palm"))
 }
 
-func createSingleNodeEnvironment(ctx context.Context, palmApiKey string,
+func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
 ) (compose *docker.DockerCompose, err error) {
-	compose, err = composeModules(palmApiKey).
+	compose, err = composeModules(googleApiKey).
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return
 }
 
-func composeModules(palmApiKey string) (composeModules *docker.Compose) {
+func composeModules(googleApiKey string) (composeModules *docker.Compose) {
 	composeModules = docker.New().
-		WithText2VecGoogle(palmApiKey).
-		WithGenerativePaLM(palmApiKey)
+		WithText2VecGoogle(googleApiKey).
+		WithGenerativeGoogle(googleApiKey)
 	return
 }

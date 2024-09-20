@@ -19,11 +19,11 @@ import (
 	anyscaleParams "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	awsParams "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohereParams "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	googleParams "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistralParams "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 	octoaiParams "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 	ollamaParams "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openaiParams "github.com/weaviate/weaviate/modules/generative-openai/parameters"
-	googleParams "github.com/weaviate/weaviate/modules/generative-palm/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 
