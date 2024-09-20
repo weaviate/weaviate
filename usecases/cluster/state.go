@@ -39,7 +39,8 @@ type NodeSelector interface {
 	LocalName() string
 	// NodeHostname return hosts address for a specific node name
 	NodeHostname(name string) (string, bool)
-
+	// SetRaft add raft to the node selector to be able to add/remove nodes
+	// when nodes ip conflict happens.
 	SetRaft(raft *raft.Raft)
 }
 
