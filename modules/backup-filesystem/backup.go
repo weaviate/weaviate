@@ -59,22 +59,6 @@ func (m *Module) getObjectPath(ctx context.Context, backupID, key string) (strin
 	return metaPath, nil
 }
 
-func (m *Module) PutFile(ctx context.Context, backupID, key, srcPath, bucket, bucketPath string) error {
-	sourcePath := path.Join(m.dataPath, srcPath)
-	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
-
-	bytesWritten, err := m.copyFile(sourcePath, backupPath)
-	if err != nil {
-		return err
-	}
-
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
-	if err == nil {
-		metric.Add(float64(bytesWritten))
-	}
-
-	return nil
-}
 
 func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	source, err := os.Open(sourcePath)

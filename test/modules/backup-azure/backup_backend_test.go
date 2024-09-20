@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -202,15 +201,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, dataDir, azure.SourceDataPath())
 		})
 
-		t.Run("copy file to backend", func(t *testing.T) {
-			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := azure.PutFile(testCtx, backupID, key, srcPath, "", "") // FIXME?
-			require.Nil(t, err)
 
-			contents, err := azure.GetObject(testCtx, backupID, key)
-			require.Nil(t, err)
-			assert.Equal(t, expectedContents, contents)
-		})
 
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"

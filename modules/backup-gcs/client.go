@@ -144,50 +144,6 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key string) ([]byte
 	return contents, nil
 }
 
-// PutFile creates an object with contents from file at filePath.
-func (g *gcsClient) PutFile(ctx context.Context, backupID, key, srcPath, bucketName, bucketPath string) error {
-	bucket, err := g.findBucket(ctx)
-	if err != nil {
-		return fmt.Errorf("find bucket: %w", err)
-	}
-
-	// open source file
-	filePath := path.Join(g.dataPath, srcPath)
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("os.open %q: %w", filePath, err)
-	}
-	defer file.Close()
-
-	// create a new writer
-	object := g.makeObjectName(backupID, key)
-	writer := bucket.Object(object).NewWriter(ctx)
-	writer.ContentType = "application/octet-stream"
-	writer.Metadata = map[string]string{"backup-id": backupID}
-
-	// if we return early make sure writer is closed
-	closeWriter := true
-	defer func() {
-		if closeWriter {
-			writer.Close()
-		}
-	}()
-
-	nBytes, err := io.Copy(writer, file)
-	if err != nil {
-		return fmt.Errorf("io.copy %q %q: %w", object, filePath, err)
-	}
-	closeWriter = false
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("writer.close %q: %w", filePath, err)
-	}
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
-	if err == nil {
-		metric.Add(float64(nBytes))
-	}
-	return nil
-}
-
 func (g *gcsClient) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {

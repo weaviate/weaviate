@@ -35,8 +35,6 @@ type BackupBackend interface {
 	// SourceDataPath is data path of all source files
 	SourceDataPath() string
 
-	// PutFile reads a file from srcPath and uploads it to the destination folder
-	PutFile(ctx context.Context, backupID, key, srcPath, bucket, bucketpath string) error
 	// PutObject writes bytes to the object with key `key`
 	PutObject(ctx context.Context, backupID, key, bucket, path string, byes []byte) error
 	// Initialize initializes backup provider and make sure that app have access rights to write into the object store.

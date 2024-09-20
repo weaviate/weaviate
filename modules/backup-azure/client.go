@@ -133,29 +133,6 @@ func (a *azureClient) GetObject(ctx context.Context, backupID, key string) ([]by
 	return downloadData, nil
 }
 
-func (a *azureClient) PutFile(ctx context.Context, backupID, key, srcPath, bucketName, bucketPath string) error {
-	filePath := path.Join(a.dataPath, srcPath)
-	file, err := os.Open(filePath)
-	if err != nil {
-		return backup.NewErrInternal(errors.Wrapf(err, "open file: %q", filePath))
-	}
-	defer file.Close()
-
-	objectName := a.makeObjectName(backupID, key)
-	_, err = a.client.UploadFile(ctx,
-		a.config.Container,
-		objectName,
-		file,
-		&azblob.UploadFileOptions{
-			Metadata: map[string]*string{"backupid": to.Ptr(backupID)},
-			Tags:     map[string]string{"backupid": backupID},
-		})
-	if err != nil {
-		return backup.NewErrInternal(errors.Wrapf(err, "upload file for object '%s'", objectName))
-	}
-
-	return nil
-}
 
 func (a *azureClient) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, data []byte) error {
 	objectName := a.makeObjectName(backupID, key)

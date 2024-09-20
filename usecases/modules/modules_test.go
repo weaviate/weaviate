@@ -536,10 +536,6 @@ func (*dummyBackupModuleWithAltNames) IsExternal() bool {
 	return true
 }
 
-func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, srcPath, bucketName, bucketPath string) error {
-	return nil
-}
-
 func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key string, bucketName, bucketPath, byes []byte) error {
 	return nil
 }

@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -192,15 +191,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, dataDir, s3.SourceDataPath())
 		})
 
-		t.Run("copy file to backend", func(t *testing.T) {
-			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := s3.PutFile(testCtx, backupID, key, srcPath, "", "")
-			require.Nil(t, err)
 
-			contents, err := s3.GetObject(testCtx, backupID, key)
-			require.Nil(t, err)
-			assert.Equal(t, expectedContents, contents)
-		})
 
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
