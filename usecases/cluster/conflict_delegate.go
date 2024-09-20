@@ -42,16 +42,20 @@ func (d *conflictDelegate) NotifyConflict(existing, other *memberlist.Node) {
 	}
 
 	if existing.Name == d.localID {
-		d.logger.WithFields(logrus.Fields{
-			"name":        existing.Name,
-			"existing_ip": existing.Address(),
-			"new_ip":      other.Address(),
-		}).Warn("I am the node conflicting ips, will shutdown ...")
+		// d.logger.WithFields(logrus.Fields{
+		// 	"name":        existing.Name,
+		// 	"existing_ip": existing.Address(),
+		// 	"new_ip":      other.Address(),
+		// }).Warn("i am the node conflicting IPs, I will shutdown ...")
 
-		if err := d.shutdown(context.Background()); err != nil {
-			panic(err)
-		}
-		panic("it's me")
+		// if err := d.shutdown(context.Background()); err != nil {
+		// 	panic(err)
+		// }
+
+		// this will shutdown with os.Exit(1) to avoid any
+		panic("forced panic because of ip conflicts")
+		// d.logger.WithField("action", "shutdown").Fatal("forced shutdown because of ip conflicts")
+		// return
 	}
 
 	_, leaderID := d.raft.LeaderWithID()

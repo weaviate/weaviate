@@ -332,37 +332,36 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
-	appState.Cluster.SetForceShutdown(func(ctx context.Context) error {
-		// if telemetryEnabled(appState) {
-		// 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		// 	defer cancel()
-		// 	// must be shutdown before the db, to ensure the
-		// 	// termination payload contains the correct
-		// 	// object count
-		// 	if err := telemeter.Stop(ctx); err != nil {
-		// 		appState.Logger.WithField("action", "stop_telemetry").
-		// 			Errorf("failed to stop telemetry: %s", err.Error())
-		// 	}
-		// }
+	// appState.Cluster.SetForceShutdown(func(ctx context.Context) error {
+	// 	// TODO: find a way to gracefully shutdown
+	// 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// 	defer cancel()
 
-		// stop reindexing on server shutdown
-		appState.ReindexCtxCancel()
+	// 	if err := appState.ClusterService.Close(ctx); err != nil {
+	// 		return err
+	// 	}
 
-		// // gracefully stop gRPC server
-		// grpcServer.GracefulStop()
+	// 	if appState.ReindexCtxCancel != nil {
+	// 		appState.ReindexCtxCancel()
+	// 	}
 
-		if appState.ServerConfig.Config.Sentry.Enabled {
-			sentry.Flush(2 * time.Second)
-		}
+	// 	if err := appState.DB.Shutdown(ctx); err != nil {
+	// 		return err
+	// 	}
 
-		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		defer cancel()
+	// 	if appState.GrpcServerStop != nil {
+	// 		appState.GrpcServerStop()
+	// 	}
 
-		if err := appState.ClusterService.Close(ctx); err != nil {
-			panic(err)
-		}
-		return nil
-	})
+	// 	// if err := eg.Wait(); err != nil {
+	// 	// 	return err
+	// 	// }
+	// 	appState.Logger.
+	// 		WithField("action", "shutdown").WithError(err).
+	// 		Fatal("forced shutdown becuse ip conflicts")
+	// 	os.Exit(1)
+	// 	return nil
+	// })
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}
