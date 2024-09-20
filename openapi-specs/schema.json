@@ -992,11 +992,11 @@
           "type": "string",
           "description": "S3 endpoint, e.g. s3.amazonaws.com"
         },
-        "Bucket": {
+        "S3Bucket": {
           "type": "string",
           "description": "Name of the S3 bucket"
         },
-        "Path": {
+        "S3Path": {
           "type": "string",
           "description": "Path within the bucket"
         },
@@ -5038,7 +5038,7 @@
             "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
           },
           {
-            "name": "bucket",
+            "name": "s3bucket",
             "in": "query",
             "required": false,
             "type": "string",

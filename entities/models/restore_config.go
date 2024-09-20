@@ -30,9 +30,6 @@ import (
 // swagger:model RestoreConfig
 type RestoreConfig struct {
 
-	// Name of the S3 bucket
-	Bucket string `json:"Bucket,omitempty"`
-
 	// Desired CPU core utilization ranging from 1%-80%
 	// Maximum: 80
 	// Minimum: 1
@@ -41,8 +38,11 @@ type RestoreConfig struct {
 	// S3 endpoint, e.g. s3.amazonaws.com
 	Endpoint string `json:"Endpoint,omitempty"`
 
+	// Name of the S3 bucket
+	S3Bucket string `json:"S3Bucket,omitempty"`
+
 	// Path within the bucket
-	Path string `json:"Path,omitempty"`
+	S3Path string `json:"S3Path,omitempty"`
 }
 
 // Validate validates this restore config
