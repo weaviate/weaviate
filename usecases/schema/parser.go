@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -55,7 +56,88 @@ func (m *Parser) ParseClass(class *models.Class) error {
 	if err := m.parseVectorIndexConfig(class); err != nil {
 		return fmt.Errorf("parse vector index config: %w", err)
 	}
+
+	if err := m.parseModuleConfig(class); err != nil {
+		return fmt.Errorf("parse module config: %w", err)
+	}
+
+	if err := m.parseVectorConfig(class); err != nil {
+		return fmt.Errorf("parse vector config: %w", err)
+	}
+
 	return nil
+}
+
+func (m *Parser) parseModuleConfig(class *models.Class) error {
+	if class.ModuleConfig == nil {
+		return nil
+	}
+
+	mapMC, ok := class.ModuleConfig.(map[string]any)
+	if !ok {
+		return fmt.Errorf("module config is not a map, got %v", class.ModuleConfig)
+	}
+
+	mc, err := m.moduleConfig(mapMC)
+	if err != nil {
+		return fmt.Errorf("module config: %w", err)
+	}
+	class.ModuleConfig = mc
+
+	return nil
+}
+
+func (m *Parser) parseVectorConfig(class *models.Class) error {
+	if class.VectorConfig == nil {
+		return nil
+	}
+
+	newVC := map[string]models.VectorConfig{}
+	for vector, config := range class.VectorConfig {
+		mapMC, ok := config.Vectorizer.(map[string]any)
+		if !ok {
+			return fmt.Errorf("vectorizer for %s is not a map, got %v", vector, config)
+		}
+
+		mc, err := m.moduleConfig(mapMC)
+		if err != nil {
+			return fmt.Errorf("vectorizer config: %w", err)
+		}
+
+		config.Vectorizer = mc
+		newVC[vector] = config
+	}
+	class.VectorConfig = newVC
+	return nil
+}
+
+func (m *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, error) {
+	parsedMC := map[string]any{}
+	for module, config := range moduleConfig {
+		if config == nil {
+			continue
+		}
+		mapC, ok := config.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("module config for %s is not a map, got %v", module, config)
+		}
+		parsedC := map[string]any{}
+		for key, value := range mapC {
+			if number, ok := value.(json.Number); ok {
+				if integer, err := number.Int64(); err == nil {
+					parsedC[key] = float64(integer)
+				} else if float, err := number.Float64(); err == nil {
+					parsedC[key] = float
+				} else {
+					parsedC[key] = number.String()
+				}
+				continue
+			}
+			parsedC[key] = value
+		}
+		parsedMC[module] = parsedC
+	}
+	return parsedMC, nil
 }
 
 func (m *Parser) parseVectorIndexConfig(class *models.Class,
