@@ -321,14 +321,14 @@ func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, dest
 	return nil
 }
 
-func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (f *fakeBackupBackend) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer r.Close()
 	return 0, nil
 }
 
-func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (f *fakeBackupBackend) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	f.Lock()
 	defer f.Unlock()
 	defer w.Close()

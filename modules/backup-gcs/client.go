@@ -248,7 +248,7 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath str
 	return nil
 }
 
-func (g *gcsClient) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (g *gcsClient) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 
 	bucket, err := g.findBucket(ctx)
@@ -280,7 +280,7 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key string, r io.ReadCl
 	return written, nil
 }
 
-func (g *gcsClient) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (g *gcsClient) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
 	bucket, err := g.findBucket(ctx)
