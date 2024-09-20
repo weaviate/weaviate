@@ -197,7 +197,7 @@ func (m *Handler) OnCanCommit(ctx context.Context, req *Request) *CanCommitRespo
 			ret.Err = err.Error()
 			return ret
 		}
-		res, err := m.restorer.restore(req, meta, store, bucketName, bucketPath)
+		res, err := m.restorer.restore(req, meta, store)
 		if err != nil {
 			ret.Err = err.Error()
 			return ret

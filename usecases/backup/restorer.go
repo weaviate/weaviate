@@ -63,7 +63,6 @@ func (r *restorer) restore(
 	req *Request,
 	desc *backup.BackupDescriptor,
 	store nodeStore,
-	bucketName, bucketPath string,
 ) (CanCommitResponse, error) {
 	expiration := req.Duration
 	if expiration > _TimeoutShardCommit {
@@ -109,6 +108,9 @@ func (r *restorer) restore(
 			r.lastAsyncError = err
 			return
 		}
+
+		bucketName := req.S3Bucket
+		bucketPath := req.S3Path
 
 		err = r.restoreAll(context.Background(), desc, req.CPUPercentage, store, bucketName, bucketPath)
 		logFields := logrus.Fields{"action": "restore", "backup_id": req.ID}
