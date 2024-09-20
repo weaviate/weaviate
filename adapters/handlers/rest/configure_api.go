@@ -1007,11 +1007,6 @@ func registerModules(appState *state.State) error {
 			WithField("action", "startup").
 			WithField("module", modmulti2vecgoogle.Name).
 			Debug("enabled module")
-		appState.Modules.Register(modmulti2vecgoogle.NewWithLegacyName())
-		appState.Logger.
-			WithField("action", "startup").
-			WithField("module", modmulti2vecgoogle.LegacyName).
-			Debug("enabled module")
 	}
 
 	if _, ok := enabledModules[modopenai.Name]; ok {
@@ -1144,11 +1139,6 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modtext2vecgoogle.Name).
-			Debug("enabled module")
-		appState.Modules.Register(modtext2vecgoogle.NewWithLegacyName())
-		appState.Logger.
-			WithField("action", "startup").
-			WithField("module", modtext2vecgoogle.LegacyName).
 			Debug("enabled module")
 	}
 
