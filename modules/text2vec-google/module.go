@@ -41,12 +41,7 @@ func New() *GoogleModule {
 	return &GoogleModule{}
 }
 
-func NewWithLegacyName() *GoogleModule {
-	return &GoogleModule{withLegacyName: true}
-}
-
 type GoogleModule struct {
-	withLegacyName               bool
 	vectorizer                   text2vecbase.TextVectorizer
 	metaProvider                 text2vecbase.MetaProvider
 	graphqlProvider              modulecapabilities.GraphQLArguments
@@ -57,10 +52,11 @@ type GoogleModule struct {
 }
 
 func (m *GoogleModule) Name() string {
-	if m.withLegacyName {
-		return LegacyName
-	}
 	return Name
+}
+
+func (m *GoogleModule) AltNames() []string {
+	return []string{LegacyName}
 }
 
 func (m *GoogleModule) Type() modulecapabilities.ModuleType {
@@ -163,4 +159,5 @@ var (
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher(New())
 	_ = modulecapabilities.GraphQLArguments(New())
+	_ = modulecapabilities.ModuleHasAltNames(New())
 )
