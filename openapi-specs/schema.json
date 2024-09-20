@@ -5045,7 +5045,7 @@
             "description": "The name of the bucket"
           },
           {
-            "name": "path",
+            "name": "s3path",
             "in": "query",
             "required": false,
             "type": "string",
@@ -5175,14 +5175,14 @@
             "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
           },
           {
-            "name": "bucket",
+            "name": "s3bucket",
             "in": "query",
             "required": false,
             "type": "string",
             "description": "The name of the bucket"
           },
           {
-            "name": "path",
+            "name": "s3path",
             "in": "query",
             "required": false,
             "type": "string",
