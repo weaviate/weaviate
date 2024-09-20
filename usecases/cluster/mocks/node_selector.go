@@ -11,7 +11,11 @@
 
 package mocks
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/hashicorp/raft"
+)
 
 type memberlist struct {
 	// nodes include the node names only
@@ -26,6 +30,9 @@ func (m memberlist) StorageCandidates() []string {
 func (m memberlist) NonStorageNodes() []string {
 	return []string{}
 }
+
+// satisfy the interface
+func (m memberlist) SetRaft(raft *raft.Raft) {}
 
 func (m memberlist) SortCandidates(nodes []string) []string {
 	sort.Strings(nodes)

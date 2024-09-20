@@ -285,7 +285,7 @@ func TestRaftEndpoints(t *testing.T) {
 	// restore from snapshot
 	assert.Nil(t, srv.Close(ctx))
 
-	s := NewFSM(m.cfg)
+	s := NewFSM(m.cfg, func(raft *raft.Raft) {})
 	m.store = &s
 	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))
@@ -327,7 +327,7 @@ func TestRaftClose(t *testing.T) {
 	ctx := context.Background()
 	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
 	addr := fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)
-	s := NewFSM(m.cfg)
+	s := NewFSM(m.cfg, func(raft *raft.Raft) {})
 	m.store = &s
 	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	m.indexer.On("Open", mock.Anything).Return(nil)
