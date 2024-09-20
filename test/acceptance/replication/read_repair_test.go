@@ -156,4 +156,21 @@ func readRepair(t *testing.T) {
 		assert.EqualValues(t, replaceObj.Properties, resp.Properties)
 		assert.EqualValues(t, replaceObj.Vector, resp.Vector)
 	})
+
+	t.Run("delete article with consistency level ONE and node2 down", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviate().URI())
+		helper.DeleteObjectCL(t, replaceObj.Class, replaceObj.ID, replica.One)
+	})
+
+	t.Run("restart node 2", func(t *testing.T) {
+		err = compose.Start(ctx, compose.GetWeaviateNode2().Name())
+		require.Nil(t, err)
+	})
+
+	t.Run("run exists to trigger read repair with deleted object resolution", func(t *testing.T) {
+		exists, err := objectExistsCL(t, compose.GetWeaviateNode2().URI(),
+			replaceObj.Class, replaceObj.ID, replica.All)
+		require.Nil(t, err)
+		require.False(t, exists)
+	})
 }

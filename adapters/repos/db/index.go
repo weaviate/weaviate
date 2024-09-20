@@ -249,7 +249,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	}
 
 	repl := replica.NewReplicator(cfg.ClassName.String(),
-		sg, nodeResolver, replicaClient, logger)
+		sg, nodeResolver, string(cfg.ObjectDeletionConflictResolution), replicaClient, logger)
 
 	if cfg.QueryNestedRefLimit == 0 {
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
@@ -536,23 +536,24 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 }
 
 type IndexConfig struct {
-	RootPath                  string
-	ClassName                 schema.ClassName
-	QueryMaximumResults       int64
-	QueryNestedRefLimit       int64
-	ResourceUsage             config.ResourceUsage
-	MemtablesFlushDirtyAfter  int
-	MemtablesInitialSizeMB    int
-	MemtablesMaxSizeMB        int
-	MemtablesMinActiveSeconds int
-	MemtablesMaxActiveSeconds int
-	MaxSegmentSize            int64
-	HNSWMaxLogSize            int64
-	HNSWWaitForCachePrefill   bool
-	ReplicationFactor         int64
-	AvoidMMap                 bool
-	DisableLazyLoadShards     bool
-	ForceFullReplicasSearch   bool
+	RootPath                         string
+	ClassName                        schema.ClassName
+	QueryMaximumResults              int64
+	QueryNestedRefLimit              int64
+	ResourceUsage                    config.ResourceUsage
+	MemtablesFlushDirtyAfter         int
+	MemtablesInitialSizeMB           int
+	MemtablesMaxSizeMB               int
+	MemtablesMinActiveSeconds        int
+	MemtablesMaxActiveSeconds        int
+	MaxSegmentSize                   int64
+	HNSWMaxLogSize                   int64
+	HNSWWaitForCachePrefill          bool
+	ReplicationFactor                int64
+	ObjectDeletionConflictResolution string
+	AvoidMMap                        bool
+	DisableLazyLoadShards            bool
+	ForceFullReplicasSearch          bool
 
 	TrackVectorDimensions bool
 }
