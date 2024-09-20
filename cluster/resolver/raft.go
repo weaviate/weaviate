@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hashicorp/raft"
 	raftImpl "github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/log"
@@ -45,11 +44,9 @@ type raftResolver struct {
 
 	nodesLock        sync.Mutex
 	notResolvedNodes map[raftImpl.ServerID]struct{}
-
-	raft *raft.Raft
 }
 
-func NewRaft(cfg RaftConfig) *raftResolver {
+func NewRaftResolver(cfg RaftConfig) *raftResolver {
 	return &raftResolver{
 		NodeToAddress:     cfg.NodeToAddress,
 		RaftPort:          cfg.RaftPort,
@@ -57,10 +54,6 @@ func NewRaft(cfg RaftConfig) *raftResolver {
 		NodeNameToPortMap: cfg.NodeNameToPortMap,
 		notResolvedNodes:  make(map[raftImpl.ServerID]struct{}),
 	}
-}
-
-func (a *raftResolver) SetRaft(raft *raft.Raft) {
-	a.raft = raft
 }
 
 // ServerAddr resolves server ID to a RAFT address
@@ -73,9 +66,6 @@ func (a *raftResolver) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress,
 	defer a.nodesLock.Unlock()
 	if addr == "" {
 		a.notResolvedNodes[id] = struct{}{}
-		if a.raft != nil {
-			a.raft.RemoveServer(raftImpl.ServerID(id), 0, 0)
-		}
 		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
 	delete(a.notResolvedNodes, id)

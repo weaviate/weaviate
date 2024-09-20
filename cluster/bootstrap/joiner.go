@@ -70,7 +70,10 @@ func (j *Joiner) Do(ctx context.Context, lg *logrus.Logger, remoteNodes []string
 			return addr, nil
 		}
 		st := status.Convert(err)
-		lg.WithField("remoteNode", addr).WithField("status", st.Code()).Info("attempted to join and failed")
+		lg.WithField("remoteNode", addr).WithFields(logrus.Fields{
+			"status": st.Code(),
+			"err":    err,
+		}).Info("attempted to join and failed")
 		// Get the leader from response and if not empty try to join it
 		if leader := resp.GetLeader(); st.Code() == codes.NotFound && leader != "" {
 			_, err = j.peerJoiner.Join(ctx, leader, req)

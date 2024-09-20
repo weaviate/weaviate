@@ -91,8 +91,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			}
 
 			// Always try to join an existing cluster first
-			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
-			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
+			if leader, err := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter).Do(ctx, lg, remoteNodes); err != nil {
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
 					"servers": remoteNodes,
@@ -112,6 +111,7 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 			// bootstrap together.
 			if b.voter {
 				// notify other servers about readiness of this node to be joined
+				remoteNodes = ResolveRemoteNodes(b.addrResolver, serverPortMap)
 				if err := b.notify(ctx, remoteNodes); err != nil {
 					lg.WithFields(logrus.Fields{
 						"action":  "bootstrap",

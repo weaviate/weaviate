@@ -29,7 +29,6 @@ type ClassState struct {
 
 // RaftResolver is passed to raft to resolver node ids to their real ip:port so that tranport can be established.
 type RaftResolver interface {
-	SetRaft(raft *raft.Raft)
 	ServerAddr(id raft.ServerID) (raft.ServerAddress, error)
 	NewTCPTransport(bindAddr string, advertise net.Addr, maxPool int, timeout time.Duration, logger *logrus.Logger) (*raft.NetworkTransport, error)
 	NotResolvedNodes() map[raft.ServerID]struct{}
