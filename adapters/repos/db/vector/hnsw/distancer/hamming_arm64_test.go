@@ -24,7 +24,7 @@ func testHammingByteFixedValue(t *testing.T, size uint, hammingByteFn func(x []u
 		vec2 := make([]uint8, size)
 		for i := range vec1 {
 			vec1[i] = uint8(num)
-			vec2[i] = uint8(num)
+			vec2[i] = uint8(num + 1)
 		}
 		res := hammingByteFn(vec1, vec2)
 
@@ -44,15 +44,23 @@ func testHammingByteRandomValue(t *testing.T, size uint, hammingByteFn func(x []
 	vec2s := make([][]byte, count)
 
 	for i := 0; i < count; i++ {
+
 		vec1 := make([]byte, size)
 		vec2 := make([]byte, size)
 		for j := range vec1 {
 			rand1 := byte(r.Uint32() % 256)
-			rand2 := byte(r.Uint32() % 256)
+			rand2 := byte(0)
+			if r.Intn(2) == 0 {
+				rand2 = rand1
+			} else {
+				rand2 = byte(r.Uint32() % 256)
+			}
 
 			vec1[j] = rand1
 			vec2[j] = rand2
 		}
+		vec1s[i] = vec1
+		vec2s[i] = vec2
 	}
 
 	for i := 0; i < count; i++ {
