@@ -324,12 +324,34 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
-	appState.Cluster.SetDBShutdown(func(ctx context.Context) error {
-		if err := appState.ClusterService.Close(ctx); err != nil {
-			return err
+	appState.Cluster.SetForceShutdown(func(ctx context.Context) error {
+		// if telemetryEnabled(appState) {
+		// 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		// 	defer cancel()
+		// 	// must be shutdown before the db, to ensure the
+		// 	// termination payload contains the correct
+		// 	// object count
+		// 	if err := telemeter.Stop(ctx); err != nil {
+		// 		appState.Logger.WithField("action", "stop_telemetry").
+		// 			Errorf("failed to stop telemetry: %s", err.Error())
+		// 	}
+		// }
+
+		// stop reindexing on server shutdown
+		appState.ReindexCtxCancel()
+
+		// // gracefully stop gRPC server
+		// grpcServer.GracefulStop()
+
+		if appState.ServerConfig.Config.Sentry.Enabled {
+			sentry.Flush(2 * time.Second)
 		}
-		if err := appState.DB.Shutdown(ctx); err != nil {
-			return err
+
+		ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+		defer cancel()
+
+		if err := appState.ClusterService.Close(ctx); err != nil {
+			panic(err)
 		}
 		return nil
 	})
@@ -741,7 +763,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
 		nonStorageNodes = parseVotersNames(cfg)
 	}
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, nonStorageNodes, logger, appState.DB.Shutdown)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")

@@ -31,7 +31,7 @@ func (d *conflictDelegate) SetRaft(raft *raft.Raft) {
 	d.raft = raft
 }
 
-func (d *conflictDelegate) SetDBShutdown(shutdown func(context.Context) error) {
+func (d *conflictDelegate) SetForceShutdown(shutdown func(context.Context) error) {
 	d.shutdown = shutdown
 }
 
@@ -48,10 +48,10 @@ func (d *conflictDelegate) NotifyConflict(existing, other *memberlist.Node) {
 			"new_ip":      other.Address(),
 		}).Warn("I am the node conflicting ips, will shutdown ...")
 
-		panic("it's me")
 		if err := d.shutdown(context.Background()); err != nil {
 			panic(err)
 		}
+		panic("it's me")
 	}
 
 	_, leaderID := d.raft.LeaderWithID()
