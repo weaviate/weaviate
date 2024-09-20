@@ -21,11 +21,11 @@ import (
 	anyscale "github.com/weaviate/weaviate/modules/generative-anyscale/parameters"
 	aws "github.com/weaviate/weaviate/modules/generative-aws/parameters"
 	cohere "github.com/weaviate/weaviate/modules/generative-cohere/parameters"
+	google "github.com/weaviate/weaviate/modules/generative-google/parameters"
 	mistral "github.com/weaviate/weaviate/modules/generative-mistral/parameters"
 	octoai "github.com/weaviate/weaviate/modules/generative-octoai/parameters"
 	ollama "github.com/weaviate/weaviate/modules/generative-ollama/parameters"
 	openai "github.com/weaviate/weaviate/modules/generative-openai/parameters"
-	google "github.com/weaviate/weaviate/modules/generative-palm/parameters"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional/generate"
 )
 

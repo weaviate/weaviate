@@ -172,11 +172,11 @@ func (v *google) getPayload(useGenerativeAI bool, input []string,
 	return embeddingsRequest{instances}
 }
 
-func (v *google) checkResponse(statusCode int, palmApiError *palmApiError) error {
-	if statusCode != 200 || palmApiError != nil {
-		if palmApiError != nil {
+func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
+	if statusCode != 200 || googleApiError != nil {
+		if googleApiError != nil {
 			return fmt.Errorf("connection to Google failed with status: %v error: %v",
-				statusCode, palmApiError.Message)
+				statusCode, googleApiError.Message)
 		}
 		return fmt.Errorf("connection to Google failed with status: %d", statusCode)
 	}
@@ -284,12 +284,12 @@ type instance struct {
 }
 
 type embeddingsResponse struct {
-	Predictions      []prediction  `json:"predictions,omitempty"`
-	Error            *palmApiError `json:"error,omitempty"`
-	DeployedModelId  string        `json:"deployedModelId,omitempty"`
-	Model            string        `json:"model,omitempty"`
-	ModelDisplayName string        `json:"modelDisplayName,omitempty"`
-	ModelVersionId   string        `json:"modelVersionId,omitempty"`
+	Predictions      []prediction    `json:"predictions,omitempty"`
+	Error            *googleApiError `json:"error,omitempty"`
+	DeployedModelId  string          `json:"deployedModelId,omitempty"`
+	Model            string          `json:"model,omitempty"`
+	ModelDisplayName string          `json:"modelDisplayName,omitempty"`
+	ModelVersionId   string          `json:"modelVersionId,omitempty"`
 }
 
 type prediction struct {
@@ -307,15 +307,15 @@ type safetyAttributes struct {
 	Categories []string  `json:"categories,omitempty"`
 }
 
-type palmApiError struct {
+type googleApiError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 	Status  string `json:"status"`
 }
 
 type batchEmbedTextResponse struct {
-	Embeddings []embedding   `json:"embeddings,omitempty"`
-	Error      *palmApiError `json:"error,omitempty"`
+	Embeddings []embedding     `json:"embeddings,omitempty"`
+	Error      *googleApiError `json:"error,omitempty"`
 }
 
 type embedding struct {

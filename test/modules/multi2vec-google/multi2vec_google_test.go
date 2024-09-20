@@ -114,7 +114,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 			}
 		}
 		// Define class
-		className := "PaLMClipTest"
+		className := "GoogleClipTest"
 		class := &models.Class{
 			Class: className,
 			Properties: []*models.Property{
@@ -138,7 +138,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 				},
 			},
 			VectorConfig: map[string]models.VectorConfig{
-				"clip_palm": {
+				"clip_google": {
 					Vectorizer: map[string]interface{}{
 						vectorizerName: map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
@@ -149,7 +149,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 					},
 					VectorIndexType: "flat",
 				},
-				"clip_palm_128": {
+				"clip_google_128": {
 					Vectorizer: map[string]interface{}{
 						vectorizerName: map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
@@ -161,7 +161,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 					},
 					VectorIndexType: "flat",
 				},
-				"clip_palm_256": {
+				"clip_google_256": {
 					Vectorizer: map[string]interface{}{
 						vectorizerName: map[string]interface{}{
 							"imageFields":        []interface{}{"image"},
@@ -173,7 +173,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 					},
 					VectorIndexType: "flat",
 				},
-				"clip_palm_video": {
+				"clip_google_video": {
 					Vectorizer: map[string]interface{}{
 						vectorizerName: map[string]interface{}{
 							"videoFields":        []interface{}{"video"},
@@ -184,7 +184,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 					},
 					VectorIndexType: "flat",
 				},
-				"clip_palm_weights": {
+				"clip_google_weights": {
 					Vectorizer: map[string]interface{}{
 						vectorizerName: map[string]interface{}{
 							"textFields":  []interface{}{"image_title", "image_description"},
@@ -255,7 +255,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 		t.Run("nearImage", func(t *testing.T) {
 			blob, err := getImageBlob(2)
 			require.NoError(t, err)
-			targetVector := "clip_palm"
+			targetVector := "clip_google"
 			nearMediaArgument := fmt.Sprintf(`
 				nearImage: {
 					image: "%s"
@@ -265,11 +265,11 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 			titleProperty := "image_title"
 			titlePropertyValue := "waterfalls"
 			targetVectors := map[string]int{
-				"clip_palm":         1408,
-				"clip_palm_128":     128,
-				"clip_palm_256":     256,
-				"clip_palm_video":   1408,
-				"clip_palm_weights": 512,
+				"clip_google":         1408,
+				"clip_google_128":     128,
+				"clip_google_256":     256,
+				"clip_google_video":   1408,
+				"clip_google_weights": 512,
 			}
 			testQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
 		})
@@ -277,7 +277,7 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 		t.Run("nearVideo", func(t *testing.T) {
 			blob, err := getVideoBlob(2)
 			require.NoError(t, err)
-			targetVector := "clip_palm_video"
+			targetVector := "clip_google_video"
 			nearMediaArgument := fmt.Sprintf(`
 				nearVideo: {
 					video: "%s"
@@ -287,11 +287,11 @@ func testMulti2VecGoogle(host, gcpProject, location, vectorizerName string) func
 			titleProperty := "video_title"
 			titlePropertyValue := "dog"
 			targetVectors := map[string]int{
-				"clip_palm":         1408,
-				"clip_palm_128":     128,
-				"clip_palm_256":     256,
-				"clip_palm_video":   1408,
-				"clip_palm_weights": 512,
+				"clip_google":         1408,
+				"clip_google_128":     128,
+				"clip_google_256":     256,
+				"clip_google_video":   1408,
+				"clip_google_weights": 512,
 			}
 			testQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
 		})
