@@ -45,7 +45,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 	data := h.cache.All()
 	if cfg.PQ.Enabled {
 		if h.isEmpty() {
-			return errors.New("Compress command cannot be executed before inserting some data. Please, insert your data first.")
+			return errors.New("compress command cannot be executed before inserting some data")
 		}
 		dims := int(h.dims)
 
@@ -84,7 +84,8 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
 			h.allocChecker)
 		if err != nil {
-			return fmt.Errorf("Compressing vectors: %w", err)
+			h.pqConfig.Enabled = false
+			return fmt.Errorf("compressing vectors: %w", err)
 		}
 		h.commitLog.AddPQ(h.compressor.ExposeFields())
 	} else {
