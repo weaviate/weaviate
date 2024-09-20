@@ -76,7 +76,8 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"virtualPerPhysical":  float64(128),
 				},
 				"replicationConfig": map[string]interface{}{
-					"factor": float64(1),
+					"factor":                           float64(1),
+					"objectDeletionConflictResolution": "PermanentDeletion",
 				},
 				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{
