@@ -34,34 +34,20 @@ func Test_UpdateClassWithText2VecOpenAI(t *testing.T) {
 	endpoint := compose.GetWeaviate().URI()
 	helper.SetupClient(endpoint)
 
-	cls := books.ClassOpenAIWithOptions()
-	helper.CreateClass(t, cls)
-	defer helper.DeleteClass(t, cls.Class)
+	t.Run("update description of legacy vectorizer class", func(t *testing.T) {
+		cls := books.ClassOpenAIWithOptions()
+		helper.CreateClass(t, cls)
+		defer helper.DeleteClass(t, cls.Class)
 
-	t.Run("update description of class", func(t *testing.T) {
 		cls.Description = "updated description"
 		helper.UpdateClass(t, cls)
 	})
-}
 
-func Test_UpdateClassWithNamedText2VecOpenAI(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithText2VecOpenAI().
-		WithWeaviate().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-	endpoint := compose.GetWeaviate().URI()
-	helper.SetupClient(endpoint)
+	t.Run("update description of named vectors class", func(t *testing.T) {
+		cls := books.ClassNamedOpenAIWithOptions()
+		helper.CreateClass(t, cls)
+		defer helper.DeleteClass(t, cls.Class)
 
-	cls := books.ClassNamedOpenAIWithOptions()
-	helper.CreateClass(t, cls)
-	defer helper.DeleteClass(t, cls.Class)
-
-	t.Run("update description of class", func(t *testing.T) {
 		cls.Description = "updated description"
 		helper.UpdateClass(t, cls)
 	})
