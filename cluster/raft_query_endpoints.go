@@ -16,7 +16,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
 	"github.com/prometheus/client_golang/prometheus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -282,14 +284,30 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		))
 	defer t.ObserveDuration()
 
-	if s.store.IsLeader() {
-		return s.store.Query(req)
-	}
+	var err error
+	resp := &cmd.QueryResponse{}
+	backoff.Retry(func() error {
+		if s.store.IsLeader() {
+			resp, err = s.store.Query(req)
+			return err
+		}
 
-	leader := s.store.Leader()
-	if leader == "" {
-		return &cmd.QueryResponse{}, s.leaderErr()
-	}
+		leader := s.store.Leader()
+		if leader == "" {
+			lErr := s.leaderErr()
+			s.log.Warnf("query: could not find leader: %s", lErr)
+			return lErr
+		}
 
-	return s.cl.Query(ctx, leader, req)
+		resp, err = s.cl.Query(ctx, leader, req)
+		if err != nil {
+			s.log.WithField("leader", leader).Errorf("query: failed to query leader: %s", err)
+			// Don't retry if the actual query fails
+			return backoff.Permanent(err)
+		}
+		return nil
+		// Retry at most for 2 seconds, it shouldn't take longer for an election to take place
+	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+
+	return resp, err
 }
