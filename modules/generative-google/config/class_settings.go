@@ -99,7 +99,7 @@ type classSettings struct {
 func NewClassSettings(cfg moduletools.ClassConfig) ClassSettings {
 	return &classSettings{
 		cfg:                  cfg,
-		propertyValuesHelper: basesettings.NewPropertyValuesHelperWitAltNames("generative-google", []string{"generative-palm"}),
+		propertyValuesHelper: basesettings.NewPropertyValuesHelperWithAltNames("generative-google", []string{"generative-palm"}),
 	}
 }
 

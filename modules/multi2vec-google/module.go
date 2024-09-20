@@ -38,12 +38,7 @@ func New() *Module {
 	return &Module{}
 }
 
-func NewWithLegacyName() *Module {
-	return &Module{withLegacyName: true}
-}
-
 type Module struct {
-	withLegacyName           bool
 	imageVectorizer          imageVectorizer
 	nearImageGraphqlProvider modulecapabilities.GraphQLArguments
 	nearImageSearcher        modulecapabilities.Searcher
@@ -79,10 +74,11 @@ type videoVectorizer interface {
 }
 
 func (m *Module) Name() string {
-	if m.withLegacyName {
-		return LegacyName
-	}
 	return Name
+}
+
+func (m *Module) AltNames() []string {
+	return []string{LegacyName}
 }
 
 func (m *Module) Type() modulecapabilities.ModuleType {
@@ -181,4 +177,5 @@ var (
 	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer(New())
 	_ = modulecapabilities.InputVectorizer(New())
+	_ = modulecapabilities.ModuleHasAltNames(New())
 )
