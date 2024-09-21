@@ -4864,6 +4864,15 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        },
+        "objectDeletionConflictResolution": {
+          "description": "Conflict resolution strategy for deleted objects",
+          "type": "string",
+          "enum": [
+            "NoAutomatedResolution",
+            "PermanentDeletion"
+          ],
+          "x-omitempty": true
         }
       }
     },
@@ -10575,6 +10584,15 @@ func init() {
         "factor": {
           "description": "Number of times a class is replicated",
           "type": "integer"
+        },
+        "objectDeletionConflictResolution": {
+          "description": "Conflict resolution strategy for deleted objects",
+          "type": "string",
+          "enum": [
+            "NoAutomatedResolution",
+            "PermanentDeletion"
+          ],
+          "x-omitempty": true
         }
       }
     },
