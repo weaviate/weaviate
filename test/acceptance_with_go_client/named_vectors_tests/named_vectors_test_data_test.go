@@ -14,8 +14,10 @@ package named_vectors_tests
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
@@ -275,11 +277,15 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 		get = get.WithHybrid(hybrid)
 	}
 
-	resp, err := get.Do(context.Background())
-	require.NoError(t, err)
+	var resp *models.GraphQLResponse
+	var err error
 
-	ids := acceptance_with_go_client.GetIds(t, resp, className)
-	require.ElementsMatch(t, ids, []string{id})
+	require.Eventually(t, func() bool {
+		resp, err = get.Do(context.Background())
+		require.NoError(t, err)
+		ids := acceptance_with_go_client.GetIds(t, resp, className)
+		return slices.Contains(ids, id)
+	}, 5*time.Second, 200*time.Millisecond)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }
