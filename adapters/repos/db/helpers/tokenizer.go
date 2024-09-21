@@ -280,7 +280,7 @@ func tokenizeKagomeJa(in string) []string {
 
 	for _, token := range kagomeTokens {
 		if token.Surface != "EOS" && token.Surface != "BOS" {
-			terms = append(terms, token.Surface)
+			terms = append(terms, strings.ToLower(token.Surface))
 		}
 	}
 
