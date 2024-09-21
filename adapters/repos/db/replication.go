@@ -348,6 +348,19 @@ func (i *Index) OverwriteObjects(ctx context.Context,
 	defer release()
 
 	for i, u := range updates {
+		if u.ID != "" && u.Deleted {
+			err := s.DeleteObject(ctx, u.ID)
+			if err != nil {
+				r := replica.RepairResponse{
+					ID:  u.ID.String(),
+					Err: fmt.Sprintf("overwrite deleted object: %v", err),
+				}
+				result = append(result, r)
+			}
+
+			continue
+		}
+
 		// Just in case but this should not happen
 		data := u.LatestObject
 		if data == nil || data.ID == "" {

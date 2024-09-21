@@ -18,9 +18,12 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 )
 
 // ReplicationConfig Configure how replication is executed in a cluster
@@ -30,10 +33,65 @@ type ReplicationConfig struct {
 
 	// Number of times a class is replicated
 	Factor int64 `json:"factor,omitempty"`
+
+	// Conflict resolution strategy for deleted objects
+	// Enum: [NoAutomatedResolution PermanentDeletion]
+	ObjectDeletionConflictResolution string `json:"objectDeletionConflictResolution,omitempty"`
 }
 
 // Validate validates this replication config
 func (m *ReplicationConfig) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateObjectDeletionConflictResolution(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var replicationConfigTypeObjectDeletionConflictResolutionPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["NoAutomatedResolution","PermanentDeletion"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		replicationConfigTypeObjectDeletionConflictResolutionPropEnum = append(replicationConfigTypeObjectDeletionConflictResolutionPropEnum, v)
+	}
+}
+
+const (
+
+	// ReplicationConfigObjectDeletionConflictResolutionNoAutomatedResolution captures enum value "NoAutomatedResolution"
+	ReplicationConfigObjectDeletionConflictResolutionNoAutomatedResolution string = "NoAutomatedResolution"
+
+	// ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion captures enum value "PermanentDeletion"
+	ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion string = "PermanentDeletion"
+)
+
+// prop value enum
+func (m *ReplicationConfig) validateObjectDeletionConflictResolutionEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationConfigTypeObjectDeletionConflictResolutionPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ReplicationConfig) validateObjectDeletionConflictResolution(formats strfmt.Registry) error {
+	if swag.IsZero(m.ObjectDeletionConflictResolution) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateObjectDeletionConflictResolutionEnum("objectDeletionConflictResolution", "body", m.ObjectDeletionConflictResolution); err != nil {
+		return err
+	}
+
 	return nil
 }
 
