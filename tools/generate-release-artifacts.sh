@@ -2,9 +2,16 @@
 
 set -eou pipefail
 
+OS=${GOOS:-"linux"}
+
 BUILD_ARTIFACTS_DIR="build_artifacts"
-GIT_HASH=$(git rev-parse --short HEAD)
+GIT_REVISION=$(git rev-parse --short HEAD)
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
 VERSION="v$(jq -r '.info.version' openapi-specs/schema.json)"
+VPREFIX="github.com/weaviate/weaviate/usecases/build"
+
+BUILD_TAGS="-X ${VPREFIX}.Branch=${GIT_BRANCH} -X ${VPREFIX}.Version=${VERSION} -X ${VPREFIX}.Revision=${GIT_REVISION} -X ${VPREFIX}.BuildUser=$(whoami)@$(hostname) -X ${VPREFIX}.BuildDate=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 function main() {
   cd ./cmd/weaviate-server
@@ -36,19 +43,22 @@ function step_complete() {
 }
 
 function build_binary_arm64() {
-  build_binary "arm64"
+  build_binary "linux" "arm64"
+  build_binary "darwin" "arm64"
 }
 
 function build_binary_amd64() {
-  build_binary "amd64"
+  build_binary "linux" "amd64"
+  build_binary "darwin" "amd64"
 }
 
 function build_binary() {
-  arch=$1
+  os=$1
+  arch=$2
   arch_dir="${BUILD_ARTIFACTS_DIR}/${arch}"
 
   echo_green "Building linux/${arch} binary..."
-  GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" -X github.com/weaviate/weaviate/usecases/config.GitHash='${GIT_HASH}'  -X github.com/weaviate/weaviate/usecases/config.ImageTag='${VERSION}'
+  GOOS=$os GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" ${BUILD_TAGS}"
   step_complete
 
   cd $arch_dir
@@ -57,18 +67,18 @@ function build_binary() {
   cp ../../../../README.md .
   cp ../../../../LICENSE .
 
-  echo_green "Packing linux/${arch} distribution..."
-  LINUX_DIST="weaviate-${VERSION}-linux-${arch}.tar.gz"
-  tar cvfz "$LINUX_DIST" weaviate LICENSE README.md
+  echo_green "Packing ${os}/${arch} distribution..."
+  DIST="weaviate-${VERSION}-${os}-${arch}.tar.gz"
+  tar cvfz "$DIST" weaviate LICENSE README.md
   step_complete
 
-  echo_green "Calculating linux/${arch} checksums..."
-  shasum -a 256 "$LINUX_DIST" | cut -d ' ' -f 1 > "${LINUX_DIST}.sha256"
-  md5 "$LINUX_DIST" | cut -d ' ' -f 4 > "${LINUX_DIST}.md5"
+  echo_green "Calculating ${os}/${arch} checksums..."
+  shasum -a 256 "$DIST" | cut -d ' ' -f 1 > "${DIST}.sha256"
+  md5 "$DIST" | cut -d ' ' -f 4 > "${DIST}.md5"
   step_complete
 
-  echo_green "Move linux/${arch} artifacts to ${BUILD_ARTIFACTS_DIR} directory..."
-  mv $LINUX_DIST* ../
+  echo_green "Move ${os}/${arch} artifacts to ${BUILD_ARTIFACTS_DIR} directory..."
+  mv $DIST* ../
   step_complete
 
   echo_green "Clean up ${arch} directory"

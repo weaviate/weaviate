@@ -40,13 +40,6 @@ import (
 // spec only needs to be parsed once.
 var ServerVersion string
 
-var (
-	// GitHash keeps the current git hash commit information, value injected by the compiler using ldflags -X at build time.
-	GitHash = "unknown"
-	// ImageTag keeps the docker tag the weaviate binary was built in, value injected by the compiler using ldflags -X at build time.
-	ImageTag = "localhost"
-)
-
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
 
