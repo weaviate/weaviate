@@ -765,7 +765,14 @@ func parseClusterConfig() (cluster.Config, error) {
 
 	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
 
-	cfg.MaintenanceNodes = strings.Split(os.Getenv("MAINTENANCE_NODES"), ",")
+	// avoid the case where strings.Split creates a slice with only the empty string as I think
+	// that will be confusing for users. eg ([]string{""}) instead of an empty slice ([]string{}).
+	// https://go.dev/play/p/3BDp1vhbkYV shows len(1) when m = "".
+	if m := os.Getenv("MAINTENANCE_NODES"); m == "" {
+		cfg.MaintenanceNodes = []string{}
+	} else {
+		cfg.MaintenanceNodes = strings.Split(m, ",")
+	}
 
 	return cfg, nil
 }
