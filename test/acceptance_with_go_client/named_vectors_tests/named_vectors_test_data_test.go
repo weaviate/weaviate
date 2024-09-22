@@ -14,7 +14,6 @@ package named_vectors_tests
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -294,9 +293,12 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 	require.Eventually(t, func() bool {
 		resp, err = get.Do(context.Background())
 		require.NoError(t, err)
-		ids := acceptance_with_go_client.GetIds(t, resp, className)
-		return slices.Contains(ids, id)
-	}, 5*time.Second, 200*time.Millisecond)
+		require.NotNil(t, resp)
+		return len(resp.Data) > 0
+	}, 5*time.Second, 1*time.Millisecond)
+
+	ids := acceptance_with_go_client.GetIds(t, resp, className)
+	require.Contains(t, ids, id)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }
