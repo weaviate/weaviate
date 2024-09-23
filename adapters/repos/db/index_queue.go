@@ -39,6 +39,8 @@ import (
 // IndexQueue is an in-memory queue of vectors to index.
 // It batches vectors together before sending them to the indexing workers.
 // It is safe to use concurrently.
+// Ordering of operations is not guaranteed: upon dequeue, workers group inserts and deletes
+// of the same batch in two separate groups, apply inserts first, then deletes.
 type IndexQueue struct {
 	Shard        shardStatusUpdater
 	index        batchIndexer
