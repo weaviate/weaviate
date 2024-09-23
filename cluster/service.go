@@ -67,6 +67,7 @@ func New(selector cluster.NodeSelector, cfg Config) *Service {
 		}
 	}
 	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
+	selector.SetVoter(cfg.Voter)
 	fsm := NewFSM(cfg, selector.SetRaft)
 	raft := NewRaft(selector, &fsm, cl)
 	return &Service{

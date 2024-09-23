@@ -41,6 +41,7 @@ type NodeSelector interface {
 	// SetRaft add raft to the node selector to be able to add/remove nodes
 	// when nodes ip conflict happens.
 	SetRaft(raft *raft.Raft)
+	SetVoter(voter bool)
 }
 
 type State struct {
@@ -154,6 +155,10 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 		}
 	}
 	return &state, nil
+}
+
+func (s *State) SetVoter(voter bool) {
+	s.conflictDelegate.SetVoter(voter)
 }
 
 func (s *State) SetRaft(raft *raft.Raft) {

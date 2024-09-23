@@ -33,6 +33,7 @@ func (m memberlist) NonStorageNodes() []string {
 
 // satisfy the interface
 func (m memberlist) SetRaft(raft *raft.Raft) {}
+func (m memberlist) SetVoter(voter bool)     {}
 
 func (m memberlist) SortCandidates(nodes []string) []string {
 	sort.Strings(nodes)
