@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package querytenant
+package queryschema
 
 import (
 	"context"
@@ -27,7 +27,7 @@ func TestTenantInfo(t *testing.T) {
 		schema := mockSchema(t)
 		ctx := context.Background()
 		svr := httptest.NewServer(schema)
-		info := NewTenantInfo(svr.URL, DefaultSchemaPath)
+		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
 		status, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestTenantInfo(t *testing.T) {
 
 		ctx := context.Background()
 		svr := httptest.NewServer(schema)
-		info := NewTenantInfo(svr.URL, DefaultSchemaPath)
+		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
 		status, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorIs(t, err, ErrTenantNotFound)
@@ -53,7 +53,7 @@ func TestTenantInfo(t *testing.T) {
 
 		ctx := context.Background()
 		svr := httptest.NewServer(schema)
-		info := NewTenantInfo(svr.URL, DefaultSchemaPath)
+		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
 		status, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorContains(t, err, "some important error")
@@ -66,7 +66,7 @@ func TestTenantInfo(t *testing.T) {
 
 		ctx := context.Background()
 		svr := httptest.NewServer(schema)
-		info := NewTenantInfo(svr.URL, DefaultSchemaPath)
+		info := NewSchemaInfo(svr.URL, DefaultSchemaPrefix)
 
 		status, err := info.TenantStatus(ctx, "sample-collection", "captain-america")
 		require.ErrorIs(t, err, ErrTenantNotFound)

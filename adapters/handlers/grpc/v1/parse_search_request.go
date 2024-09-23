@@ -330,7 +330,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := extractFilters(req.Filters, p.getClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.getClass, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
