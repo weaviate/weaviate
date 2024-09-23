@@ -57,7 +57,7 @@ func (d *conflictDelegate) NotifyConflict(existing, other *memberlist.Node) {
 	}
 
 	_, leaderID := d.raft.LeaderWithID()
-	if d.localID != string(leaderID) || leaderID == "" {
+	if d.localID != string(leaderID) {
 		d.logger.WithFields(logrus.Fields{
 			"name":        existing.Name,
 			"existing_ip": existing.Address(),
