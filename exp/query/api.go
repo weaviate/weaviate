@@ -85,6 +85,7 @@ func NewAPI(
 	schema SchemaQuerier,
 	offload *modsloads3.Module,
 	vectorizer text2vecbase.TextVectorizer,
+	stopwords *stopwords.Detector,
 	config *Config,
 	log logrus.FieldLogger,
 ) *API {
@@ -94,6 +95,7 @@ func NewAPI(
 		schema:     schema,
 		offload:    offload,
 		vectorizer: vectorizer,
+		stopwords:  stopwords,
 	}
 }
 
@@ -203,11 +205,14 @@ func (a *API) propertyFilters(
 		return nil, fmt.Errorf("failed to get class info from schema: %w", err)
 	}
 
+	props := make([]string, 0)
+
 	// Made sure all the properties of the class have been loaded for inverted index search
 	for _, prop := range class.Properties {
 		if err := store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(prop.Name), opts...); err != nil {
 			return nil, fmt.Errorf("failed to open property lsmkv bucket: %w", err)
 		}
+		props = append(props, prop.Name)
 	}
 
 	getClass := func(className string) *models.Class {
@@ -216,12 +221,16 @@ func (a *API) propertyFilters(
 
 	searcher := inverted.NewSearcher(a.log, store, getClass, nil, nil, a.stopwords, 0, fallbackToSearchable, tenant, maxQueryObjectsLimit, nil)
 
+	opts = []lsmkv.BucketOption{
+		lsmkv.WithSecondaryIndices(2),
+	}
+
 	// TOD(kavi): remove `opts` may be not necessary
 	if err := store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...); err != nil {
 		return nil, fmt.Errorf("failed to open objects bucket: %w", err)
 	}
 
-	objs, err := searcher.Objects(ctx, maxQueryObjectsLimit, filter, nil, additional.Properties{}, schema.ClassName(collection), []string{"category", "answer", "question"})
+	objs, err := searcher.Objects(ctx, maxQueryObjectsLimit, filter, nil, additional.Properties{}, schema.ClassName(collection), props)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for objects:%w", err)
 	}
