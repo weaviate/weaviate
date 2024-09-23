@@ -52,7 +52,7 @@ func (d *conflictDelegate) NotifyConflict(existing, other *memberlist.Node) {
 			"new_ip":      other.Address(),
 		}).Warn("node conflicting IPs, i will shutdown ...")
 
-		// we force panic here for immediate stop of the node to avoid any raft replication.
+		// we force exit here for immediate stop of the node to avoid any raft replication.
 		os.Exit(1)
 	}
 
