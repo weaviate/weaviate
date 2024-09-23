@@ -26,11 +26,16 @@ type events struct {
 	delegate *delegate
 	raft     *raft.Raft
 	localID  string
+	voter    bool
 	logger   logrus.FieldLogger
 }
 
 func (e *events) SetRaft(raft *raft.Raft) {
 	e.raft = raft
+}
+
+func (e *events) SetVoter(voter bool) {
+	e.voter = voter
 }
 
 // NotifyJoin is invoked when a node is detected to have joined.
@@ -55,13 +60,19 @@ func (e *events) NotifyLeave(node *memberlist.Node) {
 		e.logger.WithFields(logrus.Fields{
 			"name":    node.Name,
 			"address": node.Address(),
-		}).Warn("node is not the leader to force removal of a peer")
+		}).Warn("node is not the leader to force invalidating of a peer")
 		return
 	}
 
 	// we mark the node invalid to avoid any IP conflicts by converting the node address to invalid address.
-	if err := e.raft.AddVoter(raft.ServerID(node.Name), raft.ServerAddress("256.256.256.256:99999999"), 0, 0).Error(); err != nil {
-		e.logger.WithError(err).Error("removing peer")
+	if e.voter {
+		if err := e.raft.AddVoter(raft.ServerID(node.Name), raft.ServerAddress("256.256.256.256:99999999"), 0, 0).Error(); err != nil {
+			e.logger.WithError(err).Error("invalidate voter node")
+		}
+	}
+
+	if err := e.raft.AddNonvoter(raft.ServerID(node.Name), raft.ServerAddress("256.256.256.256:99999999"), 0, 0).Error(); err != nil {
+		e.logger.WithError(err).Error("invalidate non voter")
 	}
 }
 

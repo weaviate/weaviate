@@ -166,6 +166,7 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 
 func (s *State) SetVoter(voter bool) {
 	s.conflictDelegate.SetVoter(voter)
+	s.eventsDelegate.SetVoter(voter)
 }
 
 func (s *State) SetRaft(raft *raft.Raft) {
