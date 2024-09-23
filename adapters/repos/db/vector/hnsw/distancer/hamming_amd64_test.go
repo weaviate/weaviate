@@ -134,7 +134,7 @@ func BenchmarkHammingByte(b *testing.B) {
 	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
-			// benchmarkDotByte(b, dim, dotByteImpl)
+
 			benchmarkHammingByte(b, dim, asm.HammingByteAVX256)
 
 			b.Run("pure go", func(b *testing.B) { benchmarkHammingByte(b, dim, HammingDistanceByteGo) })
