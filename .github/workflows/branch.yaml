@@ -18,6 +18,11 @@ jobs:
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-unit
+          path: coverage-unit.txt
   Integration-Tests:
     name: integration-tests
     runs-on: ubuntu-latest
@@ -30,4 +35,8 @@ jobs:
           cache: true
       - name: Integration test
         run: ./test/run.sh --integration-only
-
+      - name: Archive code coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report-integration
+          path: coverage-integration.txt
