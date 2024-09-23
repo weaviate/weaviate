@@ -324,36 +324,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.DB = repo
-	// appState.Cluster.SetForceShutdown(func(ctx context.Context) error {
-	// 	// TODO: find a way to gracefully shutdown
-	// 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	// 	defer cancel()
-
-	// 	if err := appState.ClusterService.Close(ctx); err != nil {
-	// 		return err
-	// 	}
-
-	// 	if appState.ReindexCtxCancel != nil {
-	// 		appState.ReindexCtxCancel()
-	// 	}
-
-	// 	if err := appState.DB.Shutdown(ctx); err != nil {
-	// 		return err
-	// 	}
-
-	// 	if appState.GrpcServerStop != nil {
-	// 		appState.GrpcServerStop()
-	// 	}
-
-	// 	// if err := eg.Wait(); err != nil {
-	// 	// 	return err
-	// 	// }
-	// 	appState.Logger.
-	// 		WithField("action", "shutdown").WithError(err).
-	// 		Fatal("forced shutdown becuse ip conflicts")
-	// 	os.Exit(1)
-	// 	return nil
-	// })
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity.SetSource(appState.DB)
 	}

@@ -74,8 +74,6 @@ type State struct {
 
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
-	// GrpcServerStop to stop GRPC server from listing on close
-	GrpcServerStop func()
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

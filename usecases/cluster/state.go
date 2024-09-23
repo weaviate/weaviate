@@ -12,7 +12,6 @@
 package cluster
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"strings"
@@ -159,10 +158,6 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 
 func (s *State) SetRaft(raft *raft.Raft) {
 	s.conflictDelegate.SetRaft(raft)
-}
-
-func (s *State) SetForceShutdown(shutdown func(context.Context) error) {
-	s.conflictDelegate.SetForceShutdown(shutdown)
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
