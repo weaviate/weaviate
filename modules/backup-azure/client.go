@@ -109,7 +109,7 @@ func (a *azureClient) makeObjectName(parts ...string) string {
 	return path.Join(a.config.BackupPath, base)
 }
 
-func (a *azureClient) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (a *azureClient) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	objectName := a.makeObjectName(backupID, key)
 
 	blobDownloadResponse, err := a.client.DownloadStream(ctx, a.config.Container, objectName, nil)
@@ -167,7 +167,7 @@ func (a *azureClient) Initialize(ctx context.Context, backupID string) error {
 	return nil
 }
 
-func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
 	dir := path.Dir(destPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "make dir '%s'", dir)

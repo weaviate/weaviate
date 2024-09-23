@@ -293,7 +293,7 @@ func (f *fakeBackupBackend) HomeDir(backupID string) string {
 	return f.backupsPath
 }
 
-func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	f.Lock()
 	defer f.Unlock()
 
@@ -315,7 +315,7 @@ func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key string)
 	return b, nil
 }
 
-func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (f *fakeBackupBackend) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil

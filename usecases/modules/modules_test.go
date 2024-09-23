@@ -513,11 +513,11 @@ func (m *dummyBackupModuleWithAltNames) HomeDir(backupID string) string {
 	return ""
 }
 
-func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
 	return nil
 }
 

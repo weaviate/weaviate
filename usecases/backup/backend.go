@@ -74,8 +74,8 @@ func (s *objStore) HomeDir() string {
 	return s.b.HomeDir(s.BasePath)
 }
 
-func (s *objStore) WriteToFile(ctx context.Context, key, destPath string) error {
-	return s.b.WriteToFile(ctx, s.BasePath, key, destPath)
+func (s *objStore) WriteToFile(ctx context.Context, key, destPath, bucketName, bucketPath string) error {
+	return s.b.WriteToFile(ctx, s.BasePath, key, destPath, bucketName, bucketPath)
 }
 
 // SourceDataPath is data path of all source files
@@ -109,8 +109,8 @@ func (s *objStore) putMeta(ctx context.Context, key, bucketName, bucketPath stri
 	return nil
 }
 
-func (s *objStore) meta(ctx context.Context, key string, dest interface{}) error {
-	bytes, err := s.b.GetObject(ctx, s.BasePath, key)
+func (s *objStore) meta(ctx context.Context, key, bucketName, bucketPath string, dest interface{}) error {
+	bytes, err := s.b.GetObject(ctx, s.BasePath, key, bucketName, bucketPath)
 	if err != nil {
 		return err
 	}
@@ -128,12 +128,12 @@ type nodeStore struct {
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
-func (s *nodeStore) Meta(ctx context.Context, backupID string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+func (s *nodeStore) Meta(ctx context.Context, backupID, bucketName, bucketPath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
 	var result backup.BackupDescriptor
-	err := s.meta(ctx, BackupFile, &result)
+	err := s.meta(ctx, BackupFile, bucketName, bucketPath, &result)
 	if err != nil {
 		cs := &objStore{s.b, backupID} // for backward compatibility
-		if err := cs.meta(ctx, BackupFile, &result); err == nil {
+		if err := cs.meta(ctx, BackupFile, bucketName, bucketPath, &result); err == nil {
 			if adjustBasePath {
 				s.objStore.BasePath = backupID
 			}
@@ -159,12 +159,12 @@ func (s *coordStore) PutMeta(ctx context.Context, filename string, desc *backup.
 }
 
 // Meta gets coordinator's global metadata from object store
-func (s *coordStore) Meta(ctx context.Context, filename string) (*backup.DistributedBackupDescriptor, error) {
+func (s *coordStore) Meta(ctx context.Context, filename, bucketName, bucketPath string) (*backup.DistributedBackupDescriptor, error) {
 	var result backup.DistributedBackupDescriptor
-	err := s.meta(ctx, filename, &result)
+	err := s.meta(ctx, filename, bucketName, bucketPath, &result)
 	if err != nil && filename == GlobalBackupFile {
 		var oldBackup backup.BackupDescriptor
-		if err := s.meta(ctx, BackupFile, &oldBackup); err == nil {
+		if err := s.meta(ctx, BackupFile, bucketName, bucketPath, &oldBackup); err == nil {
 			return oldBackup.ToDistributed(), nil
 		}
 	}
@@ -508,7 +508,7 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, bucketNa
 		eg.SetLimit(2 * _NUMCPU)
 		for _, shard := range desc.Shards {
 			shard := shard
-			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir) }, shard.Name)
+			eg.Go(func() error { return fw.writeTempShard(ctx, shard, classTempDir, bucketName, bucketPath) }, shard.Name)
 		}
 		return eg.Wait()
 	}
@@ -530,14 +530,14 @@ func (fw *fileWriter) writeTempFiles(ctx context.Context, classTempDir, bucketNa
 	return eg.Wait()
 }
 
-func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir string) error {
+func (fw *fileWriter) writeTempShard(ctx context.Context, sd *backup.ShardDescriptor, classTempDir, bucketName, bucketPath string) error {
 	for _, key := range sd.Files {
 		destPath := path.Join(classTempDir, key)
 		destDir := path.Dir(destPath)
 		if err := os.MkdirAll(destDir, os.ModePerm); err != nil {
 			return fmt.Errorf("create folder %s: %w", destDir, err)
 		}
-		if err := fw.backend.WriteToFile(ctx, key, destPath); err != nil {
+		if err := fw.backend.WriteToFile(ctx, key, destPath, bucketName, bucketPath); err != nil {
 			return fmt.Errorf("write file %s: %w", destPath, err)
 		}
 	}

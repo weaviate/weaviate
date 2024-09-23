@@ -124,7 +124,7 @@ func (fb *fakeBackend) PutObject(ctx context.Context, backupID, key, bucketName,
 	return args.Error(0)
 }
 
-func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	fb.RLock()
 	defer fb.RUnlock()
 	args := fb.Called(ctx, backupID, key)
@@ -156,7 +156,7 @@ func (fb *fakeBackend) Name() string {
 	return "fakeBackend"
 }
 
-func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (fb *fakeBackend) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID, key, destPath)

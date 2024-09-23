@@ -21,25 +21,30 @@ type BackupBackend interface {
 	IsExternal() bool
 	// Name returns backend's name
 	Name() string
-	// HomeDir is the home directory of all backup files
+	// HomeDir is the base storage location of all backup files, which can be a bucket, a directory, etc.
 	HomeDir(backupID string) string
 
 	// GetObject giving backupID and key
-	GetObject(ctx context.Context, backupID, key string) ([]byte, error)
+	GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error)
 
 	// WriteToFile writes an object in the specified file with path destPath
 	// The file will be created if it doesn't exist
 	// The file will be overwritten if it exists
-	WriteToFile(ctx context.Context, backupID, key, destPath string) error
+	WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error
 
 	// SourceDataPath is data path of all source files
 	SourceDataPath() string
 
 	// PutObject writes bytes to the object with key `key`
-	PutObject(ctx context.Context, backupID, key, bucket, path string, byes []byte) error
+	// bucketName and bucketPath override the initialised bucketName and bucketPath
+	PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error
+
 	// Initialize initializes backup provider and make sure that app have access rights to write into the object store.
 	Initialize(ctx context.Context, backupID string) error
 
+	// Write writes the content of the reader to the object with key
+	// bucketName and bucketPath override the initialised bucketName and bucketPath
+	// Allows restores from a different bucket to the designated backup bucket
 	Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error)
 	Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error)
 }

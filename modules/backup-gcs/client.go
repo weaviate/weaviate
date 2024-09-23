@@ -118,7 +118,7 @@ func (g *gcsClient) makeObjectName(parts ...string) string {
 	return path.Join(g.config.BackupPath, base)
 }
 
-func (g *gcsClient) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (g *gcsClient) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	objectName := g.makeObjectName(backupID, key)
 
 	if err := ctx.Err(); err != nil {
@@ -194,7 +194,7 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID string) error {
 
 // WriteToFile downloads an object and store its content in destPath
 // The file destPath will be created if it doesn't exit
-func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath string) (err error) {
+func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) (err error) {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return fmt.Errorf("find bucket: %w", err)

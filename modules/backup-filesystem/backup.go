@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (m *Module) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (m *Module) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	metaPath, err := m.getObjectPath(ctx, backupID, key)
 	if err != nil {
 		return nil, err
@@ -92,6 +92,9 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 
 func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
 	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
+	if bucketPath != "" {
+		backupPath = path.Join(bucketPath, backupID, key)
+	}
 
 	dir := path.Dir(backupPath)
 
@@ -116,11 +119,13 @@ func (m *Module) Initialize(ctx context.Context, backupID string) error {
 	return nil
 }
 
-func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
 	sourcePath, err := m.getObjectPath(ctx, backupID, key)
 	if err != nil {
 		return err
 	}
+
+	//FIXME get correct override path
 
 	bytesWritten, err := m.copyFile(sourcePath, destPath)
 	if err != nil {

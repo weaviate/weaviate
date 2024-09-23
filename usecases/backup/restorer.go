@@ -205,7 +205,7 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 
 func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
 	destPath := store.HomeDir()
-	meta, err := store.Meta(ctx, req.ID, true)
+	meta, err := store.Meta(ctx, req.ID, req.S3Bucket, req.S3Path, true)
 	if err != nil {
 		nerr := backup.ErrNotFound{}
 		if errors.As(err, &nerr) {

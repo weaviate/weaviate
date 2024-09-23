@@ -319,7 +319,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		filename = GlobalRestoreFile
 	}
 	// The backup might have been already created.
-	meta, err := store.Meta(ctx, filename)
+	meta, err := store.Meta(ctx, filename, "", "") // FIXME
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, filename)
 		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v", errMetaNotFound, path, err)
