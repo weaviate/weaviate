@@ -101,7 +101,7 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 	}
 
 	state.conflictDelegate = conflictDelegate{localID: cfg.Name, logger: logger}
-	state.eventsDelegate = events{logger: logger, delegate: &state.delegate}
+	state.eventsDelegate = events{localID: cfg.Name, logger: logger, delegate: &state.delegate}
 
 	if err := state.delegate.init(diskSpace); err != nil {
 		logger.WithField("action", "init_state.delete_init").WithError(err).
