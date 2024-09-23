@@ -113,7 +113,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	if err := h.setClassDefaults(cls, h.config.Replication); err != nil {
+	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
 		return nil, 0, err
 	}
 
@@ -260,6 +260,25 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 
 	_, err = h.schemaManager.UpdateClass(ctx, updated, shardingState)
 	return err
+}
+
+func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
+	if err := m.setClassDefaults(class, globalCfg); err != nil {
+		return err
+	}
+
+	if class.ReplicationConfig == nil {
+		class.ReplicationConfig = &models.ReplicationConfig{
+			Factor:                           int64(m.config.Replication.MinimumFactor),
+			ObjectDeletionConflictResolution: models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion,
+		}
+		return nil
+	}
+
+	if class.ReplicationConfig.ObjectDeletionConflictResolution == "" {
+		class.ReplicationConfig.ObjectDeletionConflictResolution = models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion
+	}
+	return nil
 }
 
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {

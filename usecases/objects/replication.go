@@ -22,6 +22,12 @@ import (
 
 // VObject is a versioned object for detecting replication inconsistencies
 type VObject struct {
+	// ID of the Object.
+	// Format: uuid
+	ID strfmt.UUID `json:"id,omitempty"`
+
+	Deleted bool `json:"deleted"`
+
 	// LatestObject is to most up-to-date version of an object
 	LatestObject *models.Object `json:"object,omitempty"`
 
@@ -41,6 +47,8 @@ type VObject struct {
 // we want to use when serializing, rather than json.Marshal. This is just a thin
 // wrapper around the model bytes resulting from the underlying call to MarshalBinary
 type vobjectMarshaler struct {
+	ID              strfmt.UUID
+	Deleted         bool
 	StaleUpdateTime int64
 	Version         uint64
 	Vector          []float32
@@ -50,6 +58,8 @@ type vobjectMarshaler struct {
 
 func (vo *VObject) MarshalBinary() ([]byte, error) {
 	b := vobjectMarshaler{
+		ID:              vo.ID,
+		Deleted:         vo.Deleted,
 		StaleUpdateTime: vo.StaleUpdateTime,
 		Vector:          vo.Vector,
 		Vectors:         vo.Vectors,
@@ -73,6 +83,9 @@ func (vo *VObject) UnmarshalBinary(data []byte) error {
 	if err != nil {
 		return err
 	}
+
+	vo.ID = b.ID
+	vo.Deleted = b.Deleted
 	vo.StaleUpdateTime = b.StaleUpdateTime
 	vo.Vector = b.Vector
 	vo.Vectors = b.Vectors
