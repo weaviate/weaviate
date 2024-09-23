@@ -56,7 +56,7 @@ func (e *events) NotifyLeave(node *memberlist.Node) {
 	}
 
 	_, leaderID := e.raft.LeaderWithID()
-	if e.localID != string(leaderID) {
+	if e.localID != string(leaderID) || leaderID == "" {
 		e.logger.WithFields(logrus.Fields{
 			"name":    node.Name,
 			"address": node.Address(),
