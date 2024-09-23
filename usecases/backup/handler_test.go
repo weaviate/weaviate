@@ -45,12 +45,12 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	} else {
 		status := string(meta.Status)
 		return &models.BackupCreateResponse{
-			Classes: classes,
-			ID:      req.ID,
-			Backend: req.Backend,
-			Bucket:  req.Bucket,
-			Status:  &status,
-			Path:    meta.Path,
+			Classes:  classes,
+			ID:       req.ID,
+			Backend:  req.Backend,
+			S3bucket: req.Bucket,
+			Status:   &status,
+			S3path:   meta.Path,
 		}, nil
 	}
 }
