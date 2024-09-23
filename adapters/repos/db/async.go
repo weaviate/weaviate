@@ -62,6 +62,12 @@ func (a *AsyncWorker) Run() {
 func (a *AsyncWorker) do(job job) (stop bool) {
 	defer job.done()
 
+	if len(job.ids) > 0 {
+		return a.withRetry(job.ctx, func() error {
+			return job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
+		})
+	}
+
 	if len(job.deleted) > 0 {
 		stop = a.withRetry(job.ctx, func() error {
 			return job.indexer.Delete(job.deleted...)
@@ -69,12 +75,6 @@ func (a *AsyncWorker) do(job job) (stop bool) {
 		if stop {
 			return
 		}
-	}
-
-	if len(job.ids) > 0 {
-		return a.withRetry(job.ctx, func() error {
-			return job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
-		})
 	}
 
 	return false
