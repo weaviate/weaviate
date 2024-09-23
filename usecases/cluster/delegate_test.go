@@ -226,7 +226,7 @@ func TestDelegateCleanUp(t *testing.T) {
 	assert.True(t, ok, "N0 must exist")
 	st.delegate.set("N1", NodeInfo{LastTimeMilli: 1})
 	st.delegate.set("N2", NodeInfo{LastTimeMilli: 2})
-	handler := events{&st.delegate}
+	handler := events{delegate: &st.delegate}
 	handler.NotifyJoin(nil)
 	handler.NotifyUpdate(nil)
 	handler.NotifyLeave(&memberlist.Node{Name: "N0"})

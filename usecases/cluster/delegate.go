@@ -22,7 +22,6 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/hashicorp/memberlist"
 	"github.com/sirupsen/logrus"
 )
 
@@ -279,27 +278,3 @@ func (d *delegate) updater(period, minPeriod time.Duration, du func(path string)
 		curTime = time.Now()
 	}
 }
-
-// events implement memberlist.EventDelegate interface
-// EventDelegate is a simpler delegate that is used only to receive
-// notifications about members joining and leaving. The methods in this
-// delegate may be called by multiple goroutines, but never concurrently.
-// This allows you to reason about ordering.
-type events struct {
-	d *delegate
-}
-
-// NotifyJoin is invoked when a node is detected to have joined.
-// The Node argument must not be modified.
-func (e events) NotifyJoin(*memberlist.Node) {}
-
-// NotifyLeave is invoked when a node is detected to have left.
-// The Node argument must not be modified.
-func (e events) NotifyLeave(node *memberlist.Node) {
-	e.d.delete(node.Name)
-}
-
-// NotifyUpdate is invoked when a node is detected to have
-// updated, usually involving the meta data. The Node argument
-// must not be modified.
-func (e events) NotifyUpdate(*memberlist.Node) {}

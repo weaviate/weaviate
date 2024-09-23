@@ -66,18 +66,18 @@ func (d *conflictDelegate) NotifyConflict(existing, other *memberlist.Node) {
 		return
 	}
 
-	if err := d.raft.RemoveServer(raft.ServerID(existing.Addr), 0, 0).Error(); err != nil {
-		d.logger.Error(err)
+	if err := d.raft.RemoveServer(raft.ServerID(existing.Name), 0, 0).Error(); err != nil {
+		d.logger.WithError(err).Error("removing peer")
 	}
 
 	if d.voter {
 		if err := d.raft.AddVoter(raft.ServerID(other.Name), raft.ServerAddress(other.Addr), 0, 0).Error(); err != nil {
-			d.logger.Error(err)
+			d.logger.WithError(err).Error("add voter")
 		}
 		return
 	}
 
 	if err := d.raft.AddNonvoter(raft.ServerID(other.Name), raft.ServerAddress(other.Addr), 0, 0).Error(); err != nil {
-		d.logger.Error(err)
+		d.logger.WithError(err).Error("add non voter")
 	}
 }

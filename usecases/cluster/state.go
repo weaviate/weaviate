@@ -52,6 +52,7 @@ type State struct {
 	nonStorageNodes  map[string]struct{}
 	delegate         delegate
 	conflictDelegate conflictDelegate
+	eventsDelegate   events
 }
 
 type Config struct {
@@ -88,6 +89,7 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
+
 	state := State{
 		config:          userConfig,
 		nonStorageNodes: nonStorageNodes,
@@ -96,15 +98,20 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 			dataPath: dataPath,
 			log:      logger,
 		},
-		conflictDelegate: conflictDelegate{localID: cfg.Name, logger: logger},
 	}
+
+	state.conflictDelegate = conflictDelegate{localID: cfg.Name, logger: logger}
+	state.eventsDelegate = events{delegate: &state.delegate}
+
 	if err := state.delegate.init(diskSpace); err != nil {
 		logger.WithField("action", "init_state.delete_init").WithError(err).
 			Error("delegate init failed")
 	}
+
 	cfg.Delegate = &state.delegate
-	cfg.Events = events{&state.delegate}
+	cfg.Events = &state.eventsDelegate
 	cfg.Conflict = &state.conflictDelegate
+
 	if userConfig.GossipBindPort != 0 {
 		cfg.BindPort = userConfig.GossipBindPort
 	}
@@ -163,6 +170,7 @@ func (s *State) SetVoter(voter bool) {
 
 func (s *State) SetRaft(raft *raft.Raft) {
 	s.conflictDelegate.SetRaft(raft)
+	s.eventsDelegate.SetRaft(raft)
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
