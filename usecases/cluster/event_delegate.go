@@ -46,35 +46,6 @@ func (e *events) NotifyJoin(*memberlist.Node) {}
 // The Node argument must not be modified.
 func (e *events) NotifyLeave(node *memberlist.Node) {
 	e.delegate.delete(node.Name)
-
-	if e.raft == nil {
-		e.logger.WithFields(logrus.Fields{
-			"name":    node.Name,
-			"address": node.Address(),
-		}).Warn("raft is not up yet")
-		return
-	}
-
-	_, leaderID := e.raft.LeaderWithID()
-	if e.localID != string(leaderID) {
-		e.logger.WithFields(logrus.Fields{
-			"name":    node.Name,
-			"address": node.Address(),
-		}).Warn("node is not the leader to force invalidating of a peer")
-		return
-	}
-
-	// we mark the node invalid to avoid any IP conflicts by converting the node address to invalid address.
-	if e.voter {
-		if err := e.raft.AddVoter(raft.ServerID(node.Name), raft.ServerAddress("256.256.256.256:99999999"), 0, 0).Error(); err != nil {
-			e.logger.WithError(err).Error("invalidate voter node")
-		}
-		return
-	}
-
-	if err := e.raft.AddNonvoter(raft.ServerID(node.Name), raft.ServerAddress("256.256.256.256:99999999"), 0, 0).Error(); err != nil {
-		e.logger.WithError(err).Error("invalidate non voter")
-	}
 }
 
 // NotifyUpdate is invoked when a node is detected to have
