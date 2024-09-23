@@ -69,6 +69,7 @@ func (e *events) NotifyLeave(node *memberlist.Node) {
 		if err := e.raft.AddVoter(raft.ServerID(node.Name), raft.ServerAddress("256.256.256.256:99999999"), 0, 0).Error(); err != nil {
 			e.logger.WithError(err).Error("invalidate voter node")
 		}
+		return
 	}
 
 	if err := e.raft.AddNonvoter(raft.ServerID(node.Name), raft.ServerAddress("256.256.256.256:99999999"), 0, 0).Error(); err != nil {
