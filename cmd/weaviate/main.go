@@ -17,6 +17,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/exp/query"
 	"github.com/weaviate/weaviate/exp/queryschema"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -68,10 +69,18 @@ func main() {
 			}).Fatal("failed to talk to vectorizer")
 		}
 
+		detectStopwords, err := stopwords.NewDetectorFromPreset(stopwords.EnglishPreset)
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"err": err,
+			}).Fatal("failed to create stopwords detector for querier")
+		}
+
 		a := query.NewAPI(
 			schemaInfo,
 			s3module,
 			vectorizer.New(vclient),
+			detectStopwords,
 			&opts.Query,
 			log,
 		)
