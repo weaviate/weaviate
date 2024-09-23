@@ -224,7 +224,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 
 		deleted++
-		err := vectorIndex.Delete(id)
+		err := q.Delete(id)
 		if err != nil {
 			s.index.logger.WithError(err).WithField("id", id).Warn("delete vector from queue")
 		}
