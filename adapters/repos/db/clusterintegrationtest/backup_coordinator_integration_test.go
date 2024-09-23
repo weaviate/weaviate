@@ -132,7 +132,7 @@ func TestDistributedBackups(t *testing.T) {
 				resp, err := node.scheduler.Backup(ctx, &models.Principal{}, req)
 				assert.Nil(t, err, "expected nil err, got: %s", err)
 				assert.Empty(t, resp.Error, "expected empty, got: %s", resp.Error)
-				assert.NotEmpty(t, resp.Path)
+				assert.NotEmpty(t, resp.S3path)
 				assert.Contains(t, resp.Classes, distributedClass)
 			})
 
