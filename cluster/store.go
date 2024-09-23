@@ -749,6 +749,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
 	}
 
+	st.stateSetRaft(st.raft)
 	if exNode.ID == newNode.ID {
 		// no node name change needed in the state
 		return nil
