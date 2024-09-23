@@ -102,7 +102,7 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if i.maintenanceModeEnabled {
-			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
+			http.Error(w, "418 Maintenance mode", http.StatusTeapot) // TODO switch to forbidden?
 			return
 		}
 		switch {
