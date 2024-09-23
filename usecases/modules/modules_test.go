@@ -336,6 +336,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should provide backup backend", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		module := &dummyBackupModuleWithAltNames{}
+		var _ modulecapabilities.BackupBackend = module
 		modulesProvider := NewProvider(logger)
 		modulesProvider.Register(module)
 
@@ -536,7 +537,11 @@ func (*dummyBackupModuleWithAltNames) IsExternal() bool {
 	return true
 }
 
-func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key string, bucketName, bucketPath, byes []byte) error {
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error {
+	return nil
+}
+
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, bucketName, bucketPath, filePath string) error {
 	return nil
 }
 
