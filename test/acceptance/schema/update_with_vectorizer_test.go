@@ -29,10 +29,13 @@ func Test_UpdateClassWithText2VecOpenAI(t *testing.T) {
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
 	}()
 	endpoint := compose.GetWeaviate().URI()
 	helper.SetupClient(endpoint)
+	defer helper.ResetClient()
 
 	t.Run("update description of legacy vectorizer class", func(t *testing.T) {
 		cls := books.ClassOpenAIWithOptions()
