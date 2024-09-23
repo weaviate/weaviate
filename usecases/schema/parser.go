@@ -88,6 +88,7 @@ func (m *Parser) parseModuleConfig(class *models.Class) error {
 }
 
 func (m *Parser) parseVectorConfig(class *models.Class) error {
+	fmt.Printf("before class.VectorConfig: %v\n", class.VectorConfig)
 	if class.VectorConfig == nil {
 		return nil
 	}
@@ -108,6 +109,7 @@ func (m *Parser) parseVectorConfig(class *models.Class) error {
 		newVC[vector] = config
 	}
 	class.VectorConfig = newVC
+	fmt.Printf("after class.VectorConfig: %v\n", class.VectorConfig)
 	return nil
 }
 
@@ -115,6 +117,7 @@ func (m *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 	parsedMC := map[string]any{}
 	for module, config := range moduleConfig {
 		if config == nil {
+			parsedMC[module] = nil // nil is allowed, do no further parsing
 			continue
 		}
 		mapC, ok := config.(map[string]any)
