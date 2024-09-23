@@ -93,6 +93,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				cfg.PQ, h.distancerProvider, dims, 1e12, h.logger, cleanData, h.store,
 				h.allocChecker)
 			if err != nil {
+				h.pqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
 		} else if cfg.SQ.Enabled {
@@ -101,6 +102,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				h.distancerProvider, 1e12, h.logger, cleanData, h.store,
 				h.allocChecker)
 			if err != nil {
+				h.sqConfig.Enabled = false
 				return fmt.Errorf("compressing vectors: %w", err)
 			}
 		}

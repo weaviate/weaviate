@@ -400,6 +400,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("REPLICATION_FORCE_OBJECT_DELETION_CONFLICT_RESOLUTION"); v != "" {
+		config.Replication.ForceObjectDeletionConflictResolution = v
+	}
+
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
