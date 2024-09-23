@@ -53,7 +53,7 @@ func (d *conflictDelegate) NotifyConflict(existing, other *memberlist.Node) {
 		}).Warn("node conflicting IPs, i will shutdown ...")
 
 		// we force exit here for immediate stop of the node to avoid any raft replication.
-		os.Exit(1)
+		os.Exit(0)
 	}
 
 	_, leaderID := d.raft.LeaderWithID()
