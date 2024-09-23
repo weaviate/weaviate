@@ -46,7 +46,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, getClass func(string
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := extractFilters(req.Filters, getClass, req.Collection)
+	clause, err := ExtractFilters(req.Filters, getClass, req.Collection)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}

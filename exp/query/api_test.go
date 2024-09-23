@@ -125,6 +125,10 @@ func (m *mockTenantInfo) TenantStatus(_ context.Context, collection, tenant stri
 	return info.status, nil
 }
 
+func (m *mockTenantInfo) Collection(_ context.Context, collection string) (*models.Class, error) {
+	return nil, nil
+}
+
 func (m *mockTenantInfo) With(info *tenantInfo) *mockTenantInfo {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -18,7 +18,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/exp/query"
-	"github.com/weaviate/weaviate/exp/querytenant"
+	"github.com/weaviate/weaviate/exp/queryschema"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
@@ -58,7 +58,7 @@ func main() {
 
 		// This functionality is already in `go-client` of weaviate.
 		// TODO(kavi): Find a way to share this functionality in both go-client and in querytenant.
-		tenantInfo := querytenant.NewTenantInfo(opts.Query.SchemaAddr, querytenant.DefaultSchemaPath)
+		schemaInfo := queryschema.NewSchemaInfo(opts.Query.SchemaAddr, queryschema.DefaultSchemaPrefix)
 
 		vclient, err := client.NewClient(opts.Query.VectorizerAddr, log)
 		if err != nil {
@@ -69,14 +69,14 @@ func main() {
 		}
 
 		a := query.NewAPI(
-			tenantInfo,
+			schemaInfo,
 			s3module,
 			vectorizer.New(vclient),
 			&opts.Query,
 			log,
 		)
 
-		grpcQuerier := query.NewGRPC(a, log)
+		grpcQuerier := query.NewGRPC(a, schemaInfo, log)
 		listener, err := net.Listen("tcp", opts.Query.GRPCListenAddr)
 		if err != nil {
 			log.WithFields(logrus.Fields{

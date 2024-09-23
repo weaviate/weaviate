@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package querytenant
+package queryschema
 
 import (
 	"context"
@@ -17,38 +17,41 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 const (
-	// v1/schema/collection/tenants
-	DefaultSchemaPath = "v1/schema/%s/tenants"
+	// v1/schema/**
+	DefaultSchemaPrefix = "v1/schema"
 )
 
 var ErrTenantNotFound = errors.New("tenant not found")
 
-type TenantInfo struct {
-	addr   string
-	path   string
-	client *http.Client
+type SchemaInfo struct {
+	addr         string
+	schemaPrefix string
+	client       *http.Client
 }
 
-func NewTenantInfo(addr, path string) *TenantInfo {
+func NewSchemaInfo(addr, schemaPrefix string) *SchemaInfo {
 	c := http.DefaultClient
 	c.Timeout = 2 * time.Second
 
-	return &TenantInfo{
-		addr:   addr,
-		path:   path,
-		client: c,
+	return &SchemaInfo{
+		addr:         addr,
+		schemaPrefix: schemaPrefix,
+		client:       c,
 	}
 }
 
-func (t *TenantInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, error) {
+func (t *SchemaInfo) TenantStatus(ctx context.Context, collection, tenant string) (string, error) {
 	respPayload := []Response{}
 
-	path := fmt.Sprintf(t.path, collection)
+	path := t.schemaPrefix + "/" + collection + "/tenants"
 	u := fmt.Sprintf("%s/%s", t.addr, path)
 
 	resp, err := t.client.Get(u)
@@ -77,6 +80,27 @@ func (t *TenantInfo) TenantStatus(ctx context.Context, collection, tenant string
 	}
 
 	return "", ErrTenantNotFound
+}
+
+// Collection returns details about single collection from the schema.
+// https://weaviate.io/developers/weaviate/api/rest#tag/schema/GET/schema/{className}
+func (t *SchemaInfo) Collection(ctx context.Context, collection string) (*models.Class, error) {
+	var classResp models.Class
+
+	path := path.Join(t.schemaPrefix, collection)
+	u := fmt.Sprintf("%s/%s", t.addr, path)
+
+	resp, err := t.client.Get(u)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if err := json.NewDecoder(resp.Body).Decode(&classResp); err != nil {
+		return nil, err
+	}
+
+	return &classResp, nil
 }
 
 type Response struct {

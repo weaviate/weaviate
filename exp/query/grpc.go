@@ -15,6 +15,9 @@ import (
 	"context"
 
 	"github.com/sirupsen/logrus"
+	v1 "github.com/weaviate/weaviate/adapters/handlers/grpc/v1"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -23,19 +26,37 @@ type GRPC struct {
 	api *API
 	log logrus.FieldLogger
 
+	// Needed to extrat `filters` from the payload.
+	schema SchemaQuerier
+
 	// TODO(kavi): This should go away once we split v1.WeaviateServer into composable v1.Searcher
 	protocol.UnimplementedWeaviateServer
 }
 
-func NewGRPC(api *API, log logrus.FieldLogger) *GRPC {
+func NewGRPC(api *API, schema SchemaQuerier, log logrus.FieldLogger) *GRPC {
 	return &GRPC{
-		api: api,
-		log: log,
+		api:    api,
+		log:    log,
+		schema: schema,
 	}
 }
 
 func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protocol.SearchReply, error) {
-	res, err := g.api.Search(ctx, requestFromProto(req))
+	class, err := g.schema.Collection(ctx, req.Collection)
+	if err != nil {
+		return nil, err
+	}
+
+	getClass := func(name string) *models.Class {
+		return class
+	}
+
+	parsed, err := requestFromProto(req, getClass)
+	if err != nil {
+		return nil, err
+	}
+
+	res, err := g.api.Search(ctx, parsed)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +64,7 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 	return toProtoResponse(res), nil
 }
 
-func requestFromProto(req *protocol.SearchRequest) *SearchRequest {
+func requestFromProto(req *protocol.SearchRequest, getClass func(string) *models.Class) (*SearchRequest, error) {
 	sr := &SearchRequest{
 		Collection: req.Collection,
 		Tenant:     req.Tenant,
@@ -55,7 +76,14 @@ func requestFromProto(req *protocol.SearchRequest) *SearchRequest {
 			sr.Certainty = *req.NearText.Certainty
 		}
 	}
-	return sr
+	if req.Filters != nil {
+		filter, err := v1.ExtractFilters(req.Filters, getClass, req.Collection)
+		if err != nil {
+			return nil, err
+		}
+		sr.Filters = &filters.LocalFilter{Root: &filter}
+	}
+	return sr, nil
 }
 
 func toProtoResponse(res *SearchResponse) *protocol.SearchReply {
