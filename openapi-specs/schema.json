@@ -387,6 +387,15 @@
           "description": "Enable asynchronous replication",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "objectDeletionConflictResolution": {
+          "description": "Conflict resolution strategy for deleted objects",
+          "type": "string",
+          "enum": [
+            "NoAutomatedResolution",
+            "PermanentDeletion"
+          ],
+          "x-omitempty": true
         }
       },
       "type": "object"
