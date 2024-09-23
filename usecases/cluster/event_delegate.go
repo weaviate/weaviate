@@ -59,7 +59,8 @@ func (e *events) NotifyLeave(node *memberlist.Node) {
 		return
 	}
 
-	if err := e.raft.RemoveServer(raft.ServerID(node.Name), 0, 0).Error(); err != nil {
+	// we mark the node invalid to avoid any IP conflicts by converting the node address to invalid address.
+	if err := e.raft.AddVoter(raft.ServerID(node.Name), raft.ServerAddress("256.256.256.256:99999999"), 0, 0).Error(); err != nil {
 		e.logger.WithError(err).Error("removing peer")
 	}
 }
