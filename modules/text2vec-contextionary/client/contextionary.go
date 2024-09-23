@@ -40,7 +40,7 @@ type Client struct {
 
 // NewClient from gRPC discovery url to connect to a remote contextionary service
 func NewClient(uri string, logger logrus.FieldLogger) (*Client, error) {
-	conn, err := grpc.Dial(uri,
+	conn, err := grpc.NewClient(uri,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(1024*1024*48)))
 	if err != nil {
