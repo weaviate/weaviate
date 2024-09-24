@@ -12,12 +12,13 @@
 package traverser
 
 import (
-	"fmt"
 	"testing"
 
+	logrus "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestGetParams(t *testing.T) {
@@ -143,16 +144,19 @@ func TestGet_NestedRefDepthLimit(t *testing.T) {
 		return root
 	}
 
+	newTraverser := func(depth int) *Traverser {
+		logger, _ := logrus.NewNullLogger()
+		schemaGetter := &fakeSchemaGetter{aggregateTestSchema}
+		cfg := config.WeaviateConfig{
+			Config: config.Config{
+				QueryCrossReferenceDepthLimit: depth,
+			},
+		}
+		return NewTraverser(&cfg, &fakeLocks{}, logger, &fakeAuthorizer{},
+			&fakeVectorRepo{}, &fakeExplorer{}, schemaGetter, nil, nil, -1)
+	}
+
 	tests := []testcase{
-		{
-			name:  "succeed with default depth limit (3)",
-			props: makeNestedRefProps(3),
-		},
-		{
-			name:        "fail with default depth limit (3)",
-			props:       makeNestedRefProps(4),
-			expectedErr: "nested references depth exceeds QUERY_MAX_REF_DEPTH (3)",
-		},
 		{
 			name:     "succeed with explicitly set low depth limit",
 			maxDepth: 5,
@@ -162,7 +166,7 @@ func TestGet_NestedRefDepthLimit(t *testing.T) {
 			name:        "fail with explicitly set low depth limit",
 			maxDepth:    5,
 			props:       makeNestedRefProps(6),
-			expectedErr: "nested references depth exceeds QUERY_MAX_REF_DEPTH (5)",
+			expectedErr: "nested references depth exceeds QUERY_CROSS_REFERENCE_DEPTH_LIMIT (5)",
 		},
 		{
 			name:     "succeed with explicitly set high depth limit",
@@ -173,22 +177,23 @@ func TestGet_NestedRefDepthLimit(t *testing.T) {
 			name:        "fail with explicitly set high depth limit",
 			maxDepth:    500,
 			props:       makeNestedRefProps(501),
-			expectedErr: "nested references depth exceeds QUERY_MAX_REF_DEPTH (500)",
+			expectedErr: "nested references depth exceeds QUERY_CROSS_REFERENCE_DEPTH_LIMIT (500)",
 		},
 		{
 			name:        "fail with explicitly set low depth limit, but high actual depth",
 			maxDepth:    10,
 			props:       makeNestedRefProps(5000),
-			expectedErr: "nested references depth exceeds QUERY_MAX_REF_DEPTH (10)",
+			expectedErr: "nested references depth exceeds QUERY_CROSS_REFERENCE_DEPTH_LIMIT (10)",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			if test.maxDepth > 0 {
-				t.Setenv("QUERY_MAX_REF_DEPTH", fmt.Sprint(test.maxDepth))
+			if test.maxDepth == 0 {
+				t.Fatalf("must provide maxDepth param for test %q", test.name)
 			}
-			err := probeForRefDepthLimit(test.props)
+			traverser := newTraverser(test.maxDepth)
+			err := traverser.probeForRefDepthLimit(test.props)
 			if test.expectedErr != "" {
 				assert.EqualError(t, err, test.expectedErr)
 			} else {

@@ -14,15 +14,12 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
@@ -49,7 +46,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 		return nil, err
 	}
 
-	if err := probeForRefDepthLimit(params.Properties); err != nil {
+	if err := t.probeForRefDepthLimit(params.Properties); err != nil {
 		return nil, err
 	}
 
@@ -74,19 +71,10 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 
 // probeForRefDepthLimit checks to ensure reference nesting depth doesn't exceed the limit
 // provided by QUERY_MAX_REF_DEPTH
-func probeForRefDepthLimit(props search.SelectProperties) error {
+func (t *Traverser) probeForRefDepthLimit(props search.SelectProperties) error {
 	var (
 		determineDepth func(prop search.SelectProperties, depth int) int
-		maxDepth       = func() int {
-			if raw := os.Getenv("QUERY_MAX_REF_DEPTH"); raw != "" {
-				depth, err := strconv.Atoi(raw)
-				if err != nil {
-					return config.DefaultQueryMaxRefDepth
-				}
-				return depth
-			}
-			return config.DefaultQueryMaxRefDepth
-		}()
+		maxDepth       = t.config.Config.QueryCrossReferenceDepthLimit
 	)
 
 	determineDepth = func(props search.SelectProperties, depth int) int {
@@ -106,7 +94,7 @@ func probeForRefDepthLimit(props search.SelectProperties) error {
 	}
 
 	if depth := determineDepth(props, 0); depth > maxDepth {
-		return fmt.Errorf("nested references depth exceeds QUERY_MAX_REF_DEPTH (%d)", maxDepth)
+		return fmt.Errorf("nested references depth exceeds QUERY_CROSS_REFERENCE_DEPTH_LIMIT (%d)", maxDepth)
 	}
 	return nil
 }

@@ -254,6 +254,18 @@ func FromEnv(config *Config) error {
 		config.QueryNestedCrossReferenceLimit = DefaultQueryNestedCrossReferenceLimit
 	}
 
+	if v := os.Getenv("QUERY_CROSS_REFERENCE_DEPTH_LIMIT"); v != "" {
+		limit, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_CROSS_REFERENCE_DEPTH_LIMIT as int: %w", err)
+		} else if limit <= 0 {
+			limit = math.MaxInt
+		}
+		config.QueryCrossReferenceDepthLimit = int(limit)
+	} else {
+		config.QueryCrossReferenceDepthLimit = DefaultQueryCrossReferenceDepthLimit
+	}
+
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
 		asFloat, err := strconv.ParseFloat(v, 64)
 		if err != nil {
@@ -484,8 +496,11 @@ func parsePositiveInt(varName string, cb func(val int), defaultValue int) error 
 }
 
 const (
-	DefaultQueryMaximumResults            = int64(10000)
+	DefaultQueryMaximumResults = int64(10000)
+	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
+	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
+	DefaultQueryCrossReferenceDepthLimit = 3
 )
 
 const (
