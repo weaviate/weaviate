@@ -135,6 +135,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, bucketName, buc
 			errors.Wrapf(err, "put object '%s'", remotePath))
 	}
 
+	fmt.Printf("Put object '%s' to bucket '%s'\n", remotePath, bucket)
 	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, "class")
 	if err == nil {
 		metric.Add(float64(len(byes)))
@@ -160,8 +161,8 @@ func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
 
 // WriteFile downloads contents of an object to a local file destPath
 func (s *s3Client) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
-	remotePath := s.makeObjectName(backupID, key)
 
+	remotePath := s.makeObjectName(backupID, key)
 	if bucketPath != "" {
 		remotePath = path.Join(bucketPath, backupID, key)
 	}
