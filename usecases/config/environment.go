@@ -254,16 +254,12 @@ func FromEnv(config *Config) error {
 		config.QueryNestedCrossReferenceLimit = DefaultQueryNestedCrossReferenceLimit
 	}
 
-	if v := os.Getenv("QUERY_CROSS_REFERENCE_DEPTH_LIMIT"); v != "" {
-		limit, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return fmt.Errorf("parse QUERY_CROSS_REFERENCE_DEPTH_LIMIT as int: %w", err)
-		} else if limit <= 0 {
-			limit = DefaultQueryCrossReferenceDepthLimit
-		}
-		config.QueryCrossReferenceDepthLimit = int(limit)
-	} else {
-		config.QueryCrossReferenceDepthLimit = DefaultQueryCrossReferenceDepthLimit
+	if err := parsePositiveInt(
+		"QUERY_CROSS_REFERENCE_DEPTH_LIMIT",
+		func(val int) { config.QueryCrossReferenceDepthLimit = val },
+		DefaultQueryCrossReferenceDepthLimit,
+	); err != nil {
+		return err
 	}
 
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
