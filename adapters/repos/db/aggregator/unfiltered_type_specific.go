@@ -77,10 +77,7 @@ func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
 	agg := newBoolAggregator()
 
 	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
-		if err := ua.parseAndAddBoolArrayRow(agg, v, prop.Name); err != nil {
-			return err
-		}
-		return nil
+		return ua.parseAndAddBoolArrayRow(agg, v, prop.Name)
 	}
 
 	err := iteratorConcurrently(b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
@@ -307,10 +304,7 @@ func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
 	agg := newDateAggregator()
 
 	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
-		if err := ua.parseAndAddDateArrayRow(agg, v, prop.Name); err != nil {
-			return err
-		}
-		return nil
+		return ua.parseAndAddDateArrayRow(agg, v, prop.Name)
 	}
 
 	err := iteratorConcurrently(b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
@@ -452,10 +446,7 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 	agg := newTextAggregator(limit)
 
 	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
-		if err := ua.parseAndAddTextRow(agg, v, prop.Name); err != nil {
-			return err
-		}
-		return nil
+		return ua.parseAndAddTextRow(agg, v, prop.Name)
 	}
 
 	err := iteratorConcurrently(b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
@@ -484,10 +475,7 @@ func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
 	agg := newNumericalAggregator()
 
 	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
-		if err := ua.parseAndAddNumberArrayRow(agg, v, prop.Name); err != nil {
-			return err
-		}
-		return nil
+		return ua.parseAndAddNumberArrayRow(agg, v, prop.Name)
 	}
 
 	err := iteratorConcurrently(b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
