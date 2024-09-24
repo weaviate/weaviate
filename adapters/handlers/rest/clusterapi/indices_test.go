@@ -31,7 +31,6 @@ func TestMaintenanceModeIndices(t *testing.T) {
 
 	defer server.Close()
 
-	// TODO replace with 403 forbidden?
 	maintenanceModeExpectedHTTPStatus := http.StatusTeapot
 	requestURL := func(suffix string) string {
 		return fmt.Sprintf("%s/indices/MyClass/shards/myshard%s", server.URL, suffix)

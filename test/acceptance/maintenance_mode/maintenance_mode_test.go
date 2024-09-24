@@ -26,6 +26,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
+// TestOneNodeMaintenanceMode starts a 3-node cluster and puts the 3rd node in
+// maintenance mode. It then verifies that the 3rd node can still respond to
+// schema/metadata changes/queries but not to object changes/queries.
 func TestOneNodeMaintenanceMode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

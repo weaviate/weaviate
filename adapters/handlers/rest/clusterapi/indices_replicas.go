@@ -65,8 +65,8 @@ type replicatedIndices struct {
 	shards replicator
 	scaler localScaler
 	auth   auth
-	// maintenaceModeEnabled is an experimental feature to allow the system to be
-	// put into a maintenance mode where all requests just return a 418
+	// maintenanceModeEnabled is an experimental feature to allow the system to be
+	// put into a maintenance mode where all replicatedIndices requests just return a 418
 	maintenanceModeEnabled bool
 }
 
@@ -75,7 +75,7 @@ var (
 		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)`)
 	regxOverwriteObjects = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_overwrite`)
-	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` + // TODO why doesn't this have leading /replicas?
+	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_digest`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
@@ -104,7 +104,7 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
 		if i.maintenanceModeEnabled {
-			http.Error(w, "418 Maintenance mode", http.StatusTeapot) // TODO switch to forbidden?
+			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
 			return
 		}
 		// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go

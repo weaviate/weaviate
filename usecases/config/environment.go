@@ -769,7 +769,7 @@ func parseClusterConfig() (cluster.Config, error) {
 
 	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
 
-	//MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
+	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
 	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
 	// return an error for all data requests, but will still participate in the raft cluster and
 	// schema operations. This can be helpful is a node is too overwhelmed by startup tasks to handle
