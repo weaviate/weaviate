@@ -21,7 +21,83 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-func iteratorConcurrentlyReplace(b *lsmkv.Bucket, aggregateFunc func(b []byte) error, logger logrus.FieldLogger) error {
+type Cursor interface {
+	First() (k, v []byte, vv [][]byte, bi *sroar.Bitmap)
+	Next() (k, v []byte, vv [][]byte, bi *sroar.Bitmap)
+	Seek(b []byte) (k, v []byte, vv [][]byte, bi *sroar.Bitmap)
+	Close()
+}
+
+type ReplaceCursor struct {
+	cursor *lsmkv.CursorReplace
+}
+
+func (c ReplaceCursor) First() ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, v := c.cursor.First()
+	return k, v, nil, nil
+}
+
+func (c ReplaceCursor) Next() ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, v := c.cursor.Next()
+	return k, v, nil, nil
+}
+
+func (c ReplaceCursor) Seek(b []byte) ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, v := c.cursor.Seek(b)
+	return k, v, nil, nil
+}
+
+func (c ReplaceCursor) Close() {
+	c.cursor.Close()
+}
+
+type SetCursor struct {
+	cursor *lsmkv.CursorSet
+}
+
+func (c SetCursor) First() ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, v := c.cursor.First()
+	return k, nil, v, nil
+}
+
+func (c SetCursor) Next() ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, v := c.cursor.Next()
+	return k, nil, v, nil
+}
+
+func (c SetCursor) Seek(b []byte) ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, v := c.cursor.Seek(b)
+	return k, nil, v, nil
+}
+
+func (c SetCursor) Close() {
+	c.cursor.Close()
+}
+
+type RoaringCursor struct {
+	cursor lsmkv.CursorRoaringSet
+}
+
+func (c RoaringCursor) First() ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, b := c.cursor.First()
+	return k, nil, nil, b
+}
+
+func (c RoaringCursor) Next() ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, b := c.cursor.Next()
+	return k, nil, nil, b
+}
+
+func (c RoaringCursor) Seek(b []byte) ([]byte, []byte, [][]byte, *sroar.Bitmap) {
+	k, bb := c.cursor.Seek(b)
+	return k, nil, nil, bb
+}
+
+func (c RoaringCursor) Close() {
+	c.cursor.Close()
+}
+
+func iteratorConcurrently(b *lsmkv.Bucket, newCursor func() Cursor, aggregateFunc func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error, logger logrus.FieldLogger) error {
 	// we're looking at the whole object, so this is neither a Set, nor a Map, but
 	// a Replace strategy
 
@@ -29,11 +105,9 @@ func iteratorConcurrentlyReplace(b *lsmkv.Bucket, aggregateFunc func(b []byte) e
 	seeds := b.QuantileKeys(seedCount)
 	// in case all keys are in memory
 	if len(seeds) == 0 {
-		c := b.Cursor()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			err := aggregateFunc(v)
+		c := newCursor()
+		for k, v, vv, bi := c.First(); k != nil; k, v, vv, bi = c.Next() {
+			err := aggregateFunc(k, v, vv, bi)
 			if err != nil {
 				return err
 			}
@@ -50,11 +124,11 @@ func iteratorConcurrentlyReplace(b *lsmkv.Bucket, aggregateFunc func(b []byte) e
 
 	// S1: Read from beginning to first checkpoint:
 	eg.Go(func() error {
-		c := b.Cursor()
+		c := newCursor()
 		defer c.Close()
 
-		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
-			err := aggregateFunc(v)
+		for k, v, vv, bi := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v, vv, bi = c.Next() {
+			err := aggregateFunc(k, v, vv, bi)
 			if err != nil {
 				return err
 			}
@@ -68,11 +142,11 @@ func iteratorConcurrentlyReplace(b *lsmkv.Bucket, aggregateFunc func(b []byte) e
 		end := seeds[i+1]
 
 		eg.Go(func() error {
-			c := b.Cursor()
+			c := newCursor()
 			defer c.Close()
 
-			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
-				err := aggregateFunc(v)
+			for k, v, vv, bi := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v, vv, bi = c.Next() {
+				err := aggregateFunc(k, v, vv, bi)
 				if err != nil {
 					return err
 				}
@@ -83,159 +157,11 @@ func iteratorConcurrentlyReplace(b *lsmkv.Bucket, aggregateFunc func(b []byte) e
 
 	// S3: Read from last checkpoint to end:
 	eg.Go(func() error {
-		c := b.Cursor()
+		c := newCursor()
 		defer c.Close()
 
-		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			err := aggregateFunc(v)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}, logger)
-
-	return eg.Wait()
-}
-
-func iteratorConcurrentlySet(b *lsmkv.Bucket, aggregateFunc func(k []byte, v [][]byte) error, logger logrus.FieldLogger) error {
-	seedCount := 2*runtime.GOMAXPROCS(0) - 1
-	seeds := b.QuantileKeys(seedCount)
-	// in case all keys are in memory
-	if len(seeds) == 0 {
-		c := b.SetCursor()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			err := aggregateFunc(k, v)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	eg := enterrors.NewErrorGroupWrapper(logger)
-
-	// There are three scenarios:
-	// 1. Read from beginning to first checkpoint
-	// 2. Read from checkpoint n to checkpoint n+1
-	// 3. Read from last checkpoint to end
-
-	// S1: Read from beginning to first checkpoint:
-	eg.Go(func() error {
-		c := b.SetCursor()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
-			err := aggregateFunc(k, v)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	// S2: Read from checkpoint n to checkpoint n+1, stop at last checkpoint:
-	for i := 0; i < len(seeds)-1; i++ {
-		start := seeds[i]
-		end := seeds[i+1]
-
-		eg.Go(func() error {
-			c := b.SetCursor()
-			defer c.Close()
-
-			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
-				err := aggregateFunc(k, v)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-	}
-
-	// S3: Read from last checkpoint to end:
-	eg.Go(func() error {
-		c := b.SetCursor()
-		defer c.Close()
-
-		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			err := aggregateFunc(k, v)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}, logger)
-
-	return eg.Wait()
-}
-
-func iteratorConcurrentlyRoaringSet(b *lsmkv.Bucket, aggregateFunc func(k []byte, v *sroar.Bitmap) error, logger logrus.FieldLogger) error {
-	seedCount := 2*runtime.GOMAXPROCS(0) - 1
-	seeds := b.QuantileKeys(seedCount)
-	// in case all keys are in memory
-	if len(seeds) == 0 {
-		c := b.CursorRoaringSet()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil; k, v = c.Next() {
-			err := aggregateFunc(k, v)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	eg := enterrors.NewErrorGroupWrapper(logger)
-
-	// There are three scenarios:
-	// 1. Read from beginning to first checkpoint
-	// 2. Read from checkpoint n to checkpoint n+1
-	// 3. Read from last checkpoint to end
-
-	// S1: Read from beginning to first checkpoint:
-	eg.Go(func() error {
-		c := b.CursorRoaringSet()
-		defer c.Close()
-
-		for k, v := c.First(); k != nil && bytes.Compare(k, seeds[0]) < 0; k, v = c.Next() {
-			err := aggregateFunc(k, v)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-
-	// S2: Read from checkpoint n to checkpoint n+1, stop at last checkpoint:
-	for i := 0; i < len(seeds)-1; i++ {
-		start := seeds[i]
-		end := seeds[i+1]
-
-		eg.Go(func() error {
-			c := b.CursorRoaringSet()
-			defer c.Close()
-
-			for k, v := c.Seek(start); k != nil && bytes.Compare(k, end) < 0; k, v = c.Next() {
-				err := aggregateFunc(k, v)
-				if err != nil {
-					return err
-				}
-			}
-			return nil
-		})
-	}
-
-	// S3: Read from last checkpoint to end:
-	eg.Go(func() error {
-		c := b.CursorRoaringSet()
-		defer c.Close()
-
-		for k, v := c.Seek(seeds[len(seeds)-1]); k != nil; k, v = c.Next() {
-			err := aggregateFunc(k, v)
+		for k, v, vv, bi := c.Seek(seeds[len(seeds)-1]); k != nil; k, v, vv, bi = c.Next() {
+			err := aggregateFunc(k, v, vv, bi)
 			if err != nil {
 				return err
 			}

@@ -40,19 +40,19 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 
 	// bool never has a frequency, so it's either a Set or RoaringSet
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		extract := func(k []byte, v *sroar.Bitmap) error {
-			return ua.parseAndAddBoolRowRoaringSet(agg, k, v)
+		extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+			return ua.parseAndAddBoolRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrentlyRoaringSet(b, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(b, func() Cursor { return RoaringCursor{b.CursorRoaringSet()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
-		extract := func(k []byte, v [][]byte) error {
-			return ua.parseAndAddBoolRowSet(agg, k, v)
+		extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+			return ua.parseAndAddBoolRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrentlySet(b, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -76,14 +76,14 @@ func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
 
 	agg := newBoolAggregator()
 
-	extract := func(v []byte) error {
-		if err := ua.parseAndAddBoolArrayRow(agg, v, prop.Name); err != nil {
+	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+		if err := ua.parseAndAddBoolArrayRow(agg, k, prop.Name); err != nil {
 			return err
 		}
 		return nil
 	}
 
-	err := iteratorConcurrentlyReplace(b, extract, ua.logger)
+	err := iteratorConcurrently(b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -159,19 +159,19 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 
 	// flat never has a frequency, so it's either a Set or RoaringSet
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		extract := func(k []byte, v *sroar.Bitmap) error {
-			return ua.parseAndAddFloatRowRoaringSet(agg, k, v)
+		extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+			return ua.parseAndAddFloatRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrentlyRoaringSet(b, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(b, func() Cursor { return RoaringCursor{b.CursorRoaringSet()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
-		extract := func(k []byte, v [][]byte) error {
-			return ua.parseAndAddFloatRowSet(agg, k, v)
+		extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+			return ua.parseAndAddFloatRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrentlySet(b, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -198,19 +198,19 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 
 	// int never has a frequency, so it's either a Set or RoaringSet
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		extract := func(k []byte, v *sroar.Bitmap) error {
-			return ua.parseAndAddIntRowRoaringSet(agg, k, v)
+		extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+			return ua.parseAndAddIntRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrentlyRoaringSet(b, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(b, func() Cursor { return RoaringCursor{b.CursorRoaringSet()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
-		extract := func(k []byte, v [][]byte) error {
-			return ua.parseAndAddIntRowSet(agg, k, v)
+		extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+			return ua.parseAndAddIntRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrentlySet(b, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -237,19 +237,19 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 
 	// dates don't have frequency, so it's either a Set or RoaringSet
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		extract := func(k []byte, v *sroar.Bitmap) error {
-			return ua.parseAndAddDateRowRoaringSet(agg, k, v)
+		extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+			return ua.parseAndAddDateRowRoaringSet(agg, k, b)
 		}
 
-		if err := iteratorConcurrentlyRoaringSet(b, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(b, func() Cursor { return RoaringCursor{b.CursorRoaringSet()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	} else {
-		extract := func(k []byte, v [][]byte) error {
-			return ua.parseAndAddDateRowSet(agg, k, v)
+		extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+			return ua.parseAndAddDateRowSet(agg, k, vv)
 		}
 
-		if err := iteratorConcurrentlySet(b, extract, ua.logger); err != nil {
+		if err := iteratorConcurrently(b, func() Cursor { return SetCursor{b.SetCursor()} }, extract, ua.logger); err != nil {
 			return nil, err
 		}
 	}
@@ -306,11 +306,14 @@ func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
 
 	agg := newDateAggregator()
 
-	extract := func(v []byte) error {
-		return ua.parseAndAddDateArrayRow(agg, v, prop.Name)
+	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+		if err := ua.parseAndAddDateArrayRow(agg, k, prop.Name); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	err := iteratorConcurrentlyReplace(b, extract, ua.logger)
+	err := iteratorConcurrently(b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -448,11 +451,14 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 
 	agg := newTextAggregator(limit)
 
-	extract := func(v []byte) error {
-		return ua.parseAndAddTextRow(agg, v, prop.Name)
+	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+		if err := ua.parseAndAddTextRow(agg, k, prop.Name); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	err := iteratorConcurrentlyReplace(b, extract, ua.logger)
+	err := iteratorConcurrently(b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
@@ -477,11 +483,14 @@ func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
 
 	agg := newNumericalAggregator()
 
-	extract := func(v []byte) error {
-		return ua.parseAndAddNumberArrayRow(agg, v, prop.Name)
+	extract := func(k []byte, v []byte, vv [][]byte, b *sroar.Bitmap) error {
+		if err := ua.parseAndAddNumberArrayRow(agg, k, prop.Name); err != nil {
+			return err
+		}
+		return nil
 	}
 
-	err := iteratorConcurrentlyReplace(b, extract, ua.logger)
+	err := iteratorConcurrently(b, func() Cursor { return ReplaceCursor{b.Cursor()} }, extract, ua.logger)
 	if err != nil {
 		return nil, err
 	}
