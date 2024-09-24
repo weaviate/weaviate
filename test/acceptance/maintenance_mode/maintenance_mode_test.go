@@ -26,10 +26,10 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-// TestOneNodeMaintenanceMode starts a 3-node cluster and puts the 3rd node in
+// TestMaintenanceMode starts a 3-node cluster and puts the 3rd node in
 // maintenance mode. It then verifies that the 3rd node can still respond to
 // schema/metadata changes/queries but not to object changes/queries.
-func TestOneNodeMaintenanceMode(t *testing.T) {
+func TestMaintenanceMode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -55,7 +55,7 @@ func TestOneNodeMaintenanceMode(t *testing.T) {
 
 	// The 3rd node is in maintenance mode but should still be able to respond
 	// to schema/metadata changes/queries
-	t.Run("verify class exists on the 3rd node", func(t *testing.T) {
+	t.Run("verify class exists on node3", func(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviateNode3().URI())
 		helper.GetClass(t, testClass.Class)
 	})
@@ -92,13 +92,15 @@ func TestOneNodeMaintenanceMode(t *testing.T) {
 			WithContents(fmt.Sprintf("paragraph#%d", 42)).
 			Object()
 		cls := string("ALL")
-		params := objects.NewObjectsCreateParams().WithBody(o).WithConsistencyLevel(&cls)
+		params := objects.NewObjectsCreateParamsWithTimeout(2 * time.Second).WithBody(o).WithConsistencyLevel(&cls)
 		_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
-		require.NotNil(t, err)
+		require.NotNil(t, err, "expected error, got nil")
 	})
 
 	t.Run("Get objects with consistency level ALL should fail after timeout", func(t *testing.T) {
-		_, err := helper.GetObjectCL(t, testClass.Class, paragraphIDs[0], "ALL")
-		require.NotNil(t, err)
+		cls := string("ALL")
+		params := objects.NewObjectsClassGetParamsWithTimeout(2 * time.Second).WithID(paragraphIDs[0]).WithClassName(testClass.Class).WithConsistencyLevel(&cls)
+		_, err = helper.Client(t).Objects.ObjectsClassGet(params, nil)
+		require.NotNil(t, err, "expected error, got nil")
 	})
 }

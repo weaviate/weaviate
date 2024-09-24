@@ -12,6 +12,7 @@ function main() {
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
   run_acceptance_maintenance_tests=false
+  only_acceptance=false
   run_module_tests=false
   only_module=false
   only_module_value=false
@@ -39,6 +40,7 @@ function main() {
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --acceptance-only-maintenance|-aom) run_all_tests=false; run_acceptance_maintenance_tests=true ;;
+          --only-acceptance-*|-oa)run_all_tests=false; only_acceptance=true;only_acceptance_value=$1;;
           --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
           --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
           --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
@@ -61,6 +63,7 @@ function main() {
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
+              "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
               "--help | -h"; exit 1;;
@@ -97,7 +100,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_maintenance_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors
+  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_maintenance_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors || $only_acceptance
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -119,7 +122,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_maintenance_tests || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors || $run_all_tests
+    if $run_acceptance_tests || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_maintenance_tests || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors || $run_all_tests || $only_acceptance
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -205,6 +208,10 @@ function run_acceptance_tests() {
   echo "running acceptance maintenance"
     run_acceptance_maintenance_tests "$@"
   fi
+  if $only_acceptance; then
+  echo "running only acceptance"
+    run_acceptance_only_tests
+  fi
   if $run_acceptance_go_client_only_fast || $run_acceptance_go_client || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance go client only fast"
     run_acceptance_go_client_only_fast "$@"
@@ -283,6 +290,17 @@ function run_acceptance_replication_tests() {
 
 function run_acceptance_maintenance_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/maintenance_mode'); do
+    if ! go test -v -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_acceptance_only_tests() {
+  package=${only_acceptance_value//--only-acceptance-/}
+  echo_green "Running acceptance tests for $package..."
+  for pkg in $(go list ./.../ | grep 'test/acceptance/'${package}); do
     if ! go test -v -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
