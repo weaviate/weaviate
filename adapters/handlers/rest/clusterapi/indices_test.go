@@ -60,8 +60,8 @@ func TestMaintenanceModeIndices(t *testing.T) {
 			req, err := http.NewRequest(testRequest.method, requestURL(testRequest.suffix), nil)
 			assert.Nil(t, err)
 			res, err := http.DefaultClient.Do(req)
-			defer res.Body.Close()
 			assert.Nil(t, err)
+			defer res.Body.Close()
 			assert.True(t, res.StatusCode == maintenanceModeExpectedHTTPStatus, "expected %d, got %d", maintenanceModeExpectedHTTPStatus, res.StatusCode)
 		})
 	}
