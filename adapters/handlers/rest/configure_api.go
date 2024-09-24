@@ -1534,7 +1534,7 @@ func rbacMiddleware(appState *state.State) func(handler http.Handler) http.Handl
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Enforcer will be nil when API keys are not enabled
-			if appState.RBACEnforcer == nil {
+			if appState.RBACEnforcer == nil || !appState.ServerConfig.Config.EnableRBACEnforcer {
 				appState.Logger.Info("RBAC enforcers is not enabled")
 				return
 			}
