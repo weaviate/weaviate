@@ -123,6 +123,7 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 	serfconfig.NodeName = cfg.Name
 	serfconfig.MemberlistConfig.Delegate = cfg.Delegate
 	serfconfig.MemberlistConfig.Events = cfg.Events
+	serfconfig.LogOutput = newLogParser(logger)
 	// serfconfig.EnableNameConflictResolution = true
 
 	state.serf, err = serf.Create(serfconfig)
