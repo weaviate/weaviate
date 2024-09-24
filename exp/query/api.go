@@ -152,7 +152,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}
 
 	if req.Filters != nil {
-		resObjs, err := a.propertyFilters(ctx, store, localPath, req.Collection, req.Tenant, req.Filters, limit)
+		resObjs, err := a.propertyFilters(ctx, store, req.Collection, req.Tenant, req.Filters, limit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to do filter search: %w", err)
 		}
@@ -185,7 +185,6 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 func (a *API) propertyFilters(
 	ctx context.Context,
 	store *lsmkv.Store,
-	localPath string,
 	collection string,
 	tenant string,
 	filter *filters.LocalFilter,
@@ -230,7 +229,7 @@ func (a *API) propertyFilters(
 		return nil, fmt.Errorf("failed to open objects bucket: %w", err)
 	}
 
-	objs, err := searcher.Objects(ctx, maxQueryObjectsLimit, filter, nil, additional.Properties{}, schema.ClassName(collection), props)
+	objs, err := searcher.Objects(ctx, limit, filter, nil, additional.Properties{}, schema.ClassName(collection), props)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search for objects:%w", err)
 	}
@@ -289,6 +288,7 @@ func (a *API) vectorSearch(
 	}
 
 	bkt := store.Bucket(defaultLSMObjectsBucket)
+	defer bkt.Shutdown(ctx)
 
 	objs := make([]*storobj.Object, 0)
 
