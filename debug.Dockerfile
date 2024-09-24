@@ -48,3 +48,4 @@ COPY --from=server_builder_debug /weaviate-server /bin/weaviate
 RUN apk add --no-cache --upgrade ca-certificates openssl
 RUN mkdir ./modules
 CMD ["--listen=:2345", "--headless=true", "--check-go-version=false", "--log=true", "--accept-multiclient", "--api-version=2", "exec", "/bin/weaviate", "--", "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
+
