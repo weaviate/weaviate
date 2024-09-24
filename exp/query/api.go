@@ -175,7 +175,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 			return errLimitReached
 		}
 		return nil
-	}); err != nil && !errors.Is(errLimitReached, err) {
+	}); err != nil && !errors.Is(err, errLimitReached) {
 		return nil, fmt.Errorf("failed to iterate objects in store: %w", err)
 	}
 
