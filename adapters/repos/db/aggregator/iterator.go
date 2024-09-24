@@ -106,6 +106,7 @@ func iteratorConcurrently(b *lsmkv.Bucket, newCursor func() Cursor, aggregateFun
 	// in case all keys are in memory
 	if len(seeds) == 0 {
 		c := newCursor()
+		defer c.Close()
 		for k, v, vv, bi := c.First(); k != nil; k, v, vv, bi = c.Next() {
 			err := aggregateFunc(k, v, vv, bi)
 			if err != nil {
