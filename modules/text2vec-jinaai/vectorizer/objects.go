@@ -61,4 +61,5 @@ type ClassSettings interface {
 	VectorizeClassName() bool
 	Model() string
 	BaseURL() string
+	Dimensions() *int64
 }

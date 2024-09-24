@@ -277,7 +277,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
-					h.handleDeletedNode(e.DocID)
+					h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
 					continue
 				}
 				h.pools.visitedListsLock.RLock()
@@ -367,7 +367,7 @@ func (h *hnsw) currentWorstResultDistanceToFloat(results *priorityqueue.Queue[an
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
+				h.handleDeletedNode(e.DocID, "currentWorstResultDistanceToFloat")
 				return math.MaxFloat32, nil
 			}
 			return 0, errors.Wrap(err, "calculated distance between worst result and query")
@@ -396,7 +396,7 @@ func (h *hnsw) currentWorstResultDistanceToByte(results *priorityqueue.Queue[any
 		if err != nil {
 			var e storobj.ErrNotFound
 			if errors.As(err, &e) {
-				h.handleDeletedNode(e.DocID)
+				h.handleDeletedNode(e.DocID, "currentWorstResultDistanceToByte")
 				return math.MaxFloat32, nil
 			}
 			return 0, errors.Wrap(err,
@@ -420,7 +420,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 	if err != nil {
 		var e storobj.ErrNotFound
 		if errors.As(err, &e) {
-			h.handleDeletedNode(e.DocID)
+			h.handleDeletedNode(e.DocID, "distanceFromBytesToFloatNode")
 			return 0, err
 		}
 		// not a typed error, we can recover from, return with err
@@ -447,7 +447,7 @@ func (h *hnsw) distanceToFloatNode(distancer distancer.Distancer, nodeID uint64)
 // the underlying object seems to have been deleted, to recover from
 // this situation let's add a tombstone to the deleted object, so it
 // will be cleaned up and skip this candidate in the current search
-func (h *hnsw) handleDeletedNode(docID uint64) {
+func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 	if h.hasTombstone(docID) {
 		// nothing to do, this node already has a tombstone, it will be cleaned up
 		// in the next deletion cycle
@@ -455,7 +455,7 @@ func (h *hnsw) handleDeletedNode(docID uint64) {
 	}
 
 	h.addTombstone(docID)
-	h.metrics.AddUnexpectedTombstone()
+	h.metrics.AddUnexpectedTombstone(operation)
 	h.logger.WithField("action", "attach_tombstone_to_deleted_node").
 		WithField("node_id", docID).
 		Debugf("found a deleted node (%d) without a tombstone, "+
@@ -482,7 +482,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	var e storobj.ErrNotFound
 	if err != nil && errors.As(err, &e) {
-		h.handleDeletedNode(e.DocID)
+		h.handleDeletedNode(e.DocID, "knnSearchByVector")
 		return nil, nil, fmt.Errorf("entrypoint was deleted in the object store, " +
 			"it has been flagged for cleanup and should be fixed in the next cleanup cycle")
 	}

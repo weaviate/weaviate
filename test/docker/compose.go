@@ -40,6 +40,7 @@ import (
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -268,6 +269,12 @@ func (d *Compose) WithText2VecHuggingFace() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeOpenAI() *Compose {
 	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
 	return d
@@ -382,7 +389,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
 	network, err := tescontainersnetwork.New(
 		ctx,
-		tescontainersnetwork.WithCheckDuplicate(),
 		tescontainersnetwork.WithAttachable(),
 	)
 	networkName := network.Name
