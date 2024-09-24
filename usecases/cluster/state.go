@@ -115,17 +115,15 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 	}
 
 	serfconfig := serf.DefaultConfig()
+	serfconfig.NodeName = cfg.Name
+	serfconfig.LogOutput = newLogParser(logger)
 	serfconfig.MemberlistConfig = cfg
 	serfconfig.MemberlistConfig.AdvertiseAddr = cfg.AdvertiseAddr
 	serfconfig.MemberlistConfig.AdvertisePort = cfg.AdvertisePort
 	serfconfig.MemberlistConfig.BindAddr = cfg.BindAddr
 	serfconfig.MemberlistConfig.BindPort = cfg.BindPort
-	serfconfig.NodeName = cfg.Name
 	serfconfig.MemberlistConfig.Delegate = cfg.Delegate
 	serfconfig.MemberlistConfig.Events = cfg.Events
-	serfconfig.LogOutput = newLogParser(logger)
-	// serfconfig.EnableNameConflictResolution = true
-
 	state.serf, err = serf.Create(serfconfig)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
@@ -257,7 +255,7 @@ func (s *State) SortCandidates(nodes []string) []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
-	return len(s.serf.Members())
+	return s.serf.NumNodes()
 }
 
 // LocalName() return local node name
