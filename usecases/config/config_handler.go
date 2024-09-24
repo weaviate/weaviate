@@ -58,6 +58,9 @@ const (
 	DefaultBM25b  = float32(0.75)
 )
 
+// DefaultQueryMaxRefDepth describes the max depth of nested references in a query
+const DefaultQueryMaxRefDepth = 3
+
 const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
 

@@ -12,6 +12,7 @@
 package traverser
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -119,4 +120,81 @@ func TestGetParams(t *testing.T) {
 			assert.Equal(t, prop, &sp[1])
 		})
 	})
+}
+
+func TestGet_NestedRefDepthLimit(t *testing.T) {
+	type testcase struct {
+		name        string
+		props       search.SelectProperties
+		maxDepth    int
+		expectedErr string
+	}
+
+	makeNestedRefProps := func(depth int) search.SelectProperties {
+		root := search.SelectProperties{}
+		next := &root
+		for i := 0; i < depth; i++ {
+			*next = append(*next, search.SelectProperty{Name: "Product"})
+			class := search.SelectClass{ClassName: "Brand"}
+			refs := []search.SelectClass{class}
+			(*next)[0].Refs = refs
+			next = &refs[0].RefProperties
+		}
+		return root
+	}
+
+	tests := []testcase{
+		{
+			name:  "succeed with default depth limit (3)",
+			props: makeNestedRefProps(3),
+		},
+		{
+			name:        "fail with default depth limit (3)",
+			props:       makeNestedRefProps(4),
+			expectedErr: "nested references depth exceeds QUERY_MAX_REF_DEPTH (3)",
+		},
+		{
+			name:     "succeed with explicitly set low depth limit",
+			maxDepth: 5,
+			props:    makeNestedRefProps(5),
+		},
+		{
+			name:        "fail with explicitly set low depth limit",
+			maxDepth:    5,
+			props:       makeNestedRefProps(6),
+			expectedErr: "nested references depth exceeds QUERY_MAX_REF_DEPTH (5)",
+		},
+		{
+			name:     "succeed with explicitly set high depth limit",
+			maxDepth: 500,
+			props:    makeNestedRefProps(500),
+		},
+		{
+			name:        "fail with explicitly set high depth limit",
+			maxDepth:    500,
+			props:       makeNestedRefProps(501),
+			expectedErr: "nested references depth exceeds QUERY_MAX_REF_DEPTH (500)",
+		},
+		{
+			name:        "fail with explicitly set low depth limit, but high actual depth",
+			maxDepth:    10,
+			props:       makeNestedRefProps(5000),
+			expectedErr: "nested references depth exceeds QUERY_MAX_REF_DEPTH (10)",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.maxDepth > 0 {
+				t.Setenv("QUERY_MAX_REF_DEPTH", fmt.Sprint(test.maxDepth))
+			}
+			err := probeForRefDepthLimit(test.props)
+			if test.expectedErr != "" {
+				assert.EqualError(t, err, test.expectedErr)
+			} else {
+				assert.Nil(t, err)
+			}
+		})
+
+	}
 }
