@@ -50,6 +50,8 @@ func TestOneNodeMaintenanceMode(t *testing.T) {
 		helper.CreateClass(t, testClass)
 	})
 
+	// The 3rd node is in maintenance mode but should still be able to respond
+	// to schema/metadata changes/queries
 	t.Run("verify class exists on the 3rd node", func(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviateNode3().URI())
 		helper.GetClass(t, testClass.Class)

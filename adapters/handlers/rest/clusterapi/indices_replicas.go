@@ -62,9 +62,11 @@ type localScaler interface {
 }
 
 type replicatedIndices struct {
-	shards                 replicator
-	scaler                 localScaler
-	auth                   auth
+	shards replicator
+	scaler localScaler
+	auth   auth
+	// maintenaceModeEnabled is an experimental feature to allow the system to be
+	// put into a maintenance mode where all requests just return a 418
 	maintenanceModeEnabled bool
 }
 

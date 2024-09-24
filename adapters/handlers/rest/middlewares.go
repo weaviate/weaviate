@@ -218,6 +218,8 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 		}
 
 		if r.URL.String() == "/v1/.well-known/ready" {
+			// if this node is in maintenance mode, we want to return live but not ready
+			// so that kubernetes will allow this pod to run but not send traffic to it
 			code := http.StatusServiceUnavailable
 			if !state.Cluster.MaintenanceModeEnabled() {
 				if state.ClusterService.Ready() && state.Cluster.ClusterHealthScore() == 0 {
