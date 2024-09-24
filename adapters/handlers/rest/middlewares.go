@@ -141,7 +141,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		}
 
 		// Create a new middleware for RBAC Authz
-		if appState.RBACEnforcer != nil {
+		if appState.RBACEnforcer != nil && appState.ServerConfig.Config.EnableRBACEnforcer {
 			handler = rbacMiddleware(appState)(handler)
 		}
 
