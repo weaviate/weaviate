@@ -70,7 +70,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 }
 
 // probeForRefDepthLimit checks to ensure reference nesting depth doesn't exceed the limit
-// provided by QUERY_MAX_REF_DEPTH
+// provided by QUERY_CROSS_REFERENCE_DEPTH_LIMIT
 func (t *Traverser) probeForRefDepthLimit(props search.SelectProperties) error {
 	var (
 		determineDepth func(prop search.SelectProperties, depth int) int
