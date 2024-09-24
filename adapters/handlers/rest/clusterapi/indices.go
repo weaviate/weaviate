@@ -179,6 +179,8 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot) // TODO switch to forbidden?
 			return
 		}
+		// NOTE if you update any of these handler methods/paths, also update the indices_test.go
+		// TestMaintenanceModeIndices test to include the new methods/paths.
 		switch {
 		case i.regexpObjectsSearch.MatchString(path):
 			if r.Method != http.MethodPost {

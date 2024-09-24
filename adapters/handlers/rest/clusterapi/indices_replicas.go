@@ -73,7 +73,7 @@ var (
 		`\/shards\/(` + sh + `)\/objects\/(` + ob + `)`)
 	regxOverwriteObjects = regexp.MustCompile(`\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects/_overwrite`)
-	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` +
+	regxObjectsDigest = regexp.MustCompile(`\/indices\/(` + cl + `)` + // TODO why doesn't this have leading /replicas?
 		`\/shards\/(` + sh + `)\/objects/_digest`)
 	regxObjects = regexp.MustCompile(`\/replicas\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/objects`)
@@ -105,6 +105,8 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			http.Error(w, "418 Maintenance mode", http.StatusTeapot) // TODO switch to forbidden?
 			return
 		}
+		// NOTE if you update any of these handler methods/paths, also update the indices_replicas_test.go
+		// TestMaintenanceModeReplicatedIndices test to include the new methods/paths.
 		switch {
 		case regxObjectsDigest.MatchString(path):
 			if r.Method == http.MethodGet {

@@ -21,40 +21,33 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 )
 
-func TestMaintenanceModeIndices(t *testing.T) {
+func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
-	// NOTE leaving shards, db, and logger nil for now, fill in when needed
-	indices := clusterapi.NewIndices(nil, nil, noopAuth, true, nil)
+	// NOTE leaving shards and scaler nil for now, fill in when needed
+	indices := clusterapi.NewReplicatedIndices(nil, nil, noopAuth, true)
 	mux := http.NewServeMux()
-	mux.Handle("/indices/", indices.Indices())
+	mux.Handle("/replicas/indices/", indices.Indices())
 	server := httptest.NewServer(mux)
 
 	defer server.Close()
 
-	// TODO replace with 403 forbidden?
 	maintenanceModeExpectedHTTPStatus := http.StatusTeapot
 	requestURL := func(suffix string) string {
-		return fmt.Sprintf("%s/indices/MyClass/shards/myshard%s", server.URL, suffix)
+		return fmt.Sprintf("%s/replicas/indices/MyClass/shards/myshard%s", server.URL, suffix)
 	}
 	indicesTestRequests := []indicesTestRequest{
-		{"POST", "/objects/_search"},
-		{"POST", "/objects/_find"},
-		{"POST", "/objects/_aggregations"},
-		{"PUT", "/objects:overwrite"},
-		{"GET", "/objects:digest"},
-		{"GET", "/objects/deadbeef"},
+		{"GET", "/objects/_digest"},
+		{"PUT", "/objects/_overwrite"},
 		{"DELETE", "/objects/deadbeef"},
 		{"PATCH", "/objects/deadbeef"},
+		{"GET", "/objects/deadbeef"},
+		{"POST", "/objects/references"},
 		{"GET", "/objects"},
 		{"POST", "/objects"},
 		{"DELETE", "/objects"},
-		{"POST", "/references"},
-		{"GET", "/queuesize"},
-		{"GET", "/status"},
-		{"POST", "/status"},
-		{"POST", "/files/myfile"},
-		{"POST", ""},
-		{"PUT", ":reinit"},
+		{"PUT", "/replication-factor:increase"},
+		{"POST", ":commit"},
+		{"POST", ":abort"},
 	}
 	for _, testRequest := range indicesTestRequests {
 		t.Run(fmt.Sprintf("%s on %s returns maintenance mode status", testRequest.method, testRequest.suffix), func(t *testing.T) {
@@ -65,9 +58,4 @@ func TestMaintenanceModeIndices(t *testing.T) {
 			assert.True(t, res.StatusCode == maintenanceModeExpectedHTTPStatus, "expected %d, got %d", maintenanceModeExpectedHTTPStatus, res.StatusCode)
 		})
 	}
-}
-
-type indicesTestRequest struct {
-	method string
-	suffix string
 }
