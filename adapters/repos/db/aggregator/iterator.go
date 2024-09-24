@@ -101,7 +101,7 @@ func iteratorConcurrently(b *lsmkv.Bucket, newCursor func() Cursor, aggregateFun
 	// we're looking at the whole object, so this is neither a Set, nor a Map, but
 	// a Replace strategy
 
-	seedCount := 2*runtime.GOMAXPROCS(0) - 1
+	seedCount := 2 * runtime.GOMAXPROCS(0)
 	seeds := b.QuantileKeys(seedCount)
 	// in case all keys are in memory
 	if len(seeds) == 0 {
