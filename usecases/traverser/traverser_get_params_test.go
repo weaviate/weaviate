@@ -195,6 +195,5 @@ func TestGet_NestedRefDepthLimit(t *testing.T) {
 				assert.Nil(t, err)
 			}
 		})
-
 	}
 }
