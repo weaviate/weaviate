@@ -60,6 +60,7 @@ func TestAPI_propertyFilters(t *testing.T) {
 
 	store, err := lsmkv.New(lsmRoot, lsmRoot, logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
+	defer store.Shutdown(ctx)
 
 	api := NewAPI(testSchemaInfo, &offmod, vectorize, st, &config, logger)
 
@@ -156,6 +157,7 @@ func TestAPI_vectorSearch(t *testing.T) {
 
 	store, err := lsmkv.New(lsmRoot, lsmRoot, logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	require.NoError(t, err)
+	defer store.Shutdown(ctx)
 
 	api := NewAPI(testSchemaInfo, &offmod, vectorize, st, &config, logger)
 
@@ -236,14 +238,6 @@ func (m *mockSchemaInfo) Collection(_ context.Context, collection string) (*mode
 	err := json.Unmarshal([]byte(classQuestion), &class)
 
 	return &class, err
-}
-
-func (m *mockSchemaInfo) With(info *tenantInfo) *mockSchemaInfo {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.tenantinfo[info.tenant] = info
-	return m
 }
 
 func newMockVectorizer(t *testing.T) text2vecbase.TextVectorizer {
