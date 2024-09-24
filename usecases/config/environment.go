@@ -458,6 +458,9 @@ func FromEnv(config *Config) error {
 		config.HNSWStartupWaitForVectorCache = true
 	}
 
+	if entcfg.Enabled(os.Getenv("ENABLE_RBAC_ENFORCER")) {
+		config.EnableRBACEnforcer = true
+	}
 	// explicitly reset sentry config
 	sentry.Config = nil
 	config.Sentry, err = sentry.InitSentryConfig()
