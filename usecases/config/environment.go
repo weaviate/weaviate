@@ -259,7 +259,7 @@ func FromEnv(config *Config) error {
 		if err != nil {
 			return fmt.Errorf("parse QUERY_CROSS_REFERENCE_DEPTH_LIMIT as int: %w", err)
 		} else if limit <= 0 {
-			limit = math.MaxInt
+			limit = DefaultQueryCrossReferenceDepthLimit
 		}
 		config.QueryCrossReferenceDepthLimit = int(limit)
 	} else {
