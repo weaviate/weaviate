@@ -279,7 +279,6 @@ func (a *API) vectorSearch(
 	}
 
 	opts := []lsmkv.BucketOption{
-		// lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(2),
 	}
 
