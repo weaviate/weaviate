@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/hashicorp/memberlist"
+	"github.com/hashicorp/serf/serf"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -43,7 +44,7 @@ type State struct {
 	config Config
 	// that lock to serialize access to memberlist
 	listLock        sync.RWMutex
-	list            *memberlist.Memberlist
+	serf            *serf.Serf
 	nonStorageNodes map[string]struct{}
 	delegate        delegate
 }
@@ -113,14 +114,27 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 		cfg.SuspicionMult = 1
 	}
 
-	if state.list, err = memberlist.Create(cfg); err != nil {
+	serfconfig := serf.DefaultConfig()
+	serfconfig.MemberlistConfig = cfg
+	serfconfig.MemberlistConfig.AdvertiseAddr = cfg.AdvertiseAddr
+	serfconfig.MemberlistConfig.AdvertisePort = cfg.AdvertisePort
+	serfconfig.MemberlistConfig.BindAddr = cfg.BindAddr
+	serfconfig.MemberlistConfig.BindPort = cfg.BindPort
+	serfconfig.NodeName = cfg.Name
+	serfconfig.MemberlistConfig.Delegate = cfg.Delegate
+	serfconfig.MemberlistConfig.Events = cfg.Events
+	// serfconfig.EnableNameConflictResolution = true
+
+	state.serf, err = serf.Create(serfconfig)
+	if err != nil {
 		logger.WithFields(logrus.Fields{
-			"action":    "memberlist_init",
+			"action":    "serf_init",
 			"hostname":  userConfig.Hostname,
 			"bind_port": userConfig.GossipBindPort,
-		}).WithError(err).Error("memberlist not created")
-		return nil, errors.Wrap(err, "create member list")
+		}).WithError(err).Error("serf not created")
+		return nil, errors.Wrap(err, "create serf")
 	}
+
 	var joinAddr []string
 	if userConfig.Join != "" {
 		joinAddr = strings.Split(userConfig.Join, ",")
@@ -136,10 +150,10 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 				"specified hostname to join cluster cannot be resolved. This is fine" +
 					"if this is the first node of a new cluster, but problematic otherwise.")
 		} else {
-			_, err := state.list.Join(joinAddr)
+			_, err = state.serf.Join(joinAddr, true)
 			if err != nil {
 				logger.WithFields(logrus.Fields{
-					"action":          "memberlist_init",
+					"action":          "serf_init",
 					"remote_hostname": joinAddr,
 				}).WithError(err).Error("memberlist join not successful")
 				return nil, errors.Wrap(err, "join cluster")
@@ -152,12 +166,12 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 // Hostnames for all live members, except self. Use AllHostnames to include
 // self, prefixes the data port.
 func (s *State) Hostnames() []string {
-	mem := s.list.Members()
+	mem := s.serf.Members()
 	out := make([]string, len(mem))
 
 	i := 0
 	for _, m := range mem {
-		if m.Name == s.list.LocalNode().Name {
+		if m.Name == s.serf.LocalMember().Name {
 			continue
 		}
 		// TODO: how can we find out the actual data port as opposed to relying on
@@ -171,10 +185,10 @@ func (s *State) Hostnames() []string {
 
 // AllHostnames for live members, including self.
 func (s *State) AllHostnames() []string {
-	if s.list == nil {
+	if s.serf == nil {
 		return []string{}
 	}
-	mem := s.list.Members()
+	mem := s.serf.Members()
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
@@ -188,7 +202,7 @@ func (s *State) AllHostnames() []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) AllNames() []string {
-	mem := s.list.Members()
+	mem := s.serf.Members()
 	out := make([]string, len(mem))
 
 	for i, m := range mem {
@@ -203,7 +217,7 @@ func (s *State) storageNodes() []string {
 	if len(s.nonStorageNodes) == 0 {
 		return s.AllNames()
 	}
-	members := s.list.Members()
+	members := s.serf.Members()
 	out := make([]string, len(members))
 	n := 0
 	for _, m := range members {
@@ -242,20 +256,20 @@ func (s *State) SortCandidates(nodes []string) []string {
 
 // All node names (not their hostnames!) for live members, including self.
 func (s *State) NodeCount() int {
-	return s.list.NumMembers()
+	return len(s.serf.Members())
 }
 
 // LocalName() return local node name
 func (s *State) LocalName() string {
-	return s.list.LocalNode().Name
+	return s.serf.LocalMember().Name
 }
 
 func (s *State) ClusterHealthScore() int {
-	return s.list.GetHealthScore()
+	return s.serf.Memberlist().GetHealthScore()
 }
 
 func (s *State) NodeHostname(nodeName string) (string, bool) {
-	for _, mem := range s.list.Members() {
+	for _, mem := range s.serf.Members() {
 		if mem.Name == nodeName {
 			// TODO: how can we find out the actual data port as opposed to relying on
 			// the convention that it's 1 higher than the gossip port
@@ -270,7 +284,7 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
-	for _, mem := range s.list.Members() {
+	for _, mem := range s.serf.Members() {
 		if mem.Name == id {
 			return mem.Addr.String()
 		}
