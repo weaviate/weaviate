@@ -496,7 +496,7 @@ const (
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
-	DefaultQueryCrossReferenceDepthLimit = 3
+	DefaultQueryCrossReferenceDepthLimit = 5
 )
 
 const (
