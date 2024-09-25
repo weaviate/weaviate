@@ -89,9 +89,10 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, bucketName, buc
 	}
 
 	if err := ctx.Err(); err != nil {
-		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", remotePath))
+		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "context expired in get object '%s'", remotePath))
 	}
 
+	fmt.Printf("!!!Get object '%s' from bucket '%s'\n", remotePath, bucket)
 	obj, err := s.client.GetObject(ctx, bucket, remotePath, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", remotePath))
@@ -100,9 +101,9 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, bucketName, buc
 	contents, err := io.ReadAll(obj)
 	if err != nil {
 		if s3Err, ok := err.(minio.ErrorResponse); ok && s3Err.StatusCode == http.StatusNotFound {
-			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", remotePath))
+			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object contents from %s:%s not found '%s'", bucket, remotePath, remotePath))
 		}
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", remotePath))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object contents from %s:%s '%s'", bucket, remotePath, remotePath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
@@ -129,10 +130,11 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, bucketName, buc
 		bucket = bucketName
 	}
 
+	fmt.Printf("!!!Put object '%s' to bucket '%s'\n", remotePath, bucket)
 	_, err := s.client.PutObject(ctx, bucket, remotePath, reader, objectSize, opt)
 	if err != nil {
 		return backup.NewErrInternal(
-			errors.Wrapf(err, "put object '%s'", remotePath))
+			errors.Wrapf(err, "put object '%s:%s'", bucket, remotePath))
 	}
 
 	fmt.Printf("Put object '%s' to bucket '%s'\n", remotePath, bucket)
@@ -144,17 +146,19 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, bucketName, buc
 }
 
 func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
-	key := "access-check"
+	/*	key := "access-check"
 
-	if err := s.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {
-		return errors.Wrap(err, "failed to access-check s3 backup module")
-	}
 
-	objectName := s.makeObjectName(backupID, key)
-	opt := minio.RemoveObjectOptions{}
-	if err := s.client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
-		return errors.Wrap(err, "failed to remove access-check s3 backup module")
-	}
+		if err := s.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {
+			return errors.Wrap(err, "failed to access-check s3 backup module")
+		}
+
+		objectName := s.makeObjectName(backupID, key)
+		opt := minio.RemoveObjectOptions{}
+		if err := s.client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
+			return errors.Wrap(err, "failed to remove access-check s3 backup module")
+		}
+	*/
 
 	return nil
 }

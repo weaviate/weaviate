@@ -41,12 +41,16 @@ var override = []string{"", ""}
 func Test_S3Backend_Start(t *testing.T) {
 	overrides := [][]string{
 		{"", ""},
-		//{"testBucketOverride", "testBucketPathOverride"},
+		{"testbucketoverride", "testBucketPathOverride"},
 	}
 
-	for _, override = range overrides {
-		S3Backend_Backup(t, override)
-	}
+	override = overrides[0]
+	S3Backend_Backup(t, override)
+	time.Sleep(5 * time.Second)
+
+	override = overrides[1]
+	S3Backend_Backup(t, override)
+
 }
 
 func S3Backend_Backup(t *testing.T, override []string) {
@@ -59,14 +63,21 @@ func S3Backend_Backup(t *testing.T, override []string) {
 	t.Setenv(envS3SecretKey, "aws_secret_key")
 	t.Setenv(envS3Bucket, bucketName)
 
-	compose, err := docker.New().WithBackendS3(bucketName, region).Start(ctx)
+	tmpBucketName := bucketName
+	if override[0] != "" {
+		tmpBucketName = override[0]
+	}
+	fmt.Printf("Starting test with bucket: %s, %s\n", tmpBucketName, region)
+	compose, err := docker.New().WithBackendS3(tmpBucketName, region).Start(ctx)
 	if err != nil {
 		t.Fatal(errors.Wrapf(err, "cannot start"))
 	}
 
+
+
 	t.Setenv(envMinioEndpoint, compose.GetMinIO().URI())
 
-	t.Log("running tests with bucket/path overrides:", override)
+	fmt.Printf("running tests with bucket %v and path overrides: %v\n", bucketName,override)
 	t.Run("store backup meta", moduleLevelStoreBackupMeta)
 	t.Run("copy objects", moduleLevelCopyObjects)
 	t.Run("copy files", moduleLevelCopyFiles)
@@ -104,6 +115,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			meta, err := s3.GetObject(testCtx, backupID, metadataFilename, override[0], override[1])
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
+			t.Log(err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
 		})
 
@@ -214,7 +226,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		})
 
 		t.Run("copy file to backend", func(t *testing.T) {
-			srcPath :=  fpath
+			srcPath := fpath
 			fmt.Printf("Reading file from %s\n", srcPath)
 			content, err := ioutil.ReadFile(srcPath)
 			require.Nil(t, err)
