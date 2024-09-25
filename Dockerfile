@@ -42,6 +42,6 @@ FROM alpine AS weaviate
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=server_builder /weaviate-server /bin/weaviate
-RUN apk add --no-cache --upgrade ca-certificates openssl
+RUN apk add --no-cache --upgrade bc ca-certificates openssl
 RUN mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
