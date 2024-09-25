@@ -63,12 +63,12 @@ func New(client text2vecbase.BatchClient, logger logrus.FieldLogger) *text2vecba
 	// there does not seem to be a limit
 	maxTokensPerBatch := func(cfg moduletools.ClassConfig) int {
 		model := ent.NewClassSettings(cfg).Model()
-		if model == "voyage-2" {
+		if model == "voyage-3-lite" {
+			return 1000000
+		} else if if model == "voyage-2" || model == "voyage-3" {
 			return 320000
-		} else if model == "voyage-large-2" || model == "voyage-code-2" {
-			return 120000
 		}
-		return 120000 // unknown model, use the smallest limit
+		return 120000 // All the other models
 	}
 
 	return text2vecbase.New(client, batch.NewBatchVectorizer(client, 50*time.Second, MaxObjectsPerBatch, maxTokensPerBatch, OpenAIMaxTimePerBatch, logger, "voyageai"), batchTokenizer)
