@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"strings"
 	"sync"
@@ -47,6 +48,7 @@ type State struct {
 	serf            *serf.Serf
 	nonStorageNodes map[string]struct{}
 	delegate        delegate
+	ch              chan serf.Event
 }
 
 type Config struct {
@@ -63,7 +65,8 @@ type Config struct {
 	// failures (down nodes) faster.
 	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
-	Localhost bool `json:"localhost" yaml:"localhost"`
+	Localhost bool   `json:"localhost" yaml:"localhost"`
+	ClusterID string `json:"clusterID" yaml:"clusterID"`
 }
 
 type AuthConfig struct {
@@ -124,6 +127,13 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 	serfconfig.MemberlistConfig.BindPort = cfg.BindPort
 	serfconfig.MemberlistConfig.Delegate = cfg.Delegate
 	serfconfig.MemberlistConfig.Events = cfg.Events
+	serfconfig.MemberlistConfig.Conflict = cfg.Conflict
+	state.ch = make(chan serf.Event, 256)
+	serfconfig.EventCh = state.ch
+	serfconfig.Merge = &serfMergeDelegate{localNode: cfg.Name, localClusterID: userConfig.ClusterID}
+	serfconfig.EnableNameConflictResolution = false
+	serfconfig.Tags = map[string]string{"cluster_id": userConfig.ClusterID}
+
 	state.serf, err = serf.Create(serfconfig)
 	if err != nil {
 		logger.WithFields(logrus.Fields{
@@ -134,6 +144,7 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 		return nil, errors.Wrap(err, "create serf")
 	}
 
+	go state.serfEventHandler()
 	var joinAddr []string
 	if userConfig.Join != "" {
 		joinAddr = strings.Split(userConfig.Join, ",")
@@ -301,4 +312,56 @@ func (s *State) SkipSchemaRepair() bool {
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
+}
+
+func (s *State) serfEventHandler() {
+	for {
+		select {
+		case e := <-s.ch:
+			switch e.EventType() {
+			case serf.EventMemberJoin:
+				fmt.Println(e.String())
+			case serf.EventMemberLeave, serf.EventMemberFailed:
+				fmt.Println(e)
+				fmt.Println(e.String())
+			case serf.EventMemberReap:
+				fmt.Println(e)
+				fmt.Println(e.String())
+			case serf.EventMemberUpdate, serf.EventUser, serf.EventQuery: // Ignore
+				fmt.Println(e)
+				fmt.Println(e.String())
+			default:
+				log.Println("unhandled serf event", "event", e)
+				fmt.Println(e.String())
+			}
+		}
+	}
+}
+
+type serfMergeDelegate struct {
+	localNode      string
+	localClusterID string
+}
+
+func (md *serfMergeDelegate) NotifyMerge(members []*serf.Member) error {
+	nodes := map[string]string{}
+	for _, m := range members {
+		if md.localNode == m.Name && m.Tags["cluster_id"] != md.localClusterID {
+			panic("node was trying to join different cluster")
+		}
+		existedNodeAddr, ok := nodes[m.Name]
+		if !ok {
+			nodes[m.Name] = m.Addr.String()
+			continue
+		}
+
+		if existedNodeAddr != m.Addr.String() {
+			return fmt.Errorf("merge is not allowed")
+		}
+
+		// if existedNodeAddr != m.Addr.String() && md.localNode == m.Name {
+		// 	panic("in purpose")
+		// }
+	}
+	return nil
 }
