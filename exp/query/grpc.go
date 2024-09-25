@@ -56,6 +56,7 @@ func (g *GRPC) Search(ctx context.Context, req *protocol.SearchRequest) (*protoc
 	if err != nil {
 		return nil, err
 	}
+	parsed.Class = class
 
 	res, err := g.api.Search(ctx, parsed)
 	if err != nil {

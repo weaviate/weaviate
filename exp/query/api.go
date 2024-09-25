@@ -129,6 +129,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		limit = maxQueryObjectsLimit
 	}
 
+	// TODO(kavi): Hanle where we support both nearText && Filters in the query
 	if len(req.NearText) != 0 {
 		// do vector search
 		resObjects, distances, err := a.vectorSearch(ctx, store, localPath, req.NearText, float32(req.Certainty), limit)
@@ -150,7 +151,7 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}
 
 	if req.Filters != nil {
-		resObjs, err := a.propertyFilters(ctx, store, req.Collection, req.Tenant, req.Filters, limit)
+		resObjs, err := a.propertyFilters(ctx, store, req.Collection, req.Class, req.Tenant, req.Filters, limit)
 		if err != nil {
 			return nil, fmt.Errorf("failed to do filter search: %w", err)
 		}
@@ -184,6 +185,7 @@ func (a *API) propertyFilters(
 	ctx context.Context,
 	store *lsmkv.Store,
 	collection string,
+	class *models.Class,
 	tenant string,
 	filter *filters.LocalFilter,
 	limit int,
@@ -197,9 +199,12 @@ func (a *API) propertyFilters(
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
 	}
 
-	class, err := a.schema.Collection(ctx, collection)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get class info from schema: %w", err)
+	var err error
+	if class == nil {
+		class, err = a.schema.Collection(ctx, collection)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get class info from schema: %w", err)
+		}
 	}
 
 	props := make([]string, 0)
@@ -216,6 +221,7 @@ func (a *API) propertyFilters(
 		return class
 	}
 
+	// TODO(kavi): Handle cases where we pass `nil` to `propIndices`(for geo-indices) and `classSearcher`
 	searcher := inverted.NewSearcher(a.log, store, getClass, nil, nil, a.stopwords, 0, fallbackToSearchable, tenant, maxQueryObjectsLimit, nil)
 
 	opts = []lsmkv.BucketOption{
@@ -338,12 +344,13 @@ func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) 
 
 type SearchRequest struct {
 	Collection string
-	Tenant     string
-	NearText   []string // vector search
-	Certainty  float64  // threshold to match with certainty of vectors match
-	Limit      int
-	Filters    *filters.LocalFilter
-	// TODO(kavi): Add fields to do filter based search
+	// if class is not nil, try avoid getting the class again from schema
+	Class     *models.Class
+	Tenant    string
+	NearText  []string // vector search
+	Certainty float64  // threshold to match with certainty of vectors match
+	Limit     int
+	Filters   *filters.LocalFilter
 }
 
 type SearchResponse struct {
