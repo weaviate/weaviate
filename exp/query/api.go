@@ -291,7 +291,6 @@ func (a *API) vectorSearch(
 	}
 
 	bkt := store.Bucket(helpers.ObjectsBucketLSM)
-	defer bkt.Shutdown(ctx)
 
 	objs := make([]*storobj.Object, 0)
 
