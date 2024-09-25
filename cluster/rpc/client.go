@@ -118,7 +118,7 @@ func (cl *Client) Notify(ctx context.Context, remoteAddr string, req *cmd.Notify
 		return nil, fmt.Errorf("resolve address: %w", err)
 	}
 
-	conn, err := grpc.DialContext(ctx, addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
@@ -220,7 +220,7 @@ func (cl *Client) getConn(ctx context.Context, leaderRaftAddr string) (*grpc.Cli
 		options = append(options, grpc.WithUnaryInterceptor(grpc_sentry.UnaryClientInterceptor()))
 	}
 
-	cl.leaderRpcConn, err = grpc.DialContext(ctx, addr, options...)
+	cl.leaderRpcConn, err = grpc.NewClient(addr, options...)
 	if err != nil {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
