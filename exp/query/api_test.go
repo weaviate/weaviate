@@ -45,8 +45,7 @@ const (
 	testCollection = "Question"
 
 	// testTenant for data in `testdata`
-	// TODO(kavi): Change to something generic
-	testTenant = "kavi"
+	testTenant = "weaviate-tenant"
 )
 
 func TestAPI_propertyFilters(t *testing.T) {
@@ -190,7 +189,7 @@ func TestAPI_vectorSearch(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			res, _, err := api.vectorSearch(ctx, store, lsmRoot, nearText, tc.threshold, tc.limit)
 			require.NoError(t, err)
-			assert.Equal(t, len(res), tc.expCount)
+			assert.Equal(t, tc.expCount, len(res))
 		})
 	}
 }
@@ -304,6 +303,11 @@ const (
       "removals": null
     }
   },
+  "moduleConfig": {
+    "text2vec-contextionary": {
+      "vectorizeClassName": true
+    }
+  },
   "multiTenancyConfig": {
     "autoTenantActivation": false,
     "autoTenantCreation": false,
@@ -317,6 +321,12 @@ const (
       "indexFilterable": true,
       "indexRangeFilters": false,
       "indexSearchable": true,
+      "moduleConfig": {
+        "text2vec-contextionary": {
+          "skip": false,
+          "vectorizePropertyName": false
+        }
+      },
       "name": "answer",
       "tokenization": "whitespace"
     },
@@ -327,6 +337,12 @@ const (
       "indexFilterable": true,
       "indexRangeFilters": false,
       "indexSearchable": true,
+      "moduleConfig": {
+        "text2vec-contextionary": {
+          "skip": false,
+          "vectorizePropertyName": false
+        }
+      },
       "name": "question",
       "tokenization": "whitespace"
     },
@@ -337,6 +353,12 @@ const (
       "indexFilterable": true,
       "indexRangeFilters": false,
       "indexSearchable": true,
+      "moduleConfig": {
+        "text2vec-contextionary": {
+          "skip": false,
+          "vectorizePropertyName": false
+        }
+      },
       "name": "category",
       "tokenization": "whitespace"
     }
@@ -347,36 +369,36 @@ const (
     "objectDeletionConflictResolution": "PermanentDeletion"
   },
   "shardingConfig": {
-    "actualCount": 0,
-    "actualVirtualCount": 0,
+    "virtualPerPhysical": 0,
     "desiredCount": 0,
+    "actualCount": 0,
     "desiredVirtualCount": 0,
-    "function": "",
+    "actualVirtualCount": 0,
     "key": "",
     "strategy": "",
-    "virtualPerPhysical": 0
+    "function": ""
   },
   "vectorIndexConfig": {
-    "bq": {
-      "cache": false,
-      "enabled": true,
-      "rescoreLimit": -1
-    },
     "distance": "cosine",
+    "vectorCacheMaxObjects": 1000000000000,
     "pq": {
-      "cache": false,
       "enabled": false,
-      "rescoreLimit": -1
+      "rescoreLimit": -1,
+      "cache": false
+    },
+    "bq": {
+      "enabled": true,
+      "rescoreLimit": -1,
+      "cache": false
     },
     "sq": {
-      "cache": false,
       "enabled": false,
-      "rescoreLimit": -1
-    },
-    "vectorCacheMaxObjects": 1000000000000
+      "rescoreLimit": -1,
+      "cache": false
+    }
   },
   "vectorIndexType": "flat",
-  "vectorizer": "none"
+  "vectorizer": "text2vec-contextionary"
 }
 `
 )
