@@ -133,6 +133,7 @@ func (h *txHandler) incomingTransaction() http.Handler {
 			txPayload interface{}
 			err       error
 		)
+
 		switch h.handlerType {
 		case classifyTX:
 			txPayload, err = classification.UnmarshalTransaction(payload.Type, payload.Payload)
@@ -141,6 +142,9 @@ func (h *txHandler) incomingTransaction() http.Handler {
 					http.StatusInternalServerError)
 				return
 			}
+		default:
+			http.Error(w, "not implemented", http.StatusInternalServerError)
+			return
 		}
 
 		txType := payload.Type
