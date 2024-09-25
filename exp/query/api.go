@@ -46,10 +46,8 @@ const (
 
 	// NOTE(kavi): using fixed nodeName that offloaded tenant under that prefix on object storage.
 	// TODO(kavi): Make it dynamic.
-	nodeName                          = "weaviate-0"
-	defaultLSMObjectsBucket           = "objects"
-	defaultLSMVectorsCompressedBucket = "vectors_compressed"
-	defaultLSMRoot                    = "lsm"
+	nodeName       = "weaviate-0"
+	defaultLSMRoot = "lsm"
 
 	maxQueryObjectsLimit = 10
 )
@@ -165,10 +163,10 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}
 
 	// return all objects upto `limit`
-	if err := store.CreateOrLoadBucket(ctx, defaultLSMObjectsBucket); err != nil {
+	if err := store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM); err != nil {
 		return nil, fmt.Errorf("failed to load objects bucket in store: %w", err)
 	}
-	bkt := store.Bucket(defaultLSMObjectsBucket)
+	bkt := store.Bucket(helpers.ObjectsBucketLSM)
 	if err := bkt.IterateObjects(ctx, func(object *storobj.Object) error {
 		resp.Results = append(resp.Results, Result{Obj: object})
 		if len(resp.Results) >= limit {
@@ -258,7 +256,7 @@ func (a *API) vectorSearch(
 	// NOTE(kavi): Accept distance provider as dependency?
 	dis := distancer.NewCosineDistanceProvider()
 	index, err := flat.New(flat.Config{
-		ID:               defaultLSMVectorsCompressedBucket,
+		ID:               helpers.VectorsCompressedBucketLSM,
 		DistanceProvider: dis,
 		RootPath:         localPath,
 	}, flatent.UserConfig{
@@ -282,11 +280,11 @@ func (a *API) vectorSearch(
 		lsmkv.WithSecondaryIndices(2),
 	}
 
-	if err := store.CreateOrLoadBucket(ctx, defaultLSMObjectsBucket, opts...); err != nil {
+	if err := store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, opts...); err != nil {
 		return nil, nil, fmt.Errorf("failed to vectorize query text: %w", err)
 	}
 
-	bkt := store.Bucket(defaultLSMObjectsBucket)
+	bkt := store.Bucket(helpers.ObjectsBucketLSM)
 	defer bkt.Shutdown(ctx)
 
 	objs := make([]*storobj.Object, 0)
