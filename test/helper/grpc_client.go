@@ -24,7 +24,6 @@ import (
 
 func CreateGrpcConnectionClient(host string) (*grpc.ClientConn, error) {
 	var opts []grpc.DialOption
-	opts = append(opts, grpc.WithBlock())
 	if strings.HasSuffix(host, ":443") {
 		tlsConfig := &tls.Config{
 			InsecureSkipVerify: true,
@@ -33,7 +32,7 @@ func CreateGrpcConnectionClient(host string) (*grpc.ClientConn, error) {
 	} else {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
-	conn, err := grpc.Dial(host, opts...)
+	conn, err := grpc.NewClient(host, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial: %w", err)
 	}
