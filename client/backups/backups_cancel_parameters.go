@@ -84,6 +84,18 @@ type BackupsCancelParams struct {
 	*/
 	ID string
 
+	/* S3bucket.
+
+	   The name of the bucket
+	*/
+	S3bucket *string
+
+	/* S3path.
+
+	   The path within the bucket
+	*/
+	S3path *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -159,6 +171,28 @@ func (o *BackupsCancelParams) SetID(id string) {
 	o.ID = id
 }
 
+// WithS3bucket adds the s3bucket to the backups cancel params
+func (o *BackupsCancelParams) WithS3bucket(s3bucket *string) *BackupsCancelParams {
+	o.SetS3bucket(s3bucket)
+	return o
+}
+
+// SetS3bucket adds the s3bucket to the backups cancel params
+func (o *BackupsCancelParams) SetS3bucket(s3bucket *string) {
+	o.S3bucket = s3bucket
+}
+
+// WithS3path adds the s3path to the backups cancel params
+func (o *BackupsCancelParams) WithS3path(s3path *string) *BackupsCancelParams {
+	o.SetS3path(s3path)
+	return o
+}
+
+// SetS3path adds the s3path to the backups cancel params
+func (o *BackupsCancelParams) SetS3path(s3path *string) {
+	o.S3path = s3path
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *BackupsCancelParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -175,6 +209,40 @@ func (o *BackupsCancelParams) WriteToRequest(r runtime.ClientRequest, reg strfmt
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
+	}
+
+	if o.S3bucket != nil {
+
+		// query param s3bucket
+		var qrS3bucket string
+
+		if o.S3bucket != nil {
+			qrS3bucket = *o.S3bucket
+		}
+		qS3bucket := qrS3bucket
+		if qS3bucket != "" {
+
+			if err := r.SetQueryParam("s3bucket", qS3bucket); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.S3path != nil {
+
+		// query param s3path
+		var qrS3path string
+
+		if o.S3path != nil {
+			qrS3path = *o.S3path
+		}
+		qS3path := qrS3path
+		if qS3path != "" {
+
+			if err := r.SetQueryParam("s3path", qS3path); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {

@@ -20,6 +20,7 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 )
@@ -51,6 +52,14 @@ type BackupsRestoreStatusParams struct {
 	  In: path
 	*/
 	ID string
+	/*The name of the bucket
+	  In: query
+	*/
+	S3bucket *string
+	/*The path within the bucket
+	  In: query
+	*/
+	S3path *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -62,6 +71,8 @@ func (o *BackupsRestoreStatusParams) BindRequest(r *http.Request, route *middlew
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	rBackend, rhkBackend, _ := route.Params.GetOK("backend")
 	if err := o.bindBackend(rBackend, rhkBackend, route.Formats); err != nil {
 		res = append(res, err)
@@ -69,6 +80,16 @@ func (o *BackupsRestoreStatusParams) BindRequest(r *http.Request, route *middlew
 
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qS3bucket, qhkS3bucket, _ := qs.GetOK("s3bucket")
+	if err := o.bindS3bucket(qS3bucket, qhkS3bucket, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qS3path, qhkS3path, _ := qs.GetOK("s3path")
+	if err := o.bindS3path(qS3path, qhkS3path, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -101,6 +122,42 @@ func (o *BackupsRestoreStatusParams) bindID(rawData []string, hasKey bool, forma
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ID = raw
+
+	return nil
+}
+
+// bindS3bucket binds and validates parameter S3bucket from query.
+func (o *BackupsRestoreStatusParams) bindS3bucket(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.S3bucket = &raw
+
+	return nil
+}
+
+// bindS3path binds and validates parameter S3path from query.
+func (o *BackupsRestoreStatusParams) bindS3path(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.S3path = &raw
 
 	return nil
 }

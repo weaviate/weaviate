@@ -118,7 +118,7 @@ func (g *gcsClient) makeObjectName(parts ...string) string {
 	return path.Join(g.config.BackupPath, base)
 }
 
-func (g *gcsClient) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (g *gcsClient) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	objectName := g.makeObjectName(backupID, key)
 
 	if err := ctx.Err(); err != nil {
@@ -144,51 +144,7 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key string) ([]byte
 	return contents, nil
 }
 
-// PutFile creates an object with contents from file at filePath.
-func (g *gcsClient) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	bucket, err := g.findBucket(ctx)
-	if err != nil {
-		return fmt.Errorf("find bucket: %w", err)
-	}
-
-	// open source file
-	filePath := path.Join(g.dataPath, srcPath)
-	file, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("os.open %q: %w", filePath, err)
-	}
-	defer file.Close()
-
-	// create a new writer
-	object := g.makeObjectName(backupID, key)
-	writer := bucket.Object(object).NewWriter(ctx)
-	writer.ContentType = "application/octet-stream"
-	writer.Metadata = map[string]string{"backup-id": backupID}
-
-	// if we return early make sure writer is closed
-	closeWriter := true
-	defer func() {
-		if closeWriter {
-			writer.Close()
-		}
-	}()
-
-	nBytes, err := io.Copy(writer, file)
-	if err != nil {
-		return fmt.Errorf("io.copy %q %q: %w", object, filePath, err)
-	}
-	closeWriter = false
-	if err := writer.Close(); err != nil {
-		return fmt.Errorf("writer.close %q: %w", filePath, err)
-	}
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
-	if err == nil {
-		metric.Add(float64(nBytes))
-	}
-	return nil
-}
-
-func (g *gcsClient) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (g *gcsClient) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return errors.Wrap(err, "find bucket")
@@ -219,7 +175,7 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key string, byes []
 func (g *gcsClient) Initialize(ctx context.Context, backupID string) error {
 	key := "access-check"
 
-	if err := g.PutObject(ctx, backupID, key, []byte("")); err != nil {
+	if err := g.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check gcs backup module")
 	}
 
@@ -238,7 +194,7 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID string) error {
 
 // WriteToFile downloads an object and store its content in destPath
 // The file destPath will be created if it doesn't exit
-func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath string) (err error) {
+func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) (err error) {
 	bucket, err := g.findBucket(ctx)
 	if err != nil {
 		return fmt.Errorf("find bucket: %w", err)
@@ -292,7 +248,7 @@ func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath str
 	return nil
 }
 
-func (g *gcsClient) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (g *gcsClient) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 
 	bucket, err := g.findBucket(ctx)
@@ -324,7 +280,7 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key string, r io.ReadCl
 	return written, nil
 }
 
-func (g *gcsClient) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (g *gcsClient) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
 	bucket, err := g.findBucket(ctx)

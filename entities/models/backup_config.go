@@ -44,6 +44,15 @@ type BackupConfig struct {
 	// compression level used by compression algorithm
 	// Enum: [DefaultCompression BestSpeed BestCompression]
 	CompressionLevel string `json:"CompressionLevel,omitempty"`
+
+	// S3 endpoint, e.g. s3.amazonaws.com
+	Endpoint string `json:"Endpoint,omitempty"`
+
+	// Name of the S3 bucket
+	S3Bucket string `json:"S3Bucket,omitempty"`
+
+	// Path within the bucket
+	S3Path string `json:"S3Path,omitempty"`
 }
 
 // Validate validates this backup config

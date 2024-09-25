@@ -99,6 +99,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		Backend:     req.Backend,
 		Classes:     classes,
 		Compression: req.Compression,
+		S3Bucket:    req.S3Bucket,
+		S3Path:      req.S3Path,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, backup.NewErrUnprocessable(err)
@@ -106,11 +108,12 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		st := s.backupper.lastOp.get()
 		status := string(st.Status)
 		return &models.BackupCreateResponse{
-			Classes: classes,
-			ID:      req.ID,
-			Backend: req.Backend,
-			Status:  &status,
-			Path:    st.Path,
+			Classes:  classes,
+			ID:       req.ID,
+			Backend:  req.Backend,
+			Status:   &status,
+			S3path:   st.Path,
+			S3bucket: req.S3Bucket,
 		}, nil
 	}
 }
@@ -241,7 +244,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 
-	meta, _ := store.Meta(ctx, GlobalBackupFile)
+	meta, _ := store.Meta(ctx, GlobalBackupFile, "", "") // FIXME
 	if meta != nil {
 		// if existed meta and not in the next cases shall be cancellable
 		switch meta.Status {
@@ -321,7 +324,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	}
 	destPath := store.HomeDir()
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
-	meta, err := store.Meta(ctx, GlobalBackupFile)
+	meta, err := store.Meta(ctx, GlobalBackupFile, req.S3Bucket, req.S3Path)
 	if err == nil && meta.Status != backup.Cancelled {
 		return nil, fmt.Errorf("backup %q already exists at %q", req.ID, destPath)
 	}
@@ -342,7 +345,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
 	destPath := store.HomeDir()
-	meta, err := store.Meta(ctx, GlobalBackupFile)
+	meta, err := store.Meta(ctx, GlobalBackupFile, req.S3Bucket, req.S3Path)
 	if err != nil {
 		notFoundErr := backup.ErrNotFound{}
 		if errors.As(err, &notFoundErr) {
@@ -394,7 +397,7 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		meta, err := store.Meta(ctx, req.ID, true)
+		meta, err := store.Meta(ctx, req.ID, "", "", true) // FIXME
 		if err != nil {
 			return nil, err
 		}

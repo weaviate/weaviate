@@ -202,7 +202,6 @@ func createClassTargetVectors(t *testing.T, client *wvt.Client, className string
 	err := client.Schema().ClassCreator().
 		WithClass(class).
 		Do(context.Background())
-
 	if err != nil {
 		require.NoError(t, err)
 	}

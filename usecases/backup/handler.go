@@ -129,6 +129,12 @@ type BackupRequest struct {
 	// Backend specify on which backend to store backups (gcs, s3, ..)
 	Backend string
 
+	// Which bucket to backup
+	Bucket string
+
+	// Target path for backup files
+	Path string
+
 	// Include is list of class which need to be backed up
 	// The same class cannot appear in both Include and Exclude in the same request
 	Include []string
@@ -139,6 +145,12 @@ type BackupRequest struct {
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
 	// No effect if the map is empty
 	NodeMapping map[string]string
+
+	// S3 bucket
+	S3Bucket string
+
+	// S3 Path
+	S3Path string
 }
 
 // OnCanCommit will be triggered when coordinator asks the node to participate

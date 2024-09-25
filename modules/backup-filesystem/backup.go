@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (m *Module) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (m *Module) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	metaPath, err := m.getObjectPath(ctx, backupID, key)
 	if err != nil {
 		return nil, err
@@ -59,23 +59,6 @@ func (m *Module) getObjectPath(ctx context.Context, backupID, key string) (strin
 	return metaPath, nil
 }
 
-func (m *Module) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	sourcePath := path.Join(m.dataPath, srcPath)
-	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
-
-	bytesWritten, err := m.copyFile(sourcePath, backupPath)
-	if err != nil {
-		return err
-	}
-
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
-	if err == nil {
-		metric.Add(float64(bytesWritten))
-	}
-
-	return nil
-}
-
 func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	source, err := os.Open(sourcePath)
 	defer func() error {
@@ -107,8 +90,11 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	return written, nil
 }
 
-func (m *Module) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
 	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
+	if bucketPath != "" {
+		backupPath = path.Join(bucketPath, backupID, key)
+	}
 
 	dir := path.Dir(backupPath)
 
@@ -133,11 +119,13 @@ func (m *Module) Initialize(ctx context.Context, backupID string) error {
 	return nil
 }
 
-func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
 	sourcePath, err := m.getObjectPath(ctx, backupID, key)
 	if err != nil {
 		return err
 	}
+
+	//FIXME get correct override path
 
 	bytesWritten, err := m.copyFile(sourcePath, destPath)
 	if err != nil {
@@ -152,7 +140,7 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath string
 	return nil
 }
 
-func (m *Module) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
 	dir := path.Dir(backupPath)
@@ -177,7 +165,7 @@ func (m *Module) Write(ctx context.Context, backupID, key string, r io.ReadClose
 	return written, err
 }
 
-func (m *Module) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (m *Module) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 	sourcePath, err := m.getObjectPath(ctx, backupID, key)
 	if err != nil {

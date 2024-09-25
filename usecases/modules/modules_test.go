@@ -336,6 +336,7 @@ func TestModulesProvider(t *testing.T) {
 	t.Run("should provide backup backend", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		module := &dummyBackupModuleWithAltNames{}
+		var _ modulecapabilities.BackupBackend = module
 		modulesProvider := NewProvider(logger)
 		modulesProvider.Register(module)
 
@@ -512,19 +513,19 @@ func (m *dummyBackupModuleWithAltNames) HomeDir(backupID string) string {
 	return ""
 }
 
-func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
+func (m *dummyBackupModuleWithAltNames) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	return nil, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
+func (m *dummyBackupModuleWithAltNames) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	return 0, nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (m *dummyBackupModuleWithAltNames) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	return 0, nil
 }
 
@@ -536,11 +537,11 @@ func (*dummyBackupModuleWithAltNames) IsExternal() bool {
 	return true
 }
 
-func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, srcPath string) error {
+func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error {
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
+func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, key, bucketName, bucketPath, filePath string) error {
 	return nil
 }
 

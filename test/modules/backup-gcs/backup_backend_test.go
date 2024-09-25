@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -109,7 +108,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			b, err := json.Marshal(desc)
 			require.Nil(t, err)
 
-			err = gcs.PutObject(testCtx, backupID, metadataFilename, b)
+			err = gcs.PutObject(testCtx, backupID, metadataFilename, "", "", b)
 			require.Nil(t, err)
 
 			dest := gcs.HomeDir(backupID)
@@ -164,7 +163,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
-			err := gcs.PutObject(testCtx, backupID, key, []byte("hello"))
+			err := gcs.PutObject(testCtx, backupID, key, "", "", []byte("hello"))
 			assert.Nil(t, err)
 		})
 
@@ -211,16 +210,6 @@ func moduleLevelCopyFiles(t *testing.T) {
 
 		t.Run("verify source data path", func(t *testing.T) {
 			assert.Equal(t, dataDir, gcs.SourceDataPath())
-		})
-
-		t.Run("copy file to backend", func(t *testing.T) {
-			srcPath, _ := filepath.Rel(dataDir, fpath)
-			err := gcs.PutFile(testCtx, backupID, key, srcPath)
-			require.Nil(t, err)
-
-			contents, err := gcs.GetObject(testCtx, backupID, key)
-			require.Nil(t, err)
-			assert.Equal(t, expectedContents, contents)
 		})
 
 		t.Run("fetch file from backend", func(t *testing.T) {

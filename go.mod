@@ -1,4 +1,6 @@
 module github.com/weaviate/weaviate
+replace github.com/weaviate/weaviate/entities/models => ./entities/models
+
 
 require (
 	cloud.google.com/go/storage v1.43.0

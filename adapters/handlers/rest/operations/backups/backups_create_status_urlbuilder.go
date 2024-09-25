@@ -28,6 +28,9 @@ type BackupsCreateStatusURL struct {
 	Backend string
 	ID      string
 
+	S3bucket *string
+	S3path   *string
+
 	_basePath string
 	// avoid unkeyed usage
 	_ struct{}
@@ -73,6 +76,26 @@ func (o *BackupsCreateStatusURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var s3bucketQ string
+	if o.S3bucket != nil {
+		s3bucketQ = *o.S3bucket
+	}
+	if s3bucketQ != "" {
+		qs.Set("s3bucket", s3bucketQ)
+	}
+
+	var s3pathQ string
+	if o.S3path != nil {
+		s3pathQ = *o.S3path
+	}
+	if s3pathQ != "" {
+		qs.Set("s3path", s3pathQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

@@ -34,6 +34,15 @@ type RestoreConfig struct {
 	// Maximum: 80
 	// Minimum: 1
 	CPUPercentage int64 `json:"CPUPercentage,omitempty"`
+
+	// S3 endpoint, e.g. s3.amazonaws.com
+	Endpoint string `json:"Endpoint,omitempty"`
+
+	// Name of the S3 bucket
+	S3Bucket string `json:"S3Bucket,omitempty"`
+
+	// Path within the bucket
+	S3Path string `json:"S3Path,omitempty"`
 }
 
 // Validate validates this restore config

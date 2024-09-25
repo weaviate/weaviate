@@ -217,6 +217,21 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BackupCreateRequest"
             }
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Access-Key",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Secret-Key",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Session-Token",
+            "in": "header"
           }
         ],
         "responses": {
@@ -274,6 +289,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the S3 bucket",
+            "name": "s3bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the S3 bucket",
+            "name": "s3path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -335,6 +362,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "s3bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "s3path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -389,6 +428,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "s3bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "s3path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -3215,6 +3266,18 @@ func init() {
             "BestCompression"
           ],
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },
@@ -3268,8 +3331,12 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
+        "s3bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "s3path": {
+          "description": "destination path of backup files proper to selected bucket",
           "type": "string"
         },
         "status": {
@@ -4887,6 +4954,18 @@ func init() {
           "maximum": 80,
           "minimum": 1,
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },
@@ -5635,6 +5714,21 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BackupCreateRequest"
             }
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Access-Key",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Secret-Key",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Session-Token",
+            "in": "header"
           }
         ],
         "responses": {
@@ -5692,6 +5786,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the S3 bucket",
+            "name": "s3bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the S3 bucket",
+            "name": "s3path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5753,6 +5859,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "s3bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "s3path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5807,6 +5925,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "s3bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "s3path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8755,6 +8885,18 @@ func init() {
             "BestCompression"
           ],
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },
@@ -8808,8 +8950,12 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
+        "s3bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "s3path": {
+          "description": "destination path of backup files proper to selected bucket",
           "type": "string"
         },
         "status": {
@@ -10607,6 +10753,18 @@ func init() {
           "maximum": 80,
           "minimum": 1,
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },

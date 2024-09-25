@@ -34,6 +34,7 @@ func (d *DockerCompose) Containers() []*DockerContainer {
 func (d *DockerCompose) Terminate(ctx context.Context) error {
 	var errs error
 	for _, c := range d.containers {
+		fmt.Printf("Terminating container %s\n", c.name)
 		if err := c.container.Terminate(ctx); err != nil {
 			errs = errors.Wrapf(err, "cannot terminate: %v", c.name)
 		}
