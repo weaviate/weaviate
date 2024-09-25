@@ -14,6 +14,7 @@ package query
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sync"
@@ -138,6 +139,9 @@ func TestAPI_propertyFilters(t *testing.T) {
 			res, err := api.propertyFilters(ctx, store, testCollection, nil, testTenant, tc.filters, tc.limit)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expCount, len(res))
+			for _, r := range res {
+				fmt.Printf("%#v\n", r)
+			}
 		})
 	}
 }
