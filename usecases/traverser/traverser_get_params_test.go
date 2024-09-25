@@ -135,11 +135,17 @@ func TestGet_NestedRefDepthLimit(t *testing.T) {
 		root := search.SelectProperties{}
 		next := &root
 		for i := 0; i < depth; i++ {
-			*next = append(*next, search.SelectProperty{Name: "nextNode"})
-			class := search.SelectClass{ClassName: "LinkedListNode"}
-			refs := []search.SelectClass{class}
-			(*next)[0].Refs = refs
-			next = &refs[0].RefProperties
+			*next = append(*next,
+				search.SelectProperty{Name: "nextNode"},
+				search.SelectProperty{Name: "otherRef"},
+			)
+			class0 := search.SelectClass{ClassName: "LinkedListNode"}
+			refs0 := []search.SelectClass{class0}
+			(*next)[0].Refs = refs0
+			class1 := search.SelectClass{ClassName: "LinkedListNode"}
+			refs1 := []search.SelectClass{class1}
+			(*next)[1].Refs = refs1
+			next = &refs0[0].RefProperties
 		}
 		return root
 	}

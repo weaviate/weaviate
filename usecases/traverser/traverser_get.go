@@ -73,28 +73,29 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 // provided by QUERY_CROSS_REFERENCE_DEPTH_LIMIT
 func (t *Traverser) probeForRefDepthLimit(props search.SelectProperties) error {
 	var (
-		determineDepth func(prop search.SelectProperties, depth int) int
-		maxDepth       = t.config.Config.QueryCrossReferenceDepthLimit
+		determineDepth func(props search.SelectProperties, currDepth int) int
+		depthLimit     = t.config.Config.QueryCrossReferenceDepthLimit
 	)
 
-	determineDepth = func(props search.SelectProperties, depth int) int {
-		if depth > maxDepth || len(props) == 0 {
-			return depth
+	determineDepth = func(props search.SelectProperties, currDepth int) int {
+		if len(props) == 0 || currDepth > depthLimit {
+			return 0
 		}
 
-		prop := props[0]
-		if len(prop.Refs) > 0 {
-			depth++
+		currDepth++
+		maxDepth := 0
+		for _, prop := range props {
 			for _, refTarget := range prop.Refs {
-				return determineDepth(refTarget.RefProperties, depth)
+				maxDepth = max(maxDepth, determineDepth(refTarget.RefProperties, currDepth))
 			}
 		}
 
-		return determineDepth(props[1:], depth)
+		return maxDepth + 1
 	}
 
-	if depth := determineDepth(props, 0); depth > maxDepth {
-		return fmt.Errorf("nested references depth exceeds QUERY_CROSS_REFERENCE_DEPTH_LIMIT (%d)", maxDepth)
+	depth := determineDepth(props, 0)
+	if depth > depthLimit {
+		return fmt.Errorf("nested references depth exceeds QUERY_CROSS_REFERENCE_DEPTH_LIMIT (%d)", depthLimit)
 	}
 	return nil
 }
