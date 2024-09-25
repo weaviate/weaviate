@@ -136,7 +136,7 @@ func TestAPI_propertyFilters(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			res, err := api.propertyFilters(ctx, store, testCollection, testTenant, tc.filters, tc.limit)
+			res, err := api.propertyFilters(ctx, store, testCollection, nil, testTenant, tc.filters, tc.limit)
 			require.NoError(t, err)
 			assert.Equal(t, tc.expCount, len(res))
 		})
@@ -198,7 +198,6 @@ func TestAPI_vectorSearch(t *testing.T) {
 type mockSchemaInfo struct {
 	mu         sync.Mutex
 	tenantinfo map[string]*tenantInfo
-	class      *models.Class
 }
 
 type tenantInfo struct {
