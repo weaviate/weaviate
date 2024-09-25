@@ -705,7 +705,7 @@ func parseClusterConfig() (cluster.Config, error) {
 		cfg.Hostname, _ = os.Hostname()
 	}
 	cfg.Join = os.Getenv("CLUSTER_JOIN")
-
+	cfg.ClusterID = os.Getenv("SENTRY_CLUSTER_ID")
 	advertiseAddr, advertiseAddrSet := os.LookupEnv("CLUSTER_ADVERTISE_ADDR")
 	advertisePort, advertisePortSet := os.LookupEnv("CLUSTER_ADVERTISE_PORT")
 

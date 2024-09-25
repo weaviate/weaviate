@@ -76,7 +76,7 @@ func (r *fqdn) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	defer r.nodesLock.Unlock()
 	if err != nil || len(addr) < 1 {
 		r.notResolvedNodes[id] = struct{}{}
-		return raftImpl.ServerAddress(invalidAddr), nil
+		return "", fmt.Errorf("could not resolve server id %s", id)
 	}
 	delete(r.notResolvedNodes, id)
 
