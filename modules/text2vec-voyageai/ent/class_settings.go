@@ -30,8 +30,8 @@ const (
 
 var (
 	availableVoyageAIModels = []string{
-	    "voyage-3",
-	    "voyage-3-lite",
+		"voyage-3",
+		"voyage-3-lite",
 		"voyage-large-2",
 		"voyage-code-2",
 		"voyage-2",
