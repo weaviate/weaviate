@@ -4,6 +4,8 @@
 // 	protoc        (unknown)
 // source: api/message.proto
 
+// NOTE run `buf generate` from `cluster/proto` to regenerate code
+
 package api
 
 import (
@@ -256,95 +258,6 @@ func (x TenantProcessRequest_Action) Number() protoreflect.EnumNumber {
 // Deprecated: Use TenantProcessRequest_Action.Descriptor instead.
 func (TenantProcessRequest_Action) EnumDescriptor() ([]byte, []int) {
 	return file_api_message_proto_rawDescGZIP(), []int{13, 0}
-}
-
-type QuerierStreamRequest_Type int32
-
-const (
-	QuerierStreamRequest_TYPE_UNSPECIFIED QuerierStreamRequest_Type = 0
-)
-
-// Enum value maps for QuerierStreamRequest_Type.
-var (
-	QuerierStreamRequest_Type_name = map[int32]string{
-		0: "TYPE_UNSPECIFIED",
-	}
-	QuerierStreamRequest_Type_value = map[string]int32{
-		"TYPE_UNSPECIFIED": 0,
-	}
-)
-
-func (x QuerierStreamRequest_Type) Enum() *QuerierStreamRequest_Type {
-	p := new(QuerierStreamRequest_Type)
-	*p = x
-	return p
-}
-
-func (x QuerierStreamRequest_Type) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (QuerierStreamRequest_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_message_proto_enumTypes[4].Descriptor()
-}
-
-func (QuerierStreamRequest_Type) Type() protoreflect.EnumType {
-	return &file_api_message_proto_enumTypes[4]
-}
-
-func (x QuerierStreamRequest_Type) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use QuerierStreamRequest_Type.Descriptor instead.
-func (QuerierStreamRequest_Type) EnumDescriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{16, 0}
-}
-
-type QuerierStreamResponse_Type int32
-
-const (
-	QuerierStreamResponse_TYPE_UNSPECIFIED              QuerierStreamResponse_Type = 0
-	QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE QuerierStreamResponse_Type = 1
-)
-
-// Enum value maps for QuerierStreamResponse_Type.
-var (
-	QuerierStreamResponse_Type_name = map[int32]string{
-		0: "TYPE_UNSPECIFIED",
-		1: "TYPE_CLASS_TENANT_DATA_UPDATE",
-	}
-	QuerierStreamResponse_Type_value = map[string]int32{
-		"TYPE_UNSPECIFIED":              0,
-		"TYPE_CLASS_TENANT_DATA_UPDATE": 1,
-	}
-)
-
-func (x QuerierStreamResponse_Type) Enum() *QuerierStreamResponse_Type {
-	p := new(QuerierStreamResponse_Type)
-	*p = x
-	return p
-}
-
-func (x QuerierStreamResponse_Type) String() string {
-	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
-}
-
-func (QuerierStreamResponse_Type) Descriptor() protoreflect.EnumDescriptor {
-	return file_api_message_proto_enumTypes[5].Descriptor()
-}
-
-func (QuerierStreamResponse_Type) Type() protoreflect.EnumType {
-	return &file_api_message_proto_enumTypes[5]
-}
-
-func (x QuerierStreamResponse_Type) Number() protoreflect.EnumNumber {
-	return protoreflect.EnumNumber(x)
-}
-
-// Deprecated: Use QuerierStreamResponse_Type.Descriptor instead.
-func (QuerierStreamResponse_Type) EnumDescriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{17, 0}
 }
 
 type JoinPeerRequest struct {
@@ -1202,172 +1115,6 @@ func (x *Tenant) GetStatus() string {
 	return ""
 }
 
-// QuerierStreamRequest is experimental, may be changed/removed. QuerierStreamRequest is currently
-// unused as we only care about the existence of the stream to register the querier node. We'll
-// likely add new types to this message in the future and use them.
-type QuerierStreamRequest struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Type QuerierStreamRequest_Type `protobuf:"varint,1,opt,name=type,proto3,enum=weaviate.internal.cluster.QuerierStreamRequest_Type" json:"type,omitempty"`
-}
-
-func (x *QuerierStreamRequest) Reset() {
-	*x = QuerierStreamRequest{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_api_message_proto_msgTypes[16]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *QuerierStreamRequest) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*QuerierStreamRequest) ProtoMessage() {}
-
-func (x *QuerierStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[16]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use QuerierStreamRequest.ProtoReflect.Descriptor instead.
-func (*QuerierStreamRequest) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{16}
-}
-
-func (x *QuerierStreamRequest) GetType() QuerierStreamRequest_Type {
-	if x != nil {
-		return x.Type
-	}
-	return QuerierStreamRequest_TYPE_UNSPECIFIED
-}
-
-// QuerierStreamResponse is experimental, may be changed/removed. A QuerierStreamResponse is a
-// message sent from the metadata cluster to a querier node.
-// A TYPE_CLASS_TENANT_DATA_UPDATE message is sent when the metadata cluster has written new data
-// to cloud storage for the specified class/tenant.
-type QuerierStreamResponse struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	Type        QuerierStreamResponse_Type `protobuf:"varint,1,opt,name=type,proto3,enum=weaviate.internal.cluster.QuerierStreamResponse_Type" json:"type,omitempty"`
-	ClassTenant *ClassTenant               `protobuf:"bytes,2,opt,name=class_tenant,json=classTenant,proto3" json:"class_tenant,omitempty"`
-}
-
-func (x *QuerierStreamResponse) Reset() {
-	*x = QuerierStreamResponse{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_api_message_proto_msgTypes[17]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *QuerierStreamResponse) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*QuerierStreamResponse) ProtoMessage() {}
-
-func (x *QuerierStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[17]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use QuerierStreamResponse.ProtoReflect.Descriptor instead.
-func (*QuerierStreamResponse) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *QuerierStreamResponse) GetType() QuerierStreamResponse_Type {
-	if x != nil {
-		return x.Type
-	}
-	return QuerierStreamResponse_TYPE_UNSPECIFIED
-}
-
-func (x *QuerierStreamResponse) GetClassTenant() *ClassTenant {
-	if x != nil {
-		return x.ClassTenant
-	}
-	return nil
-}
-
-// ClassTenant is experimental, may be changed/removed. Just a simple message to hold the class
-// and tenant names.
-type ClassTenant struct {
-	state         protoimpl.MessageState
-	sizeCache     protoimpl.SizeCache
-	unknownFields protoimpl.UnknownFields
-
-	ClassName  string `protobuf:"bytes,1,opt,name=class_name,json=className,proto3" json:"class_name,omitempty"`
-	TenantName string `protobuf:"bytes,2,opt,name=tenant_name,json=tenantName,proto3" json:"tenant_name,omitempty"`
-}
-
-func (x *ClassTenant) Reset() {
-	*x = ClassTenant{}
-	if protoimpl.UnsafeEnabled {
-		mi := &file_api_message_proto_msgTypes[18]
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		ms.StoreMessageInfo(mi)
-	}
-}
-
-func (x *ClassTenant) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ClassTenant) ProtoMessage() {}
-
-func (x *ClassTenant) ProtoReflect() protoreflect.Message {
-	mi := &file_api_message_proto_msgTypes[18]
-	if protoimpl.UnsafeEnabled && x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ClassTenant.ProtoReflect.Descriptor instead.
-func (*ClassTenant) Descriptor() ([]byte, []int) {
-	return file_api_message_proto_rawDescGZIP(), []int{18}
-}
-
-func (x *ClassTenant) GetClassName() string {
-	if x != nil {
-		return x.ClassName
-	}
-	return ""
-}
-
-func (x *ClassTenant) GetTenantName() string {
-	if x != nil {
-		return x.TenantName
-	}
-	return ""
-}
-
 var File_api_message_proto protoreflect.FileDescriptor
 
 var file_api_message_proto_rawDesc = []byte{
@@ -1499,35 +1246,7 @@ var file_api_message_proto_rawDesc = []byte{
 	0x6e, 0x61, 0x6e, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01, 0x20, 0x01,
 	0x28, 0x09, 0x52, 0x04, 0x6e, 0x61, 0x6d, 0x65, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x74, 0x61, 0x74,
 	0x75, 0x73, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x06, 0x73, 0x74, 0x61, 0x74, 0x75, 0x73,
-	0x22, 0x7e, 0x0a, 0x14, 0x51, 0x75, 0x65, 0x72, 0x69, 0x65, 0x72, 0x53, 0x74, 0x72, 0x65, 0x61,
-	0x6d, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x48, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65,
-	0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x34, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2e, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75, 0x73, 0x74,
-	0x65, 0x72, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x69, 0x65, 0x72, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d,
-	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x2e, 0x54, 0x79, 0x70, 0x65, 0x52, 0x04, 0x74, 0x79,
-	0x70, 0x65, 0x22, 0x1c, 0x0a, 0x04, 0x54, 0x79, 0x70, 0x65, 0x12, 0x14, 0x0a, 0x10, 0x54, 0x59,
-	0x50, 0x45, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00,
-	0x22, 0xee, 0x01, 0x0a, 0x15, 0x51, 0x75, 0x65, 0x72, 0x69, 0x65, 0x72, 0x53, 0x74, 0x72, 0x65,
-	0x61, 0x6d, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x49, 0x0a, 0x04, 0x74, 0x79,
-	0x70, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0e, 0x32, 0x35, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69,
-	0x61, 0x74, 0x65, 0x2e, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75,
-	0x73, 0x74, 0x65, 0x72, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x69, 0x65, 0x72, 0x53, 0x74, 0x72, 0x65,
-	0x61, 0x6d, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x2e, 0x54, 0x79, 0x70, 0x65, 0x52,
-	0x04, 0x74, 0x79, 0x70, 0x65, 0x12, 0x49, 0x0a, 0x0c, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x5f, 0x74,
-	0x65, 0x6e, 0x61, 0x6e, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x26, 0x2e, 0x77, 0x65,
-	0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e,
-	0x63, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x2e, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x54, 0x65, 0x6e,
-	0x61, 0x6e, 0x74, 0x52, 0x0b, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x54, 0x65, 0x6e, 0x61, 0x6e, 0x74,
-	0x22, 0x3f, 0x0a, 0x04, 0x54, 0x79, 0x70, 0x65, 0x12, 0x14, 0x0a, 0x10, 0x54, 0x59, 0x50, 0x45,
-	0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45, 0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x21,
-	0x0a, 0x1d, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x43, 0x4c, 0x41, 0x53, 0x53, 0x5f, 0x54, 0x45, 0x4e,
-	0x41, 0x4e, 0x54, 0x5f, 0x44, 0x41, 0x54, 0x41, 0x5f, 0x55, 0x50, 0x44, 0x41, 0x54, 0x45, 0x10,
-	0x01, 0x22, 0x4d, 0x0a, 0x0b, 0x43, 0x6c, 0x61, 0x73, 0x73, 0x54, 0x65, 0x6e, 0x61, 0x6e, 0x74,
-	0x12, 0x1d, 0x0a, 0x0a, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x01,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x09, 0x63, 0x6c, 0x61, 0x73, 0x73, 0x4e, 0x61, 0x6d, 0x65, 0x12,
-	0x1f, 0x0a, 0x0b, 0x74, 0x65, 0x6e, 0x61, 0x6e, 0x74, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02,
-	0x20, 0x01, 0x28, 0x09, 0x52, 0x0a, 0x74, 0x65, 0x6e, 0x61, 0x6e, 0x74, 0x4e, 0x61, 0x6d, 0x65,
-	0x32, 0x87, 0x05, 0x0a, 0x0e, 0x43, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x53, 0x65, 0x72, 0x76,
+	0x32, 0x8d, 0x04, 0x0a, 0x0e, 0x43, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x53, 0x65, 0x72, 0x76,
 	0x69, 0x63, 0x65, 0x12, 0x6b, 0x0a, 0x0a, 0x52, 0x65, 0x6d, 0x6f, 0x76, 0x65, 0x50, 0x65, 0x65,
 	0x72, 0x12, 0x2c, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x69, 0x6e, 0x74,
 	0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x2e, 0x52, 0x65,
@@ -1560,29 +1279,21 @@ var file_api_message_proto_rawDesc = []byte{
 	0x75, 0x65, 0x73, 0x74, 0x1a, 0x28, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
 	0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72,
 	0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00,
-	0x12, 0x78, 0x0a, 0x0d, 0x51, 0x75, 0x65, 0x72, 0x69, 0x65, 0x72, 0x53, 0x74, 0x72, 0x65, 0x61,
-	0x6d, 0x12, 0x2f, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x69, 0x6e, 0x74,
-	0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x2e, 0x51, 0x75,
-	0x65, 0x72, 0x69, 0x65, 0x72, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x30, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x69, 0x6e,
-	0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x2e, 0x51,
-	0x75, 0x65, 0x72, 0x69, 0x65, 0x72, 0x53, 0x74, 0x72, 0x65, 0x61, 0x6d, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x22, 0x00, 0x28, 0x01, 0x30, 0x01, 0x42, 0xe1, 0x01, 0x0a, 0x1d, 0x63,
-	0x6f, 0x6d, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x69, 0x6e, 0x74, 0x65,
-	0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x42, 0x0c, 0x4d, 0x65,
-	0x73, 0x73, 0x61, 0x67, 0x65, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x2c, 0x67, 0x69,
-	0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
-	0x65, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x63, 0x6c, 0x6f, 0x75, 0x64,
-	0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x61, 0x70, 0x69, 0xa2, 0x02, 0x03, 0x57, 0x49, 0x43,
-	0xaa, 0x02, 0x19, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e, 0x49, 0x6e, 0x74, 0x65,
-	0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x43, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0xca, 0x02, 0x19, 0x57,
-	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x5c, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c,
-	0x5c, 0x43, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0xe2, 0x02, 0x25, 0x57, 0x65, 0x61, 0x76, 0x69,
-	0x61, 0x74, 0x65, 0x5c, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x5c, 0x43, 0x6c, 0x75,
-	0x73, 0x74, 0x65, 0x72, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
-	0xea, 0x02, 0x1b, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x3a, 0x3a, 0x49, 0x6e, 0x74,
-	0x65, 0x72, 0x6e, 0x61, 0x6c, 0x3a, 0x3a, 0x43, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x62, 0x06,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x42, 0xe1, 0x01, 0x0a, 0x1d, 0x63, 0x6f, 0x6d, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
+	0x65, 0x2e, 0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75, 0x73, 0x74,
+	0x65, 0x72, 0x42, 0x0c, 0x4d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x50, 0x72, 0x6f, 0x74, 0x6f,
+	0x50, 0x01, 0x5a, 0x2c, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x77,
+	0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2f, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65,
+	0x2f, 0x63, 0x6c, 0x6f, 0x75, 0x64, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x2f, 0x61, 0x70, 0x69,
+	0xa2, 0x02, 0x03, 0x57, 0x49, 0x43, 0xaa, 0x02, 0x19, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
+	0x65, 0x2e, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x43, 0x6c, 0x75, 0x73, 0x74,
+	0x65, 0x72, 0xca, 0x02, 0x19, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x5c, 0x49, 0x6e,
+	0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x5c, 0x43, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0xe2, 0x02,
+	0x25, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x5c, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e,
+	0x61, 0x6c, 0x5c, 0x43, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65,
+	0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x1b, 0x57, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74,
+	0x65, 0x3a, 0x3a, 0x49, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x3a, 0x3a, 0x43, 0x6c, 0x75,
+	0x73, 0x74, 0x65, 0x72, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -1597,64 +1308,54 @@ func file_api_message_proto_rawDescGZIP() []byte {
 	return file_api_message_proto_rawDescData
 }
 
-var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
+var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_api_message_proto_goTypes = []interface{}{
 	(ApplyRequest_Type)(0),           // 0: weaviate.internal.cluster.ApplyRequest.Type
 	(QueryRequest_Type)(0),           // 1: weaviate.internal.cluster.QueryRequest.Type
 	(TenantsProcess_Op)(0),           // 2: weaviate.internal.cluster.TenantsProcess.Op
 	(TenantProcessRequest_Action)(0), // 3: weaviate.internal.cluster.TenantProcessRequest.Action
-	(QuerierStreamRequest_Type)(0),   // 4: weaviate.internal.cluster.QuerierStreamRequest.Type
-	(QuerierStreamResponse_Type)(0),  // 5: weaviate.internal.cluster.QuerierStreamResponse.Type
-	(*JoinPeerRequest)(nil),          // 6: weaviate.internal.cluster.JoinPeerRequest
-	(*JoinPeerResponse)(nil),         // 7: weaviate.internal.cluster.JoinPeerResponse
-	(*RemovePeerRequest)(nil),        // 8: weaviate.internal.cluster.RemovePeerRequest
-	(*RemovePeerResponse)(nil),       // 9: weaviate.internal.cluster.RemovePeerResponse
-	(*NotifyPeerRequest)(nil),        // 10: weaviate.internal.cluster.NotifyPeerRequest
-	(*NotifyPeerResponse)(nil),       // 11: weaviate.internal.cluster.NotifyPeerResponse
-	(*ApplyRequest)(nil),             // 12: weaviate.internal.cluster.ApplyRequest
-	(*ApplyResponse)(nil),            // 13: weaviate.internal.cluster.ApplyResponse
-	(*QueryRequest)(nil),             // 14: weaviate.internal.cluster.QueryRequest
-	(*QueryResponse)(nil),            // 15: weaviate.internal.cluster.QueryResponse
-	(*AddTenantsRequest)(nil),        // 16: weaviate.internal.cluster.AddTenantsRequest
-	(*UpdateTenantsRequest)(nil),     // 17: weaviate.internal.cluster.UpdateTenantsRequest
-	(*TenantsProcess)(nil),           // 18: weaviate.internal.cluster.TenantsProcess
-	(*TenantProcessRequest)(nil),     // 19: weaviate.internal.cluster.TenantProcessRequest
-	(*DeleteTenantsRequest)(nil),     // 20: weaviate.internal.cluster.DeleteTenantsRequest
-	(*Tenant)(nil),                   // 21: weaviate.internal.cluster.Tenant
-	(*QuerierStreamRequest)(nil),     // 22: weaviate.internal.cluster.QuerierStreamRequest
-	(*QuerierStreamResponse)(nil),    // 23: weaviate.internal.cluster.QuerierStreamResponse
-	(*ClassTenant)(nil),              // 24: weaviate.internal.cluster.ClassTenant
+	(*JoinPeerRequest)(nil),          // 4: weaviate.internal.cluster.JoinPeerRequest
+	(*JoinPeerResponse)(nil),         // 5: weaviate.internal.cluster.JoinPeerResponse
+	(*RemovePeerRequest)(nil),        // 6: weaviate.internal.cluster.RemovePeerRequest
+	(*RemovePeerResponse)(nil),       // 7: weaviate.internal.cluster.RemovePeerResponse
+	(*NotifyPeerRequest)(nil),        // 8: weaviate.internal.cluster.NotifyPeerRequest
+	(*NotifyPeerResponse)(nil),       // 9: weaviate.internal.cluster.NotifyPeerResponse
+	(*ApplyRequest)(nil),             // 10: weaviate.internal.cluster.ApplyRequest
+	(*ApplyResponse)(nil),            // 11: weaviate.internal.cluster.ApplyResponse
+	(*QueryRequest)(nil),             // 12: weaviate.internal.cluster.QueryRequest
+	(*QueryResponse)(nil),            // 13: weaviate.internal.cluster.QueryResponse
+	(*AddTenantsRequest)(nil),        // 14: weaviate.internal.cluster.AddTenantsRequest
+	(*UpdateTenantsRequest)(nil),     // 15: weaviate.internal.cluster.UpdateTenantsRequest
+	(*TenantsProcess)(nil),           // 16: weaviate.internal.cluster.TenantsProcess
+	(*TenantProcessRequest)(nil),     // 17: weaviate.internal.cluster.TenantProcessRequest
+	(*DeleteTenantsRequest)(nil),     // 18: weaviate.internal.cluster.DeleteTenantsRequest
+	(*Tenant)(nil),                   // 19: weaviate.internal.cluster.Tenant
 }
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
 	1,  // 1: weaviate.internal.cluster.QueryRequest.type:type_name -> weaviate.internal.cluster.QueryRequest.Type
-	21, // 2: weaviate.internal.cluster.AddTenantsRequest.tenants:type_name -> weaviate.internal.cluster.Tenant
-	21, // 3: weaviate.internal.cluster.UpdateTenantsRequest.tenants:type_name -> weaviate.internal.cluster.Tenant
+	19, // 2: weaviate.internal.cluster.AddTenantsRequest.tenants:type_name -> weaviate.internal.cluster.Tenant
+	19, // 3: weaviate.internal.cluster.UpdateTenantsRequest.tenants:type_name -> weaviate.internal.cluster.Tenant
 	2,  // 4: weaviate.internal.cluster.TenantsProcess.op:type_name -> weaviate.internal.cluster.TenantsProcess.Op
-	21, // 5: weaviate.internal.cluster.TenantsProcess.tenant:type_name -> weaviate.internal.cluster.Tenant
+	19, // 5: weaviate.internal.cluster.TenantsProcess.tenant:type_name -> weaviate.internal.cluster.Tenant
 	3,  // 6: weaviate.internal.cluster.TenantProcessRequest.action:type_name -> weaviate.internal.cluster.TenantProcessRequest.Action
-	18, // 7: weaviate.internal.cluster.TenantProcessRequest.tenants_processes:type_name -> weaviate.internal.cluster.TenantsProcess
-	4,  // 8: weaviate.internal.cluster.QuerierStreamRequest.type:type_name -> weaviate.internal.cluster.QuerierStreamRequest.Type
-	5,  // 9: weaviate.internal.cluster.QuerierStreamResponse.type:type_name -> weaviate.internal.cluster.QuerierStreamResponse.Type
-	24, // 10: weaviate.internal.cluster.QuerierStreamResponse.class_tenant:type_name -> weaviate.internal.cluster.ClassTenant
-	8,  // 11: weaviate.internal.cluster.ClusterService.RemovePeer:input_type -> weaviate.internal.cluster.RemovePeerRequest
-	6,  // 12: weaviate.internal.cluster.ClusterService.JoinPeer:input_type -> weaviate.internal.cluster.JoinPeerRequest
-	10, // 13: weaviate.internal.cluster.ClusterService.NotifyPeer:input_type -> weaviate.internal.cluster.NotifyPeerRequest
-	12, // 14: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
-	14, // 15: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
-	22, // 16: weaviate.internal.cluster.ClusterService.QuerierStream:input_type -> weaviate.internal.cluster.QuerierStreamRequest
-	9,  // 17: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
-	7,  // 18: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
-	11, // 19: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
-	13, // 20: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
-	15, // 21: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
-	23, // 22: weaviate.internal.cluster.ClusterService.QuerierStream:output_type -> weaviate.internal.cluster.QuerierStreamResponse
-	17, // [17:23] is the sub-list for method output_type
-	11, // [11:17] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	16, // 7: weaviate.internal.cluster.TenantProcessRequest.tenants_processes:type_name -> weaviate.internal.cluster.TenantsProcess
+	6,  // 8: weaviate.internal.cluster.ClusterService.RemovePeer:input_type -> weaviate.internal.cluster.RemovePeerRequest
+	4,  // 9: weaviate.internal.cluster.ClusterService.JoinPeer:input_type -> weaviate.internal.cluster.JoinPeerRequest
+	8,  // 10: weaviate.internal.cluster.ClusterService.NotifyPeer:input_type -> weaviate.internal.cluster.NotifyPeerRequest
+	10, // 11: weaviate.internal.cluster.ClusterService.Apply:input_type -> weaviate.internal.cluster.ApplyRequest
+	12, // 12: weaviate.internal.cluster.ClusterService.Query:input_type -> weaviate.internal.cluster.QueryRequest
+	7,  // 13: weaviate.internal.cluster.ClusterService.RemovePeer:output_type -> weaviate.internal.cluster.RemovePeerResponse
+	5,  // 14: weaviate.internal.cluster.ClusterService.JoinPeer:output_type -> weaviate.internal.cluster.JoinPeerResponse
+	9,  // 15: weaviate.internal.cluster.ClusterService.NotifyPeer:output_type -> weaviate.internal.cluster.NotifyPeerResponse
+	11, // 16: weaviate.internal.cluster.ClusterService.Apply:output_type -> weaviate.internal.cluster.ApplyResponse
+	13, // 17: weaviate.internal.cluster.ClusterService.Query:output_type -> weaviate.internal.cluster.QueryResponse
+	13, // [13:18] is the sub-list for method output_type
+	8,  // [8:13] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_api_message_proto_init() }
@@ -1855,50 +1556,14 @@ func file_api_message_proto_init() {
 				return nil
 			}
 		}
-		file_api_message_proto_msgTypes[16].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QuerierStreamRequest); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_api_message_proto_msgTypes[17].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QuerierStreamResponse); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
-		file_api_message_proto_msgTypes[18].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ClassTenant); i {
-			case 0:
-				return &v.state
-			case 1:
-				return &v.sizeCache
-			case 2:
-				return &v.unknownFields
-			default:
-				return nil
-			}
-		}
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_api_message_proto_rawDesc,
-			NumEnums:      6,
-			NumMessages:   19,
+			NumEnums:      4,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

@@ -21,8 +21,8 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	protoapi "github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/exp/metadataserver/proto/api"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -60,7 +60,7 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 			if err != nil {
 				panic(err)
 			}
-			c := protoapi.NewClusterServiceClient(leaderRpcConn)
+			c := api.NewMetadataServiceClient(leaderRpcConn)
 			stream, err := c.QuerierStream(context.Background())
 			if err != nil {
 				panic(err)
@@ -86,9 +86,9 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 						panic(err)
 					}
 					switch in.Type {
-					case protoapi.QuerierStreamResponse_TYPE_UNSPECIFIED:
+					case api.QuerierStreamResponse_TYPE_UNSPECIFIED:
 						panic("unspecified")
-					case protoapi.QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE:
+					case api.QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE:
 						// TODO locking...plan to discuss with kavi, should we download to new dir or delete/overwrite or swap or other?
 						// TODO we shouldn't block here, instead we should offload the download to a worker pool or something
 						err = metadataSubscription.offload.Download(context.TODO(), in.ClassTenant.ClassName, in.ClassTenant.TenantName, nodeName)
