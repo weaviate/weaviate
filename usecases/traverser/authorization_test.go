@@ -78,7 +78,8 @@ func Test_Traverser_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			locks := &fakeLocks{}
-			authorizer := mocks.NewMockAuthorizer(errors.New("just a test fake"))
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			explorer := &fakeExplorer{}
 			schemaGetter := &fakeSchemaGetter{}

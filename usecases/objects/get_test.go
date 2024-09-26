@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -1061,7 +1060,7 @@ type fakeGetManager struct {
 	repo            *fakeVectorRepo
 	extender        *fakeExtender
 	projector       *fakeProjector
-	authorizer      authorization.Authorizer
+	authorizer      *mocks.FakeAuthorizer
 	locks           *fakeLocks
 	metrics         *fakeMetrics
 	modulesProvider *fakeModulesProvider

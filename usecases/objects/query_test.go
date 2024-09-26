@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestQuery(t *testing.T) {
@@ -140,7 +139,7 @@ func TestQuery(t *testing.T) {
 	}
 	for i, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m.authorizer = mocks.NewMockAuthorizer(tc.authErr)
+			m.authorizer.SetErr(tc.authErr)
 			m.locks.Err = tc.lockErr
 			if tc.authErr == nil && tc.lockErr == nil {
 				m.repo.On("Query", &tc.wantQueryInput).Return(tc.mockedDBResponse, tc.mockedErr).Once()

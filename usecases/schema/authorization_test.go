@@ -179,7 +179,8 @@ func Test_Schema_Authorization(t *testing.T) {
 		principal := &models.Principal{}
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
-				authorizer := mocks.NewMockAuthorizer(errors.New("just a test fake"))
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.SetErr(errors.New("just a test fake"))
 				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})

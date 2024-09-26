@@ -96,7 +96,8 @@ func Test_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
-				authorizer := mocks.NewMockAuthorizer(errors.New("just a test fake"))
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.SetErr(errors.New("just a test fake"))
 				s := NewScheduler(authorizer, nil, nil, nil, nil, &fakeSchemaManger{}, logger)
 				require.NotNil(t, s)
 
