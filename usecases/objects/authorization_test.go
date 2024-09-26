@@ -175,7 +175,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				locks := &fakeLocks{}
 				cfg := &config.WeaviateConfig{}
-				authorizer := mocks.NewMockAuthorizer(errors.New("just a test fake"))
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.SetErr(errors.New("just a test fake"))
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
 					cfg, logger, authorizer,
@@ -270,7 +271,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			schemaManager := &fakeSchemaManager{}
 			locks := &fakeLocks{}
 			cfg := &config.WeaviateConfig{}
-			authorizer := mocks.NewMockAuthorizer(errors.New("just a test fake"))
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			modulesProvider := getFakeModulesProvider()
 			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil)

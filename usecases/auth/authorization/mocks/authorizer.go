@@ -21,20 +21,20 @@ type AuthZReq struct {
 	Resource  string
 }
 
-type fakeAuthorizer struct {
+type FakeAuthorizer struct {
 	err      error
 	requests []AuthZReq
 }
 
-func NewMockAuthorizer(errs ...error) *fakeAuthorizer {
-	if len(errs) > 0 {
-		return &fakeAuthorizer{err: errs[0]}
-	}
-	return &fakeAuthorizer{}
+func NewMockAuthorizer() *FakeAuthorizer {
+	return &FakeAuthorizer{}
+}
+func (a *FakeAuthorizer) SetErr(err error) {
+	a.err = err
 }
 
 // Authorize provides a mock function with given fields: principal, verb, resource
-func (a *fakeAuthorizer) Authorize(principal *models.Principal, verb string, resource string) error {
+func (a *FakeAuthorizer) Authorize(principal *models.Principal, verb string, resource string) error {
 	a.requests = append(a.requests, AuthZReq{principal, verb, resource})
 	if a.err != nil {
 		return a.err
@@ -42,6 +42,6 @@ func (a *fakeAuthorizer) Authorize(principal *models.Principal, verb string, res
 	return nil
 }
 
-func (a *fakeAuthorizer) Calls() []AuthZReq {
+func (a *FakeAuthorizer) Calls() []AuthZReq {
 	return a.requests
 }
