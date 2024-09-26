@@ -46,6 +46,9 @@ type Memtable struct {
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl *commitLogger, metrics *Metrics, logger logrus.FieldLogger,
 ) (*Memtable, error) {
+	if strategy == StrategyInverted {
+		strategy = StrategyMapCollection
+	}
 	m := &Memtable{
 		key:              &binarySearchTree{},
 		keyMulti:         &binarySearchTreeMulti{},
@@ -277,9 +280,9 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
 	defer m.metrics.appendMapSorted(start.UnixNano())
 
-	if m.strategy != StrategyMapCollection {
-		return errors.Errorf("append only possible with strategy %q",
-			StrategyMapCollection)
+	if m.strategy != StrategyMapCollection && m.strategy != StrategyInverted {
+		return errors.Errorf("append only possible with strategy %q, %q",
+			StrategyMapCollection, StrategyInverted)
 	}
 
 	m.Lock()

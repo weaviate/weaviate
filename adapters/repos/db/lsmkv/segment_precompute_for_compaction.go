@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"strings"
@@ -73,6 +74,22 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
+	dataStartPos := uint64(segmentindex.HeaderSize)
+	dataEndPos := header.IndexStart
+
+	var invertedKeyLength, invertedValueLength uint16
+	if header.Strategy == segmentindex.StrategyInverted {
+		// inverted strategy has a different data layout
+		// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
+		invertedKeyLength = binary.LittleEndian.Uint16(contents[dataStartPos : dataStartPos+2])
+		invertedValueLength = binary.LittleEndian.Uint16(contents[dataStartPos+2 : dataStartPos+4])
+		keysLength := binary.LittleEndian.Uint64(contents[dataStartPos+4 : dataStartPos+12])
+
+		dataStartPos += 2 + 2 + 8
+		dataEndPos = dataStartPos + keysLength
+		// tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos+12+keysLength : dataStartPos+12+keysLength+8])
+	}
+
 	seg := &segment{
 		level: header.Level,
 		// trim the .tmp suffix to make sure the naming rules for the files we
@@ -88,12 +105,14 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		segmentStartPos:       header.IndexStart,
 		segmentEndPos:         uint64(fileInfo.Size()),
 		strategy:              header.Strategy,
-		dataStartPos:          segmentindex.HeaderSize, // fixed value that's the same for all strategies
-		dataEndPos:            header.IndexStart,
+		dataStartPos:          dataStartPos,
+		dataEndPos:            dataEndPos,
 		index:                 primaryDiskIndex,
 		logger:                logger,
 		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: calcCountNetAdditions,
+		invertedKeyLength:     invertedKeyLength,
+		invertedValueLength:   invertedValueLength,
 	}
 
 	if seg.secondaryIndexCount > 0 {

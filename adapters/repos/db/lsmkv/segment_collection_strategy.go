@@ -21,9 +21,10 @@ import (
 
 func (s *segment) getCollection(key []byte) ([]value, error) {
 	if s.strategy != segmentindex.StrategySetCollection &&
-		s.strategy != segmentindex.StrategyMapCollection {
-		return nil, fmt.Errorf("get only possible for strategies %q, %q",
-			StrategySetCollection, StrategyMapCollection)
+		s.strategy != segmentindex.StrategyMapCollection &&
+		s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("get only possible for strategies %q, %q and %q, got %q",
+			StrategySetCollection, StrategyMapCollection, StrategyInverted, s.strategy)
 	}
 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
