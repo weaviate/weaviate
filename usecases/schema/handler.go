@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -118,7 +119,7 @@ type Handler struct {
 	validator validator
 
 	logger                  logrus.FieldLogger
-	Authorizer              authorizer
+	Authorizer              authorization.Authorizer
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -134,7 +135,7 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,

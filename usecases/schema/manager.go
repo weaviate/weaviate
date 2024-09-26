@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/scaler"
@@ -37,7 +38,7 @@ type Manager struct {
 	validator    validator
 	repo         SchemaStore
 	logger       logrus.FieldLogger
-	Authorizer   authorizer
+	Authorizer   authorization.Authorizer
 	config       config.Config
 	clusterState clusterState
 
@@ -197,7 +198,7 @@ func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
-	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -226,10 +227,6 @@ func NewManager(validator validator,
 	}
 
 	return m, nil
-}
-
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
 }
 
 // func (m *Manager) migrateSchemaIfNecessary(ctx context.Context, localSchema *State) error {
