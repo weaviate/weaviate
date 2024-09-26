@@ -21,7 +21,7 @@ import (
 
 const (
 	DefaultBaseURL               = "https://api.voyageai.com/v1"
-	DefaultVoyageAIModel         = "voyage-large-2"
+	DefaultVoyageAIModel         = "voyage-3"
 	DefaultTruncate              = true
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
@@ -30,6 +30,8 @@ const (
 
 var (
 	availableVoyageAIModels = []string{
+		"voyage-3",
+		"voyage-3-lite",
 		"voyage-large-2",
 		"voyage-code-2",
 		"voyage-2",
