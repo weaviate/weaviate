@@ -18,6 +18,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func Test_HeadObject(t *testing.T) {
@@ -73,7 +74,7 @@ func Test_HeadObject(t *testing.T) {
 		},
 	}
 	for i, tc := range tests {
-		m.authorizer.Err = tc.authErr
+		m.authorizer = mocks.NewMockAuthorizer(tc.authErr)
 		m.locks.Err = tc.lockErr
 		if tc.authErr == nil && tc.lockErr == nil {
 			m.repo.On("Exists", tc.class, id).Return(tc.mockedOk, tc.mockedErr).Once()

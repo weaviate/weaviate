@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
@@ -60,14 +61,10 @@ type Classifier struct {
 	repo                  Repo
 	vectorRepo            vectorRepo
 	vectorClassSearchRepo modulecapabilities.VectorClassSearchRepo
-	authorizer            authorizer
+	authorizer            authorization.Authorizer
 	distancer             distancer
 	modulesProvider       ModulesProvider
 	logger                logrus.FieldLogger
-}
-
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
 }
 
 type ModulesProvider interface {
@@ -77,7 +74,7 @@ type ModulesProvider interface {
 		params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error)
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer,
+func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorization.Authorizer,
 	logger logrus.FieldLogger, modulesProvider ModulesProvider,
 ) *Classifier {
 	return &Classifier{

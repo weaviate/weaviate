@@ -17,14 +17,11 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 const GetNodeStatusTimeout = 30 * time.Second
-
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
-}
 
 type db interface {
 	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
@@ -33,12 +30,12 @@ type db interface {
 
 type Manager struct {
 	logger        logrus.FieldLogger
-	authorizer    authorizer
+	authorizer    authorization.Authorizer
 	db            db
 	schemaManager *schemaUC.Manager
 }
 
-func NewManager(logger logrus.FieldLogger, authorizer authorizer,
+func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	db db, schemaManager *schemaUC.Manager,
 ) *Manager {
 	return &Manager{logger, authorizer, db, schemaManager}
