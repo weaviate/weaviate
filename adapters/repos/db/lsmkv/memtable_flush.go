@@ -53,7 +53,7 @@ func (m *Memtable) flush() error {
 	var keys []segmentindex.Key
 	skipIndices := false
 
-	switch m.strategy {
+	switch m.flushStrategy {
 	case StrategyReplace:
 		if keys, err = m.flushDataReplace(w); err != nil {
 			return err

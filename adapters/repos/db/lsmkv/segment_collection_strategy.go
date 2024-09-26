@@ -53,6 +53,9 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
 		return nil, err
 	}
+	if s.strategy == segmentindex.StrategyInverted {
+		return s.collectionStratParseDataInverted(contentsCopy)
+	}
 
 	return s.collectionStratParseData(contentsCopy)
 }
@@ -79,6 +82,27 @@ func (s *segment) collectionStratParseData(in []byte) ([]value, error) {
 		values[valueIndex].value = in[offset : offset+int(valueLen)]
 		offset += int(valueLen)
 
+		valueIndex++
+	}
+
+	return values, nil
+}
+
+func (s *segment) collectionStratParseDataInverted(in []byte) ([]value, error) {
+	if len(in) == 0 {
+		return nil, lsmkv.NotFound
+	}
+
+	offset := 0
+
+	valuesLen := binary.LittleEndian.Uint64(in[offset : offset+8])
+	offset += 8
+
+	values := make([]value, valuesLen)
+	valueIndex := 0
+	for valueIndex < int(valuesLen) {
+		values[valueIndex].value = in[offset : offset+int(invPayloadLen)]
+		offset += int(invPayloadLen)
 		valueIndex++
 	}
 

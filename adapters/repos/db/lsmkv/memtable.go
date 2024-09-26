@@ -37,6 +37,7 @@ type Memtable struct {
 	size               uint64
 	path               string
 	strategy           string
+	flushStrategy      string
 	secondaryIndices   uint16
 	secondaryToPrimary []map[string][]byte
 	// stores time memtable got dirty to determine when flush is needed
@@ -50,6 +51,7 @@ type Memtable struct {
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl *commitLogger, metrics *Metrics, logger logrus.FieldLogger,
 ) (*Memtable, error) {
+	flushStrategy := strategy
 	if strategy == StrategyInverted {
 		strategy = StrategyMapCollection
 	}
@@ -63,6 +65,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		commitlog:        cl,
 		path:             path,
 		strategy:         strategy,
+		flushStrategy:    flushStrategy,
 		secondaryIndices: secondaryIndices,
 		dirtyAt:          time.Time{},
 		createdAt:        time.Now(),
