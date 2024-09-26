@@ -96,16 +96,57 @@ with weaviate.connect_to_local(
     multi_collection = client.collections.get("Question").with_tenant("weaviate-tenant")
 
     objects = [
-        {
-            "class": "Question",
-            "tenant": "weaviate-tenant",
-            "properties": {
-                "answer": "Liver",
-                "question": "This organ removes excess glucose from the blood & stores it as glycogen",
-                "category": "SCIENCE"
-            }
-        },
-    ]
+    {
+        "answer": "Liver",
+        "question": "This organ removes excess glucose from the blood & stores it as glycogen",
+        "category": "SCIENCE"
+    },
+    {
+        "answer": "Elephant",
+        "question": "It's the only living mammal in the order Proboseidea",
+        "category": "ANIMALS"
+    },
+    {
+        "answer": "the nose or snout",
+        "question": "The gavial looks very much like a crocodile except for this bodily feature",
+        "category": "ANIMALS"
+    },
+    {
+        "answer": "Antelope",
+        "question": "Weighing around a ton, the eland is the largest species of this animal in Africa",
+        "category": "ANIMALS"
+    },
+    {
+        "answer": "the diamondback rattler",
+        "question": "Heaviest of all poisonous snakes is this North American rattlesnake",
+        "category": "ANIMALS"
+    },
+    {
+        "answer": "species",
+        "question": "2000 news: the Gunnison sage grouse isn't just another northern sage grouse, but a new one of this classification",
+        "category": "SCIENCE"
+    },
+    {
+        "answer": "wire",
+        "question": "A metal that is ductile can be pulled into this while cold & under pressure",
+        "category": "SCIENCE"
+    },
+    {
+        "answer": "DNA",
+        "question": "In 1953 Watson & Crick built a model of the molecular structure of this, the gene-carrying substance",
+        "category": "SCIENCE"
+    },
+    {
+        "answer": "the atmosphere",
+        "question": "Changes in the tropospheric layer of this are what gives us weather",
+        "category": "SCIENCE"
+    },
+    {
+        "answer": "Sound barrier",
+        "question": "In 70-degree air, a plane traveling at about 1,130 feet per second breaks it",
+        "category": "SCIENCE"
+    }
+  ]
 
     with multi_collection.batch.dynamic() as batch:
         for object in objects:
