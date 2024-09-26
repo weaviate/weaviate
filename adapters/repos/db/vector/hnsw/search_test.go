@@ -90,3 +90,43 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 		assert.True(t, ok)
 	})
 }
+
+func TestQueryVectorDistancer(t *testing.T) {
+	vectors := [][]float32{
+		{100, 100}, // first to import makes this the EP, it is far from any query which means it will be replaced.
+		{2, 2},     // a good potential entrypoint, but we will corrupt it later on
+		{1, 1},     // the perfect search result
+	}
+
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "bug-2155",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewL2SquaredProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return vectors[int(id)], nil
+		},
+	}, ent.UserConfig{
+		MaxConnections: 30,
+		EFConstruction: 128,
+
+		// The actual size does not matter for this test, but if it defaults to
+		// zero it will constantly think it's full and needs to be deleted - even
+		// after just being deleted, so make sure to use a positive number here.
+		VectorCacheMaxObjects: 100000,
+	}, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+
+	index.Add(uint64(0), []float32{-1, 0})
+
+	dist := index.QueryVectorDistancer([]float32{0, 0})
+	require.NotNil(t, dist)
+	distance, err := dist.DistanceToNode(0)
+	require.Nil(t, err)
+	require.Equal(t, distance, float32(1.))
+
+	// get distance for non-existing node above default cache size
+	distance, err = dist.DistanceToNode(1001)
+	require.NotNil(t, err)
+}
