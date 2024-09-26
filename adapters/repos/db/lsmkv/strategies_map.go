@@ -211,6 +211,31 @@ func (kv MapPair) EncodeBytes(buf []byte) error {
 	return nil
 }
 
+func (kv MapPair) EncodeBytesInverted(buf []byte) error {
+	if len(buf) != invPayloadLen {
+		return errors.Errorf("buffer has size %d, but MapPair has size %d",
+			len(buf), invPayloadLen)
+	}
+
+	// make sure the 2 byte length indicators will never overflow:
+	if len(kv.Key) >= math.MaxUint16 {
+		return errors.Errorf("mapCollection key must be smaller than %d",
+			math.MaxUint16)
+	}
+
+	if len(kv.Value) >= math.MaxUint16 {
+		return errors.Errorf("mapCollection value must be smaller than %d",
+			math.MaxUint16)
+	}
+	offset := 0
+	copy(buf[offset:], kv.Key)
+	offset += len(kv.Key)
+
+	copy(buf[offset:], kv.Value)
+
+	return nil
+}
+
 func (kv MapPair) Bytes() ([]byte, error) {
 	// make sure the 2 byte length indicators will never overflow:
 	if len(kv.Key) >= math.MaxUint16 {
@@ -240,6 +265,31 @@ func (kv MapPair) Bytes() ([]byte, error) {
 	binary.LittleEndian.PutUint16(lenBuf, valueLen)
 	if _, err := out.Write(lenBuf); err != nil {
 		return nil, errors.Wrap(err, "write map value length indicator")
+	}
+
+	if _, err := out.Write(kv.Value); err != nil {
+		return nil, errors.Wrap(err, "write map value")
+	}
+
+	return out.Bytes(), nil
+}
+
+func (kv *MapPair) BytesInverted() ([]byte, error) {
+	// make sure the 2 byte length indicators will never overflow:
+	if len(kv.Key) >= math.MaxUint16 {
+		return nil, errors.Errorf("mapCollection key must be smaller than %d",
+			math.MaxUint16)
+	}
+
+	if len(kv.Value) >= math.MaxUint16 {
+		return nil, errors.Errorf("mapCollection value must be smaller than %d",
+			math.MaxUint16)
+	}
+
+	out := bytes.NewBuffer(nil)
+
+	if _, err := out.Write(kv.Key); err != nil {
+		return nil, errors.Wrap(err, "write map key")
 	}
 
 	if _, err := out.Write(kv.Value); err != nil {
@@ -324,6 +374,31 @@ func (kv *MapPair) FromBytesReusable(in []byte, keyOnly bool) error {
 	return nil
 }
 
+func (kv *MapPair) FromBytesInverted(in []byte, keyOnly bool, invertedKeyLen, invertedValueLen uint16) error {
+	var read uint16
+
+	// NOTE: A previous implementation was using copy statements in here to avoid
+	// sharing the memory. The general idea of that is good (protect against the
+	// mmaped memory being removed from a completed compaction), however this is
+	// the wrong place. By the time we are in this method, we can no longer
+	// control the memory safety of the "in" argument. Thus, such a copy must
+	// happen at a much earlier scope when a lock is held that protects against
+	// removing the segment. Such an implementation can now be found in
+	// segment_collection_strategy.go as part of the *segment.getCollection
+	// method. As a result all memory used here can now be considered read-only
+	// and is safe to be used indefinitely.
+
+	kv.Key = in[read : read+invertedKeyLen]
+	read += invertedKeyLen
+
+	if keyOnly {
+		return nil
+	}
+
+	kv.Value = in[read : read+invertedValueLen]
+	return nil
+}
+
 type mapEncoder struct {
 	pairBuf []value
 }
@@ -377,6 +452,27 @@ func (m *mapEncoder) DoMultiReusable(kvs []MapPair) ([]value, error) {
 	for i, kv := range kvs {
 		m.resizeValueAtBuffer(i, kv.Size())
 		err := kv.EncodeBytes(m.pairBuf[i].value)
+		if err != nil {
+			return nil, err
+		}
+
+		m.pairBuf[i].tombstone = kv.Tombstone
+	}
+
+	return m.pairBuf, nil
+}
+
+// DoMultiReusable reuses a MapPair buffer that it exposes to the caller on
+// this request. Warning: The caller must make sure that they no longer access
+// the return value once they call this method a second time, otherwise they
+// risk overwriting a previous result. The intended usage for example in a loop
+// where each loop copies the results, for example using a bufio.Writer.
+func (m *mapEncoder) DoMultiInverted(kvs []MapPair) ([]value, error) {
+	m.resizeBuffer(len(kvs))
+
+	for i, kv := range kvs {
+		m.resizeValueAtBuffer(i, invPayloadLen)
+		err := kv.EncodeBytesInverted(m.pairBuf[i].value)
 		if err != nil {
 			return nil, err
 		}
