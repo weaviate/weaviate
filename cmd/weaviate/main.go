@@ -12,10 +12,14 @@
 package main
 
 import (
+	"fmt"
 	"net"
+	"net/http"
 	"os"
 
 	"github.com/jessevdk/go-flags"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/exp/query"
@@ -24,6 +28,7 @@ import (
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )
@@ -94,7 +99,16 @@ func main() {
 			}).Fatal("failed to bind grpc server addr")
 		}
 
-		grpcServer := grpc.NewServer()
+		svrMetrics := monitoring.NewServerMetrics(opts.Monitoring, prometheus.DefaultRegisterer)
+		grpcOptions := []grpc.ServerOption{
+			grpc.StatsHandler(monitoring.NewGrpcStatsHandler(
+				svrMetrics.InflightRequests,
+				svrMetrics.RequestBodySize,
+				svrMetrics.ResponseBodySize,
+			)),
+		}
+
+		grpcServer := grpc.NewServer(grpcOptions...)
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
@@ -103,6 +117,11 @@ func main() {
 			log.Fatal("failed to start grpc server", err)
 		}
 
+		// serve /metrics
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		http.ListenAndServe(fmt.Sprintf(":%d", opts.Monitoring.Port), mux)
+
 	default:
 		log.Fatal("--target empty or unknown")
 	}
@@ -110,6 +129,7 @@ func main() {
 
 // Options represents Command line options passed to weaviate binary
 type Options struct {
-	Target string       `long:"target" description:"how should weaviate-server be running as e.g: querier, ingester, etc"`
-	Query  query.Config `group:"query" namespace:"query"`
+	Target     string            `long:"target" description:"how should weaviate-server be running as e.g: querier, ingester, etc"`
+	Query      query.Config      `group:"query" namespace:"query"`
+	Monitoring monitoring.Config `group:"monitoring" namespace:"monitoring"`
 }
