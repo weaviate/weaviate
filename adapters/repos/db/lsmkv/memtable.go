@@ -12,12 +12,14 @@
 package lsmkv
 
 import (
+	"encoding/binary"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -41,6 +43,8 @@ type Memtable struct {
 	dirtyAt   time.Time
 	createdAt time.Time
 	metrics   *memtableMetrics
+
+	tombstones *sroar.Bitmap
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
@@ -73,6 +77,10 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 	}
 
 	m.metrics.size(m.size)
+
+	if m.strategy == StrategyMapCollection {
+		m.tombstones = sroar.NewBitmap()
+	}
 
 	return m, nil
 }
@@ -310,6 +318,11 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.metrics.size(m.size)
 	m.updateDirtyAt()
 
+	if pair.Tombstone && len(pair.Key) == 8 {
+		docID := binary.BigEndian.Uint64(pair.Key)
+		m.tombstones.Set(docID)
+	}
+
 	return nil
 }
 
@@ -362,4 +375,19 @@ func (m *Memtable) writeWAL() error {
 	defer m.Unlock()
 
 	return m.commitlog.flushBuffers()
+}
+
+func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
+	if m.strategy != StrategyInverted && m.strategy != StrategyMapCollection {
+		return nil, errors.Errorf("tombstones only supported for inverted and map collection strategies")
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	if m.tombstones != nil {
+		return m.tombstones, nil
+	}
+
+	return nil, lsmkv.NotFound
 }

@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -734,6 +736,128 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		return nil, err
 	}
 	segments = append(segments, v)
+
+	if c.legacyRequireManualSorting {
+		// Sort to support segments which were stored in an unsorted fashion
+		for i := range segments {
+			sort.Slice(segments[i], func(a, b int) bool {
+				return bytes.Compare(segments[i][a].Key, segments[i][b].Key) == -1
+			})
+		}
+	}
+
+	return newSortedMapMerger().do(ctx, segments)
+}
+
+func (b *Bucket) InvList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	c := MapListOptionConfig{}
+	for _, cfg := range cfgs {
+		cfg(&c)
+	}
+
+	segments := [][]MapPair{}
+	// before := time.Now()
+	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+
+	hasTombstones := false
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+	for i, segment := range segmentsDisk {
+		if segment.strategy == segmentindex.StrategyInverted {
+			tombstones, err := segment.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[i] = tombstones
+			hasTombstones = true
+		}
+	}
+	if hasTombstones {
+		// check if there are any tombstones in the flushing memtable
+		if b.flushing != nil {
+			tombstones, err := b.flushing.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[len(segmentsDisk)] = tombstones
+		}
+
+		// check if there are any tombstones in the active memtable
+		tombstones, err := b.active.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[len(segmentsDisk)+1] = tombstones
+	}
+
+	for i := range disk {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		segmentDecoded := make([]MapPair, len(disk[i]))
+		for j, v := range disk[i] {
+			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+				if err := segmentDecoded[j].FromBytesInverted(v.value, false, segmentsDisk[i].invertedKeyLength, segmentsDisk[i].invertedValueLength); err != nil {
+					return nil, err
+				}
+				docId := binary.BigEndian.Uint64(segmentDecoded[j].Key[:8])
+				// check if there are any tombstones between the i and len(disk) segments
+				for _, tombstones := range allTombstones[i+1:] {
+					if tombstones != nil && tombstones.Contains(docId) {
+						segmentDecoded[j].Tombstone = true
+						break
+					}
+				}
+			} else {
+				if err := segmentDecoded[j].FromBytes(v.value, false); err != nil {
+					return nil, err
+				}
+				// Read "broken" tombstones with length 12 but a non-tombstone value
+				// Related to Issue #4125
+				// TODO: Remove the extra check, as it may interfere future in-disk format changes
+				segmentDecoded[j].Tombstone = v.tombstone || len(v.value) == 12
+			}
+		}
+		if len(segmentDecoded) > 0 {
+			segments = append(segments, segmentDecoded)
+		}
+	}
+
+	// fmt.Printf("--map-list: get all disk segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// fmt.Printf("--map-list: append all disk segments took %s\n", time.Since(before))
+
+	if b.flushing != nil {
+		v, err := b.flushing.getMap(key)
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
+		}
+		if len(v) > 0 {
+			segments = append(segments, v)
+		}
+	}
+
+	// before = time.Now()
+	v, err := b.active.getMap(key)
+	if err != nil && !errors.Is(err, lsmkv.NotFound) {
+		return nil, err
+	}
+	if len(v) > 0 {
+		segments = append(segments, v)
+	}
+	// fmt.Printf("--map-list: get all active segments took %s\n", time.Since(before))
+
+	// before = time.Now()
+	// defer func() {
+	// 	fmt.Printf("--map-list: run decoder took %s\n", time.Since(before))
+	// }()
 
 	if c.legacyRequireManualSorting {
 		// Sort to support segments which were stored in an unsorted fashion
