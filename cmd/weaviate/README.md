@@ -10,7 +10,9 @@ tldr; use `cmd/weaviate-server` instead. This is experimental
 
 ### Start Weaviate core.
 ```sh
-$ ./tools/dev/restart_dev_environment.sh --prometheus --s3 --contextionary && ./tools/dev/run_dev_server.sh local-node-with-offload
+export OFFLOAD_S3_BUCKET_AUTO_CREATE=true
+export OFFLOAD_S3_ENDPOINT=http://localhost:9000
+./tools/dev/restart_dev_environment.sh --prometheus --s3 --contextionary && ./tools/dev/run_dev_server.sh local-node-with-offload
 ```
 
 This also starts other dependencies like `contextionary` (for vectorizing), `minio` (used as object storage) and `Prometheus` with `Grafana` for monitoring.
@@ -18,6 +20,8 @@ This also starts other dependencies like `contextionary` (for vectorizing), `min
 ### Start Weaviate Querier
 
 ``` sh
+export OFFLOAD_S3_BUCKET_AUTO_CREATE=true
+export OFFLOAD_S3_ENDPOINT=http://localhost:9000
 go build ./cmd/weaviate && ./weaviate --target=querier
 ```
 
