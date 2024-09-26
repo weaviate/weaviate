@@ -82,6 +82,7 @@ type Config struct {
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
+	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
 	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
 	Authentication                      Authentication           `json:"authentication" yaml:"authentication"`
 	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
