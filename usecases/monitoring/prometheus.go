@@ -23,6 +23,10 @@ type Config struct {
 	Tool    string `json:"tool" yaml:"tool"`
 	Port    int    `json:"port" yaml:"port"`
 	Group   bool   `json:"group_classes" yaml:"group_classes"`
+
+	// Metrics namespace group the metrics with common prefix.
+	// currently used only on ServerMetrics.
+	MetricsNamespace string
 }
 
 type PrometheusMetrics struct {
@@ -132,6 +136,67 @@ type PrometheusMetrics struct {
 	T2VRequestsPerBatch   *prometheus.HistogramVec
 }
 
+func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
+	r := promauto.With(reg)
+
+	return &ServerMetrics{
+		TCPConnections: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tcp_connections",
+			Help:      "Current number of accepted TCP connections.",
+		}, []string{"protocol"}),
+		TCPConnectionsLimit: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tcp_connections_limit",
+			Help:      "The max number of TCP connections that can be accepted (0 means no limit).",
+		}, []string{"protocol"}),
+		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "request_duration_seconds",
+			Help:      "Time (in seconds) spent serving HTTP requests.",
+			Buckets:   defaultBuckets,
+		}, []string{"method", "route", "status_code"}),
+		PerTenantRequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "per_tenant_request_duration_seconds",
+			Help:      "Time (in seconds) spent serving HTTP requests for a particular tenant.",
+			Buckets:   defaultBuckets,
+		}, []string{"method", "route", "status_code", "tenant"}),
+		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "request_message_bytes",
+			Help:      "Size (in bytes) of messages received in the request.",
+			Buckets:   sizeBuckets,
+		}, []string{"method", "route"}),
+		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "response_message_bytes",
+			Help:      "Size (in bytes) of messages sent in response.",
+			Buckets:   sizeBuckets,
+		}, []string{"method", "route"}),
+		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "inflight_requests",
+			Help:      "Current number of inflight requests.",
+		}, []string{"method", "route"}),
+	}
+}
+
+// ServerMetrics exposes set of prometheus metrics for http and grpc servers.
+type ServerMetrics struct {
+	TCPConnections      *prometheus.GaugeVec
+	TCPConnectionsLimit *prometheus.GaugeVec
+	RequestDuration     *prometheus.HistogramVec
+
+	// NOTE: Adding it as experimental, since we have unbounded cardinality for number of tenant/shards
+	// we may remove it in future.
+	PerTenantRequestDuration *prometheus.HistogramVec
+
+	RequestBodySize  *prometheus.HistogramVec
+	ResponseBodySize *prometheus.HistogramVec
+	InflightRequests *prometheus.GaugeVec
+}
+
 // Delete Shard deletes existing label combinations that match both
 // the shard and class name. If a metric is not collected at the shard
 // level it is unaffected. This is to make sure that deleting a single
@@ -221,10 +286,21 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	return nil
 }
 
+const mb = 1024 * 1024
+
 var (
-	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
-	sBuckets                     = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
-	metrics   *PrometheusMetrics = nil
+	msBuckets = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
+	sBuckets  = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
+
+	// defaultBuckets is default histogram bucket for response time (in seconds).
+	// It also includes request that served *very* fast and *very* slow
+	defaultBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+
+	// sizeBuckets defines buckets for request/response body sizes.
+	// TODO(kavi): Check with real data on prod and tweak accordingly.
+	sizeBuckets = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
+
+	metrics *PrometheusMetrics = nil
 )
 
 func init() {
