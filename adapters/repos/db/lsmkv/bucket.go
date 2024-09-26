@@ -1235,9 +1235,40 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	segments := [][]terms.DocPointerWithScore{}
-	disk, err := b.disk.getCollectionBySegments(key)
+	disk, segmentsDisk, err := b.disk.getCollectionAndSegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
+	}
+
+	hasTombstones := false
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+	for i, segment := range segmentsDisk {
+		if segment.strategy == segmentindex.StrategyInverted {
+			tombstones, err := segment.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[i] = tombstones
+			hasTombstones = true
+		}
+	}
+
+	if hasTombstones {
+		// check if there are any tombstones in the flushing memtable
+		if b.flushing != nil {
+			tombstones, err := b.flushing.GetTombstones()
+			if err != nil {
+				return nil, err
+			}
+			allTombstones[len(segmentsDisk)] = tombstones
+		}
+
+		// check if there are any tombstones in the active memtable
+		tombstones, err := b.active.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[len(segmentsDisk)+1] = tombstones
 	}
 
 	for i := range disk {
@@ -1247,8 +1278,22 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
 		for j, v := range disk[i] {
-			if err := segmentDecoded[j].FromBytes(v.value, propBoost); err != nil {
-				return nil, err
+			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost); err != nil {
+					return nil, err
+				}
+				docId := segmentDecoded[j].Id
+				// check if there are any tombstones between the i and len(disk) segments
+				for _, tombstones := range allTombstones[i+1:] {
+					if tombstones != nil && tombstones.Contains(docId) {
+						segmentDecoded[j].Frequency = 0
+						break
+					}
+				}
+			} else {
+				if err := segmentDecoded[j].FromBytes(v.value, propBoost); err != nil {
+					return nil, err
+				}
 			}
 		}
 		segments = append(segments, segmentDecoded)
