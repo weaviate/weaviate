@@ -42,6 +42,10 @@ func (d *DocPointerWithScore) FromBytes(in []byte, boost float32) error {
 	return d.FromKeyVal(key, value, boost)
 }
 
+func (d *DocPointerWithScore) FromBytesInverted(in []byte, boost float32) error {
+	return d.FromKeyVal(in[0:8], in[8:], boost)
+}
+
 func (d *DocPointerWithScore) FromKeyVal(key []byte, value []byte, boost float32) error {
 	d.Id = binary.BigEndian.Uint64(key)
 	d.Frequency = math.Float32frombits(binary.LittleEndian.Uint32(value[:4])) * boost
