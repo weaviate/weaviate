@@ -29,6 +29,7 @@ type FakeAuthorizer struct {
 func NewMockAuthorizer() *FakeAuthorizer {
 	return &FakeAuthorizer{}
 }
+
 func (a *FakeAuthorizer) SetErr(err error) {
 	a.err = err
 }
