@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 
@@ -63,6 +64,12 @@ type Config struct {
 	FastFailureDetection bool `json:"fastFailureDetection" yaml:"fastFailureDetection"`
 	// LocalHost flag enables running a multi-node setup with the same localhost and different ports
 	Localhost bool `json:"localhost" yaml:"localhost"`
+	// MaintenanceNodes is experimental. is a list of nodes (by Hostname) that are in maintenance mode
+	// (eg return an error for all data requests). We use a list here instead of a bool because it
+	// allows us to set the same config/env vars on all nodes to put a subset of them in maintenance
+	// mode. In addition, we may want to have the cluster nodes not in maintenance mode be aware of
+	// which nodes are in maintenance mode in the future.
+	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
 }
 
 type AuthConfig struct {
@@ -314,4 +321,14 @@ func (s *State) SkipSchemaRepair() bool {
 
 func (s *State) NodeInfo(node string) (NodeInfo, bool) {
 	return s.delegate.get(node)
+}
+
+// MaintenanceModeEnabled is experimental, may be removed/changed. It returns true if the node is in
+// maintenance mode (which means it should return an error for all data requests).
+func (s *State) MaintenanceModeEnabled() bool {
+	return s.nodeInMaintenanceMode(s.config.Hostname)
+}
+
+func (s *State) nodeInMaintenanceMode(node string) bool {
+	return slices.Contains(s.config.MaintenanceNodes, node)
 }
