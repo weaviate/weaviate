@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 var (
@@ -35,7 +36,7 @@ const (
 type Scheduler struct {
 	// deps
 	logger     logrus.FieldLogger
-	authorizer authorizer
+	authorizer authorization.Authorizer
 	backupper  *coordinator
 	restorer   *coordinator
 	backends   BackupBackendProvider
@@ -43,7 +44,7 @@ type Scheduler struct {
 
 // NewScheduler creates a new scheduler with two coordinators
 func NewScheduler(
-	authorizer authorizer,
+	authorizer authorization.Authorizer,
 	client client,
 	sourcer selector,
 	backends BackupBackendProvider,
