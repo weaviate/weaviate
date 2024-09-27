@@ -45,6 +45,7 @@ func setupAuthZHandlers(api *operations.WeaviateAPI, enforcer *casbin.SyncedCach
 }
 
 func (h *authZHandlers) addPolicy(params authz.AddPolicyParams, principal *models.Principal) middleware.Responder {
+	// TODO is the logged user is admin ?
 	// TODO validate
 	if _, err := h.enforcer.AddPolicy(params.Body.Role, params.Body.Object, params.Body.Action); err != nil {
 		return authz.NewAddPolicyInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -62,6 +63,8 @@ func (h *authZHandlers) addPolicy(params authz.AddPolicyParams, principal *model
 }
 
 func (h *authZHandlers) getPolicies(params authz.GetPoliciesParams, principal *models.Principal) middleware.Responder {
+	// TODO is the logged user is admin ?
+	// TODO validate
 	policies, err := h.enforcer.GetPolicy()
 	if err != nil {
 		return authz.NewGetPoliciesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -80,6 +83,7 @@ func (h *authZHandlers) getPolicies(params authz.GetPoliciesParams, principal *m
 }
 
 func (h *authZHandlers) deletePolicy(params authz.DeletePolicyParams, principal *models.Principal) middleware.Responder {
+	// TODO is the logged user is admin ?
 	// TODO validate
 	if _, err := h.enforcer.RemovePolicy(params.ID); err != nil {
 		return authz.NewDeletePolicyInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -98,6 +102,7 @@ func (h *authZHandlers) deletePolicy(params authz.DeletePolicyParams, principal 
 }
 
 func (h *authZHandlers) addRole(params authz.AddRoleParams, principal *models.Principal) middleware.Responder {
+	// TODO is the logged user is admin ?
 	// TODO validate
 	roleUser := params.Body.User
 	if roleUser == nil {
@@ -116,6 +121,8 @@ func (h *authZHandlers) addRole(params authz.AddRoleParams, principal *models.Pr
 }
 
 func (h *authZHandlers) getRolesForUsers(params authz.GetRolesForUsersParams, principal *models.Principal) middleware.Responder {
+	// TODO is the logged user is admin ?
+	// TODO validate
 	roles, err := h.enforcer.GetUsersForRole(params.Body.Role)
 	if err != nil {
 		return authz.NewGetRolesForUsersInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -125,6 +132,7 @@ func (h *authZHandlers) getRolesForUsers(params authz.GetRolesForUsersParams, pr
 }
 
 func (h *authZHandlers) getUsersForRoles(params authz.GetUsersForRoleParams, principal *models.Principal) middleware.Responder {
+	// TODO is the logged user is admin ?
 	// TODO validate
 	roleUser := params.Body.User
 	if roleUser == nil {
@@ -140,6 +148,7 @@ func (h *authZHandlers) getUsersForRoles(params authz.GetUsersForRoleParams, pri
 }
 
 func (h *authZHandlers) removeRole(params authz.RemoveRoleParams, principal *models.Principal) middleware.Responder {
+	// TODO is the logged user is admin ?
 	// TODO validate
 	roleUser := params.Body.User
 	if roleUser == nil {
