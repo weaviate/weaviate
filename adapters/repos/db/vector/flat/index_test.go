@@ -307,6 +307,10 @@ func TestFlat_QueryVectorDistancer(t *testing.T) {
 			distance, err := dist.DistanceToNode(0)
 			require.Nil(t, err)
 			require.Equal(t, distance, float32(1.))
+
+			// get distance for non-existing node above default cache size
+			_, err = dist.DistanceToNode(1001)
+			require.NotNil(t, err)
 		})
 	}
 }
