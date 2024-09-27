@@ -267,3 +267,21 @@ def test_hybrid_with_offset(
 
     hy_offset = collection.query.hybrid("summer dress", offset=2, vector=vector)
     assert len(hy_offset.objects) + 2 == len(hy.objects)
+
+
+def test_flipping(collection_factory: CollectionFactory):
+    collection = collection_factory(
+        properties=[Property(name="name", data_type=DataType.TEXT)],
+        vectorizer_config=Configure.Vectorizer.none(),
+    )
+
+    collection.data.insert({"name": "banana fruit"}, vector=[1, 0, 0], uuid=UUID1)
+    collection.data.insert({"name": "apple fruit first"}, vector=[1, 0, 0], uuid=UUID2)
+    collection.data.insert({"name": "apple fruit second"}, vector=[1, 0, 0], uuid=UUID3)
+
+    hy = collection.query.hybrid("fruit", vector=[1, 0, 0]).objects
+
+    # repeat search to make sure order is always the same
+    for i in range(10):
+        hy2 = collection.query.hybrid("fruit", vector=[1, 0, 0]).objects
+        assert all(hy[i].uuid == hy2[i].uuid for i in range(len(hy)))
