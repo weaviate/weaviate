@@ -37,9 +37,12 @@ import (
 )
 
 type indices struct {
-	shards                 shards
-	db                     db
-	auth                   auth
+	shards shards
+	db     db
+	auth   auth
+	// maintenanceModeEnabled is an experimental feature to allow the system to be
+	// put into a maintenance mode where all indices requests just return a 418
+	maintenanceModeEnabled bool
 	regexpObjects          *regexp.Regexp
 	regexpObjectsOverwrite *regexp.Regexp
 	regexObjectsDigest     *regexp.Regexp
@@ -143,7 +146,7 @@ type db interface {
 	StartupComplete() bool
 }
 
-func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *indices {
+func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled bool, logger logrus.FieldLogger) *indices {
 	return &indices{
 		regexpObjects:          regexp.MustCompile(urlPatternObjects),
 		regexpObjectsOverwrite: regexp.MustCompile(urlPatternObjectsOverwrite),
@@ -162,6 +165,7 @@ func NewIndices(shards shards, db db, auth auth, logger logrus.FieldLogger) *ind
 		shards:                    shards,
 		db:                        db,
 		auth:                      auth,
+		maintenanceModeEnabled:    maintenanceModeEnabled,
 		logger:                    logger,
 	}
 }
@@ -173,6 +177,12 @@ func (i *indices) Indices() http.Handler {
 func (i *indices) indicesHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		if i.maintenanceModeEnabled {
+			http.Error(w, "418 Maintenance mode", http.StatusTeapot)
+			return
+		}
+		// NOTE if you update any of these handler methods/paths, also update the indices_test.go
+		// TestMaintenanceModeIndices test to include the new methods/paths.
 		switch {
 		case i.regexpObjectsSearch.MatchString(path):
 			if r.Method != http.MethodPost {
