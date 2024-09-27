@@ -49,7 +49,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
 	defer cancel()
 
-	if err := m.authorizer.Authorize(principal, "list", "nodes"); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.LIST, "nodes"); err != nil {
 		return nil, err
 	}
 	return m.db.GetNodeStatus(ctxWithTimeout, className, verbosity)
@@ -61,7 +61,7 @@ func (m *Manager) GetNodeStatistics(ctx context.Context,
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
 	defer cancel()
 
-	if err := m.authorizer.Authorize(principal, "list", "cluster"); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.LIST, "cluster"); err != nil {
 		return nil, err
 	}
 	return m.db.GetNodeStatistics(ctxWithTimeout)

@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
@@ -74,31 +75,31 @@ func Test_Schema_Authorization(t *testing.T) {
 		{
 			methodName:       "UpdateClass",
 			additionalArgs:   []interface{}{"somename", &models.Class{}},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "schema/objects",
 		},
 		{
 			methodName:       "DeleteClass",
 			additionalArgs:   []interface{}{"somename"},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "schema/objects",
 		},
 		{
 			methodName:       "AddClassProperty",
 			additionalArgs:   []interface{}{&models.Class{}, false, &models.Property{}},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "schema/objects",
 		},
 		{
 			methodName:       "DeleteClassProperty",
 			additionalArgs:   []interface{}{"somename", "someprop"},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "schema/objects",
 		},
 		{
 			methodName:       "UpdateShardStatus",
 			additionalArgs:   []interface{}{"className", "shardName", "targetStatus"},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "schema/className/shards/shardName",
 		},
 		{
@@ -110,7 +111,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		{
 			methodName:       "AddTenants",
 			additionalArgs:   []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: tenantsPath,
 		},
 		{
@@ -118,31 +119,31 @@ func Test_Schema_Authorization(t *testing.T) {
 			additionalArgs: []interface{}{"className", []*models.Tenant{
 				{Name: "P1", ActivityStatus: models.TenantActivityStatusHOT},
 			}},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: tenantsPath,
 		},
 		{
 			methodName:       "DeleteTenants",
 			additionalArgs:   []interface{}{"className", []string{"P1"}},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: tenantsPath,
 		},
 		{
 			methodName:       "GetTenants",
 			additionalArgs:   []interface{}{"className"},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: tenantsPath,
 		},
 		{
 			methodName:       "GetConsistentTenants",
 			additionalArgs:   []interface{}{"className", false, []string{}},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: tenantsPath,
 		},
 		{
 			methodName:       "ConsistentTenantExists",
 			additionalArgs:   []interface{}{"className", false, "P1"},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: tenantsPath,
 		},
 	}

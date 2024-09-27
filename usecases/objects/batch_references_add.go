@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/classcache"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -31,7 +32,7 @@ import (
 func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Principal,
 	refs []*models.BatchReference, repl *additional.ReplicationProperties,
 ) (BatchReferences, error) {
-	err := b.authorizer.Authorize(principal, "update", "batch/*")
+	err := b.authorizer.Authorize(principal, authorization.UPDATE, "batch/*")
 	if err != nil {
 		return nil, err
 	}

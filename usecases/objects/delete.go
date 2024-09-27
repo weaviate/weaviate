@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -35,7 +36,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	if class == "" {
 		path = fmt.Sprintf("objects/%s", id)
 	}
-	err := m.authorizer.Authorize(principal, "delete", path)
+	err := m.authorizer.Authorize(principal, authorization.DELETE, path)
 	if err != nil {
 		return err
 	}
