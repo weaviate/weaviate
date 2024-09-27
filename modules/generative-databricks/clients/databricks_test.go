@@ -84,17 +84,57 @@ func TestGetAnswer(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "", buildURL)
 	})
+
+	t.Run("when X-Databricks-User-Agent header is passed", func(t *testing.T) {
+		userAgent := "weaviate+spark_connector"
+		handler := &testAnswerHandler{
+			t: t,
+			answer: generateResponse{
+				Choices: []choice{{
+					FinishReason: "test",
+					Index:        0,
+					Logprobs:     "",
+					Text:         "John",
+				}},
+				Error: nil,
+			},
+			userAgent: userAgent,
+		}
+		server := httptest.NewServer(handler)
+		defer server.Close()
+
+		c := New("databricksToken", 0, nullLogger())
+		c.buildEndpoint = func(endpoint string) (string, error) {
+			return fakeBuildUrl(server.URL)
+		}
+
+		expected := modulecapabilities.GenerateResponse{
+			Result: ptString("John"),
+		}
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Databricks-User-Agent", []string{userAgent})
+
+		res, err := c.GenerateAllResults(ctxWithValue, textProperties, "What is my name?", nil, false, nil)
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, *res)
+	})
 }
 
 type testAnswerHandler struct {
 	t *testing.T
 	// the test handler will report as not ready before the time has passed
-	answer generateResponse
+	answer    generateResponse
+	userAgent string
 }
 
 func (f *testAnswerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.Equal(f.t, http.MethodPost, r.Method)
 
+	if f.userAgent != "" {
+		assert.Equal(f.t, f.userAgent, r.UserAgent())
+	}
 	if f.answer.Error != nil && f.answer.Error.Message != "" {
 		outBytes, err := json.Marshal(f.answer)
 		require.Nil(f.t, err)
