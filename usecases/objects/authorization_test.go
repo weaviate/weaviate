@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -56,31 +57,31 @@ func Test_Kinds_Authorization(t *testing.T) {
 		{
 			methodName:       "GetObject",
 			additionalArgs:   []interface{}{"", strfmt.UUID("foo"), additional.Properties{}},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "DeleteObject",
 			additionalArgs:   []interface{}{"class", strfmt.UUID("foo")},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "objects/class/foo",
 		},
 		{ // deprecated by the one above
 			methodName:       "DeleteObject",
 			additionalArgs:   []interface{}{"", strfmt.UUID("foo")},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/class/foo",
 		},
 		{ // deprecated by the one above
 			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{"", strfmt.UUID("foo"), (*models.Object)(nil)},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/foo",
 		},
 		{
@@ -89,19 +90,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 				&models.Object{Class: "class", ID: "foo"},
 				(*additional.ReplicationProperties)(nil),
 			},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/class/foo",
 		},
 		{
 			methodName:       "GetObjectsClass",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "GetObjectClassFromName",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "objects/foo",
 		},
 		{
@@ -136,19 +137,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 		{
 			methodName:       "AddObjectReference",
 			additionalArgs:   []interface{}{AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}, (*models.SingleRef)(nil)},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/class/foo",
 		},
 		{
 			methodName:       "DeleteObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "UpdateObjectReferences",
 			additionalArgs:   []interface{}{&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/class/foo",
 		},
 	}
@@ -225,7 +226,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				[]*models.BatchReference{},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "batch/*",
 		},
 
@@ -238,7 +239,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				&additional.ReplicationProperties{},
 				"",
 			},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "batch/objects",
 		},
 		{
@@ -248,7 +249,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				&additional.ReplicationProperties{},
 				"",
 			},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "batch/objects",
 		},
 	}

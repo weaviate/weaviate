@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	uco "github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -44,7 +45,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
-	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, tenantsPath); err != nil {
 		return 0, err
 	}
 
@@ -152,7 +153,7 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "update", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, tenantsPath); err != nil {
 		return nil, err
 	}
 
@@ -196,7 +197,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
-	if err := h.Authorizer.Authorize(principal, "delete", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.DELETE, tenantsPath); err != nil {
 		return err
 	}
 	for i, name := range tenants {
@@ -217,14 +218,14 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) GetTenants(ctx context.Context, principal *models.Principal, class string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.GET, tenantsPath); err != nil {
 		return nil, err
 	}
 	return h.getTenants(class)
 }
 
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.GET, tenantsPath); err != nil {
 		return nil, err
 	}
 
@@ -278,7 +279,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	if err := h.Authorizer.Authorize(principal, "get", tenantsPath); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.GET, tenantsPath); err != nil {
 		return err
 	}
 
