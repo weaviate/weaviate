@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -52,7 +53,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		input.Class = objectRes.Object().Class
 	}
 	path := fmt.Sprintf("objects/%s/%s", input.Class, input.ID)
-	if err := m.authorizer.Authorize(principal, "update", path); err != nil {
+	if err := m.authorizer.Authorize(principal, authorization.UPDATE, path); err != nil {
 		return &Error{path, StatusForbidden, err}
 	}
 

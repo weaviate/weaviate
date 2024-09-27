@@ -166,7 +166,7 @@ func NewHandler(
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, "list", "schema/*")
+	err := h.Authorizer.Authorize(principal, authorization.LIST, "schema/*")
 	if err != nil {
 		return schema.Schema{}, err
 	}
@@ -176,7 +176,7 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, "schema/*"); err != nil {
 		return schema.Schema{}, err
 	}
 
@@ -216,7 +216,7 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(principal, "update",
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE,
 		fmt.Sprintf("schema/%s/shards/%s", class, shard))
 	if err != nil {
 		return 0, err
@@ -228,7 +228,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, tenant string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", class))
+	err := h.Authorizer.Authorize(principal, authorization.LIST, fmt.Sprintf("schema/%s/shards", class))
 	if err != nil {
 		return nil, err
 	}

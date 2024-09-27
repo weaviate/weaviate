@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
@@ -41,37 +42,37 @@ func Test_Authorization(t *testing.T) {
 		{
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     "add",
+			expectedVerb:     authorization.ADD,
 			expectedResource: "backups/s3/123",
 		},
 		{
 			methodName:       "BackupStatus",
 			additionalArgs:   []interface{}{"s3", "123"},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "backups/s3/123",
 		},
 		{
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req},
-			expectedVerb:     "restore",
+			expectedVerb:     authorization.RESTORE,
 			expectedResource: "backups/s3/123/restore",
 		},
 		{
 			methodName:       "RestorationStatus",
 			additionalArgs:   []interface{}{"s3", "123"},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "backups/s3/123/restore",
 		},
 		{
 			methodName:       "Cancel",
 			additionalArgs:   []interface{}{"s3", "123"},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "backups/s3/123",
 		},
 		{
 			methodName:       "List",
 			additionalArgs:   []interface{}{"s3"},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "backups/s3",
 		},
 	}

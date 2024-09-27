@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -43,21 +44,21 @@ func Test_Traverser_Authorization(t *testing.T) {
 		{
 			methodName:       "GetClass",
 			additionalArgs:   []interface{}{dto.GetParams{}},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "traversal/*",
 		},
 
 		{
 			methodName:       "Aggregate",
 			additionalArgs:   []interface{}{&aggregation.Params{}},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "traversal/*",
 		},
 
 		{
 			methodName:       "Explore",
 			additionalArgs:   []interface{}{ExploreParams{}},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "traversal/*",
 		},
 	}

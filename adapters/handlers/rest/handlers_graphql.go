@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -57,7 +58,7 @@ func setupGraphQLHandlers(
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
 
-		err := m.Authorizer.Authorize(principal, "list", "schema/*")
+		err := m.Authorizer.Authorize(principal, authorization.LIST, "schema/*")
 		if err != nil {
 			metricRequestsTotal.logUserError()
 			switch err.(type) {
