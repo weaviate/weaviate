@@ -20,6 +20,8 @@ This also starts other dependencies like `contextionary` (for vectorizing), `min
 ``` sh
 export OFFLOAD_S3_BUCKET_AUTO_CREATE=true
 export OFFLOAD_S3_ENDPOINT=http://localhost:9000
+export AWS_SECRET_KEY=aws_secret_key
+export AWS_ACCESS_KEY=aws_access_key
 go build ./cmd/weaviate && ./weaviate --target=querier
 ```
 
