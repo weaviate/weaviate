@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -77,7 +78,8 @@ func Test_Traverser_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			locks := &fakeLocks{}
-			authorizer := &authDenier{}
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			explorer := &fakeExplorer{}
 			schemaGetter := &fakeSchemaGetter{}
@@ -88,28 +90,13 @@ func Test_Traverser_Authorization(t *testing.T) {
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
 
-			require.Len(t, authorizer.calls, 1, "authorizer must be called")
+			require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 				"execution must abort with authorizer error")
-			assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-				authorizer.calls[0], "correct parameters must have been used on authorizer")
+			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resource: test.expectedResource},
+				authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 		}
 	})
-}
-
-type authorizeCall struct {
-	principal *models.Principal
-	verb      string
-	resource  string
-}
-
-type authDenier struct {
-	calls []authorizeCall
-}
-
-func (a *authDenier) Authorize(principal *models.Principal, verb, resource string) error {
-	a.calls = append(a.calls, authorizeCall{principal, verb, resource})
-	return errors.New("just a test fake")
 }
 
 // inspired by https://stackoverflow.com/a/33008200
