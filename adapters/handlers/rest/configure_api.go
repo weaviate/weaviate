@@ -1488,122 +1488,6 @@ func (m membership) LeaderID() string {
 	return id
 }
 
-// Code Explanation
-// Breakdown
-// m: This is an instance of the Casbin model. The model defines the structure of the access control policies, including the request, policy, and role definitions.
-
-// AddDef: This method is used to add a definition to the model. The AddDef method takes three parameters:
-
-// The section name (e.g., "r" for request, "p" for policy, "g" for role definition).
-// The section key (usually the same as the section name).
-// The value, which is a comma-separated list of attributes.
-// Parameters:
-
-// Section Name ("r"): This indicates that the definition being added is for the request section of the model.
-// Section Key ("r"): This is the key for the request section. It is typically the same as the section name.
-// Value ("sub, obj, act"): This is a comma-separated list of attributes that define the request. In this case:
-// sub: The subject, which represents the user or entity making the request.
-// obj: The object, which represents the resource being accessed.
-// act: The action, which represents the operation being performed on the object (e.g., read, write).
-// Context
-// In Casbin, the model file (usually with a .conf extension) defines the structure of the access control policies. The AddDef method is used to programmatically add these definitions to the model.
-
-// Example Model Definition
-// Here is an example of what a model definition might look like in a Casbin model file:
-
-// Explanation of Example Model
-// Request Definition ([request_definition]): Defines the attributes of a request (sub, obj, act).
-// Policy Definition ([policy_definition]): Defines the attributes of a policy (sub, obj, act).
-// Role Definition ([role_definition]): Defines the attributes of a role.
-// Policy Effect ([policy_effect]): Defines the effect of the policy (e.g., allow or deny).
-// Matchers ([matchers]): Defines the matching logic between requests and policies.
-// Summary
-// The line m.AddDef("r", "r", "sub, obj, act") is adding a request definition to the Casbin model, specifying that a request consists of a subject (sub), an object (obj), and an action (act). This is a fundamental part of setting up the Casbin model to define how access control policies are structured and evaluated.
-// rbacMiddleware is a custom middleware for RBAC using Casbin.
-func rbacMiddleware(appState *state.State) func(handler http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Enforcer will be nil when API keys are not enabled
-			if appState.RBACEnforcer == nil || !appState.ServerConfig.Config.EnableRBACEnforcer {
-				appState.Logger.Info("RBAC enforcers is not enabled")
-				return
-			}
-
-			// TODO <super hack>: determine a robust way to filter out internal
-			//                    API requests from user-originated requests
-			if strings.Contains(r.URL.Path, "extensions") {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// TODO-remove
-			fmt.Printf("r.URL.Path: %+v\n", r.URL.Path)
-			bearer := strings.Split(r.Header.Get("Authorization"), " ") // or retrieve from context/session, etc.
-
-			// TODO-remove scurity concern
-			fmt.Printf("bearer: %+v\n", bearer)
-			if len(bearer) != 2 {
-				appState.Logger.Error("bearer token not found")
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
-
-			sub := ""
-			found := false
-
-			// Need to match the provided key to the respective user,
-			// since API keys are not persisted, but usernames are
-			for i, key := range appState.ServerConfig.Config.Authentication.APIKey.AllowedKeys {
-				if bearer[1] == key {
-					sub = appState.ServerConfig.Config.Authentication.APIKey.Users[i]
-					found = true
-				}
-			}
-
-			if !found {
-				appState.Logger.Error("invalid api key")
-				http.Error(w, "Forbidden", http.StatusForbidden)
-				return
-			}
-
-			obj := r.URL.Path
-			act := r.Method
-			roles, err := appState.RBACEnforcer.GetRolesForUser(sub)
-			if err != nil {
-				appState.Logger.WithField("user", sub).WithError(err).Error("failed to fetch roles for user")
-				http.Error(w, "Error in authorization", http.StatusInternalServerError)
-				return
-			}
-
-			// One user can potentially be assigned multiple roles
-			for _, role := range roles {
-				appState.Logger.WithFields(logrus.Fields{
-					"role":   role,
-					"object": obj,
-					"action": act,
-				}).Debug("checking for role")
-				allow, err := appState.RBACEnforcer.Enforce(role, obj, act)
-				if err != nil {
-					appState.Logger.WithFields(logrus.Fields{
-						"role":   role,
-						"object": obj,
-						"action": act,
-					}).WithError(err).Error("failed to enforce policy")
-					http.Error(w, "Error in authorization", http.StatusInternalServerError)
-					return
-				}
-				if allow {
-					// Proceed to the next handler if authorized
-					next.ServeHTTP(w, r)
-					return
-				}
-			}
-
-			http.Error(w, "Forbidden", http.StatusForbidden)
-		})
-	}
-}
-
 func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, error) {
 	numRoles := len(authConfig.Roles)
 	if numRoles == 0 {
@@ -1643,7 +1527,7 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 		//
 		// TODO: objects has to be mapped e.g.
 		//  v1/schema.class.ABC  [path.objectType.objectName]
-		if _, err := enforcer.AddPolicy(authConfig.Roles[i], "", ""); err != nil {
+		if _, err := enforcer.AddPolicy(authConfig.Roles[i], "*", "*"); err != nil {
 			return nil, fmt.Errorf("add policy: %w", err)
 		}
 		if _, err := enforcer.AddGroupingPolicy(authConfig.Users[i], authConfig.Roles[i]); err != nil {
