@@ -36,6 +36,7 @@ func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
 	weaviateImage, hostname string, exposeGRPCPort bool,
+	wellKnownEndpoint string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -95,7 +96,7 @@ func startWeaviate(ctx context.Context,
 	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
 		wait.ForListeningPort(httpPort),
-		wait.ForHTTP("/v1/.well-known/ready").WithPort(httpPort),
+		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
 	}
 	grpcPort := nat.Port("50051/tcp")
 	if exposeGRPCPort {
