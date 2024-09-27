@@ -101,8 +101,10 @@ func (v *client) vectorize(ctx context.Context, input []string, config ent.Vecto
 		return nil, nil, errors.Wrap(err, "API Key")
 	}
 	req.Header.Add(v.getApiKeyHeaderAndValue(apiKey))
-
 	req.Header.Add("Content-Type", "application/json")
+	if userAgent := modulecomponents.GetValueFromContext(ctx, "X-Databricks-User-Agent"); userAgent != "" {
+		req.Header.Add("User-Agent", userAgent)
+	}
 
 	res, err := v.httpClient.Do(req)
 	if err != nil {
