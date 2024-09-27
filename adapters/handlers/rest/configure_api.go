@@ -27,11 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/casbin/casbin/v2"
-	"github.com/casbin/casbin/v2/model"
-	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
-	"github.com/weaviate/fgprof"
-
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
@@ -59,11 +54,12 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/exp/metadata"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
-	"github.com/weaviate/weaviate/exp/metadata"
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	modstgfs "github.com/weaviate/weaviate/modules/backup-filesystem"
 	modstggcs "github.com/weaviate/weaviate/modules/backup-gcs"
@@ -294,13 +290,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
 			Fatal("modules didn't load")
-	}
-
-	appState.RBACEnforcer, err = initializeCasbin(appState.ServerConfig.Config.Authentication.APIKey)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("RBAC enforcer not initialized")
 	}
 
 	// now that modules are loaded we can run the remaining config validation
@@ -1540,6 +1529,7 @@ func initializeCasbin(authConfig config.APIKey) (*casbin.SyncedCachedEnforcer, e
 
 	// TODO: make configurable
 	enforcer.SetAdapter(fileadapter.NewAdapter("./rbac/policy.csv"))
+	enforcer.AddNamedMatchingFunc("g", "KeyMatch2", casbinutil.KeyMatch2)
 
 	for i := range authConfig.Roles {
 		// All abstract roles are created at startup.
