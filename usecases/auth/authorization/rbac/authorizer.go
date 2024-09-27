@@ -20,20 +20,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-// authZ RBAC based
-type authZ struct {
+type Authorizer struct {
 	enforcer *casbin.SyncedCachedEnforcer
 	logger   logrus.FieldLogger
 }
 
 // New Authorizer using the AdminList method
-func New(RBACEnforcer *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *authZ {
-	return &authZ{RBACEnforcer, logger}
+func New(RBACEnforcer *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *Authorizer {
+	return &Authorizer{RBACEnforcer, logger}
 }
 
 // Authorize will give full access (to any resource!) if the user is part of
 // the admin list or no access at all if they are not
-func (a *authZ) Authorize(principal *models.Principal, verb, resource string) error {
+func (a *Authorizer) Authorize(principal *models.Principal, verb, resource string) error {
 	if a.enforcer == nil {
 		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
