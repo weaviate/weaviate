@@ -14,8 +14,8 @@ package asm
 ////go:generate goat ../c/hamming_avx256_amd64.c -O3 -mavx2  -mno-avx512f  -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 ////go:generate goat ../c/hamming_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 ////go:generate goat ../c/hamming_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
-////go:generate goat ../c/hamming_bitwise_avx256_amd64.c -O3 -fno-constant-pool -mavx2 -mpopcnt  -mno-avx512f  -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
-//go:generate goat ../c/hamming_bitwise_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
+//go:generate goat ../c/hamming_bitwise_avx256_amd64.c -O1 -mavx2 -mpopcnt  -mno-avx512f  -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
+////go:generate goat ../c/hamming_bitwise_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 
 import "unsafe"
 
@@ -56,6 +56,7 @@ func HammingBitwiseAVX256(x []uint64, y []uint64) float32 {
 		unsafe.Pointer(&l))
 
 	print(res)
+	print("test")
 
 	return float32(res)
 }

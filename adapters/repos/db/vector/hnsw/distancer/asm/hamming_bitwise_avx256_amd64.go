@@ -6,4 +6,10 @@ package asm
 import "unsafe"
 
 //go:noescape
+func init_lookup64bit(lut unsafe.Pointer)
+
+//go:noescape
+func popcnt_lookup_64bit(data, n, lookup64bit unsafe.Pointer)
+
+//go:noescape
 func hamming_bitwise_256(a, b, res, len unsafe.Pointer)
