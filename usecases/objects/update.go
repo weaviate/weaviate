@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -33,7 +34,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	if class == "" {
 		path = fmt.Sprintf("objects/%s", id)
 	}
-	err := m.authorizer.Authorize(principal, "update", path)
+	err := m.authorizer.Authorize(principal, authorization.UPDATE, path)
 	if err != nil {
 		return nil, err
 	}
