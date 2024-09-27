@@ -20,42 +20,55 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-type Authorizer struct {
+// authZ RBAC based
+type authZ struct {
 	enforcer *casbin.SyncedCachedEnforcer
 	logger   logrus.FieldLogger
 }
 
 // New Authorizer using the AdminList method
-func New(RBACEnforcer *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *Authorizer {
-	return &Authorizer{RBACEnforcer, logger}
+func New(RBACEnforcer *casbin.SyncedCachedEnforcer, logger logrus.FieldLogger) *authZ {
+	return &authZ{RBACEnforcer, logger}
 }
 
 // Authorize will give full access (to any resource!) if the user is part of
 // the admin list or no access at all if they are not
-func (a *Authorizer) Authorize(principal *models.Principal, verb, resource string) error {
+func (a *authZ) Authorize(principal *models.Principal, verb, resource string) error {
 	if a.enforcer == nil {
 		return fmt.Errorf("rbac enforcer expected but not set up")
 	}
 
-	a.logger.WithFields(logrus.Fields{
-		"user":     principal.Username,
-		"resource": resource,
-		"action":   verb,
-	}).Debug("checking for role")
-
-	allow, err := a.enforcer.Enforce(principal.Username, resource, verb)
+	roles, err := a.enforcer.GetRolesForUser(principal.Username)
 	if err != nil {
-		a.logger.WithFields(logrus.Fields{
-			"user":     principal.Username,
-			"resource": resource,
-			"action":   verb,
-		}).WithError(err).Error("failed to enforce policy")
+		a.logger.WithField("user", principal.Username).WithError(err).Error("failed to fetch roles for user")
 		return err
 	}
 
-	// TODO audit-log ?
-	if allow {
-		return nil
+	// TODO: fine grained resources access
+	// for now we will support READONLY/ADMIN on all resources
+	// One user can potentially be assigned multiple roles
+	for _, role := range roles {
+		a.logger.WithFields(logrus.Fields{
+			"role":     role,
+			"resource": resource,
+			"action":   verb,
+		}).Debug("checking for role")
+		allow, err := a.enforcer.Enforce(role, resource, verb)
+		if err != nil {
+			a.logger.WithFields(logrus.Fields{
+				"role":     role,
+				"resource": resource,
+				"action":   verb,
+			}).WithError(err).Error("failed to enforce policy")
+
+			return err
+		}
+
+		if allow {
+			// TODO print permission allowed which user accessing which resource with which
+			// role
+			return nil
+		}
 	}
 
 	return errors.NewForbidden(principal, verb, resource)
