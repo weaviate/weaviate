@@ -10,8 +10,6 @@ tldr; use `cmd/weaviate-server` instead. This is experimental
 
 ### Start Weaviate core.
 ```sh
-export OFFLOAD_S3_BUCKET_AUTO_CREATE=true
-export OFFLOAD_S3_ENDPOINT=http://localhost:9000
 ./tools/dev/restart_dev_environment.sh --prometheus --s3 --contextionary && ./tools/dev/run_dev_server.sh local-node-with-offload
 ```
 
