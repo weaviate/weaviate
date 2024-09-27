@@ -565,6 +565,10 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 	if h.compressed.Load() {
 		dist, returnFn := h.compressor.NewDistancer(queryVector)
 		f := func(nodeID uint64) (float32, error) {
+			if int(nodeID) > len(h.nodes) {
+				return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, len(h.nodes))
+			}
+
 			return dist.DistanceToNode(nodeID)
 		}
 		return common.QueryVectorDistancer{DistanceFunc: f, CloseFunc: returnFn}
@@ -572,6 +576,9 @@ func (h *hnsw) QueryVectorDistancer(queryVector []float32) common.QueryVectorDis
 	} else {
 		distancer := h.distancerProvider.New(queryVector)
 		f := func(nodeID uint64) (float32, error) {
+			if int(nodeID) > len(h.nodes) {
+				return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, len(h.nodes))
+			}
 			return h.distanceToFloatNode(distancer, nodeID)
 		}
 		return common.QueryVectorDistancer{DistanceFunc: f}
