@@ -77,7 +77,7 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
-      ENABLE_RBAC_ENFORCER=true \
+      AUTHORIZATION_ENABLE_RBAC=true \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
