@@ -2164,7 +2164,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.25.17"
+    "version": "1.25.18"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
