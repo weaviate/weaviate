@@ -14,6 +14,8 @@ package authorization
 import (
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/adminlist"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -23,7 +25,8 @@ func Test_Authorizer(t *testing.T) {
 	t.Run("when no authz is configured", func(t *testing.T) {
 		cfg := config.Config{}
 
-		authorizer := New(cfg)
+		logger, _ := test.NewNullLogger()
+		authorizer := New(cfg, nil, logger)
 
 		t.Run("it uses the dummy authorizer", func(t *testing.T) {
 			_, ok := authorizer.(*DummyAuthorizer)
@@ -31,7 +34,7 @@ func Test_Authorizer(t *testing.T) {
 		})
 
 		t.Run("any request is allowed", func(t *testing.T) {
-			err := authorizer.Authorize(nil, "delete", "the/world")
+			err := authorizer.Authorize(nil, DELETE, "the/world")
 			assert.Nil(t, err)
 		})
 	})
@@ -45,7 +48,8 @@ func Test_Authorizer(t *testing.T) {
 			},
 		}
 
-		authorizer := New(cfg)
+		logger, _ := test.NewNullLogger()
+		authorizer := New(cfg, nil, logger)
 
 		_, ok := authorizer.(*adminlist.Authorizer)
 		assert.Equal(t, true, ok)
