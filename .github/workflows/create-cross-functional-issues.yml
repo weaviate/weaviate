@@ -33,11 +33,11 @@ jobs:
             const body = pr.body || '';
 
             const checkboxes = [
-              { repo: 'weaviate-io-test', regex: /- \[x\] This change requires public documentation \(weaviate-io\) to be updated/ },
-              { repo: 'weaviate-python-client-test', regex: /- \[x\] Python \(weaviate-python-client\)/ },
-              { repo: 'typescript-client-test', regex: /- \[x\] JavaScript\/TypeScript \(typescript-client\)/ },
-              { repo: 'weaviate-go-client-test', regex: /- \[x\] Go \(weaviate-go-client\)/ },
-              { repo: 'java-client-test', regex: /- \[x\] Java \(java-client\)/ }
+              { repo: 'weaviate-io', regex: /- \[x\] This change requires public documentation \(weaviate-io\) to be updated/ },
+              { repo: 'weaviate-python-client', regex: /- \[x\] Python \(weaviate-python-client\)/ },
+              { repo: 'typescript-client', regex: /- \[x\] JavaScript\/TypeScript \(typescript-client\)/ },
+              { repo: 'weaviate-go-client', regex: /- \[x\] Go \(weaviate-go-client\)/ },
+              { repo: 'java-client', regex: /- \[x\] Java \(java-client\)/ }
             ];
 
             const results = checkboxes.map(checkbox => ({
