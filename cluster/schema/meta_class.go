@@ -18,10 +18,10 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/querier"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/exp/metadataserver"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
@@ -35,8 +35,8 @@ type (
 		Sharding     sharding.State
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
-		ShardProcesses map[string]NodeShardProcess
-		querierManager *querier.QuerierManager
+		ShardProcesses        map[string]NodeShardProcess
+		classTenantDataEvents chan metadataserver.ClassTenant
 	}
 )
 
@@ -480,19 +480,20 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 
 		if count == len(processes) {
 			copy.Status = req.Tenant.Status
-			// Whenever a tenant is frozen, we send a notification the querier nodes registered
-			// with the querier manager. This call to NotifyClassTenantDataUpdate is non-blocking
-			// and will skip/return an error for any querier nodes which have a full notification
-			// channel.
-			err := m.querierManager.NotifyClassTenantDataUpdate(
-				querier.ClassTenant{
+			// TODO config EXPERIMENTAL_SSC_QUERIER_NOTIFICATION_ENABLED?
+			// TODO ask loic for thoughts on how to move this out of meta class? Also does that need to be in the metaclass ? Maybe we could move up the code to instead be at the raft/apply level directly and avoid the intricacies of querier notification at the schema level ? IMO that package should only care about the schema and that's it.
+			if true {
+				// Whenever a tenant is frozen, we send an event on the class tenant data events
+				// channel. This send is non-blocking and will drop events if the channel is full.
+				select {
+				case m.classTenantDataEvents <- metadataserver.ClassTenant{
 					ClassName:  m.Class.Class,
 					TenantName: name,
-				},
-			)
-			if err != nil {
-				// TODO log
-				fmt.Println("failed to notify some queriers", err)
+				}:
+				default:
+					// drop event if channel is full
+				}
+
 			}
 		} else {
 			copy.Status = onAbortStatus

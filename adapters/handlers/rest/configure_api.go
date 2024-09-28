@@ -48,6 +48,7 @@ import (
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/exp/metadataserver"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -374,6 +375,31 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
+	// TODO break into func
+	// TODO config chan buffer size
+	classTenantDataEvents := make(chan metadataserver.ClassTenant, 100)
+	querierManager := metadataserver.NewQuerierManager()
+
+	// TODO config to turn on querier functionality
+	if true {
+		// TODO real values (via config?)
+		metadataServer := metadataserver.NewServer(":4242", 1024*1024*1024, true, appState.Logger)
+		// TODO should this be in goroutine?
+		// enterrors.GoWrapper(func() { metadataServer.Open() }, appState.Logger)
+		err := metadataServer.Open()
+		if err != nil {
+			// TODO useful log
+			appState.Logger.Warn("metadata server did not start")
+		}
+
+		// TODO how to end this (close classTenantDataEvents channel?)
+		enterrors.GoWrapper(func() {
+			for classTenantDataEvent := range classTenantDataEvents {
+				querierManager.NotifyClassTenantDataEvent(classTenantDataEvent)
+			}
+		}, appState.Logger)
+	}
+
 	server2port, err := parseNode2Port(appState)
 	if len(server2port) == 0 || err != nil {
 		appState.Logger.
@@ -416,6 +442,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
 		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
+		ClassTenantDataEvents:  classTenantDataEvents,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {

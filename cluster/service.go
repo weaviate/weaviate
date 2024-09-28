@@ -20,7 +20,6 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/bootstrap"
-	"github.com/weaviate/weaviate/cluster/querier"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -68,8 +67,6 @@ func New(selector cluster.NodeSelector, cfg Config) *Service {
 		}
 	}
 	cl := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
-	querierManager := querier.NewQuerierManager()
-	cfg.querierManager = querierManager
 	fsm := NewFSM(cfg)
 	raft := NewRaft(selector, &fsm, cl)
 	return &Service{
@@ -77,7 +74,7 @@ func New(selector cluster.NodeSelector, cfg Config) *Service {
 		raftAddr:          raftAdvertisedAddress,
 		config:            &cfg,
 		rpcClient:         cl,
-		rpcServer:         rpc.NewServer(&fsm, raft, querierManager, rpcListenAddress, cfg.Logger, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled),
+		rpcServer:         rpc.NewServer(&fsm, raft, cfg.ClassTenantDataEvents, rpcListenAddress, cfg.Logger, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled),
 		logger:            cfg.Logger,
 		closeBootstrapper: make(chan struct{}),
 		closeWaitForDB:    make(chan struct{}),

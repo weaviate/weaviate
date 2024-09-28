@@ -6,7 +6,6 @@ import (
 	"net"
 	"sync"
 
-	"github.com/weaviate/weaviate/cluster/querier"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/metadataserver/proto/api"
 
@@ -22,6 +21,16 @@ type Server struct {
 	grpcMessageMaxSize int
 	sentryEnabled      bool
 	log                *logrus.Logger
+}
+
+func NewServer(listenAddress string, grpcMessageMaxSize int,
+	sentryEnabled bool, log *logrus.Logger) *Server {
+	return &Server{
+		listenAddress:      listenAddress,
+		grpcMessageMaxSize: grpcMessageMaxSize,
+		sentryEnabled:      sentryEnabled,
+		log:                log,
+	}
 }
 
 // Open starts the server and registers it as the cluster service server.
@@ -67,7 +76,7 @@ func (s *Server) Open() error {
 // This function blocks until the stream is closed by the querier node.
 func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) error {
 	// set up a querier and register it
-	q := querier.NewQuerier()
+	q := NewQuerier()
 	// s.querierManager.Register(q)
 	// defer s.querierManager.Unregister(q)
 
@@ -102,7 +111,7 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 	}, s.log)
 
 	// This channel will receive a message when a class/tenant's data has been updated
-	classTenantDataUpdates := q.ClassTenantDataUpdates()
+	classTenantDataUpdates := q.ClassTenantDataEvents()
 
 	// Start a goroutine to send class tenant data updates to the querier node.
 	//
