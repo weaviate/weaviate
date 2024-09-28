@@ -11,8 +11,8 @@
 ### Cross-functional impact
 
 - [ ] This change requires public documentation (weaviate-io) to be updated. Check the box to automatically create a corresponding issue.
-- This change requires corresponding changes in the client libraries. Check for each affected client library to automatically create a corresponding issue.
-    - [ ] Python
-    - [ ] JavaScript/TypeScript
-    - [ ] Go
-    - [ ] Java
+- Does it require a change in the client libraries? If yes, please check the boxes for the affected client libraries.
+    - [ ] Python (weaviate-python-client)
+    - [ ] JavaScript/TypeScript (typescript-client)
+    - [ ] Go (weaviate-go-client)
+    - [ ] Java (java-client)
