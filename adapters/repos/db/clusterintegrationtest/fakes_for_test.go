@@ -287,10 +287,14 @@ type fakeBackupBackend struct {
 	startedAt   time.Time
 }
 
-func (f *fakeBackupBackend) HomeDir(backupID string) string {
+func (f *fakeBackupBackend) HomeDir(overridePath, backupID string) string {
 	f.Lock()
 	defer f.Unlock()
-	return f.backupsPath
+	if overridePath != "" {
+		return path.Join(overridePath, backupID)
+	} else {
+		return f.backupsPath
+	}
 }
 
 func (f *fakeBackupBackend) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {

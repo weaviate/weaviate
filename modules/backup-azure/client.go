@@ -100,19 +100,33 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azu
 	return &azureClient{client, *config, serviceURL, dataPath}, nil
 }
 
-func (a *azureClient) HomeDir(backupID string) string {
-	return a.serviceURL + path.Join(a.config.Container, a.makeObjectName(backupID))
+func (a *azureClient) HomeDir(overridePath, backupID string) string {
+	if overridePath != "" {
+		return a.serviceURL + path.Join(a.config.Container, overridePath, backupID)  //FIXME needs override container
+	} else {
+		return a.serviceURL + path.Join(a.config.Container, a.makeObjectName(overridePath, []string{backupID})) //FIXME
+	}
 }
 
-func (a *azureClient) makeObjectName(parts ...string) string {
-	base := path.Join(parts...)
-	return path.Join(a.config.BackupPath, base)
+func (g *azureClient) makeObjectName(overridePath string, parts []string) string {
+	if overridePath != "" {
+		base := path.Join(parts...)
+		return path.Join(overridePath, base)
+	} else {
+		base := path.Join(parts...)
+		return path.Join(g.config.BackupPath, base)
+	}
 }
 
 func (a *azureClient) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
-	objectName := a.makeObjectName(backupID, key)
+	objectName := a.makeObjectName(backupID, []string{key})
 
-	blobDownloadResponse, err := a.client.DownloadStream(ctx, a.config.Container, objectName, nil)
+	containerName :=a.config.Container
+	if bucketName != "" {
+		containerName = bucketName
+	}
+
+	blobDownloadResponse, err := a.client.DownloadStream(ctx, containerName, objectName, nil)
 	if err != nil {
 		if bloberror.HasCode(err, bloberror.BlobNotFound) {
 			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
@@ -134,11 +148,16 @@ func (a *azureClient) GetObject(ctx context.Context, backupID, key, bucketName, 
 }
 
 func (a *azureClient) PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, data []byte) error {
-	objectName := a.makeObjectName(backupID, key)
+	objectName := a.makeObjectName(bucketPath ,[]string{backupID, key})
+
+	containerName :=a.config.Container
+	if bucketName != "" {
+		containerName = bucketName
+	}
 
 	reader := bytes.NewReader(data)
 	_, err := a.client.UploadStream(ctx,
-		a.config.Container,
+		containerName,
 		objectName,
 		reader,
 		&azblob.UploadStreamOptions{
@@ -159,7 +178,7 @@ func (a *azureClient) Initialize(ctx context.Context, backupID string) error {
 		return errors.Wrap(err, "failed to access-check Azure backup module")
 	}
 
-	objectName := a.makeObjectName(backupID, key)
+	objectName := a.makeObjectName("" ,[]string{backupID, key})
 	if _, err := a.client.DeleteBlob(ctx, a.config.Container, objectName, nil); err != nil {
 		return errors.Wrap(err, "failed to remove access-check Azure backup module")
 	}
@@ -179,8 +198,13 @@ func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, 
 	}
 	defer file.Close()
 
-	objectName := a.makeObjectName(backupID, key)
-	_, err = a.client.DownloadFile(ctx, a.config.Container, objectName, file, nil)
+	containerName :=a.config.Container
+	if bucketName != "" {
+		containerName = bucketName
+	}
+
+	objectName := a.makeObjectName(bucketPath ,[]string{backupID, key})
+	_, err = a.client.DownloadFile(ctx, containerName, objectName, file, nil)
 	if err != nil {
 		if bloberror.HasCode(err, bloberror.BlobNotFound) {
 			return backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", objectName))
@@ -192,15 +216,21 @@ func (a *azureClient) WriteToFile(ctx context.Context, backupID, key, destPath, 
 }
 
 func (a *azureClient) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (written int64, err error) {
-	path := a.makeObjectName(backupID, key)
+	path := a.makeObjectName(bucketPath ,[]string{backupID, key})
 	reader := &reader{src: r}
 	defer func() {
 		r.Close()
 		written = int64(reader.count)
 	}()
 
+
+	containerName :=a.config.Container
+	if bucketName != "" {
+		containerName = bucketName
+	}
+
 	if _, err = a.client.UploadStream(ctx,
-		a.config.Container,
+		containerName,
 		path,
 		reader,
 		&azblob.UploadStreamOptions{
@@ -216,8 +246,13 @@ func (a *azureClient) Write(ctx context.Context, backupID, key, bucketName, buck
 func (a *azureClient) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
-	path := a.makeObjectName(backupID, key)
-	resp, err := a.client.DownloadStream(ctx, a.config.Container, path, nil)
+	containerName :=a.config.Container
+	if bucketName != "" {
+		containerName = bucketName
+	}
+
+	path := a.makeObjectName(bucketPath ,[]string{backupID, key})
+	resp, err := a.client.DownloadStream(ctx, containerName, path, nil)
 	if err != nil {
 		err = fmt.Errorf("find object %q: %w", path, err)
 		if bloberror.HasCode(err, bloberror.BlobNotFound) {

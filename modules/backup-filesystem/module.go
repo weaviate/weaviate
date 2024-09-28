@@ -69,8 +69,12 @@ func (m *Module) Init(ctx context.Context,
 	return nil
 }
 
-func (m *Module) HomeDir(backupID string) string {
-	return path.Join(m.makeBackupDirPath(backupID))
+func (m *Module) HomeDir(overridePath, backupID string) string {
+	if overridePath != "" {
+		return path.Join(overridePath, backupID)
+	} else {
+		return path.Join(m.makeBackupDirPath(backupID))
+	}
 }
 
 func (m *Module) RootHandler() http.Handler {

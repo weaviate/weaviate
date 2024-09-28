@@ -73,11 +73,9 @@ func S3Backend_Backup(t *testing.T, override []string) {
 		t.Fatal(errors.Wrapf(err, "cannot start"))
 	}
 
-
-
 	t.Setenv(envMinioEndpoint, compose.GetMinIO().URI())
 
-	fmt.Printf("running tests with bucket %v and path overrides: %v\n", bucketName,override)
+	fmt.Printf("running tests with bucket %v and path overrides: %v\n", bucketName, override)
 	t.Run("store backup meta", moduleLevelStoreBackupMeta)
 	t.Run("copy objects", moduleLevelCopyObjects)
 	t.Run("copy files", moduleLevelCopyFiles)
@@ -139,9 +137,14 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = s3.PutObject(testCtx, backupID, metadataFilename, override[0], override[1], b)
 			require.Nil(t, err)
 
-			dest := s3.HomeDir(backupID)
-			expected := fmt.Sprintf("s3://%s/%s", bucketName, backupID)
-			assert.Equal(t, expected, dest)
+			dest := s3.HomeDir(override[0], backupID)
+			if override[1] != "" {
+				expected := fmt.Sprintf("s3://%s/%s", override[1], backupID)
+				assert.Equal(t, expected, dest)
+			} else {
+				expected := fmt.Sprintf("s3://%s/%s", bucketName, backupID)
+				assert.Equal(t, expected, dest)
+			}
 		})
 
 		t.Run("assert backup meta contents", func(t *testing.T) {

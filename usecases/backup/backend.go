@@ -70,8 +70,8 @@ type objStore struct {
 	BasePath string
 }
 
-func (s *objStore) HomeDir() string {
-	return s.b.HomeDir(s.BasePath)
+func (s *objStore) HomeDir(overridePath string) string {
+	return s.b.HomeDir(overridePath, s.BasePath)
 }
 
 func (s *objStore) WriteToFile(ctx context.Context, key, destPath, bucketName, bucketPath string) error {

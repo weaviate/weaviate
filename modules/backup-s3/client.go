@@ -71,9 +71,14 @@ func (s *s3Client) makeObjectName(parts ...string) string {
 	return path.Join(s.config.BackupPath, base)
 }
 
-func (s *s3Client) HomeDir(backupID string) string {
-	return "s3://" + path.Join(s.config.Bucket,
-		s.makeObjectName(backupID))
+func (s *s3Client) HomeDir(overridePath, backupID string) string {
+	remotePath := s.config.Bucket
+
+	if overridePath != "" {
+		remotePath = path.Join(overridePath)
+	}
+
+	return "s3://" + path.Join(remotePath, s.makeObjectName(backupID))
 }
 
 func (s *s3Client) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
