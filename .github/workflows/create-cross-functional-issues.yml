@@ -2,7 +2,7 @@ name: Create Cross-Functional Issues
 
 on:
   pull_request:
-    types: [opened, edited, synchronize]
+    types: [opened]
   workflow_dispatch:
     inputs:
       pr_body:
