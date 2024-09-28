@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -72,6 +73,7 @@ func newCompactorInverted(w io.WriteSeeker,
 }
 
 func (c *compactorInverted) do() error {
+	return fmt.Errorf("not implemented")
 	var err error
 
 	if err := c.init(); err != nil {

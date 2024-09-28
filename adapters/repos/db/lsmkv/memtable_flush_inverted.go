@@ -14,48 +14,41 @@ package lsmkv
 import (
 	"encoding/binary"
 	"io"
+	"os"
 
-	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
+func (m *Memtable) flushDataInverted(f io.Writer, ff *os.File) ([]segmentindex.Key, *sroar.Bitmap, error) {
 	m.RLock()
 	flatA := m.keyMap.flattenInOrder()
 	m.RUnlock()
 
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic
-	flat := make([]*binarySearchNodeMulti, len(flatA))
+	flat := make([]*binarySearchNodeMap, len(flatA))
+
 	actuallyWritten := 0
 	actuallyWrittenKeys := make(map[string]struct{})
 	tombstones := roaringset.NewBitmap()
 
 	for i, mapNode := range flatA {
-		flat[i] = &binarySearchNodeMulti{
+		flat[i] = &binarySearchNodeMap{
 			key:    mapNode.key,
-			values: make([]value, 0, len(mapNode.values)),
+			values: make([]MapPair, 0, len(mapNode.values)),
 		}
 
 		for j := range mapNode.values {
-			enc, err := mapNode.values[j].BytesInverted()
-			if err != nil {
-				return nil, nil, err
-			}
 			if !mapNode.values[j].Tombstone {
-				flat[i].values = append(flat[i].values, value{
-					value:     enc,
-					tombstone: false,
-				})
+				flat[i].values = append(flat[i].values, mapNode.values[j])
 				actuallyWritten++
 				actuallyWrittenKeys[string(mapNode.key)] = struct{}{}
 			} else {
 				docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
 				tombstones.Set(docId)
 			}
-
 		}
 
 	}
@@ -105,33 +98,85 @@ func (m *Memtable) flushDataInverted(f io.Writer) ([]segmentindex.Key, *sroar.Bi
 
 	keys := make([]segmentindex.Key, len(flat))
 	actuallyWritten = 0
-	for i, node := range flat {
-		if len(node.values) > 0 {
-			ki, err := (&segmentInvertedNode{
-				values:     node.values,
-				primaryKey: node.key,
-				offset:     totalWritten,
-			}).KeyIndexAndWriteTo(f)
-			if err != nil {
-				return nil, nil, errors.Wrapf(err, "write node %d", i)
+
+	for _, mapNode := range flat {
+		if len(mapNode.values) > 0 {
+			blocks, values, _ := convertToBlocks(mapNode)
+
+			ki := segmentindex.Key{
+				Key:        mapNode.key,
+				ValueStart: totalWritten,
 			}
 
+			if err := binary.Write(f, binary.LittleEndian, uint32(len(blocks))); err != nil {
+				return nil, nil, err
+			}
+
+			totalWritten += 4
+
+			for _, block := range blocks {
+				if _, err := f.Write(block); err != nil {
+					return nil, nil, err
+				}
+				totalWritten += len(block)
+			}
+
+			for _, value := range values {
+				if _, err := f.Write(value); err != nil {
+					return nil, nil, err
+				}
+				totalWritten += len(value)
+			}
+
+			// write key length
+			binary.LittleEndian.PutUint32(buf, uint32(len(mapNode.key)))
+			if _, err := f.Write(buf[:4]); err != nil {
+				return nil, nil, err
+			}
+
+			totalWritten += 4
+
+			// write key
+			if _, err := f.Write(mapNode.key); err != nil {
+				return nil, nil, err
+			}
+			totalWritten += len(mapNode.key)
+
+			ki.ValueEnd = totalWritten
+
 			keys[actuallyWritten] = ki
-			totalWritten = ki.ValueEnd
 			actuallyWritten++
 		}
 	}
+
+	keysLen = actuallyWritten - 28
 
 	binary.LittleEndian.PutUint64(buf, uint64(len(tombstoneBuffer)))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
 	}
+	totalWritten += 8
 
 	if _, err := f.Write(tombstoneBuffer); err != nil {
 		return nil, nil, err
 	}
+	totalWritten += len(tombstoneBuffer)
 
-	// totalWritten += len(tombstoneBuffer)*8 + 8
+	// fix offset for Inverted strategy
+	ff.Seek(8, io.SeekStart)
+	buf = make([]byte, 8)
+	binary.LittleEndian.PutUint64(buf, uint64(totalWritten))
+	if _, err := f.Write(buf); err != nil {
+		return nil, nil, err
+	}
+
+	ff.Seek(28, io.SeekStart)
+	binary.LittleEndian.PutUint64(buf, uint64(keysLen))
+	if _, err := f.Write(buf); err != nil {
+		return nil, nil, err
+	}
+
+	ff.Seek(int64(totalWritten), io.SeekStart)
 
 	return keys[:actuallyWritten], tombstones, nil
 }

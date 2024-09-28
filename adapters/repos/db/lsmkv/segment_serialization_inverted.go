@@ -15,10 +15,80 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
+
+var BLOCK_SIZE = 128
+
+type blockEntry struct {
+	offset    int
+	maxId     uint64
+	maxImpact float32
+}
+
+func extractTombstones(nodes *binarySearchNodeMap) (*sroar.Bitmap, []MapPair) {
+	out := sroar.NewBitmap()
+	values := make([]MapPair, 0, len(nodes.values))
+
+	for _, n := range nodes.values {
+		if n.Tombstone {
+			id := binary.BigEndian.Uint64(n.Key)
+			out.Set(id)
+		} else {
+			values = append(values, n)
+		}
+	}
+
+	return out, values
+}
+
+func encodeBlock(nodes []MapPair) []byte {
+	docIds := make([]uint64, len(nodes))
+	termFreqs := make([]uint64, len(nodes))
+	propLengths := make([]uint64, len(nodes))
+
+	for i, n := range nodes {
+		docIds[i] = binary.BigEndian.Uint64(n.Key)
+		termFreqs[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[0:4])))
+		propLengths[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[4:8])))
+	}
+
+	packed := packedEncode(docIds, termFreqs, propLengths)
+
+	return packed
+}
+
+func convertToBlocks(nodes *binarySearchNodeMap) ([][]byte, [][]byte, *sroar.Bitmap) {
+	tombstones, values := extractTombstones(nodes)
+
+	blockCount := (len(values) + (BLOCK_SIZE - 1)) / BLOCK_SIZE
+
+	blocks := make([][]byte, blockCount)
+	encodedBlocks := make([][]byte, blockCount)
+
+	offset := 0
+
+	for i := 0; i < blockCount; i++ {
+		start := i * BLOCK_SIZE
+		end := start + BLOCK_SIZE
+		if end > len(values) {
+			end = len(values)
+		}
+
+		blocks[i] = make([]byte, 16)
+		binary.LittleEndian.PutUint64(blocks[i], uint64(end-start))
+		binary.LittleEndian.PutUint64(blocks[i][8:], uint64(offset))
+
+		encodedBlocks[i] = encodeBlock(values[start:end])
+		offset += len(encodedBlocks[i])
+	}
+
+	return blocks, encodedBlocks, tombstones
+}
 
 // a single node of strategy "inverted"
 type segmentInvertedNode struct {

@@ -77,7 +77,7 @@ func (m *Memtable) flush() error {
 
 	case StrategyMapCollection:
 		if strings.Contains(m.path, "_searchable") && os.Getenv("USE_INVERTED_FORMAT") == "true" {
-			if keys, _, err = m.flushDataInverted(w); err != nil {
+			if keys, _, err = m.flushDataInverted(w, f); err != nil {
 				return err
 			}
 		} else {
@@ -86,7 +86,7 @@ func (m *Memtable) flush() error {
 			}
 		}
 	case StrategyInverted:
-		if keys, _, err = m.flushDataInverted(w); err != nil {
+		if keys, _, err = m.flushDataInverted(w, f); err != nil {
 			return err
 		}
 	default:
