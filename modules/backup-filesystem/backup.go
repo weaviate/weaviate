@@ -25,9 +25,15 @@ import (
 )
 
 func (m *Module) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
-	metaPath, err := m.getObjectPath(ctx, backupID, key)
-	if err != nil {
-		return nil, err
+	var metaPath string
+	var err error
+	if bucketName != "" {
+		metaPath, err = m.getObjectPath(ctx, bucketPath, backupID, key)
+	} else {
+		metaPath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	contents, err := os.ReadFile(metaPath)
@@ -43,8 +49,8 @@ func (m *Module) GetObject(ctx context.Context, backupID, key, bucketName, bucke
 	return contents, nil
 }
 
-func (m *Module) getObjectPath(ctx context.Context, backupID, key string) (string, error) {
-	metaPath := filepath.Join(m.backupsPath, backupID, key)
+func (m *Module) getObjectPath(ctx context.Context, path, backupID, key string) (string, error) {
+	metaPath := filepath.Join(path, backupID, key)
 
 	if err := ctx.Err(); err != nil {
 		return "", backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", metaPath))
@@ -91,7 +97,11 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 }
 
 func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
-	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
+	if bucket != "" {
+		return fmt.Errorf("bucket parameter not supported for filesystem backup module")
+	}
+
+	backupPath := path.Join(m.makeBackupDirPath(m.backupsPath, backupID), key)
 	if bucketPath != "" {
 		backupPath = path.Join(bucketPath, backupID, key)
 	}
@@ -120,12 +130,16 @@ func (m *Module) Initialize(ctx context.Context, backupID string) error {
 }
 
 func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
-	sourcePath, err := m.getObjectPath(ctx, backupID, key)
+	var sourcePath string
+	var err error
+	if bucketName != "" {
+		sourcePath, err = m.getObjectPath(ctx, bucketPath, backupID, key)
+	} else {
+		sourcePath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
+	}
 	if err != nil {
 		return err
 	}
-
-	//FIXME get correct override path
 
 	bytesWritten, err := m.copyFile(sourcePath, destPath)
 	if err != nil {
@@ -142,7 +156,18 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucke
 
 func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
-	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
+
+	var backupPath string
+	var err error
+	if bucketName != "" {
+		backupPath, err = m.getObjectPath(ctx, bucketPath, backupID, key)
+	} else {
+		backupPath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
+	}
+	if err != nil {
+		return -1, err
+	}
+
 	dir := path.Dir(backupPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return 0, fmt.Errorf("make dir %q: %w", dir, err)
@@ -167,7 +192,7 @@ func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPat
 
 func (m *Module) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
-	sourcePath, err := m.getObjectPath(ctx, backupID, key)
+	sourcePath, err := m.getObjectPath(ctx, m.backupsPath, backupID, key)
 	if err != nil {
 		return 0, fmt.Errorf("source path %s/%s: %w", backupID, key, err)
 	}

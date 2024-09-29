@@ -30,7 +30,24 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func Test_FilesystemBackend_Backup(t *testing.T) {
+var override = []string{"", ""}
+
+func Test_FileSystemBackend_Start(t *testing.T) {
+	overrides := [][]string{
+		{"", ""},
+		{"testbucketoverride", "testBucketPathOverride"},
+	}
+
+	override = overrides[0]
+	FilesystemBackend_Backup(t)
+	time.Sleep(5 * time.Second)
+
+	override = overrides[1]
+	FilesystemBackend_Backup(t)
+
+}
+
+func FilesystemBackend_Backup(t *testing.T) {
 	t.Run("store backup meta", moduleLevelStoreBackupMeta)
 	t.Run("copy objects", moduleLevelCopyObjects)
 	t.Run("copy files", moduleLevelCopyFiles)
@@ -63,7 +80,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		})
 
 		t.Run("backup meta does not exist yet", func(t *testing.T) {
-			meta, err := fs.GetObject(testCtx, backupID, metadataFilename)
+			meta, err := fs.GetObject(testCtx, backupID, metadataFilename, override[0], override[1])
 			assert.Nil(t, meta)
 			assert.NotNil(t, err)
 			assert.IsType(t, backup.ErrNotFound{}, err)
@@ -89,7 +106,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = fs.PutObject(testCtx, backupID, metadataFilename, "", "", b)
 			require.Nil(t, err)
 
-			dest := fs.HomeDir(backupID)
+			dest := fs.HomeDir(override[1],backupID)
 			expected := fmt.Sprintf("%s/%s", backupDir, backupID)
 			assert.Equal(t, expected, dest)
 		})
@@ -122,7 +139,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 		})
 
 		t.Run("get object from bucket", func(t *testing.T) {
-			meta, err := fs.GetObject(testCtx, backupID, key)
+			meta, err := fs.GetObject(testCtx, backupID, key, override[0], override[1])
 			assert.Nil(t, err)
 			assert.Equal(t, []byte("hello"), meta)
 		})
@@ -162,7 +179,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 
-			err := fs.WriteToFile(testCtx, backupID, key, destPath)
+			err := fs.WriteToFile(testCtx, backupID, key, destPath, override[0], override[1])
 			require.Nil(t, err)
 
 			contents, err := os.ReadFile(destPath)
