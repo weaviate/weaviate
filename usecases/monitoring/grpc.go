@@ -2,9 +2,14 @@ package monitoring
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/stats"
+	"google.golang.org/grpc/status"
 )
 
 // Make sure `GrpcStatsHandler always implements stats.Handler
@@ -71,4 +76,63 @@ func (g *GrpcStatsHandler) TagConn(ctx context.Context, _ *stats.ConnTagInfo) co
 
 func (g *GrpcStatsHandler) HandleConn(_ context.Context, _ stats.ConnStats) {
 	// Don't need
+}
+
+func UnaryServerInstrument(hist *prometheus.HistogramVec) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		begin := time.Now()
+		resp, err := handler(ctx, req)
+		observe(hist, info.FullMethod, err, time.Since(begin))
+		return resp, err
+	}
+}
+
+func StreamServerInstrument(hist *prometheus.HistogramVec) grpc.StreamServerInterceptor {
+	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		begin := time.Now()
+		err := handler(srv, ss)
+		observe(hist, info.FullMethod, err, time.Since(begin))
+		return err
+	}
+}
+
+func observe(hist *prometheus.HistogramVec, method string, err error, duration time.Duration) {
+	// hist has following labels
+	// method - "gRPC" string
+	// route - actual grpc method invoked (e.g: v1/Search)
+	// status_code - grpc status codes
+	labelValues := []string{
+		gRPCTransportLabel,
+		method,
+		errorToStatus(err),
+	}
+	hist.WithLabelValues(labelValues...).Observe(duration.Seconds())
+}
+
+func errorToStatus(err error) string {
+	code := errorToGrpcCode(err)
+	return code.String()
+}
+
+func errorToGrpcCode(err error) codes.Code {
+	if err == nil {
+		return codes.OK
+	}
+
+	if errors.Is(err, context.Canceled) {
+		return codes.Canceled
+	}
+
+	type grpcStatus interface {
+		GRPCStatus() *status.Status
+	}
+
+	var g grpcStatus
+	if errors.As(err, &g) {
+		st := g.GRPCStatus()
+		if st != nil {
+			return st.Code()
+		}
+	}
+	return codes.Unknown
 }

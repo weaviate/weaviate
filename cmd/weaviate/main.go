@@ -98,8 +98,8 @@ func main() {
 				"addrs": opts.Query.GRPCListenAddr,
 			}).Fatal("failed to bind grpc server addr")
 		}
-
 		svrMetrics := monitoring.NewServerMetrics(opts.Monitoring, prometheus.DefaultRegisterer)
+		listener = monitoring.CountingListener(listener, svrMetrics.TCPActiveConnections.WithLabelValues("grpc"))
 		grpcOptions := []grpc.ServerOption{
 			grpc.StatsHandler(monitoring.NewGrpcStatsHandler(
 				svrMetrics.InflightRequests,
@@ -108,18 +108,31 @@ func main() {
 			)),
 		}
 
+		grpcInterceptUnary := grpc.ChainUnaryInterceptor(
+			monitoring.UnaryServerInstrument(svrMetrics.RequestDuration),
+		)
+		grpcOptions = append(grpcOptions, grpcInterceptUnary)
+
+		grpcInterceptStream := grpc.ChainStreamInterceptor(
+			monitoring.StreamServerInstrument(svrMetrics.RequestDuration),
+		)
+		grpcOptions = append(grpcOptions, grpcInterceptStream)
+
 		grpcServer := grpc.NewServer(grpcOptions...)
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
 		log.WithField("addr", opts.Query.GRPCListenAddr).Info("starting querier over grpc")
-		if err := grpcServer.Serve(listener); err != nil {
-			log.Fatal("failed to start grpc server", err)
-		}
+		go func() {
+			if err := grpcServer.Serve(listener); err != nil {
+				log.Fatal("failed to start grpc server", err)
+			}
+		}()
 
 		// serve /metrics
 		mux := http.NewServeMux()
 		mux.Handle("/metrics", promhttp.Handler())
+		log.WithField("addr", opts.Monitoring.Port).Info("starting /metrics server over http")
 		http.ListenAndServe(fmt.Sprintf(":%d", opts.Monitoring.Port), mux)
 
 	default:
