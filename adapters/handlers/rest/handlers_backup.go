@@ -124,7 +124,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID)
+	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID, *params.S3bucket, *params.S3path)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -191,8 +191,16 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	var overrideBucket string
+	if params.S3bucket != nil {
+		overrideBucket = *params.S3bucket
+	}
+	var overridePath string
+	if params.S3path != nil {
+		overridePath = *params.S3path
+	}
 	status, err := s.manager.RestorationStatus(
-		params.HTTPRequest.Context(), principal, params.Backend, params.ID)
+		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {

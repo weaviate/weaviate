@@ -72,7 +72,7 @@ func (b *backupper) Backup(ctx context.Context,
 // If not it fetches the metadata file to get the status
 func (b *backupper) Status(ctx context.Context, backend, bakID string,
 ) (*models.BackupCreateStatusResponse, error) {
-	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend})
+	st, err := b.OnStatus(ctx, &StatusRequest{OpCreate, bakID, backend, "", ""}) // FIXME
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
 			err = backup.NewErrNotFound(err)
@@ -95,7 +95,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	// check if backup is still active
 	st := b.lastOp.get()
 	if st.ID == req.ID {
-		return st, nil
+		return st, nil // st contains path, which is the homedir, a combination of bucket and path
 	}
 
 	// The backup might have been already created.

@@ -79,7 +79,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	if err := s.authorizer.Authorize(pr, "add", path); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, req.Backend, req.ID)
+	store, err := coordBackend(s.backends, req.Backend, req.ID, req.S3Bucket, req.S3Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
 		return nil, backup.NewErrUnprocessable(err)
@@ -130,7 +130,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	if err := s.authorizer.Authorize(pr, "restore", path); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, req.Backend, req.ID)
+	store, err := coordBackend(s.backends, req.Backend, req.ID, req.S3Bucket, req.S3Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
 		return nil, backup.NewErrUnprocessable(err)
@@ -173,7 +173,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 }
 
 func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principal,
-	backend, backupID string,
+	backend, backupID, overrideBucket, overridePath string,
 ) (_ *Status, err error) {
 	defer func(begin time.Time) {
 		logOperation(s.logger, "backup_status", backupID, backend, begin, err)
@@ -182,13 +182,13 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, backend, backupID)
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend}
+	req := &StatusRequest{OpCreate, backupID, backend, overrideBucket, overridePath}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -196,7 +196,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	return st, nil
 }
 
-func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, backupID string,
+func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
 ) (_ *Status, err error) {
 	defer func(begin time.Time) {
 		logOperation(s.logger, "restoration_status", backupID, backend, time.Now(), err)
@@ -205,12 +205,12 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, backend, backupID)
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath) // FIXME?
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	req := &StatusRequest{OpRestore, backupID, backend}
+	req := &StatusRequest{OpRestore, backupID, backend, "", ""}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -230,7 +230,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 
-	store, err := coordBackend(s.backends, backend, backupID)
+	store, err := coordBackend(s.backends, backend, backupID, "", "") // FIXME?
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return backup.NewErrUnprocessable(err)
@@ -285,12 +285,12 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	return nil, fmt.Errorf("not implemented")
 }
 
-func coordBackend(provider BackupBackendProvider, backend, id string) (coordStore, error) {
+func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string) (coordStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
 		return coordStore{}, err
 	}
-	return coordStore{objStore{b: caps, BackupId: id}}, nil
+	return coordStore{objStore{b: caps, BackupId: id, S3Bucket: overrideBucket, S3Path: overridePath}}, nil
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {

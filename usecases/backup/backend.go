@@ -66,8 +66,11 @@ const (
 var _NUMCPU = runtime.NumCPU()
 
 type objStore struct {
-	b        modulecapabilities.BackupBackend
+	b modulecapabilities.BackupBackend
+
 	BackupId string // use supplied backup id
+	S3Bucket string // Override bucket for one call
+	S3Path   string // Override path for one call
 }
 
 func (s *objStore) HomeDir(overrideBucket, overridePath string) string {
@@ -132,7 +135,7 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, bucketName, bucketPath s
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, bucketName, bucketPath, &result)
 	if err != nil {
-		cs := &objStore{s.b, backupID} // for backward compatibility
+		cs := &objStore{s.b, backupID, bucketName, bucketPath} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, bucketName, bucketPath, &result); err == nil {
 			if adjustBasePath {
 				s.objStore.BackupId = backupID
