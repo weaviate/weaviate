@@ -290,7 +290,7 @@ func coordBackend(provider BackupBackendProvider, backend, id string) (coordStor
 	if err != nil {
 		return coordStore{}, err
 	}
-	return coordStore{objStore{b: caps, BasePath: id}}, nil
+	return coordStore{objStore{b: caps, BackupId: id}}, nil
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {

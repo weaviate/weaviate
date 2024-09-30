@@ -67,15 +67,15 @@ var _NUMCPU = runtime.NumCPU()
 
 type objStore struct {
 	b        modulecapabilities.BackupBackend
-	BasePath string // What is base path?  it is passed to "backupid" in many calls
+	BackupId string // use supplied backup id
 }
 
 func (s *objStore) HomeDir(overrideBucket, overridePath string) string {
-	return s.b.HomeDir(overrideBucket, overridePath, s.BasePath)
+	return s.b.HomeDir(overrideBucket, overridePath, s.BackupId)
 }
 
 func (s *objStore) WriteToFile(ctx context.Context, key, destPath, bucketName, bucketPath string) error {
-	return s.b.WriteToFile(ctx, s.BasePath, key, destPath, bucketName, bucketPath)
+	return s.b.WriteToFile(ctx, s.BackupId, key, destPath, bucketName, bucketPath)
 }
 
 // SourceDataPath is data path of all source files
@@ -84,15 +84,15 @@ func (s *objStore) SourceDataPath() string {
 }
 
 func (s *objStore) Write(ctx context.Context, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
-	return s.b.Write(ctx, s.BasePath, key, bucketName, bucketPath, r)
+	return s.b.Write(ctx, s.BackupId, key, bucketName, bucketPath, r)
 }
 
 func (s *objStore) Read(ctx context.Context, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
-	return s.b.Read(ctx, s.BasePath, key, bucketName, bucketPath, w)
+	return s.b.Read(ctx, s.BackupId, key, bucketName, bucketPath, w)
 }
 
 func (s *objStore) Initialize(ctx context.Context) error {
-	return s.b.Initialize(ctx, s.BasePath)
+	return s.b.Initialize(ctx, s.BackupId)
 }
 
 // meta marshals and uploads metadata
@@ -103,14 +103,14 @@ func (s *objStore) putMeta(ctx context.Context, key, bucketName, bucketPath stri
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.b.PutObject(ctx, s.BasePath, key, bucketName, bucketPath, bytes); err != nil {
+	if err := s.b.PutObject(ctx, s.BackupId, key, bucketName, bucketPath, bytes); err != nil {
 		return fmt.Errorf("upload meta file %q: %w", key, err)
 	}
 	return nil
 }
 
 func (s *objStore) meta(ctx context.Context, key, bucketName, bucketPath string, dest interface{}) error {
-	bytes, err := s.b.GetObject(ctx, s.BasePath, key, bucketName, bucketPath)
+	bytes, err := s.b.GetObject(ctx, s.BackupId, key, bucketName, bucketPath)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, bucketName, bucketPath s
 		cs := &objStore{s.b, backupID} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, bucketName, bucketPath, &result); err == nil {
 			if adjustBasePath {
-				s.objStore.BasePath = backupID
+				s.objStore.BackupId = backupID
 			}
 			return &result, nil
 		}
