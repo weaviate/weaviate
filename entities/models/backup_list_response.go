@@ -90,17 +90,14 @@ func (m BackupListResponse) ContextValidate(ctx context.Context, formats strfmt.
 // swagger:model BackupListResponseItems0
 type BackupListResponseItems0 struct {
 
-	// Name of the S3 bucket
-	S3Bucket string `json:"S3Bucket,omitempty"`
-
-	// destination path of backup files proper to selected backend
-	S3Path string `json:"S3Path,omitempty"`
-
 	// The list of classes for which the existed backup process
 	Classes []string `json:"classes"`
 
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
+
+	// destination path of backup files proper to selected backend
+	Path string `json:"path,omitempty"`
 
 	// status of backup process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED CANCELED]

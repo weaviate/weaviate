@@ -1092,11 +1092,7 @@
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
             "type": "string"
           },
-          "S3Bucket": {
-          "type": "string",
-          "description": "Name of the S3 bucket"
-        },
-          "S3Path": {
+          "path": {
             "description": "destination path of backup files proper to selected backend",
             "type": "string"
           },
@@ -1171,11 +1167,7 @@
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
-        "S3Bucket": {
-          "type": "string",
-          "description": "Name of the S3 bucket"
-        },
-        "S3Path": {
+        "path": {
           "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
