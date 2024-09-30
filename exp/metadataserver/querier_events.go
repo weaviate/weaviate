@@ -50,11 +50,13 @@ func (qm *QuerierManager) Unregister(q *Querier) {
 func (qm *QuerierManager) NotifyClassTenantDataEvent(ct ClassTenant) error {
 	notifyFailedErrors := []error{}
 	qm.registeredQueriers.Range(func(k, v any) bool {
-		q := k.(Querier)
+		if k == nil {
+			return true
+		}
+		q := k.(*Querier)
 		select {
 		case q.classTenantDataEvents <- ct:
 			// TODO log debug
-			fmt.Println("sent class tenant data event to querier")
 		default:
 			// TODO better error
 			notifyFailedErrors = append(notifyFailedErrors, fmt.Errorf("failed to notify querier: %v", q))

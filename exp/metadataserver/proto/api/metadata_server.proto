@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-// NOTE run `buf generate` from `exp/metadataqueryconn/proto` to regenerate code
+// NOTE run `buf generate` from `exp/metadataserver/proto` to regenerate code
 package weaviate.internal.metadataserver;
 
 service MetadataService {

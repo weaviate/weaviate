@@ -2,9 +2,9 @@
 // versions:
 // - protoc-gen-go-grpc v1.3.0
 // - protoc             (unknown)
-// source: api/message.proto
+// source: api/metadata_server.proto
 
-// NOTE run `buf generate` from `exp/metadataqueryconn/proto` to regenerate code
+// NOTE run `buf generate` from `exp/metadataserver/proto` to regenerate code
 
 package api
 
@@ -143,5 +143,5 @@ var MetadataService_ServiceDesc = grpc.ServiceDesc{
 			ClientStreams: true,
 		},
 	},
-	Metadata: "api/message.proto",
+	Metadata: "api/metadata_server.proto",
 }

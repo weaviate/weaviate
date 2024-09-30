@@ -74,7 +74,7 @@ func New(selector cluster.NodeSelector, cfg Config) *Service {
 		raftAddr:          raftAdvertisedAddress,
 		config:            &cfg,
 		rpcClient:         cl,
-		rpcServer:         rpc.NewServer(&fsm, raft, cfg.ClassTenantDataEvents, rpcListenAddress, cfg.Logger, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled),
+		rpcServer:         rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.Logger, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled),
 		logger:            cfg.Logger,
 		closeBootstrapper: make(chan struct{}),
 		closeWaitForDB:    make(chan struct{}),

@@ -48,10 +48,12 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 		// Start a goroutine to subscribe to metadata node. Do this in a goroutine so that the
 		// gRPC server can keep serving requests before we start subscribing to metadata.
 		enterrors.GoWrapper(func() {
-			if metadataGRPCHost == "" {
-				metadataGRPCHost = getOutboundIP()
-			}
+			// if metadataGRPCHost == "" {
+			// 	metadataGRPCHost = getOutboundIP()
+			// }
+			// TODO need to learn more go/contexts
 			ctx := context.TODO()
+			// TODO DialContext is deprecated?
 			leaderRpcConn, err := grpc.DialContext(
 				ctx,
 				fmt.Sprintf("%s:%d", metadataGRPCHost, metadataGRPCPort),
@@ -62,6 +64,7 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 			}
 			c := api.NewMetadataServiceClient(leaderRpcConn)
 			stream, err := c.QuerierStream(context.Background())
+			// TODO stream.Context() ?
 			if err != nil {
 				panic(err)
 			}

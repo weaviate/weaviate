@@ -23,7 +23,6 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
-	"github.com/weaviate/weaviate/exp/metadataserver"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -33,27 +32,25 @@ const raftGrpcMessageMaxSize = 1024 * 1024 * 1024
 
 func TestServerNewError(t *testing.T) {
 	var (
-		addr                  = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
-		members               = &MockMembers{leader: addr}
-		executor              = &MockExecutor{}
-		logger, _             = logrustest.NewNullLogger()
-		classTenantDataEvents = make(chan metadataserver.ClassTenant)
+		addr      = fmt.Sprintf("localhost:%v", utils.MustGetFreeTCPPort())
+		members   = &MockMembers{leader: addr}
+		executor  = &MockExecutor{}
+		logger, _ = logrustest.NewNullLogger()
 	)
 
 	t.Run("Empty server address", func(t *testing.T) {
-		srv := NewServer(members, executor, classTenantDataEvents, "", logger, raftGrpcMessageMaxSize, false)
+		srv := NewServer(members, executor, "", logger, raftGrpcMessageMaxSize, false)
 		assert.NotNil(t, srv.Open())
 	})
 
 	t.Run("Invalid IP", func(t *testing.T) {
-		srv := NewServer(members, executor, classTenantDataEvents, "abc", logger, raftGrpcMessageMaxSize, false)
+		srv := NewServer(members, executor, "abc", logger, raftGrpcMessageMaxSize, false)
 		netErr := &net.OpError{}
 		assert.ErrorAs(t, srv.Open(), &netErr)
 	})
 }
 
 func TestRaftRelatedRPC(t *testing.T) {
-	classTenantDataEvents := make(chan metadataserver.ClassTenant)
 	tests := []struct {
 		name     string
 		members  *MockMembers
@@ -68,7 +65,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -90,7 +87,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -108,7 +105,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
 				ctx := context.Background()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -130,7 +127,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -148,7 +145,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -170,7 +167,7 @@ func TestRaftRelatedRPC(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -192,7 +189,6 @@ func TestRaftRelatedRPC(t *testing.T) {
 }
 
 func TestQueryEndpoint(t *testing.T) {
-	classTenantDataEvents := make(chan metadataserver.ClassTenant)
 	tests := []struct {
 		name     string
 		testFunc func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor)
@@ -203,7 +199,7 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -219,7 +215,7 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -245,7 +241,7 @@ func TestQueryEndpoint(t *testing.T) {
 				// Setup var, client and server
 				ctx := context.Background()
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -280,7 +276,6 @@ func TestQueryEndpoint(t *testing.T) {
 }
 
 func TestApply(t *testing.T) {
-	classTenantDataEvents := make(chan metadataserver.ClassTenant)
 	tests := []struct {
 		name     string
 		members  *MockMembers
@@ -298,7 +293,7 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -319,7 +314,7 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())
@@ -346,7 +341,7 @@ func TestApply(t *testing.T) {
 			testFunc: func(t *testing.T, leaderAddr string, members *MockMembers, executor *MockExecutor) {
 				// Setup var, client and server
 				logger, _ := logrustest.NewNullLogger()
-				server := NewServer(members, executor, classTenantDataEvents, leaderAddr, logger, raftGrpcMessageMaxSize, false)
+				server := NewServer(members, executor, leaderAddr, logger, raftGrpcMessageMaxSize, false)
 				assert.Nil(t, server.Open())
 				defer server.Close()
 				client := NewClient(fakes.NewFakeRPCAddressResolver(leaderAddr, nil), raftGrpcMessageMaxSize, false, logrus.StandardLogger())

@@ -383,7 +383,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// TODO config to turn on querier functionality
 	if true {
 		// TODO real values (via config?)
-		metadataServer := metadataserver.NewServer(":4242", 1024*1024*1024, true, appState.Logger)
+		metadataServer := metadataserver.NewServer(":4242", 1024*1024*1024, true, querierManager, appState.Logger)
 		// TODO should this be in goroutine?
 		// enterrors.GoWrapper(func() { metadataServer.Open() }, appState.Logger)
 		err := metadataServer.Open()
@@ -395,6 +395,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// TODO how to end this (close classTenantDataEvents channel?)
 		enterrors.GoWrapper(func() {
 			for classTenantDataEvent := range classTenantDataEvents {
+				fmt.Println("NATEE got classTenantDataEvents on chan", classTenantDataEvent.ClassName, classTenantDataEvent.TenantName)
 				querierManager.NotifyClassTenantDataEvent(classTenantDataEvent)
 			}
 		}, appState.Logger)

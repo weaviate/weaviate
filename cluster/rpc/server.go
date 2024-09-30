@@ -18,7 +18,6 @@ import (
 	"net"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/exp/metadataserver"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
@@ -50,22 +49,20 @@ type Server struct {
 	log                *logrus.Logger
 	sentryEnabled      bool
 
-	grpcServer            *grpc.Server
-	classTenantDataEvents chan metadataserver.ClassTenant
+	grpcServer *grpc.Server
 }
 
 // NewServer returns the Server implementing the RPC interface for RAFT peers management and execute/query commands.
 // The server must subsequently be started with Open().
 // The server will be configure the gRPC service with grpcMessageMaxSize.
-func NewServer(raftPeers raftPeers, raftFSM raftFSM, classTenantDataEvents chan metadataserver.ClassTenant, listenAddress string, log *logrus.Logger, grpcMessageMaxSize int, sentryEnabled bool) *Server {
+func NewServer(raftPeers raftPeers, raftFSM raftFSM, listenAddress string, log *logrus.Logger, grpcMessageMaxSize int, sentryEnabled bool) *Server {
 	return &Server{
-		raftPeers:             raftPeers,
-		raftFSM:               raftFSM,
-		listenAddress:         listenAddress,
-		log:                   log,
-		grpcMessageMaxSize:    grpcMessageMaxSize,
-		sentryEnabled:         sentryEnabled,
-		classTenantDataEvents: classTenantDataEvents,
+		raftPeers:          raftPeers,
+		raftFSM:            raftFSM,
+		listenAddress:      listenAddress,
+		log:                log,
+		grpcMessageMaxSize: grpcMessageMaxSize,
+		sentryEnabled:      sentryEnabled,
 	}
 }
 

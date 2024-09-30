@@ -14,7 +14,7 @@ managed:
   enabled: true
   go_package_prefix:
     # TODO does this need to change?
-    default: github.com/weaviate/weaviate/cloud/proto
+    default: github.com/weaviate/weaviate/internal/metadataserver
 plugins:
   - name: go
     out: .

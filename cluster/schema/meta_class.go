@@ -490,8 +490,10 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 					ClassName:  m.Class.Class,
 					TenantName: name,
 				}:
+					fmt.Println("NATEE sent ctde")
 				default:
 					// drop event if channel is full
+					fmt.Println("NATEE ctde chan full")
 				}
 
 			}
