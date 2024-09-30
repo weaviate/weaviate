@@ -29,7 +29,7 @@ func TestVectorCacheGrowth(t *testing.T) {
 	id := 100_000
 	expectedCount := int64(0)
 
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Duration(10_000))
+	vectorCache := NewPaginatedFloat32Cache(vecForId, 1_000_000, logger, false, time.Duration(10_000))
 	initialSize := vectorCache.Len()
 	assert.Less(t, int(initialSize), id)
 	assert.Equal(t, expectedCount, vectorCache.CountVectors())
@@ -51,7 +51,7 @@ func TestCache_ParallelGrowth(t *testing.T) {
 
 	logger, _ := test.NewNullLogger()
 	var vecForId common.VectorForID[float32] = func(context.Context, uint64) ([]float32, error) { return nil, nil }
-	vectorCache := NewShardedFloat32LockCache(vecForId, 1_000_000, logger, false, time.Second)
+	vectorCache := NewPaginatedFloat32Cache(vecForId, 1_000_000, logger, false, time.Second)
 
 	r := rand.New(rand.NewSource(time.Now().UnixNano()))
 	count := 10_000
@@ -79,17 +79,17 @@ func TestCacheCleanup(t *testing.T) {
 	maxSize := 10
 	batchSize := maxSize - 1
 	deletionInterval := 200 * time.Millisecond // overwrite default deletionInterval of 3s
-	sleepMs := deletionInterval + 100*time.Millisecond
+	sleep := deletionInterval + 100*time.Millisecond
 
 	t.Run("count is not reset on unnecessary deletion", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, logger, false, deletionInterval)
-		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
+		vectorCache := NewPaginatedFloat32Cache(vecForId, maxSize, logger, false, deletionInterval)
+		shardedLockCache, ok := vectorCache.(*paginatedCache[float32])
 		assert.True(t, ok)
 
 		for i := 0; i < batchSize; i++ {
 			shardedLockCache.Preload(uint64(i), []float32{float32(i), float32(i)})
 		}
-		time.Sleep(sleepMs) // wait for deletion to fire
+		time.Sleep(sleep) // wait for deletion to fire
 
 		assert.Equal(t, batchSize, int(shardedLockCache.CountVectors()))
 		assert.Equal(t, batchSize, countCached(shardedLockCache))
@@ -101,8 +101,8 @@ func TestCacheCleanup(t *testing.T) {
 	})
 
 	t.Run("deletion clears cache and counter when maxSize exceeded", func(t *testing.T) {
-		vectorCache := NewShardedFloat32LockCache(vecForId, maxSize, logger, false, deletionInterval)
-		shardedLockCache, ok := vectorCache.(*shardedLockCache[float32])
+		vectorCache := NewPaginatedFloat32Cache(vecForId, maxSize, logger, false, deletionInterval)
+		shardedLockCache, ok := vectorCache.(*paginatedCache[float32])
 		assert.True(t, ok)
 
 		for b := 0; b < 2; b++ {
@@ -110,7 +110,7 @@ func TestCacheCleanup(t *testing.T) {
 				id := b*batchSize + i
 				shardedLockCache.Preload(uint64(id), []float32{float32(id), float32(id)})
 			}
-			time.Sleep(sleepMs) // wait for deletion to fire, 2nd should clean the cache
+			time.Sleep(sleep) // wait for deletion to fire, 2nd should clean the cache
 		}
 
 		assert.Equal(t, 0, int(shardedLockCache.CountVectors()))
@@ -120,14 +120,16 @@ func TestCacheCleanup(t *testing.T) {
 	})
 }
 
-func countCached(c *shardedLockCache[float32]) int {
+func countCached(c *paginatedCache[float32]) int {
 	c.shardedLocks.LockAll()
 	defer c.shardedLocks.UnlockAll()
 
 	count := 0
-	for _, vec := range c.cache {
-		if vec != nil {
-			count++
+	for _, page := range c.cache {
+		for _, vec := range page {
+			if vec != nil {
+				count++
+			}
 		}
 	}
 	return count
