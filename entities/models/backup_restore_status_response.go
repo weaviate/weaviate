@@ -31,6 +31,12 @@ import (
 // swagger:model BackupRestoreStatusResponse
 type BackupRestoreStatusResponse struct {
 
+	// Name of the S3 bucket
+	S3Bucket string `json:"S3Bucket,omitempty"`
+
+	// destination path of backup files proper to selected backup backend
+	S3Path string `json:"S3Path,omitempty"`
+
 	// Backup backend name e.g. filesystem, gcs, s3.
 	Backend string `json:"backend,omitempty"`
 
@@ -39,9 +45,6 @@ type BackupRestoreStatusResponse struct {
 
 	// The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
-
-	// destination path of backup files proper to selected backup backend
-	Path string `json:"path,omitempty"`
 
 	// phase of backup restoration process
 	// Enum: [STARTED TRANSFERRING TRANSFERRED SUCCESS FAILED]

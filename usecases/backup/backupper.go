@@ -62,7 +62,7 @@ func (b *backupper) Backup(ctx context.Context,
 	}
 
 	return &backup.CreateMeta{
-		Path:   store.HomeDir(bucketName,bucketPath),
+		Path:   store.HomeDir(bucketName, bucketPath),
 		Status: backup.Started,
 	}, nil
 }
@@ -116,7 +116,7 @@ func (b *backupper) OnStatus(ctx context.Context, req *StatusRequest) (reqStat, 
 	return reqStat{
 		Starttime: meta.StartedAt,
 		ID:        req.ID,
-		Path:      store.HomeDir("",""), //FIXME
+		Path:      store.HomeDir("", ""), // FIXME
 		Status:    backup.Status(meta.Status),
 	}, nil
 }
@@ -138,7 +138,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		Timeout: expiration,
 	}
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, store.HomeDir(req.S3Bucket,req.S3Path)); prevID != "" {
+	if prevID := b.lastOp.renew(id, store.HomeDir(req.S3Bucket, req.S3Path)); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 	b.waitingForCoordinatorToCommit.Store(true) // is set to false by wait()

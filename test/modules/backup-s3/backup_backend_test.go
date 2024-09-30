@@ -50,7 +50,6 @@ func Test_S3Backend_Start(t *testing.T) {
 
 	override = overrides[1]
 	S3Backend_Backup(t, override)
-
 }
 
 func S3Backend_Backup(t *testing.T, override []string) {
@@ -137,7 +136,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = s3.PutObject(testCtx, backupID, metadataFilename, override[0], override[1], b)
 			require.Nil(t, err)
 
-			dest := s3.HomeDir(override[0], backupID)
+			dest := s3.HomeDir(override[0], override[1], backupID)
 			if override[1] != "" {
 				expected := fmt.Sprintf("s3://%s/%s", override[1], backupID)
 				assert.Equal(t, expected, dest)

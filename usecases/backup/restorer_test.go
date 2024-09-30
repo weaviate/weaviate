@@ -45,7 +45,7 @@ func (r *restorer) Restore(ctx context.Context,
 		ID:      req.ID,
 		Backend: req.Backend,
 		Status:  &status,
-		Path:    store.HomeDir(req.S3Path),
+		Path:    store.HomeDir(req.S3Bucket, req.S3Path),
 	}
 	if _, err := r.restore(req, desc, store); err != nil {
 		return nil, err

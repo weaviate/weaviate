@@ -44,7 +44,6 @@ func Test_FileSystemBackend_Start(t *testing.T) {
 
 	override = overrides[1]
 	FilesystemBackend_Backup(t)
-
 }
 
 func FilesystemBackend_Backup(t *testing.T) {
@@ -106,7 +105,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = fs.PutObject(testCtx, backupID, metadataFilename, "", "", b)
 			require.Nil(t, err)
 
-			dest := fs.HomeDir(override[0],override[1],backupID)
+			dest := fs.HomeDir(override[0], override[1], backupID)
 			expected := fmt.Sprintf("%s/%s", backupDir, backupID)
 			assert.Equal(t, expected, dest)
 		})

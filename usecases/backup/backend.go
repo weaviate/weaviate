@@ -67,7 +67,7 @@ var _NUMCPU = runtime.NumCPU()
 
 type objStore struct {
 	b        modulecapabilities.BackupBackend
-	BasePath string //What is base path?  it is passed to "backupid" in many calls
+	BasePath string // What is base path?  it is passed to "backupid" in many calls
 }
 
 func (s *objStore) HomeDir(overrideBucket, overridePath string) string {

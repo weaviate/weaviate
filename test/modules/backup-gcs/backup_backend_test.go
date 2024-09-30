@@ -12,10 +12,10 @@
 package test
 
 import (
-	"io/ioutil"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -48,7 +48,6 @@ func Test_GcsBackend_Start(t *testing.T) {
 
 	override = overrides[1]
 	GCSBackend_Backup(t)
-
 }
 
 func GCSBackend_Backup(t *testing.T) {
@@ -129,7 +128,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = gcs.PutObject(testCtx, backupID, metadataFilename, override[0], override[1], b)
 			require.Nil(t, err)
 
-			dest := gcs.HomeDir(override[0], backupID)
+			dest := gcs.HomeDir(override[0], override[1], backupID)
 			expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
 			assert.Equal(t, expected, dest)
 		})
@@ -231,9 +230,6 @@ func moduleLevelCopyFiles(t *testing.T) {
 		})
 
 		t.Run("copy file to backend", func(t *testing.T) {
-
-
-
 			srcPath := fpath
 			fmt.Printf("Reading file from %s\n", srcPath)
 			content, err := ioutil.ReadFile(srcPath)

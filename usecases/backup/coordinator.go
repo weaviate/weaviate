@@ -326,7 +326,7 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	}
 
 	return &Status{
-		Path:        store.HomeDir("",""), //FIXME
+		Path:        store.HomeDir("", ""), // FIXME
 		StartedAt:   meta.StartedAt,
 		CompletedAt: meta.CompletedAt,
 		Status:      meta.Status,

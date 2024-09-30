@@ -3356,6 +3356,14 @@ func init() {
     "BackupCreateStatusResponse": {
       "description": "The definition of a backup create metadata",
       "properties": {
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
@@ -3366,10 +3374,6 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -3393,6 +3397,14 @@ func init() {
       "items": {
         "type": "object",
         "properties": {
+          "S3Bucket": {
+            "description": "Name of the S3 bucket",
+            "type": "string"
+          },
+          "S3Path": {
+            "description": "destination path of backup files proper to selected backend",
+            "type": "string"
+          },
           "classes": {
             "description": "The list of classes for which the existed backup process",
             "type": "array",
@@ -3402,10 +3414,6 @@ func init() {
           },
           "id": {
             "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-            "type": "string"
-          },
-          "path": {
-            "description": "destination path of backup files proper to selected backend",
             "type": "string"
           },
           "status": {
@@ -3457,6 +3465,14 @@ func init() {
     "BackupRestoreResponse": {
       "description": "The definition of a backup restore response body",
       "properties": {
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
@@ -3476,10 +3492,6 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
-          "type": "string"
-        },
         "status": {
           "description": "phase of backup restoration process",
           "type": "string",
@@ -3497,6 +3509,14 @@ func init() {
     "BackupRestoreStatusResponse": {
       "description": "The definition of a backup restore metadata",
       "properties": {
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "destination path of backup files proper to selected backup backend",
+          "type": "string"
+        },
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
@@ -3507,10 +3527,6 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of backup files proper to selected backup backend",
           "type": "string"
         },
         "status": {
@@ -8975,6 +8991,14 @@ func init() {
     "BackupCreateStatusResponse": {
       "description": "The definition of a backup create metadata",
       "properties": {
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
@@ -8985,10 +9009,6 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -9016,6 +9036,14 @@ func init() {
     "BackupListResponseItems0": {
       "type": "object",
       "properties": {
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the existed backup process",
           "type": "array",
@@ -9025,10 +9053,6 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
           "type": "string"
         },
         "status": {
@@ -9079,6 +9103,14 @@ func init() {
     "BackupRestoreResponse": {
       "description": "The definition of a backup restore response body",
       "properties": {
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "destination path of backup files proper to selected backend",
+          "type": "string"
+        },
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
@@ -9098,10 +9130,6 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "path": {
-          "description": "destination path of backup files proper to selected backend",
-          "type": "string"
-        },
         "status": {
           "description": "phase of backup restoration process",
           "type": "string",
@@ -9119,6 +9147,14 @@ func init() {
     "BackupRestoreStatusResponse": {
       "description": "The definition of a backup restore metadata",
       "properties": {
+        "S3Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
+        "S3Path": {
+          "description": "destination path of backup files proper to selected backup backend",
+          "type": "string"
+        },
         "backend": {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
@@ -9129,10 +9165,6 @@ func init() {
         },
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
-          "type": "string"
-        },
-        "path": {
-          "description": "destination path of backup files proper to selected backup backend",
           "type": "string"
         },
         "status": {
