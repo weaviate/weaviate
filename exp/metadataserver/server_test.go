@@ -13,10 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/metadataserver/proto/api"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
 
-func TestServer(t *testing.T) {
+// testServerSetup gives you a ready to use Server and Logger and tells you which port
+// number to use.
+func testServerSetup(t *testing.T) (*Server, *logrus.Logger, int) {
+	// TODO replace real port with bufconn?
 	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
 	require.Nil(t, err)
 	l, err := net.ListenTCP("tcp", addr)
@@ -32,11 +37,88 @@ func TestServer(t *testing.T) {
 	server := NewServer(fmt.Sprintf(":%d", port), 1024*1024*1024, false, querierManager, log)
 	err = server.Open()
 	require.Nil(t, err)
-
-	// TODO test with actual grpc client
+	return server, log, port
 }
 
-// TODO go way to do this?
+// testClientSetup gives you a ready to use Server and Logger and tells you which port
+// number to use.
+func testClientSetup(t *testing.T, port int, ctx context.Context) api.MetadataService_QuerierStreamClient {
+	dialCtx := context.Background()
+	leaderRpcConn, err := grpc.DialContext(
+		dialCtx,
+		fmt.Sprintf(":%d", port),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	require.Nil(t, err)
+	c := api.NewMetadataServiceClient(leaderRpcConn)
+	client, err := c.QuerierStream(ctx)
+	require.Nil(t, err)
+	return client
+}
+
+// TestServerNotifyRecv tests that notifying the server.querierManager of a classTenantDataEvent
+// propogates that to the client
+func TestServerNotifyRecv(t *testing.T) {
+	server, log, port := testServerSetup(t)
+	client := testClientSetup(t, port, context.Background())
+
+	notifyCh := make(chan ClassTenant)
+	enterrors.GoWrapper(func() {
+		for ct := range notifyCh {
+			err := server.querierManager.NotifyClassTenantDataEvent(ct)
+			require.Nil(t, err)
+		}
+	}, log)
+
+	defer client.CloseSend()
+	classTenant := ClassTenant{"C1", "t1"}
+	enterrors.GoWrapper(func() {
+		<-time.After(10 * time.Millisecond)
+		notifyCh <- classTenant
+		close(notifyCh)
+	}, log)
+	resp, err := client.Recv()
+	require.Nil(t, err)
+	require.Equal(t, resp.ClassTenant.ClassName, classTenant.ClassName)
+	require.Equal(t, resp.ClassTenant.TenantName, classTenant.TenantName)
+}
+
+// TestServerClientSendClose tests that the client closing the stream immediately works,
+// even if the server tries to send the client an event
+func TestServerClientSendClose(t *testing.T) {
+	server, log, port := testServerSetup(t)
+	client := testClientSetup(t, port, context.Background())
+
+	notifyCh := make(chan ClassTenant)
+	enterrors.GoWrapper(func() {
+		for ct := range notifyCh {
+			err := server.querierManager.NotifyClassTenantDataEvent(ct)
+			require.Nil(t, err)
+		}
+	}, log)
+
+	err := client.CloseSend()
+	require.Nil(t, err)
+}
+
+// TestServerClientDiesUnexpectedly tests that the server can handle the client dying
+// unexpectedly (eg context cancelled)
+func TestServerClientDiesUnexpectedly(t *testing.T) {
+	server, log, port := testServerSetup(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	client := testClientSetup(t, port, ctx)
+
+	notifyCh := make(chan ClassTenant)
+	enterrors.GoWrapper(func() {
+		for ct := range notifyCh {
+			err := server.querierManager.NotifyClassTenantDataEvent(ct)
+			require.Nil(t, err)
+		}
+	}, log)
+	time.AfterFunc(time.Millisecond, cancel)
+	client.Recv()
+}
+
 func testQuerierStreamSetup() (*MockMetadataServiceQuerierStreamServer, *Server, *QuerierManager, *logrus.Logger) {
 	querierManager := NewQuerierManager()
 	log := logrus.New()

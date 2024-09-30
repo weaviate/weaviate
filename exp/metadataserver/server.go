@@ -45,7 +45,7 @@ func (s *Server) Open() error {
 		return fmt.Errorf("address of rpc server cannot be empty")
 	}
 
-	// NOTE listen uses context.background by default, can set if needed
+	// Note listen uses context.background by default, can set if needed
 	listener, err := net.Listen("tcp", s.listenAddress)
 	if err != nil {
 		return fmt.Errorf("server tcp net.listen: %w", err)
@@ -78,41 +78,40 @@ func (s *Server) Open() error {
 // of the stream to keep the connection alive so we can send events to the querier node.
 // This function blocks until the stream is closed by the querier node.
 func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) error {
-	// TODO context https://stackoverflow.com/questions/76724124/does-a-go-grpc-server-streaming-method-not-have-a-context-argument
-	// https://github.com/pahanini/go-grpc-bidirectional-streaming-example/blob/master/src/server/server.go
-	// read and understand this https://github.com/grpc/grpc-go/issues/4578
-	// https://dev.to/techschoolguru/implement-bidirectional-streaming-grpc-go-4kgn
-	//   LaptopService_RateLaptopServer
+	// Note, if you add any potentially blocking calls within QuerierStream, you should
+	// use/derive their context from stream.Context()
 
 	// set up a querier and register it
 	q := NewQuerier()
-	// TODO verify nil ptrs handled well (dont exit on panic?)
-	s.querierManager.Register(q)
-	defer s.querierManager.Unregister(q)
+	if s.querierManager != nil {
+		s.querierManager.Register(q)
+		defer s.querierManager.Unregister(q)
+	}
 
-	// returnErr should be set if there is an error in the goroutines below that should
-	// be returned to the caller.
+	// returnErr should be set if there is an error below that should be returned to the caller
 	var returnErr error
 
+	// We start two goroutines below, one to maintain the connection with the client, and one to
+	// send outgoing messages to the client
 	wg := sync.WaitGroup{}
 	wg.Add(2)
 
 	// Start a goroutine to wait until the stream is closed by the querier node.
 	// If we extend the protocol to send messages from the querier to the metadata node,
-	// then they'll be handled in this goroutine.
+	// then they'll be handled in this goroutine
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 
-		// Wait here until the stream is done (for now, we aren't expecting any messages from the
-		// querier but we have the for loop to retry in case we get transient errors)
 		for {
+			// Wait here until the stream is done (for now, we aren't expecting any messages from the
+			// querier but we have the for loop to retry in case we get transient errors).
 			_, err := stream.Recv()
 			if err == io.EOF {
 				// io.EOF is expected when the stream is closed by the querier
 				return
 			}
 			if err != nil {
-				// unexpected error TODO log
+				s.log.Warnf("metadataserver/Server.QuerierStream unexpected error: %v", err)
 			}
 		}
 	}, s.log)
@@ -124,6 +123,8 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
 		for {
+			// Pass classTenantDataUpdates to the client as they become available, until this
+			// stream's context is done (eg the client closes the stream).
 			select {
 			case <-stream.Context().Done():
 				return
@@ -135,11 +136,6 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 						TenantName: ct.TenantName,
 					},
 				})
-				// TODO does Send actually ever return io.EOF?
-				if err == io.EOF {
-					// io.EOF is expected when the stream is closed by the querier
-					return
-				}
 				if err != nil {
 					// unexpected error
 					returnErr = fmt.Errorf("querier register stream send: %w", err)
