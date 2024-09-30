@@ -19,14 +19,14 @@ import (
 )
 
 type Config struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
+	Enabled bool   `json:"enabled" yaml:"enabled" long:"enabled"`
 	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port"`
+	Port    int    `json:"port" yaml:"port" long:"port" default:"8081"`
 	Group   bool   `json:"group_classes" yaml:"group_classes"`
 
 	// Metrics namespace group the metrics with common prefix.
 	// currently used only on ServerMetrics.
-	MetricsNamespace string
+	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:"weaviate"`
 }
 
 type PrometheusMetrics struct {
@@ -140,15 +140,10 @@ func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
 	r := promauto.With(reg)
 
 	return &ServerMetrics{
-		TCPConnections: r.NewGaugeVec(prometheus.GaugeOpts{
+		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: cfg.MetricsNamespace,
-			Name:      "tcp_connections",
+			Name:      "tcp_active_connections",
 			Help:      "Current number of accepted TCP connections.",
-		}, []string{"protocol"}),
-		TCPConnectionsLimit: r.NewGaugeVec(prometheus.GaugeOpts{
-			Namespace: cfg.MetricsNamespace,
-			Name:      "tcp_connections_limit",
-			Help:      "The max number of TCP connections that can be accepted (0 means no limit).",
 		}, []string{"protocol"}),
 		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: cfg.MetricsNamespace,
@@ -184,9 +179,8 @@ func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
 
 // ServerMetrics exposes set of prometheus metrics for http and grpc servers.
 type ServerMetrics struct {
-	TCPConnections      *prometheus.GaugeVec
-	TCPConnectionsLimit *prometheus.GaugeVec
-	RequestDuration     *prometheus.HistogramVec
+	TCPActiveConnections *prometheus.GaugeVec
+	RequestDuration      *prometheus.HistogramVec
 
 	// NOTE: Adding it as experimental, since we have unbounded cardinality for number of tenant/shards
 	// we may remove it in future.
