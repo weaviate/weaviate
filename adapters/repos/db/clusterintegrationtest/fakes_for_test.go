@@ -287,13 +287,21 @@ type fakeBackupBackend struct {
 	startedAt   time.Time
 }
 
-func (f *fakeBackupBackend) HomeDir(overridePath, backupID string) string {
+func (f *fakeBackupBackend) HomeDir(overrideBucket, overridePath, backupID string) string {
 	f.Lock()
 	defer f.Unlock()
 	if overridePath != "" {
-		return path.Join(overridePath, backupID)
+		if overrideBucket != "" {
+			return path.Join(overrideBucket, overridePath, backupID)
+		} else {
+			return path.Join(overridePath, backupID)
+		}
 	} else {
-		return f.backupsPath
+		if overrideBucket != "" {
+			return path.Join(overrideBucket, f.backupsPath, backupID)
+		} else {
+			return path.Join(f.backupsPath, backupID)
+		}
 	}
 }
 

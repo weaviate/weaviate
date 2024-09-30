@@ -125,7 +125,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = azure.PutObject(testCtx, backupID, metadataFilename, override[0], override[1], b)
 			require.Nil(t, err)
 
-			dest := azure.HomeDir(override[0], backupID) //FIXME
+			dest := azure.HomeDir(override[0], override[1],backupID) //FIXME
 
 			expected := fmt.Sprintf("http://%s/devstoreaccount1/%s/%s", os.Getenv(envAzureEndpoint), containerName, backupID)
 			assert.Equal(t, expected, dest)

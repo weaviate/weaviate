@@ -150,7 +150,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	data := &models.BackupRestoreResponse{
 		Backend: req.Backend,
 		ID:      req.ID,
-		Path:    store.HomeDir(req.S3Path),
+		Path:    store.HomeDir(req.S3Bucket, req.S3Path),
 		Classes: meta.Classes(),
 	}
 
@@ -322,7 +322,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
 		return nil, err
 	}
-	destPath := store.HomeDir(req.S3Path)
+	destPath := store.HomeDir(req.S3Bucket, req.S3Path)
 	// there is no backup with given id on the backend, regardless of its state (valid or corrupted)
 	meta, err := store.Meta(ctx, GlobalBackupFile, req.S3Bucket, req.S3Path)
 	if err == nil && meta.Status != backup.Cancelled {
@@ -344,7 +344,7 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if dup := findDuplicate(req.Include); dup != "" {
 		return nil, fmt.Errorf("class list 'include' contains duplicate: %s", dup)
 	}
-	destPath := store.HomeDir(req.S3Path)
+	destPath := store.HomeDir(req.S3Bucket, req.S3Path)
 	meta, err := store.Meta(ctx, GlobalBackupFile, req.S3Bucket, req.S3Path)
 	if err != nil {
 		notFoundErr := backup.ErrNotFound{}

@@ -74,7 +74,7 @@ func (r *restorer) restore(
 		Timeout: expiration,
 	}
 
-	destPath := store.HomeDir(req.S3Path)
+	destPath := store.HomeDir(req.S3Bucket, req.S3Path)
 
 	// make sure there is no active restore
 	if prevID := r.lastOp.renew(req.ID, destPath); prevID != "" {
@@ -204,7 +204,7 @@ func (r *restorer) status(backend, ID string) (Status, error) {
 }
 
 func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request) (*backup.BackupDescriptor, []string, error) {
-	destPath := store.HomeDir(req.S3Path)
+	destPath := store.HomeDir(req.S3Bucket, req.S3Path)
 	meta, err := store.Meta(ctx, req.ID, req.S3Bucket, req.S3Path, true)
 	if err != nil {
 		nerr := backup.ErrNotFound{}

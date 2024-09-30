@@ -100,12 +100,13 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azu
 	return &azureClient{client, *config, serviceURL, dataPath}, nil
 }
 
-func (a *azureClient) HomeDir(overridePath, backupID string) string {
-	if overridePath != "" {
-		return a.serviceURL + path.Join(a.config.Container, overridePath, backupID)  //FIXME needs override container
-	} else {
-		return a.serviceURL + path.Join(a.config.Container, a.makeObjectName(overridePath, []string{backupID})) //FIXME
+func (a *azureClient) HomeDir(overrideBucket,overridePath, backupID string) string {
+	if overrideBucket == "" {
+		overrideBucket = a.config.Container
 	}
+
+		return a.serviceURL + path.Join(overrideBucket, a.makeObjectName(overridePath, []string{backupID}))  
+
 }
 
 func (g *azureClient) makeObjectName(overridePath string, parts []string) string {

@@ -509,7 +509,7 @@ func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Backup
 }
 
-func (m *dummyBackupModuleWithAltNames) HomeDir(overridePath, backupID string) string {
+func (m *dummyBackupModuleWithAltNames) HomeDir(overrideBucket, overridePath, backupID string) string {
 	return ""
 }
 
