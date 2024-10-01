@@ -1,0 +1,984 @@
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+total failed: 0
+goos: linux
+goarch: amd64
+pkg: github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer
+cpu: Intel(R) Xeon(R) Platinum 8481C CPU @ 2.70GHz
+BenchmarkHammingByte/2_dimensions   	255206419	         4.694 ns/op
+BenchmarkHammingByte/2_dimensions   	255134744	         4.699 ns/op
+BenchmarkHammingByte/2_dimensions   	255289921	         4.695 ns/op
+BenchmarkHammingByte/2_dimensions   	255175363	         4.690 ns/op
+BenchmarkHammingByte/2_dimensions   	255474681	         4.698 ns/op
+BenchmarkHammingByte/2_dimensions   	254995982	         4.697 ns/op
+BenchmarkHammingByte/4_dimensions   	209738502	         5.711 ns/op
+BenchmarkHammingByte/4_dimensions   	209853052	         5.711 ns/op
+BenchmarkHammingByte/4_dimensions   	209925295	         5.709 ns/op
+BenchmarkHammingByte/4_dimensions   	209899150	         5.707 ns/op
+BenchmarkHammingByte/4_dimensions   	209838781	         5.722 ns/op
+BenchmarkHammingByte/4_dimensions   	209968890	         5.710 ns/op
+BenchmarkHammingByte/6_dimensions   	156303242	         7.681 ns/op
+BenchmarkHammingByte/6_dimensions   	156276738	         7.684 ns/op
+BenchmarkHammingByte/6_dimensions   	156325292	         7.673 ns/op
+BenchmarkHammingByte/6_dimensions   	156353496	         7.691 ns/op
+BenchmarkHammingByte/6_dimensions   	156377907	         7.687 ns/op
+BenchmarkHammingByte/6_dimensions   	156383685	         7.671 ns/op
+BenchmarkHammingByte/8_dimensions   	155511354	         7.704 ns/op
+BenchmarkHammingByte/8_dimensions   	155564642	         7.712 ns/op
+BenchmarkHammingByte/8_dimensions   	155524646	         7.719 ns/op
+BenchmarkHammingByte/8_dimensions   	155451565	         7.710 ns/op
+BenchmarkHammingByte/8_dimensions   	155579739	         7.711 ns/op
+BenchmarkHammingByte/8_dimensions   	155043362	         7.707 ns/op
+BenchmarkHammingByte/10_dimensions  	137536945	         8.711 ns/op
+BenchmarkHammingByte/10_dimensions  	137642421	         8.709 ns/op
+BenchmarkHammingByte/10_dimensions  	137542833	         8.715 ns/op
+BenchmarkHammingByte/10_dimensions  	137542867	         8.723 ns/op
+BenchmarkHammingByte/10_dimensions  	136614121	         8.708 ns/op
+BenchmarkHammingByte/10_dimensions  	137634009	         8.709 ns/op
+BenchmarkHammingByte/12_dimensions  	123101971	         9.767 ns/op
+BenchmarkHammingByte/12_dimensions  	122709990	         9.745 ns/op
+BenchmarkHammingByte/12_dimensions  	122980566	         9.769 ns/op
+BenchmarkHammingByte/12_dimensions  	123044528	         9.736 ns/op
+BenchmarkHammingByte/12_dimensions  	123065344	         9.743 ns/op
+BenchmarkHammingByte/12_dimensions  	122958652	         9.746 ns/op
+BenchmarkHammingByte/16_dimensions  	98699875	        12.13 ns/op
+BenchmarkHammingByte/16_dimensions  	100000000	        12.12 ns/op
+BenchmarkHammingByte/16_dimensions  	99127274	        12.10 ns/op
+BenchmarkHammingByte/16_dimensions  	100000000	        12.09 ns/op
+BenchmarkHammingByte/16_dimensions  	98577930	        12.10 ns/op
+BenchmarkHammingByte/16_dimensions  	99918482	        12.16 ns/op
+BenchmarkHammingByte/24_dimensions  	75894463	        15.80 ns/op
+BenchmarkHammingByte/24_dimensions  	75981966	        15.77 ns/op
+BenchmarkHammingByte/24_dimensions  	76086872	        15.76 ns/op
+BenchmarkHammingByte/24_dimensions  	76222886	        15.77 ns/op
+BenchmarkHammingByte/24_dimensions  	76066610	        15.76 ns/op
+BenchmarkHammingByte/24_dimensions  	75939672	        15.75 ns/op
+BenchmarkHammingByte/30_dimensions  	63831342	        18.80 ns/op
+BenchmarkHammingByte/30_dimensions  	63818971	        18.83 ns/op
+BenchmarkHammingByte/30_dimensions  	63866696	        18.79 ns/op
+BenchmarkHammingByte/30_dimensions  	63878157	        18.81 ns/op
+BenchmarkHammingByte/30_dimensions  	63720824	        18.80 ns/op
+BenchmarkHammingByte/30_dimensions  	63845330	        18.79 ns/op
+BenchmarkHammingByte/32_dimensions  	297047485	         4.025 ns/op
+BenchmarkHammingByte/32_dimensions  	295931654	         4.026 ns/op
+BenchmarkHammingByte/32_dimensions  	297811059	         4.027 ns/op
+BenchmarkHammingByte/32_dimensions  	297835450	         4.036 ns/op
+BenchmarkHammingByte/32_dimensions  	297262107	         4.030 ns/op
+BenchmarkHammingByte/32_dimensions  	295064184	         4.024 ns/op
+BenchmarkHammingByte/128_dimensions 	238488361	         5.026 ns/op
+BenchmarkHammingByte/128_dimensions 	238238475	         5.027 ns/op
+BenchmarkHammingByte/128_dimensions 	238320704	         5.031 ns/op
+BenchmarkHammingByte/128_dimensions 	238234020	         5.028 ns/op
+BenchmarkHammingByte/128_dimensions 	238128226	         5.036 ns/op
+BenchmarkHammingByte/128_dimensions 	238275649	         5.027 ns/op
+BenchmarkHammingByte/256_dimensions 	178825746	         6.745 ns/op
+BenchmarkHammingByte/256_dimensions 	178990639	         6.701 ns/op
+BenchmarkHammingByte/256_dimensions 	179012181	         6.704 ns/op
+BenchmarkHammingByte/256_dimensions 	178702226	         6.706 ns/op
+BenchmarkHammingByte/256_dimensions 	178769811	         6.704 ns/op
+BenchmarkHammingByte/256_dimensions 	178668156	         6.704 ns/op
+BenchmarkHammingByte/300_dimensions 	85666416	        14.08 ns/op
+BenchmarkHammingByte/300_dimensions 	86090155	        14.08 ns/op
+BenchmarkHammingByte/300_dimensions 	85932997	        14.09 ns/op
+BenchmarkHammingByte/300_dimensions 	85720426	        14.04 ns/op
+BenchmarkHammingByte/300_dimensions 	86464936	        14.12 ns/op
+BenchmarkHammingByte/300_dimensions 	84920545	        14.06 ns/op
+BenchmarkHammingByte/384_dimensions 	139738036	         8.588 ns/op
+BenchmarkHammingByte/384_dimensions 	139614595	         8.582 ns/op
+BenchmarkHammingByte/384_dimensions 	139686254	         8.580 ns/op
+BenchmarkHammingByte/384_dimensions 	139551140	         8.582 ns/op
+BenchmarkHammingByte/384_dimensions 	139698752	         8.589 ns/op
+BenchmarkHammingByte/384_dimensions 	139667361	         8.584 ns/op
+BenchmarkHammingByte/512_dimensions 	100000000	        10.17 ns/op
+BenchmarkHammingByte/512_dimensions 	100000000	        10.18 ns/op
+BenchmarkHammingByte/512_dimensions 	100000000	        10.18 ns/op
+BenchmarkHammingByte/512_dimensions 	100000000	        10.17 ns/op
+BenchmarkHammingByte/512_dimensions 	100000000	        10.17 ns/op
+BenchmarkHammingByte/512_dimensions 	100000000	        10.17 ns/op
+BenchmarkHammingByte/768_dimensions 	87018721	        13.81 ns/op
+BenchmarkHammingByte/768_dimensions 	86787028	        13.80 ns/op
+BenchmarkHammingByte/768_dimensions 	86586452	        13.79 ns/op
+BenchmarkHammingByte/768_dimensions 	86655156	        13.80 ns/op
+BenchmarkHammingByte/768_dimensions 	86993966	        13.81 ns/op
+BenchmarkHammingByte/768_dimensions 	86815207	        13.80 ns/op
+BenchmarkHammingByte/1024_dimensions	69971204	        17.14 ns/op
+BenchmarkHammingByte/1024_dimensions	69732866	        17.14 ns/op
+BenchmarkHammingByte/1024_dimensions	69724515	        17.13 ns/op
+BenchmarkHammingByte/1024_dimensions	69677536	        17.12 ns/op
+BenchmarkHammingByte/1024_dimensions	69755335	        17.15 ns/op
+BenchmarkHammingByte/1024_dimensions	69984604	        17.13 ns/op
+BenchmarkHammingByte/1536_dimensions	49665576	        24.15 ns/op
+BenchmarkHammingByte/1536_dimensions	49217451	        24.15 ns/op
+BenchmarkHammingByte/1536_dimensions	49601408	        24.15 ns/op
+BenchmarkHammingByte/1536_dimensions	49669528	        24.13 ns/op
+BenchmarkHammingByte/1536_dimensions	49712697	        24.17 ns/op
+BenchmarkHammingByte/1536_dimensions	49657813	        24.14 ns/op
+PASS
+ok  	github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer	214.759s
