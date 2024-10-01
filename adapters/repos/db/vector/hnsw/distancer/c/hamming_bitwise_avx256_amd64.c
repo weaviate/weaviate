@@ -4,6 +4,51 @@
 #include <stdlib.h>
 #include <sys/types.h>
 
+static inline uint64_t popcnt_AVX2_lookup(__m256i *vec,
+                                          uint64_t *popcnt_constants,
+                                          uint8_t *lookup64bit) {
+
+  size_t i = 0;
+  // const __m256i lookup = _mm256_setr_epi8(
+  //     /* 0 */ 0, /* 1 */ 1, /* 2 */ 1, /* 3 */ 2,
+  //     /* 4 */ 1, /* 5 */ 2, /* 6 */ 2, /* 7 */ 3,
+  //     /* 8 */ 1, /* 9 */ 2, /* a */ 2, /* b */ 3,
+  //     /* c */ 2, /* d */ 3, /* e */ 3, /* f */ 4,
+
+  //     /* 0 */ 0, /* 1 */ 1, /* 2 */ 1, /* 3 */ 2,
+  //     /* 4 */ 1, /* 5 */ 2, /* 6 */ 2, /* 7 */ 3,
+  //     /* 8 */ 1, /* 9 */ 2, /* a */ 2, /* b */ 3,
+  //     /* c */ 2, /* d */ 3, /* e */ 3, /* f */ 4);
+  const __m256i lookup = _mm256_loadu_si256((__m256i *)lookup64bit);
+
+  // const __m256i low_mask = _mm256_set1_epi8(0x0f);
+  const __m256i low_mask = _mm256_set1_epi64x(popcnt_constants[4]);
+
+  __m256i acc = _mm256_setzero_si256();
+
+  const __m256i lo = _mm256_and_si256(*vec, low_mask);
+  const __m256i hi = _mm256_and_si256(_mm256_srli_epi16(*vec, 4), low_mask);
+  const __m256i popcnt1 = _mm256_shuffle_epi8(lookup, lo);
+  const __m256i popcnt2 = _mm256_shuffle_epi8(lookup, hi);
+  __m256i local = _mm256_setzero_si256();
+  local = _mm256_add_epi8(local, popcnt1);
+  local = _mm256_add_epi8(local, popcnt2);
+
+  acc = _mm256_add_epi64(acc, _mm256_sad_epu8(local, _mm256_setzero_si256()));
+
+  // acc = _mm256_add_epi64(acc, _mm256_sad_epu8(local,
+  // _mm256_setzero_si256()));
+
+  uint64_t result = 0;
+
+  result += (uint64_t)(_mm256_extract_epi64(acc, 0));
+  result += (uint64_t)(_mm256_extract_epi64(acc, 1));
+  result += (uint64_t)(_mm256_extract_epi64(acc, 2));
+  result += (uint64_t)(_mm256_extract_epi64(acc, 3));
+
+  return result;
+}
+
 static inline uint64_t popcnt_64bit(uint64_t *src, uint64_t *popcnt_constants) {
   uint64_t x = *src;
   x = (x & popcnt_constants[0]) + ((x >> 1) & popcnt_constants[0]);
@@ -51,7 +96,7 @@ uint64_t popcount(uint64_t *x, uint64_t *lookup64bit) {
 }
 
 void hamming_bitwise_256(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
-                         uint64_t *lookup64bit, uint64_t *popcnt_constants) {
+                         uint8_t *lookup64bit, uint64_t *popcnt_constants) {
 
   int n = *len;
   uint64_t sum = 0;
@@ -96,22 +141,26 @@ void hamming_bitwise_256(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
     uint64_t *p3 = (uint64_t *)&cmp_result_3;
     uint64_t *p4 = (uint64_t *)&cmp_result_4;
 
-    sum += popcnt_64bit(p1, popcnt_constants) +
-           popcnt_64bit(p1 + 1, popcnt_constants) +
-           popcnt_64bit(p1 + 2, popcnt_constants) +
-           popcnt_64bit(p1 + 3, popcnt_constants) +
-           popcnt_64bit(p2, popcnt_constants) +
-           popcnt_64bit(p2 + 1, popcnt_constants) +
-           popcnt_64bit(p2 + 2, popcnt_constants) +
-           popcnt_64bit(p2 + 3, popcnt_constants) +
-           popcnt_64bit(p3, popcnt_constants) +
-           popcnt_64bit(p3 + 1, popcnt_constants) +
-           popcnt_64bit(p3 + 2, popcnt_constants) +
-           popcnt_64bit(p3 + 3, popcnt_constants) +
-           popcnt_64bit(p4, popcnt_constants) +
-           popcnt_64bit(p4 + 1, popcnt_constants) +
-           popcnt_64bit(p4 + 2, popcnt_constants) +
-           popcnt_64bit(p4 + 3, popcnt_constants);
+    // sum += popcnt_64bit(p1, popcnt_constants) +
+    //        popcnt_64bit(p1 + 1, popcnt_constants) +
+    //        popcnt_64bit(p1 + 2, popcnt_constants) +
+    //        popcnt_64bit(p1 + 3, popcnt_constants) +
+    //        popcnt_64bit(p2, popcnt_constants) +
+    //        popcnt_64bit(p2 + 1, popcnt_constants) +
+    //        popcnt_64bit(p2 + 2, popcnt_constants) +
+    //        popcnt_64bit(p2 + 3, popcnt_constants) +
+    //        popcnt_64bit(p3, popcnt_constants) +
+    //        popcnt_64bit(p3 + 1, popcnt_constants) +
+    //        popcnt_64bit(p3 + 2, popcnt_constants) +
+    //        popcnt_64bit(p3 + 3, popcnt_constants) +
+    //        popcnt_64bit(p4, popcnt_constants) +
+    //        popcnt_64bit(p4 + 1, popcnt_constants) +
+    //        popcnt_64bit(p4 + 2, popcnt_constants) +
+    //        popcnt_64bit(p4 + 3, popcnt_constants);
+    sum += popcnt_AVX2_lookup(&cmp_result_1, popcnt_constants, lookup64bit) +
+           popcnt_AVX2_lookup(&cmp_result_2, popcnt_constants, lookup64bit) +
+           popcnt_AVX2_lookup(&cmp_result_3, popcnt_constants, lookup64bit) +
+           popcnt_AVX2_lookup(&cmp_result_4, popcnt_constants, lookup64bit);
 
     // sum += popcnt_lookup_64bit(p1, &size, lookup64bit) +
     //        popcnt_lookup_64bit(p2, &size, lookup64bit) +
