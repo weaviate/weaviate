@@ -79,8 +79,10 @@ func convertToBlocks(nodes *binarySearchNodeMap) ([][]byte, [][]byte, *sroar.Bit
 			end = len(values)
 		}
 
+		maxId := binary.BigEndian.Uint64(nodes.values[end-1].Key)
+
 		blocks[i] = make([]byte, 16)
-		binary.LittleEndian.PutUint64(blocks[i], uint64(end-start))
+		binary.LittleEndian.PutUint64(blocks[i], maxId)
 		binary.LittleEndian.PutUint64(blocks[i][8:], uint64(offset))
 
 		encodedBlocks[i] = encodeBlock(values[start:end])

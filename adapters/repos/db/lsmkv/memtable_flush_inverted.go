@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bufio"
 	"encoding/binary"
 	"io"
 	"os"
@@ -21,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (m *Memtable) flushDataInverted(f io.Writer, ff *os.File) ([]segmentindex.Key, *sroar.Bitmap, error) {
+func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentindex.Key, *sroar.Bitmap, error) {
 	m.RLock()
 	flatA := m.keyMap.flattenInOrder()
 	m.RUnlock()
@@ -161,6 +162,12 @@ func (m *Memtable) flushDataInverted(f io.Writer, ff *os.File) ([]segmentindex.K
 		return nil, nil, err
 	}
 	totalWritten += len(tombstoneBuffer)
+
+	if err := f.Flush(); err != nil {
+		return nil, nil, err
+	}
+
+	ff.Sync()
 
 	// fix offset for Inverted strategy
 	ff.Seek(8, io.SeekStart)
