@@ -200,6 +200,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		Method:  OpCreate,
 		ID:      req.ID,
 		Backend: req.Backend,
+		S3Bucket: req.S3Bucket,
+		S3Path:   req.S3Path,
 	}
 
 	f := func() {
@@ -257,7 +259,7 @@ func (c *coordinator) Restore(
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, S3Bucket: req.S3Bucket, S3Path: req.S3Path}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
@@ -319,14 +321,14 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		filename = GlobalRestoreFile
 	}
 	// The backup might have been already created.
-	meta, err := store.Meta(ctx, filename, "", "") // FIXME
+	meta, err := store.Meta(ctx, filename, store.S3Bucket, store.S3Path)
 	if err != nil {
 		path := fmt.Sprintf("%s/%s", req.ID, filename)
 		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v", errMetaNotFound, path, err)
 	}
 
 	return &Status{
-		Path:        store.HomeDir("", ""), // FIXME
+		Path:        store.HomeDir(store.S3Bucket, store.S3Path),
 		StartedAt:   meta.StartedAt,
 		CompletedAt: meta.CompletedAt,
 		Status:      meta.Status,

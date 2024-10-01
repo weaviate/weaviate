@@ -188,7 +188,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, overrideBucket, overridePath}
+	req := &StatusRequest{OpCreate, backupID, backend, store.S3Bucket, store.S3Path}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -210,7 +210,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, "", ""}
+	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
@@ -397,7 +397,7 @@ func (s *Scheduler) fetchSchema(
 		if err != nil {
 			return nil, err
 		}
-		meta, err := store.Meta(ctx, req.ID, "", "", true) // FIXME
+		meta, err := store.Meta(ctx, req.ID, "", "", true) // FIXME?
 		if err != nil {
 			return nil, err
 		}
