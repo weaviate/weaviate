@@ -45,7 +45,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "BackupStatus",
-			additionalArgs:   []interface{}{"s3", "123"},
+			additionalArgs:   []interface{}{"s3", "123","",""}, //FIXME
 			expectedVerb:     "get",
 			expectedResource: "backups/s3/123",
 		},
@@ -57,7 +57,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "RestorationStatus",
-			additionalArgs:   []interface{}{"s3", "123"},
+			additionalArgs:   []interface{}{"s3", "123", "", ""}, //FIXME
 			expectedVerb:     "get",
 			expectedResource: "backups/s3/123/restore",
 		},
