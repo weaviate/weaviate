@@ -149,7 +149,7 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "tags": [
           "backups"
         ],
@@ -5547,7 +5547,7 @@ func init() {
     },
     "/backups/{backend}": {
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "tags": [
           "backups"
         ],
