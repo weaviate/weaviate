@@ -156,7 +156,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, bucketName, buc
 }
 
 func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
-	/*	key := "access-check"
+		key := "access-check"
 
 
 		if err := s.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {
@@ -168,7 +168,7 @@ func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
 		if err := s.client.RemoveObject(ctx, s.config.Bucket, objectName, opt); err != nil {
 			return errors.Wrap(err, "failed to remove access-check s3 backup module")
 		}
-	*/
+
 
 	return nil
 }
