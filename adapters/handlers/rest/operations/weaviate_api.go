@@ -30,6 +30,7 @@ import (
 	"github.com/go-openapi/spec"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
@@ -42,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // NewWeaviateAPI creates a new Weaviate instance
@@ -66,6 +68,12 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		YamlConsumer: yamlpc.YAMLConsumer(),
 
 		JSONProducer: runtime.JSONProducer(),
+
+		// NOTE(kavi): Hack
+		ServerMetrics: monitoring.NewServerMetrics(monitoring.Config{
+			Enabled: true,
+			MetricsNamespace: "weaviate",
+		}, prometheus.DefaultRegisterer),
 
 		WellKnownGetWellKnownOpenidConfigurationHandler: well_known.GetWellKnownOpenidConfigurationHandlerFunc(func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation well_known.GetWellKnownOpenidConfiguration has not yet been implemented")
@@ -402,6 +410,10 @@ type WeaviateAPI struct {
 
 	// User defined logger function.
 	Logger func(string, ...interface{})
+
+
+	// Server Metrics
+	ServerMetrics *monitoring.ServerMetrics
 }
 
 // UseRedoc for documentation at /docs
@@ -709,6 +721,17 @@ func (o *WeaviateAPI) HandlerFor(method, path string) (http.Handler, bool) {
 		path = ""
 	}
 	h, ok := o.handlers[um][path]
+
+	// instrument http.Handler
+	if ok {
+		h = monitoring.InstrumentHTTP(
+			h,
+			o.ServerMetrics.InflightRequests,
+			o.ServerMetrics.RequestDuration,
+			o.ServerMetrics.RequestBodySize,
+			o.ServerMetrics.ResponseBodySize,
+		)
+	}
 	return h, ok
 }
 
