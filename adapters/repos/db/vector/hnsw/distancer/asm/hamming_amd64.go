@@ -123,6 +123,13 @@ var lookup_avx = []uint8{
 	/* c */ 2 /* d */, 3 /* e */, 3 /* f */, 4,
 }
 
+var popcnt_constants = []uint64{
+	0x5555555555555555, // MASK_01010101
+	0x3333333333333333, // MASK_00110011
+	0x0F0F0F0F0F0F0F0F, // MASK_00001111
+	0x0101010101010101, // MULT_01010101
+}
+
 func HammingBitwiseAVX256(x []uint64, y []uint64) float32 {
 	var res uint64
 
@@ -133,10 +140,8 @@ func HammingBitwiseAVX256(x []uint64, y []uint64) float32 {
 		unsafe.Pointer(&res),
 		unsafe.Pointer(&l),
 		unsafe.Pointer(unsafe.SliceData(lookup64bit)),
+		unsafe.Pointer(unsafe.SliceData(popcnt_constants)),
 	)
-
-	print(res)
-	print("test")
 
 	return float32(res)
 }
