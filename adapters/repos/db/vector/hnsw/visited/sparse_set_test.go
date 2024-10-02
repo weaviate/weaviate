@@ -74,5 +74,4 @@ func TestSparseVisitedList(t *testing.T) {
 		assert.True(t, l.Visited(37), "a node visited in this round is marked as such")
 		assert.True(t, l.Visited(998), "a node visited in this round is marked as such")
 	})
-
 }
