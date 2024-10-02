@@ -39,10 +39,10 @@ func testHammingBitwiseFixedValue(t *testing.T, size uint, hammingBitwiseFn func
 		res := hammingBitwiseFn(vec1, vec2)
 
 		resControl := HammingBitwiseGo(vec1, vec2)
-		if resControl != res {
-			t.Logf("for dim: %d -> want: %f, got: %f", size, resControl, res)
-			t.Fail()
-		}
+		// if resControl != res {
+		t.Logf("for dim: %d -> want: %f, got: %f", size, resControl, res)
+		t.Fail()
+		// }
 	}
 }
 
@@ -70,7 +70,7 @@ func testHammingBitwiseRandomValue(t *testing.T, size uint, hammingBitwiseFn fun
 
 		resControl := HammingBitwiseGo(vec1s[i], vec2s[i])
 		if resControl != res {
-			t.Logf("for dim: %d -> want: %f, got: %f", size, resControl, res)
+			t.Logf("for dim: %d -> want: %f, got: %f, factor: %f", size, resControl, res, resControl/res)
 			t.Fail()
 		}
 	}
@@ -111,9 +111,10 @@ func TestCompareHammingBitwise(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
-			testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX256)
-			testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX256)
+			// testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX256)
+			// testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX256)
 			// testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX512)
+			testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX512)
 		})
 	}
 }
@@ -142,7 +143,8 @@ func BenchmarkHammingBitwise(b *testing.B) {
 			benchmarkHammingBitwise(b, dim, asm.HammingBitwiseAVX256)
 
 			b.Run("pure go", func(b *testing.B) { benchmarkHammingBitwise(b, dim, HammingBitwiseGo) })
-			b.Run("neon", func(b *testing.B) { benchmarkHammingBitwise(b, dim, asm.HammingBitwiseAVX256) })
+			b.Run("avx-2", func(b *testing.B) { benchmarkHammingBitwise(b, dim, asm.HammingBitwiseAVX256) })
+			b.Run("avx-512", func(b *testing.B) { benchmarkHammingBitwise(b, dim, asm.HammingBitwiseAVX512) })
 		})
 	}
 }

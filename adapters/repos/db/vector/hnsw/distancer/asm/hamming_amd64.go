@@ -15,7 +15,7 @@ package asm
 ////go:generate goat ../c/hamming_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 ////go:generate goat ../c/hamming_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 //go:generate goat ../c/hamming_bitwise_avx256_amd64.c -O3 -mavx2   -mno-avx512f  -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
-////go:generate goat ../c/hamming_bitwise_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
+//go:generate goat ../c/hamming_bitwise_avx512_amd64.c -O3 -mavx2 -mfma -mavx512f -mavx512dq -mavx512bw -mavx512vl -e="-mfloat-abi=hard" -e="-Rpass-analysis=loop-vectorize" -e="-Rpass=loop-vectorize" -e="-Rpass-missed=loop-vectorize"
 
 import "unsafe"
 
@@ -83,6 +83,28 @@ func HammingBitwiseAVX256(x []uint64, y []uint64) float32 {
 	return float32(res)
 }
 
+var constants_avx512 = []byte{
+	0x55, 0x33, 0x0F,
+	// { // m1: 0x55
+	// 	0x5555555555555555, 0x5555555555555555,
+	// 	0x5555555555555555, 0x5555555555555555,
+	// 	0x5555555555555555, 0x5555555555555555,
+	// 	0x5555555555555555, 0x5555555555555555,
+	// },
+	// { // m2: 0x33
+	// 	0x3333333333333333, 0x3333333333333333,
+	// 	0x3333333333333333, 0x3333333333333333,
+	// 	0x3333333333333333, 0x3333333333333333,
+	// 	0x3333333333333333, 0x3333333333333333,
+	// },
+	// { // m4: 0x0F
+	// 	0x0F0F0F0F0F0F0F0F, 0x0F0F0F0F0F0F0F0F,
+	// 	0x0F0F0F0F0F0F0F0F, 0x0F0F0F0F0F0F0F0F,
+	// 	0x0F0F0F0F0F0F0F0F, 0x0F0F0F0F0F0F0F0F,
+	// 	0x0F0F0F0F0F0F0F0F, 0x0F0F0F0F0F0F0F0F,
+	// },
+}
+
 func HammingBitwiseAVX512(x []uint64, y []uint64) float32 {
 
 	var res uint64
@@ -92,9 +114,9 @@ func HammingBitwiseAVX512(x []uint64, y []uint64) float32 {
 		unsafe.Pointer(unsafe.SliceData(x)),
 		unsafe.Pointer(unsafe.SliceData(y)),
 		unsafe.Pointer(&res),
-		unsafe.Pointer(&l))
-
-	print(res)
+		unsafe.Pointer(&l),
+		unsafe.Pointer(unsafe.SliceData(constants_avx512)),
+		unsafe.Pointer(unsafe.SliceData(popcnt_constants)))
 
 	return float32(res)
 }
