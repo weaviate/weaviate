@@ -120,7 +120,7 @@ func (f *Finder) GetOne(ctx context.Context,
 	result := <-f.readOne(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
-		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
+		if strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}
@@ -234,7 +234,7 @@ func (f *Finder) Exists(ctx context.Context,
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
 		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
-		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
+		if strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}

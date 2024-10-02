@@ -18,7 +18,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 type retryClient struct {
@@ -107,7 +110,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 	delay := r.minBackOff
 	for {
 		keepTrying, err := work(ctx)
-		if !keepTrying || n < 1 || err == nil {
+		if !keepTrying || n < 1 || err == nil || strings.Contains(err.Error(), replica.ErrConflictExistOrDeleted.Error()) {
 			return err
 		}
 

@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -248,10 +249,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				resp, err := op(workerCtx, hosts[hostIndex], isFullReadWorker)
 				// TODO return retryable info here, for now should be fine since most errors are considered retryable
 				// TODO have increasing timeout passed into each op (eg 1s, 2s, 4s, 8s, 16s, 32s, with some max) similar to backoff? future PR? or should we just set timeout once per worker in Pull?
-				if err == nil {
+				if err == nil || strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
 					replyCh <- _Result[T]{resp, err}
 					return
 				}
+
 				// this host failed op on the first try, put it on the retry queue
 				hostRetryQueue <- hostRetry{
 					hosts[hostIndex],
@@ -261,7 +263,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
-					if err == nil {
+					if err == nil || strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
