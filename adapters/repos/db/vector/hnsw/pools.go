@@ -20,8 +20,8 @@ import (
 )
 
 type pools struct {
-	visitedLists     *sync.Pool
 	visitedListsLock *sync.RWMutex
+	visitedLists     *visitedPool
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
@@ -32,18 +32,10 @@ type pools struct {
 	tempVectorsUint64 *common.TempVectorUint64Pool
 }
 
-func newVisitedListPool(initialSize int) *sync.Pool {
-	return &sync.Pool{
-		New: func() interface{} {
-			return visited.NewSparseSet(initialSize, 8192)
-		},
-	}
-}
-
-func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pools {
+func newPools(maxConnectionsLayerZero int) *pools {
 	return &pools{
+		visitedLists:     newVisitedPool(0),
 		visitedListsLock: &sync.RWMutex{},
-		visitedLists:     newVisitedListPool(initialVisitedListPoolSize),
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
@@ -55,6 +47,32 @@ func newPools(maxConnectionsLayerZero int, initialVisitedListPoolSize int) *pool
 		tempVectors:       common.NewTempVectorsPool(),
 		tempVectorsUint64: common.NewTempUint64VectorsPool(),
 	}
+}
+
+type visitedPool struct {
+	pool *sync.Pool
+}
+
+func newVisitedPool(initialSize int) *visitedPool {
+	if initialSize <= 0 {
+		initialSize = 1_000_000 // Default size if not specified
+	}
+	return &visitedPool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return visited.NewSparseSet(initialSize, 8192)
+			},
+		},
+	}
+}
+
+func (vp *visitedPool) Get() *visited.SparseSet {
+	return vp.pool.Get().(*visited.SparseSet)
+}
+
+func (vp *visitedPool) Put(v *visited.SparseSet) {
+	v.Reset()
+	vp.pool.Put(v)
 }
 
 type pqMinPool struct {

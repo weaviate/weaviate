@@ -73,7 +73,7 @@ func NewSparseSet(size, collisionRate int) *SparseSet {
 	}
 	return &SparseSet{
 		collisionRate:    uint64(collisionRate),
-		collidingBitSet:  make([]byte, (size/collisionRate+1)/8+1),
+		collidingBitSet:  make([]byte, (size/collisionRate)/8+1),
 		segmentedBitSets: newSegmentedBitSet(size, collisionRate),
 		masks:            masks,
 	}
@@ -131,7 +131,7 @@ func (s *SparseSet) resetSegment(segmentId uint64) {
 }
 
 func (s *SparseSet) grow(size uint64) {
-	growSize := (size - uint64(s.Len())) / s.collisionRate
+	growSize := (size-uint64(s.Len()))/s.collisionRate + 8
 	s.collidingBitSet = append(s.collidingBitSet, make([]byte, growSize/8)...)
 	s.segmentedBitSets.grow(growSize)
 }

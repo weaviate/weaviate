@@ -307,7 +307,7 @@ func TestRescore(t *testing.T) {
 					) ([]float32, error) {
 						return vectors[id], nil
 					},
-					pools:             newPools(32, 1),
+					pools:             newPools(32),
 					distancerProvider: d,
 				}
 

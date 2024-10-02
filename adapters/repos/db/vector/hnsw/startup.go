@@ -26,7 +26,7 @@ import (
 )
 
 func (h *hnsw) init(cfg Config) error {
-	h.pools = newPools(h.maximumConnectionsLayerZero, h.visitedListPoolMaxSize)
+	h.pools = newPools(h.maximumConnectionsLayerZero)
 
 	// init commit logger for future writes
 	cl, err := cfg.MakeCommitLoggerThunk()
@@ -231,7 +231,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 
 	// make sure the visited list pool fits the current size
 	h.pools.visitedLists = nil
-	h.pools.visitedLists = newVisitedListPool(len(h.nodes) + 512)
+	h.pools.visitedLists = newVisitedPool(len(h.nodes) + 512)
 
 	return nil
 }
