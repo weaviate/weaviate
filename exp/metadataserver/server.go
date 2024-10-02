@@ -36,7 +36,7 @@ func NewServer(listenAddress string, grpcMessageMaxSize int,
 }
 
 // Open starts the server and registers it as the cluster service server.
-// Returns asynchronously once the server has started.
+// Starts the serving asynchronously.
 // Returns an error if the configured listenAddress is invalid.
 // Returns an error if the configured listenAddress is un-usable to listen on.
 func (s *Server) Open() error {
@@ -61,12 +61,9 @@ func (s *Server) Open() error {
 	}
 	s.grpcServer = grpc.NewServer(options...)
 	api.RegisterMetadataServiceServer(s.grpcServer, s)
-	enterrors.GoWrapper(func() {
-		if err := s.grpcServer.Serve(listener); err != nil {
-			s.log.WithError(err).Error("serving incoming requests")
-			panic("error accepting incoming requests")
-		}
-	}, s.log)
+	if err := s.grpcServer.Serve(listener); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -137,6 +134,7 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 					},
 				})
 				if err != nil {
+					// TODO test this, hwo to avoid infinite error loop?
 					// unexpected error
 					returnErr = fmt.Errorf("querier register stream send: %w", err)
 					return
@@ -154,6 +152,6 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 // Close closes the server and free any used ressources.
 func (s *Server) Close() {
 	if s.grpcServer != nil {
-		s.grpcServer.Stop()
+		s.grpcServer.GracefulStop()
 	}
 }

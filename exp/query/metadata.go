@@ -15,15 +15,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
-	"net"
-	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/metadataserver/proto/api"
-	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -35,46 +32,49 @@ import (
 // EnsureStarted uses sync.Once to ensure that the subscription is started only once, even if it
 // is called multiple times.
 type MetadataSubscription struct {
-	offload *modsloads3.Module
-	start   func()
+	lsmEnsurer LSMEnsurer
+	start      func()
+	log        logrus.FieldLogger
 }
 
-func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string, metadataGRPCPort int) *MetadataSubscription {
+// TODO
+func NewMetadataSubscription(lsmEnsurer LSMEnsurer, metadataGRPCHost string, metadataGRPCPort int, log logrus.FieldLogger) *MetadataSubscription {
 	metadataSubscription := &MetadataSubscription{
-		offload: offload,
+		lsmEnsurer: lsmEnsurer,
+		log:        log,
 	}
 	// wait to call start until gRPC serving is active and use sync.Once to ensure that start is called only once
 	metadataSubscription.start = sync.OnceFunc(func() {
 		// Start a goroutine to subscribe to metadata node. Do this in a goroutine so that the
-		// gRPC server can keep serving requests before we start subscribing to metadata.
+		// caller of this func does not block waiting for the subscription to metadata to complete.
 		enterrors.GoWrapper(func() {
-			// if metadataGRPCHost == "" {
-			// 	metadataGRPCHost = getOutboundIP()
-			// }
-			// TODO need to learn more go/contexts
-			ctx := context.TODO()
-			// TODO DialContext is deprecated?
-			leaderRpcConn, err := grpc.DialContext(
-				ctx,
+			backgroundCtx := context.Background()
+			// Try 60s timeout for establishing rpc conn
+			dialCtx, cancel := context.WithTimeout(backgroundCtx, 60*time.Second)
+			defer cancel()
+			metadataRpcConn, err := grpc.DialContext(
+				dialCtx,
 				fmt.Sprintf("%s:%d", metadataGRPCHost, metadataGRPCPort),
 				grpc.WithTransportCredentials(insecure.NewCredentials()),
 			)
 			if err != nil {
-				panic(err)
+				log.Errorf("Error dialing metadata: %v", err)
+				return
 			}
-			c := api.NewMetadataServiceClient(leaderRpcConn)
-			stream, err := c.QuerierStream(context.Background())
-			// TODO stream.Context() ?
+			c := api.NewMetadataServiceClient(metadataRpcConn)
+			stream, err := c.QuerierStream(backgroundCtx)
+			// ctx := stream.Context()
+
 			if err != nil {
-				panic(err)
+				log.Errorf("Error creating querier stream: %v", err)
+				return
 			}
 			defer stream.CloseSend()
 
-			// TODO need to think more about how this and server side stuff handles context, concurrency, timeouts, etc
 			wg := sync.WaitGroup{}
 			wg.Add(1)
 
-			// process events from the metadata node
+			// loop to process events from the metadata node
 			enterrors.GoWrapper(func() {
 				defer wg.Done()
 				for {
@@ -85,47 +85,32 @@ func NewMetadataSubscription(offload *modsloads3.Module, metadataGRPCHost string
 					}
 					if err != nil {
 						// unexpected error
-						log.Fatalf("Failed to receive a note : %v", err)
-						panic(err)
+						log.Warnf("Error metadata subscription recv: %v", err)
 					}
 					switch in.Type {
 					case api.QuerierStreamResponse_TYPE_UNSPECIFIED:
-						panic("unspecified")
+						panic("unspecified") // TODO
 					case api.QuerierStreamResponse_TYPE_CLASS_TENANT_DATA_UPDATE:
 						// TODO locking...plan to discuss with kavi, should we download to new dir or delete/overwrite or swap or other?
 						// TODO we shouldn't block here, instead we should offload the download to a worker pool or something
-						err = metadataSubscription.offload.Download(context.TODO(), in.ClassTenant.ClassName, in.ClassTenant.TenantName, nodeName)
+						// TODO only download tenants we care about (eg on disk already?)
+						_, _, err = metadataSubscription.lsmEnsurer.EnsureLSM(context.TODO(), in.ClassTenant.ClassName, in.ClassTenant.TenantName, true)
 						if err != nil {
 							panic(err)
 						}
 					}
 				}
-			}, logrus.New()) // TODO replace logrus.New here and other
+			}, log)
 
 			// currently, we're not sending any messages to the metadata nodes from the querier, we just use
 			// the existence of the stream to keep the connection alive so we can receive events, we can switch to
 			// a unidirectional stream later if we never want to send messages from the querier
 			wg.Wait()
-		}, logrus.New())
+		}, log)
 	})
 	return metadataSubscription
 }
 
 func (metadataSubscription *MetadataSubscription) EnsureStarted() {
 	metadataSubscription.start()
-}
-
-// TODO get rid of this, hacky workaround to make local testing easy
-// Get preferred outbound ip of this machine
-// https://stackoverflow.com/questions/23558425/how-do-i-get-the-local-ip-address-in-go
-func getOutboundIP() string {
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer conn.Close()
-
-	localAddr := conn.LocalAddr()
-
-	return strings.Split(localAddr.String(), ":")[0]
 }

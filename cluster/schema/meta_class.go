@@ -35,7 +35,9 @@ type (
 		Sharding     sharding.State
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
-		ShardProcesses        map[string]NodeShardProcess
+		ShardProcesses map[string]NodeShardProcess
+		// classTenantDataEvents receives messages for tenant events if the metadataserver is
+		// enabled (eg when a tenant is frozen)
 		classTenantDataEvents chan metadataserver.ClassTenant
 	}
 )

@@ -21,6 +21,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -70,9 +71,14 @@ type API struct {
 	// TODO(kavi): Optimize based on some data later.
 	omu sync.Mutex
 
+	// tenantsIHave sync.Map // tenantName -> diskPath
+	// tenant/../lsm/0
+	// tenant/../lsm/1
+	//
+
 	vectorizer text2vecbase.TextVectorizer
 
-	metadataSubscription *MetadataSubscription
+	startMetadataSubscription func()
 }
 
 type TenantInfo interface {
@@ -86,15 +92,16 @@ func NewAPI(
 	config *Config,
 	log logrus.FieldLogger,
 ) *API {
-	metadataSubscription := NewMetadataSubscription(offload, config.MetadataGRPCHost, config.MetadataGRPCPort)
-	return &API{
-		log:                  log,
-		config:               config,
-		tenant:               tenant,
-		offload:              offload,
-		vectorizer:           vectorizer,
-		metadataSubscription: metadataSubscription,
+	api := &API{
+		log:        log,
+		config:     config,
+		tenant:     tenant,
+		offload:    offload,
+		vectorizer: vectorizer,
 	}
+	metadataSubscription := NewMetadataSubscription(api, config.MetadataGRPCHost, config.MetadataGRPCPort, log)
+	api.startMetadataSubscription = metadataSubscription.EnsureStarted
+	return api
 }
 
 // Search serves vector search over the offloaded tenant on object storage.
@@ -117,12 +124,12 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 	}
 
 	// TODO come up with a better way to ensure this doesn't run until the gRPC serving is active
-	a.metadataSubscription.EnsureStarted()
+	a.startMetadataSubscription()
 
 	// TODO explore locking within this func and MetadataSubcription downloads as i expect
 	// vectorSearch/IterateObjects could fail if the files they operate on are being modified
 	// while they are running
-	store, localPath, err := a.loadOrDownloadLSM(ctx, req.Collection, req.Tenant)
+	store, localPath, err := a.EnsureLSM(ctx, req.Collection, req.Tenant, false)
 	if err != nil {
 		return nil, err
 	}
@@ -248,8 +255,14 @@ func (a *API) vectorSearch(
 	return objs, distance, nil
 }
 
-func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) (*lsmkv.Store, string, error) {
-	localPath := path.Join(a.offload.DataPath, strings.ToLower(collection), strings.ToLower(tenant), defaultLSMRoot)
+type LSMEnsurer interface {
+	// EnsureLSM returns the store for this collection/tenant and the local path for the store
+	EnsureLSM(ctx context.Context, collection, tenant string, updateTenantIfExistsLocally bool) (*lsmkv.Store, string, error)
+}
+
+func (a *API) EnsureLSM(ctx context.Context, collection, tenant string, updateTenantIfExistsLocally bool) (*lsmkv.Store, string, error) {
+	currentLocalTime := time.Now()
+	localPath := path.Join(a.offload.DataPath, strings.ToLower(collection), strings.ToLower(tenant), defaultLSMRoot, string(currentLocalTime.UnixMilli()))
 
 	// NOTE: Download only if path doesn't exist.
 	// Assumes, whatever in the path is latest.
@@ -258,7 +271,28 @@ func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) 
 	defer a.omu.Unlock()
 
 	_, err := os.Stat(localPath)
-	if os.IsNotExist(err) {
+
+	// TODO remove old?
+	tenantExistsLocally := !os.IsNotExist(err)
+	proceedWithDownload := false
+	// Technically, we want !xor, but leaving these if's because it's easy to read
+	if updateTenantIfExistsLocally && tenantExistsLocally {
+		// we should download because we've been told there is a new tenant version
+		// for a tenant we have locally
+		proceedWithDownload = true
+	}
+	if updateTenantIfExistsLocally && !tenantExistsLocally {
+		// we only care about tenants we have for new versions, error? or diff func?
+		return nil, "", errors.New("tenant does not exist locally")
+	}
+	if !updateTenantIfExistsLocally && tenantExistsLocally {
+		// cached
+	}
+	if !updateTenantIfExistsLocally && !tenantExistsLocally {
+		// we should download because the caller wants
+		proceedWithDownload = true
+	}
+	if proceedWithDownload {
 		// src - s3://<collection>/<tenant>/<node>/
 		// dst (local) - <data-path/<collection>/<tenant>
 		if err := a.offload.Download(ctx, collection, tenant, nodeName); err != nil {

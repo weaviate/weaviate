@@ -375,27 +375,26 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-	// TODO break into func
-	// TODO config chan buffer size
-	classTenantDataEvents := make(chan metadataserver.ClassTenant, 100)
+	classTenantDataEvents := make(chan metadataserver.ClassTenant, appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity)
 	querierManager := metadataserver.NewQuerierManager()
+	metadataServer := metadataserver.NewServer(
+		appState.ServerConfig.Config.MetadataServer.GrpcListenAddress,
+		appState.ServerConfig.Config.MetadataServer.GrpcMessageMaxSize,
+		true,
+		querierManager,
+		appState.Logger)
+	appState.MetadataServer = metadataServer
 
-	// TODO config to turn on querier functionality
-	if true {
-		// TODO real values (via config?)
-		metadataServer := metadataserver.NewServer(":4242", 1024*1024*1024, true, querierManager, appState.Logger)
-		// TODO should this be in goroutine?
-		// enterrors.GoWrapper(func() { metadataServer.Open() }, appState.Logger)
-		err := metadataServer.Open()
-		if err != nil {
-			// TODO useful log
-			appState.Logger.Warn("metadata server did not start")
-		}
+	if appState.ServerConfig.Config.MetadataServer.Enabled {
+		enterrors.GoWrapper(func() {
+			err := metadataServer.Open()
+			if err != nil {
+				appState.Logger.Errorf("metadata server did not start: %v", err)
+			}
+		}, appState.Logger)
 
-		// TODO how to end this (close classTenantDataEvents channel?)
 		enterrors.GoWrapper(func() {
 			for classTenantDataEvent := range classTenantDataEvents {
-				fmt.Println("NATEE got classTenantDataEvents on chan", classTenantDataEvent.ClassName, classTenantDataEvent.TenantName)
 				querierManager.NotifyClassTenantDataEvent(classTenantDataEvent)
 			}
 		}, appState.Logger)
@@ -692,6 +691,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
+
+		if appState.ServerConfig.Config.MetadataServer.Enabled {
+			if appState.MetadataServer != nil {
+				appState.MetadataServer.Close()
+			}
+		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)

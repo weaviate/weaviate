@@ -128,6 +128,7 @@ type Config struct {
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
+	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -238,6 +239,20 @@ const DefaultPersistenceDataPath string = "./data"
 const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
+
+// MetadataServer is experimental.
+type MetadataServer struct {
+	// When enabled startup will include a "metadata server"
+	// for separation of storage/compute Weaviate.
+	Enabled                   bool   `json:"enabled" yaml:"enabled"`
+	GrpcListenAddress         string `json:"grpc_listen_address" yaml:"grpc_listen_address"`
+	GrpcMessageMaxSize        int    `json:"grpc_message_max_size" yaml:"grpc_message_max_size"`
+	DataEventsChannelCapacity int    `json:"data_events_channel_capacity" yaml:"data_events_channel_capacity"`
+}
+
+const DefaultMetadataServerGrpcListenAddress = ":9050"
+const DefaultMetadataServerGrpcMessageMaxSize = 1024 * 1024 * 1024
+const DefaultMetadataServerDataEventsChannelCapacity = 100
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {

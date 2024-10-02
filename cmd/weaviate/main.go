@@ -89,6 +89,7 @@ func main() {
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
+		// oklog or goroutine
 		log.WithField("addr", opts.Query.GRPCListenAddr).Info("starting querier over grpc")
 		if err := grpcServer.Serve(listener); err != nil {
 			log.Fatal("failed to start grpc server", err)
