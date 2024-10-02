@@ -22,9 +22,6 @@ static inline uint64_t popcnt_AVX2_lookup(__m256i *vec, __m256i *low_mask_vec,
 
   acc = _mm256_add_epi64(acc, _mm256_sad_epu8(local, _mm256_setzero_si256()));
 
-  // acc = _mm256_add_epi64(acc, _mm256_sad_epu8(local,
-  // _mm256_setzero_si256()));
-
   uint64_t result = 0;
 
   result += (uint64_t)(_mm256_extract_epi64(acc, 0));
@@ -43,60 +40,21 @@ static inline uint64_t popcnt_64bit(uint64_t *src, uint64_t *popcnt_constants) {
   return (x * popcnt_constants[3]) >> 56;
 }
 
-uint64_t popcnt_lookup_64bit(uint8_t *data, uint64_t *n, uint64_t *lookup64bit,
-                             uint64_t *popcnt_constants) {
-  uint64_t result = 0;
-  uint64_t i = 0;
-  uint64_t limit = *n - 7;
-
-  // Unroll the loop 8 times
-  while (i < limit) {
-    uint64_t sum = popcnt_64bit((uint64_t *)data + i, popcnt_constants);
-    result += sum;
-    i += 8;
-  }
-
-  // Handle remaining elements
-  while (i < *n) {
-    result += lookup64bit[data[i]];
-    i++;
-  }
-
-  return result;
-}
-
-uint64_t popcount(uint64_t *x, uint64_t *lookup64bit) {
-  uint8_t *data = (uint8_t *)x;
-  uint64_t result = 0;
-
-  result += lookup64bit[data[0]];
-  result += lookup64bit[data[1]];
-  result += lookup64bit[data[2]];
-  result += lookup64bit[data[3]];
-  result += lookup64bit[data[4]];
-  result += lookup64bit[data[5]];
-  result += lookup64bit[data[6]];
-  result += lookup64bit[data[7]];
-
-  return result;
-}
-
 void hamming_bitwise_256(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
-                         uint8_t *lookup64bit, uint64_t *popcnt_constants) {
+                         uint8_t *lookup_avx, uint64_t *popcnt_constants) {
 
   int n = *len;
-  uint64_t sum = 0;
 
-  __m256i lookup_vec = _mm256_loadu_si256((__m256i *)lookup64bit);
-
-  // const __m256i low_mask = _mm256_set1_epi8(0x0f);
+  __m256i lookup_vec = _mm256_loadu_si256((__m256i *)lookup_avx);
   __m256i low_mask_vec = _mm256_set1_epi64x(popcnt_constants[4]);
+
+  uint64_t sum = 0;
 
   // fast path for small dimensions
   if (n < 8) {
     do {
       uint64_t xor = a[0] ^ b[0];
-      sum += popcount(&xor, lookup64bit);
+      sum += popcnt_64bit(&xor, popcnt_constants);
 
       n--;
       a++;
@@ -132,31 +90,10 @@ void hamming_bitwise_256(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
     uint64_t *p3 = (uint64_t *)&cmp_result_3;
     uint64_t *p4 = (uint64_t *)&cmp_result_4;
 
-    // sum += popcnt_64bit(p1, popcnt_constants) +
-    //        popcnt_64bit(p1 + 1, popcnt_constants) +
-    //        popcnt_64bit(p1 + 2, popcnt_constants) +
-    //        popcnt_64bit(p1 + 3, popcnt_constants) +
-    //        popcnt_64bit(p2, popcnt_constants) +
-    //        popcnt_64bit(p2 + 1, popcnt_constants) +
-    //        popcnt_64bit(p2 + 2, popcnt_constants) +
-    //        popcnt_64bit(p2 + 3, popcnt_constants) +
-    //        popcnt_64bit(p3, popcnt_constants) +
-    //        popcnt_64bit(p3 + 1, popcnt_constants) +
-    //        popcnt_64bit(p3 + 2, popcnt_constants) +
-    //        popcnt_64bit(p3 + 3, popcnt_constants) +
-    //        popcnt_64bit(p4, popcnt_constants) +
-    //        popcnt_64bit(p4 + 1, popcnt_constants) +
-    //        popcnt_64bit(p4 + 2, popcnt_constants) +
-    //        popcnt_64bit(p4 + 3, popcnt_constants);
     sum += popcnt_AVX2_lookup(&cmp_result_1, &low_mask_vec, &lookup_vec) +
            popcnt_AVX2_lookup(&cmp_result_2, &low_mask_vec, &lookup_vec) +
            popcnt_AVX2_lookup(&cmp_result_3, &low_mask_vec, &lookup_vec) +
            popcnt_AVX2_lookup(&cmp_result_4, &low_mask_vec, &lookup_vec);
-
-    // sum += popcnt_lookup_64bit(p1, &size, lookup64bit) +
-    //        popcnt_lookup_64bit(p2, &size, lookup64bit) +
-    //        popcnt_lookup_64bit(p3, &size, lookup64bit) +
-    //        popcnt_lookup_64bit(p4, &size, lookup64bit);
 
     n -= 16;
     a += 16;
@@ -171,7 +108,6 @@ void hamming_bitwise_256(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
 
     uint64_t *p1 = (uint64_t *)&cmp_result_1;
 
-    // sum += popcnt_lookup_64bit(p1, &size, lookup64bit, popcnt_constants);
     sum += popcnt_AVX2_lookup(&cmp_result_1, &low_mask_vec, &lookup_vec);
     n -= 4;
     a += 4;

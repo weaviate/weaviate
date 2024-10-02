@@ -12,10 +12,4 @@ func popcnt_AVX2_lookup(vec, low_mask_vec, lookup_vec unsafe.Pointer)
 func popcnt_64bit(src, popcnt_constants unsafe.Pointer)
 
 //go:noescape
-func popcnt_lookup_64bit(data, n, lookup64bit, popcnt_constants unsafe.Pointer)
-
-//go:noescape
-func popcount(x, lookup64bit unsafe.Pointer)
-
-//go:noescape
-func hamming_bitwise_256(a, b, res, len, lookup64bit, popcnt_constants unsafe.Pointer)
+func hamming_bitwise_256(a, b, res, len, lookup_avx, popcnt_constants unsafe.Pointer)
