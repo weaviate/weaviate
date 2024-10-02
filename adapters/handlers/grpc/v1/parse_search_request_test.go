@@ -664,7 +664,11 @@ func TestGRPCRequest(t *testing.T) {
 			name: "filter simple",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
-				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "test"},
+					On:        []string{"name"},
+				},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,
@@ -1730,9 +1734,10 @@ func TestGRPCRequest(t *testing.T) {
 		},
 	}
 
+	parser := NewParser(false, scheme.GetClass)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, err := searchParamsFromProto(tt.req, scheme.GetClass, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
+			out, err := parser.Search(tt.req, &config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
 			if tt.error {
 				require.NotNil(t, err)
 			} else {

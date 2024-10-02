@@ -128,7 +128,7 @@ func asyncRepairObjectDeleteScenario(t *testing.T) {
 		toDelete, err := helper.GetObjectCL(t, paragraphClass.Class, id, replica.One)
 		require.NoError(t, err)
 
-		helper.DeleteObjectCL(t, toDelete, replica.Quorum)
+		helper.DeleteObjectCL(t, toDelete.Class, toDelete.ID, replica.Quorum)
 
 		t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
 			startNodeAt(ctx, t, compose, node)

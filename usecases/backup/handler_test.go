@@ -112,12 +112,6 @@ func (f *fakeSchemaManger) NodeName() string {
 	return f.nodeName
 }
 
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
-}
-
 func TestFilterClasses(t *testing.T) {
 	tests := []struct {
 		in  []string

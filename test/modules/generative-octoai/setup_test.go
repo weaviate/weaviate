@@ -31,15 +31,16 @@ func TestGenerativeOctoAI_SingleNode(t *testing.T) {
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
-	endpoint := compose.GetWeaviate().URI()
+	endpointREST := compose.GetWeaviate().URI()
+	endpointGRPC := compose.GetWeaviate().GrpcURI()
 
-	t.Run("tests", testGenerativeOctoAI(endpoint, "https://text.octoai.run"))
+	t.Run("tests", testGenerativeOctoAI(endpointREST, endpointGRPC))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, octoAIApiKey string,
 ) (compose *docker.DockerCompose, err error) {
 	compose, err = composeModules(octoAIApiKey).
-		WithWeaviate().
+		WithWeaviateWithGRPC().
 		WithWeaviateEnv("ENABLE_EXPERIMENTAL_DYNAMIC_RAG_SYNTAX", "true").
 		Start(ctx)
 	return

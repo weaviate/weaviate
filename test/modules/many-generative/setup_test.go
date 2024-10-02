@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package generative_palm_tests
+package tests
 
 import (
 	"context"
@@ -49,9 +49,9 @@ func TestGenerativeManyModules_SingleNode(t *testing.T) {
 	if gcpProject == "" {
 		t.Skip("skipping, GCP_PROJECT environment variable not present")
 	}
-	googleApiKey := os.Getenv("PALM_APIKEY")
+	googleApiKey := os.Getenv("GOOGLE_APIKEY")
 	if googleApiKey == "" {
-		t.Skip("skipping, PALM_APIKEY environment variable not present")
+		t.Skip("skipping, GOOGLE_APIKEY environment variable not present")
 	}
 	// OpenAI
 	openAIApiKey := os.Getenv("OPENAI_APIKEY")
@@ -94,7 +94,7 @@ func composeModules(accessKey, secretKey, sessionToken string,
 		WithText2VecTransformers().
 		WithGenerativeOllama().
 		WithGenerativeAWS(accessKey, secretKey, sessionToken).
-		WithGenerativePaLM(googleApiKey).
+		WithGenerativeGoogle(googleApiKey).
 		WithGenerativeOpenAI(openAIApiKey, openAIOrganization, "").
 		WithGenerativeCohere(cohereApiKey)
 	return
