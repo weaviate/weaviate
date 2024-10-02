@@ -18,6 +18,11 @@ import (
 )
 
 func TestSparseVisitedList(t *testing.T) {
+	t.Run("reusing a list it is not affected by past entries", func(t *testing.T) {
+		s := NewSparseSet(totalSize, collisionRate)
+		s.Visit(uint64(500067347))
+	})
+
 	t.Run("creating a new list, filling it and checking against it", func(t *testing.T) {
 		l := NewSparseSet(1000, 16)
 
@@ -69,4 +74,5 @@ func TestSparseVisitedList(t *testing.T) {
 		assert.True(t, l.Visited(37), "a node visited in this round is marked as such")
 		assert.True(t, l.Visited(998), "a node visited in this round is marked as such")
 	})
+
 }

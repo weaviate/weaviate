@@ -20,7 +20,7 @@ import (
 )
 
 type pools struct {
-	visitedLists *sync.Pool
+	visitedLists *visitedPool
 
 	pqItemSlice  *sync.Pool
 	pqHeuristic  *pqMinWithIndexPool
@@ -32,11 +32,7 @@ type pools struct {
 
 func newPools(maxConnectionsLayerZero int) *pools {
 	return &pools{
-		visitedLists: &sync.Pool{
-			New: func() interface{} {
-				return visited.NewSparseSet(1000000, 8192)
-			},
-		},
+		visitedLists: newVisitedPool(),
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
 				return make([]priorityqueue.Item[uint64], 0, maxConnectionsLayerZero)
@@ -47,6 +43,29 @@ func newPools(maxConnectionsLayerZero int) *pools {
 		pqCandidates: newPqMinPool(maxConnectionsLayerZero),
 		tempVectors:  common.NewTempVectorsPool(),
 	}
+}
+
+type visitedPool struct {
+	pool *sync.Pool
+}
+
+func newVisitedPool() *visitedPool {
+	return &visitedPool{
+		pool: &sync.Pool{
+			New: func() interface{} {
+				return visited.NewSparseSet(1_000_000, 8192)
+			},
+		},
+	}
+}
+
+func (vp *visitedPool) Get() *visited.SparseSet {
+	return vp.pool.Get().(*visited.SparseSet)
+}
+
+func (vp *visitedPool) Put(v *visited.SparseSet) {
+	v.Reset()
+	vp.pool.Put(v)
 }
 
 type pqMinPool struct {

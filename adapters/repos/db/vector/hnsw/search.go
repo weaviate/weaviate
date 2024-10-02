@@ -174,7 +174,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
 ) {
-	visited := h.pools.visitedLists.Get().(*visited.SparseSet)
+	visited := h.pools.visitedLists.Get()
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -200,7 +200,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
 	}
 	if err != nil {
-		visited.Reset()
 		h.pools.visitedLists.Put(visited)
 		return nil, errors.Wrapf(err, "calculate distance of current last result")
 	}
@@ -277,7 +276,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
 					continue
 				}
-				visited.Reset()
 				h.pools.visitedLists.Put(visited)
 				return nil, errors.Wrap(err, "calculate distance between candidate and query")
 			}
@@ -319,7 +317,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	}
 
 	h.pools.pqCandidates.Put(candidates)
-	visited.Reset()
 	h.pools.visitedLists.Put(visited)
 
 	return results, nil

@@ -203,7 +203,7 @@ func (n *neighborFinderConnector) doAtLevel(level int) error {
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
 
-		visited := n.graph.pools.visitedLists.Get().(*visited.SparseSet)
+		visited := n.graph.pools.visitedLists.Get()
 		n.node.Lock()
 		connections := make([]uint64, len(n.node.connections[level]))
 		copy(connections, n.node.connections[level])

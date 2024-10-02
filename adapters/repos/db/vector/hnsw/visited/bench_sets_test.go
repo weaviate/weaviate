@@ -33,7 +33,7 @@ func BenchmarkSparseRandom(b *testing.B) {
 	s := NewSparseSet(totalSize, collisionRate)
 	for i := 0; i < b.N; i++ {
 		if rand.Float32() < rate {
-			s.Visit(uint64(i))
+			s.Visit(uint64(500067347))
 		}
 	}
 	runtime.GC()
