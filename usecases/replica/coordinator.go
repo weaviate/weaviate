@@ -263,7 +263,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 				// let's fallback to the backups in the retry queue
 				for hr := range hostRetryQueue {
 					resp, err := op(workerCtx, hr.host, isFullReadWorker)
-					if err == nil || strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
+					if err == nil {
 						replyCh <- _Result[T]{resp, err}
 						return
 					}
