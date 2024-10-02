@@ -1,5 +1,7 @@
 module github.com/weaviate/weaviate
 
+replace github.com/hashicorp/raft => github.com/weaviate/raft v0.0.0-20241002091138-bfa2ee1445f9
+
 require (
 	cloud.google.com/go/storage v1.43.0
 	github.com/bmatcuk/doublestar v1.1.3

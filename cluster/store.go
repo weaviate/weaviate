@@ -605,6 +605,8 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.cfg.SnapshotThreshold > 0 {
 		cfg.SnapshotThreshold = st.cfg.SnapshotThreshold
 	}
+	cfg.Label = "123"
+	cfg.SkipLabelCheck = true
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
