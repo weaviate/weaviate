@@ -125,7 +125,8 @@ func TestCompareHammingBitwise(t *testing.T) {
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
 			testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX256)
-			// testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX256)
+			testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX256)
+			// testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX512)
 		})
 	}
 }

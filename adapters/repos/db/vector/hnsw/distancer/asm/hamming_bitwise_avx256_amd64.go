@@ -6,7 +6,7 @@ package asm
 import "unsafe"
 
 //go:noescape
-func popcnt_AVX2_lookup(vec, popcnt_constants, lookup64bit unsafe.Pointer)
+func popcnt_AVX2_lookup(vec, low_mask_vec, lookup_vec unsafe.Pointer)
 
 //go:noescape
 func popcnt_64bit(src, popcnt_constants unsafe.Pointer)
