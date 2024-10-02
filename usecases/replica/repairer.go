@@ -35,7 +35,7 @@ var (
 	// It depends on the order of operations
 	// Created -> Deleted    => It is safe in this case to propagate deletion to all replicas
 	// Created -> Deleted -> Created => propagating deletion will result in data lost
-	errConflictExistOrDeleted = errors.New("conflict: object has been deleted on another replica")
+	ErrConflictExistOrDeleted = errors.New("conflict: object has been deleted on another replica")
 
 	// errConflictObjectChanged object changed since last time and cannot be repaired
 	errConflictObjectChanged = errors.New("source object changed during repair")
@@ -75,7 +75,7 @@ func (r *repairer) repairOne(ctx context.Context,
 
 	if deleted {
 		if r.objectDeletionConflictResolution != models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion {
-			return nil, errConflictExistOrDeleted
+			return nil, ErrConflictExistOrDeleted
 		}
 
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
@@ -188,7 +188,7 @@ func (r *repairer) repairExist(ctx context.Context,
 
 	if deleted {
 		if r.objectDeletionConflictResolution != models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion {
-			return false, errConflictExistOrDeleted
+			return false, ErrConflictExistOrDeleted
 		}
 
 		gr := enterrors.NewErrorGroupWrapper(r.logger)

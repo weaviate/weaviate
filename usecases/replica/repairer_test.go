@@ -236,7 +236,7 @@ func TestRepairerOneWithALL(t *testing.T) {
 		got, err := finder.GetOne(ctx, All, shard, id, proj, adds)
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, nilObject, got)
-		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
+		f.assertLogErrorContains(t, ErrConflictExistOrDeleted.Error())
 	})
 }
 
@@ -450,7 +450,7 @@ func TestRepairerExistsWithALL(t *testing.T) {
 		assert.ErrorContains(t, err, errRepair.Error())
 		assert.ErrorContains(t, err, msgCLevel)
 		assert.Equal(t, false, got)
-		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
+		f.assertLogErrorContains(t, ErrConflictExistOrDeleted.Error())
 	})
 }
 
@@ -654,7 +654,7 @@ func TestRepairerExistsWithConsistencyLevelQuorum(t *testing.T) {
 		got, err := finder.Exists(ctx, Quorum, shard, id)
 		assert.ErrorContains(t, err, errRepair.Error())
 		assert.ErrorContains(t, err, msgCLevel)
-		f.assertLogErrorContains(t, errConflictExistOrDeleted.Error())
+		f.assertLogErrorContains(t, ErrConflictExistOrDeleted.Error())
 		assert.Equal(t, false, got)
 	})
 }
