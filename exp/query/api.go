@@ -343,8 +343,11 @@ func (a *API) EnsureLSM(
 ) (*lsmkv.Store, string, error) {
 	// TODO move EnsureLSM into its own type separate from API
 
-	// TODO if multiple calls to download the same tenant at the same time or get same microseconds
-	// from the system clock, things will probably break below
+	// TODO if multiple calls to download the same tenant at nearly the same time happen
+	// we'll unecessarily download the same tenant multiple times. If multiple calls to download
+	// get the same microseconds value from the system, there could be issues.
+	// I think the easiest way to fix this would be to have a channel per tenant that we use to
+	// serialize downloads.
 	currentLocalTime := time.Now().UnixMicro()
 
 	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
@@ -377,23 +380,11 @@ func (a *API) EnsureLSM(
 		a.offload.DataPath,
 		strings.ToLower(collection),
 	)
-	// the path the offload module downloads to
-	localTenantOffloadPath := path.Join(
+	// the path we will download to
+	localTenantTimePath := path.Join(
 		localBaseCollectionPath,
 		strings.ToLower(tenant),
-	)
-	// the new dir we will create to move this download into
-	localClassTimePath := path.Join(
-		a.offload.DataPath,
-		strings.ToLower(collection),
 		fmt.Sprintf("%d", currentLocalTime),
-	)
-	// the path we will rename this download to
-	localTenantTimePath := path.Join(
-		a.offload.DataPath,
-		strings.ToLower(collection),
-		fmt.Sprintf("%d", currentLocalTime),
-		strings.ToLower(tenant),
 	)
 	// the path we will return
 	localLsmPath := path.Join(
@@ -402,14 +393,8 @@ func (a *API) EnsureLSM(
 	)
 	if proceedWithDownload {
 		// src - s3://<collection>/<tenant>/<node>/
-		// dst (local) - <data-path/<collection>/<tenant>
-		if err := a.offload.Download(ctx, collection, tenant, nodeName); err != nil {
-			return nil, "", err
-		}
-		if err := os.MkdirAll(localClassTimePath, 0o755); err != nil {
-			return nil, "", err
-		}
-		if err := os.Rename(localTenantOffloadPath, localTenantTimePath); err != nil {
+		// dst (local) - <data-path/<collection>/<tenant>/timestamp
+		if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
 			return nil, "", err
 		}
 	}
@@ -427,10 +412,12 @@ func (a *API) EnsureLSM(
 		oldTenantLsmkvStore := oldTenantLsmkvStoreAny.(tenantLsmkvStore)
 		oldTenantLsmkvStore.s.Shutdown(ctx)
 
-		// to be extra safe, only remove if the path looks reasonably like what we expect
-		re := regexp.MustCompile(fmt.Sprintf(`%s/\d+/%s`, localBaseCollectionPath, tenant))
+		// to be extra safe, only remove if the path looks reasonably like what we expect (datapath/collection/tenant/timestamp/*)
+		re := regexp.MustCompile(fmt.Sprintf(`%s/%s/\d+`, localBaseCollectionPath, tenant))
 		if re.MatchString(oldTenantLsmkvStore.localTenantPath) {
-			os.RemoveAll(strings.TrimSuffix(oldTenantLsmkvStore.localTenantPath, tenant))
+			dirToRemove := strings.TrimSuffix(oldTenantLsmkvStore.localTenantPath, tenant)
+			a.log.Debugf("removing old tenant dir: %s", dirToRemove)
+			os.RemoveAll(dirToRemove)
 		}
 	}
 	return store, localLsmPath, nil

@@ -14,8 +14,8 @@ If you're prompted "Do you want the application “weaviate-server” to accept 
 ### Start Weaviate core.
 
 ```sh
-export EXPERIMENTAL_METADATA_SERVER_ENABLED=true
 ### Start Weaviate core.
+export EXPERIMENTAL_METADATA_SERVER_ENABLED=true
 ./tools/dev/restart_dev_environment.sh --prometheus --s3 --contextionary && ./tools/dev/run_dev_server.sh local-node-with-offload
 ```
 
