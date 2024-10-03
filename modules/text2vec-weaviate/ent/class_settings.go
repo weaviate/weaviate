@@ -77,23 +77,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 		return err
 	}
 
-	model := cs.Model()
-	if !basesettings.ValidateSetting[string](model, availableWeaviateModels) {
-		return errors.Errorf("wrong Weaviate model name, available model names are: %v", availableWeaviateModels)
-	}
-	truncate := cs.Truncate()
-	if !basesettings.ValidateSetting[string](truncate, availableTruncates) {
-		return errors.Errorf("wrong truncate type, available types are: %v", availableTruncates)
-	}
-
-	dimensions := cs.Dimensions()
-	if dimensions != nil {
-		availableDimensions := availableWeaviateModelsDimensions[model]
-		if !basesettings.ValidateSetting[int64](*dimensions, availableDimensions) {
-			return errors.Errorf("wrong dimensions setting for %s model, available dimensions are: %v", model, availableDimensions)
-		}
-	}
-
 	return nil
 }
 
