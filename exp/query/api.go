@@ -324,8 +324,6 @@ type LSMEnsurer interface {
 	EnsureLSM(ctx context.Context, collection, tenant string, doUpdateTenantIfExistsLocally bool) (*lsmkv.Store, string, error)
 }
 
-var tenantDoesNotExistLocally = fmt.Errorf("tenant does not exist locally")
-
 type tenantLsmkvStore struct {
 	s *lsmkv.Store
 	// localTenantPath is the path on disk to the tenant dir

@@ -250,8 +250,10 @@ type MetadataServer struct {
 	DataEventsChannelCapacity int    `json:"data_events_channel_capacity" yaml:"data_events_channel_capacity"`
 }
 
-const DefaultMetadataServerGrpcListenAddress = ":9050"
-const DefaultMetadataServerDataEventsChannelCapacity = 100
+const (
+	DefaultMetadataServerGrpcListenAddress         = ":9050"
+	DefaultMetadataServerDataEventsChannelCapacity = 100
+)
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {

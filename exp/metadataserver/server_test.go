@@ -55,6 +55,8 @@ func testServerSetup(t *testing.T) (*Server, *logrus.Logger, int) {
 // testClientSetup gives you a ready to use Server and Logger and tells you which port
 // number to use.
 func testClientSetup(t *testing.T, port int, ctx context.Context) api.MetadataService_QuerierStreamClient {
+	// TODO replace DialContex with NewClient
+	//nolint:staticcheck
 	leaderRpcConn, err := grpc.DialContext(
 		ctx,
 		fmt.Sprintf(":%d", port),
@@ -68,7 +70,7 @@ func testClientSetup(t *testing.T, port int, ctx context.Context) api.MetadataSe
 }
 
 // TestServerNotifyRecv tests that notifying the server.querierManager of a classTenantDataEvent
-// propogates that to the client
+// propagates that to the client
 func TestServerNotifyRecv(t *testing.T) {
 	server, log, port := testServerSetup(t)
 	client := testClientSetup(t, port, context.Background())

@@ -499,7 +499,6 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 					// drop event if channel is full, we don't want to have any slow ops on
 					// this critical path of the raft apply
 				}
-
 			}
 		} else {
 			copy.Status = onAbortStatus

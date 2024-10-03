@@ -37,7 +37,8 @@ type Server struct {
 }
 
 func NewServer(listenAddress string, grpcMessageMaxSize int,
-	sentryEnabled bool, querierManager *QuerierManager, dataEventsChannelCapacity int, log *logrus.Logger) *Server {
+	sentryEnabled bool, querierManager *QuerierManager, dataEventsChannelCapacity int, log *logrus.Logger,
+) *Server {
 	return &Server{
 		listenAddress:             listenAddress,
 		grpcMessageMaxSize:        grpcMessageMaxSize,

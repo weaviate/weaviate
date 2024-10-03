@@ -47,6 +47,8 @@ func (m *MetadataSubscription) Start() error {
 	// Try 60s timeout for establishing rpc conn
 	dialCtx, cancel := context.WithTimeout(backgroundCtx, 60*time.Second)
 	defer cancel()
+	// TODO replace DialContex with NewClient
+	//nolint:staticcheck
 	metadataRpcConn, err := grpc.DialContext(
 		dialCtx,
 		m.metadataGRPCAddress,
