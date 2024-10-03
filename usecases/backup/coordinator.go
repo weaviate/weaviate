@@ -197,9 +197,9 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	}
 
 	statusReq := StatusRequest{
-		Method:  OpCreate,
-		ID:      req.ID,
-		Backend: req.Backend,
+		Method:   OpCreate,
+		ID:       req.ID,
+		Backend:  req.Backend,
 		S3Bucket: req.S3Bucket,
 		S3Path:   req.S3Path,
 	}

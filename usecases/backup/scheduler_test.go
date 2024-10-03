@@ -164,7 +164,7 @@ func TestSchedulerBackupStatus(t *testing.T) {
 			Status:    backup.Transferring,
 			Path:      path,
 		}
-		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "")  //FIXME
+		st, err := s.BackupStatus(ctx, nil, backendName, id, "", "") // FIXME
 		assert.Nil(t, err)
 		assert.Equal(t, want, st)
 	})

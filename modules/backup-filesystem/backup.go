@@ -157,8 +157,6 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucke
 func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 
-
-
 	var backupPath string
 	var err error
 	if bucketName != "" {

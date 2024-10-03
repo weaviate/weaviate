@@ -12,6 +12,8 @@
 package rest
 
 import (
+	"fmt"
+
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -21,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"fmt"
 )
 
 type backupHandlers struct {
