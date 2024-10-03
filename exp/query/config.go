@@ -22,15 +22,12 @@ type Config struct {
 	// Main rationale is, we first download the objects from object store and put it on local disk
 	// We need this, to make it work with existing query helpers, where we assume we serve query from
 	// local disk. This will go away eventually once we start reading from object store into memory directly.
-	DataPath string `long:"datapath" description:"place to look for tenant data after downloading it from object storage" default:"/tmp"`
+	DataPath string `long:"datapath" description:"place to look for tenant data after downloading it from object storage" default:"./querier-data"`
 
 	VectorizerAddr string `long:"vectorize-addr" description:"vectorizer address to be used to vectorize near-text query" default:"0.0.0.0:9999"`
 
-	// MetadataGRPCHost is the host which will be used to connect to the metadata node's gRPC server.
+	// MetadataGRPCAddress is the host which will be used to connect to the metadata node's gRPC server.
 	// Note that this should be replaced later to avoid having a single metadata node as a single point of failure.
-	// If MetadataGRPCHost is empty, the querier will connect to localhost.
-	MetadataGRPCHost string `long:"metadata.grpc.host" description:"metadata grpc host" default:""`
-	// MetadataGRPCPort is the port which will be used to connect to the metadata gRPC server. Like
-	// MetadataGRPCHost, this should be replaced later too.
-	MetadataGRPCPort int `long:"metadata.grpc.port" description:"metadata grpc port" default:"8301"`
+	// If MetadataGRPCAddress is empty, the querier will connect to localhost.
+	MetadataGRPCAddress string `long:"metadata.grpc.address" description:"metadata grpc address" default:":9050"`
 }

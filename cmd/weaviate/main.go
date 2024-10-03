@@ -17,6 +17,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/query"
 	"github.com/weaviate/weaviate/exp/querytenant"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -89,7 +90,16 @@ func main() {
 		reflection.Register(grpcServer)
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
-		// oklog or goroutine
+		enterrors.GoWrapper(func() {
+			metadataSubscription := query.NewMetadataSubscription(
+				a,
+				opts.Query.MetadataGRPCAddress,
+				log)
+			if err = metadataSubscription.Start(); err != nil {
+				log.Warnf("Failed to start metadata subscription: %v", err)
+			}
+		}, log)
+
 		log.WithField("addr", opts.Query.GRPCListenAddr).Info("starting querier over grpc")
 		if err := grpcServer.Serve(listener); err != nil {
 			log.Fatal("failed to start grpc server", err)

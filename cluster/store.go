@@ -135,6 +135,9 @@ type Config struct {
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string
 
+	// ClassTenantDataEvents can have events published onto it when tenant changes like
+	// being frozen happen, with the goal of being able to alert the metadata nodes. This
+	// channel will be nil if the metadata server is not enabled.
 	ClassTenantDataEvents chan metadataserver.ClassTenant
 }
 

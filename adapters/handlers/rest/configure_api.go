@@ -375,17 +375,20 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
-	classTenantDataEvents := make(chan metadataserver.ClassTenant, appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity)
-	querierManager := metadataserver.NewQuerierManager()
+	// let classTenantDataEvents be nil if the metadata server is not enabled since the metadata
+	// server/querierManager are the users of the channel
+	var classTenantDataEvents chan metadataserver.ClassTenant
+	querierManager := metadataserver.NewQuerierManager(appState.Logger)
 	metadataServer := metadataserver.NewServer(
 		appState.ServerConfig.Config.MetadataServer.GrpcListenAddress,
-		appState.ServerConfig.Config.MetadataServer.GrpcMessageMaxSize,
+		1024*1024*1024,
 		true,
 		querierManager,
 		appState.Logger)
 	appState.MetadataServer = metadataServer
 
 	if appState.ServerConfig.Config.MetadataServer.Enabled {
+		classTenantDataEvents = make(chan metadataserver.ClassTenant, appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity)
 		enterrors.GoWrapper(func() {
 			err := metadataServer.Open()
 			if err != nil {

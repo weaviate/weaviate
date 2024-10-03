@@ -16,18 +16,21 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/sirupsen/logrus"
 )
 
 // QuerierManager keeps track of registered querier nodes and allows one to notify all of them
 // of class/tenant data updates.
 type QuerierManager struct {
 	registeredQueriers sync.Map
-	// map[*Querier]struct{}
+	log                logrus.FieldLogger
 }
 
-func NewQuerierManager() *QuerierManager {
+func NewQuerierManager(log logrus.FieldLogger) *QuerierManager {
 	return &QuerierManager{
 		registeredQueriers: sync.Map{},
+		log:                log,
 	}
 }
 
@@ -56,10 +59,10 @@ func (qm *QuerierManager) NotifyClassTenantDataEvent(ct ClassTenant) error {
 		q := k.(*Querier)
 		select {
 		case q.classTenantDataEvents <- ct:
-			// TODO log debug
 		default:
-			// TODO better error
-			notifyFailedErrors = append(notifyFailedErrors, fmt.Errorf("failed to notify querier: %v", q))
+			notifyFailedErrors = append(
+				notifyFailedErrors,
+				fmt.Errorf("querier manager failed to notify querier: %s, %s, %v", ct.ClassName, ct.TenantName, q))
 		}
 		return true
 	})

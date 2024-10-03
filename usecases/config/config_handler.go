@@ -246,12 +246,10 @@ type MetadataServer struct {
 	// for separation of storage/compute Weaviate.
 	Enabled                   bool   `json:"enabled" yaml:"enabled"`
 	GrpcListenAddress         string `json:"grpc_listen_address" yaml:"grpc_listen_address"`
-	GrpcMessageMaxSize        int    `json:"grpc_message_max_size" yaml:"grpc_message_max_size"`
 	DataEventsChannelCapacity int    `json:"data_events_channel_capacity" yaml:"data_events_channel_capacity"`
 }
 
 const DefaultMetadataServerGrpcListenAddress = ":9050"
-const DefaultMetadataServerGrpcMessageMaxSize = 1024 * 1024 * 1024
 const DefaultMetadataServerDataEventsChannelCapacity = 100
 
 func (p Persistence) Validate() error {

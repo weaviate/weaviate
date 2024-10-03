@@ -425,13 +425,6 @@ func FromEnv(config *Config) error {
 		config.MetadataServer.GrpcListenAddress = v
 	}
 	if err := parsePositiveInt(
-		"EXPERIMENTAL_METADATA_SERVER_GRPC_MESSAGE_MAX_SIZE",
-		func(val int) { config.MetadataServer.GrpcMessageMaxSize = val },
-		DefaultMetadataServerGrpcMessageMaxSize,
-	); err != nil {
-		return err
-	}
-	if err := parsePositiveInt(
 		"EXPERIMENTAL_METADATA_SERVER_DATA_EVENTS_CHANNEL_CAPACITY",
 		func(val int) { config.MetadataServer.DataEventsChannelCapacity = val },
 		DefaultMetadataServerDataEventsChannelCapacity,
