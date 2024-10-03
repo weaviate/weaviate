@@ -486,7 +486,8 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 			// Maybe we could move up the code to instead be at the raft/apply level directly and avoid the intricacies of
 			// querier notification at the schema level ? IMO that package should only care about the schema and that's it.
 
-			// Note, the channel being nil indicates that it is not enabled to receive events
+			// Note, the channel being nil indicates that it is not enabled to receive events. Technically,
+			// this nil check isn't needed but I think it makes the intent more clear
 			if m.classTenantDataEvents != nil {
 				// Whenever a tenant is frozen, we send an event on the class tenant data events
 				// channel. This send is non-blocking and will drop events if the channel is full.
