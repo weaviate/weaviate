@@ -135,7 +135,6 @@ func createSchema(t *testing.T, client *weaviate.Client, class *models.Class) {
 	err := client.Schema().ClassCreator().
 		WithClass(class).
 		Do(context.Background())
-
 	if err != nil {
 		return
 	}

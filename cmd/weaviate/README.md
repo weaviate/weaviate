@@ -12,11 +12,10 @@ tldr; use `cmd/weaviate-server` instead. This is experimental
 If you're prompted "Do you want the application “weaviate-server” to accept incoming network connections?" by your firewall select "Allow", this is because the server accepts incoming client connections (in this case from the querier).
 
 ### Start Weaviate core.
+
 ```sh
-rm -rf ./querier-data
-# Note, you may want to delete the contents of weaviate-offload minio as well, something like (add --force if you're sure):
-# mc rm --recursive local/weaviate-offload/
 export EXPERIMENTAL_METADATA_SERVER_ENABLED=true
+### Start Weaviate core.
 ./tools/dev/restart_dev_environment.sh --prometheus --s3 --contextionary && ./tools/dev/run_dev_server.sh local-node-with-offload
 ```
 
@@ -25,11 +24,15 @@ This also starts other dependencies like `contextionary` (for vectorizing), `min
 ### Start Weaviate Querier
 
 ``` sh
+rm -rf ./querier-data
+# Note, you may want to delete the contents of weaviate-offload minio as well, something like (add --force if you're sure):
+# mc rm --recursive local/weaviate-offload/
+
 export OFFLOAD_S3_BUCKET_AUTO_CREATE=true
 export OFFLOAD_S3_ENDPOINT=http://localhost:9000
 export AWS_SECRET_KEY=aws_secret_key
 export AWS_ACCESS_KEY=aws_access_key
-go build ./cmd/weaviate && ./weaviate --target=querier --query.grpc.listen=':9091'
+go build ./cmd/weaviate && ./weaviate --target=querier
 ```
 
 Weaviate `querier` has some sane default configs. To tweak the configs use `./weaviate --target=querier --help`
@@ -43,12 +46,12 @@ Application Options:
       --target=               how should weaviate-server be running as e.g: querier, ingester, etc
 
 query:
-      --query.grpc.listen=          gRPC address that query node listens at (default: 0.0.0.0:9091)
-      --query.schema.addr=          address to get schema information (default: http://0.0.0.0:8080)
-      --query.s3.url=               s3 URL to query offloaded tenants (e.g: s3://<url>)
-      --query.s3.endpoint=          s3 endpoint to if mocking s3 (e.g: via minio)
-      --query.datapath=             place to look for tenant data after downloading it from object storage (default: /tmp)
-      --query.vectorize-addr=       vectorizer address to be used to vectorize near-text query (default: 0.0.0.0:9999)
+      --query.grpc.listen=    gRPC address that query node listens at (default: 0.0.0.0:9091)
+      --query.schema.addr=    address to get schema information (default: http://0.0.0.0:8080)
+      --query.s3.url=         s3 URL to query offloaded tenants (e.g: s3://<url>)
+      --query.s3.endpoint=    s3 endpoint to if mocking s3 (e.g: via minio)
+      --query.datapath=       place to look for tenant data after downloading it from object storage (default: /tmp)
+      --query.vectorize-addr= vectorizer address to be used to vectorize near-text query (default: 0.0.0.0:9999)
       --query.metadata.grpc.address= gRPC address at which to connect to the metadata server'(default: :9050)
 
 Help Options:

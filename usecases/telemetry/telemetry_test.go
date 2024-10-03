@@ -87,7 +87,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						{
 							Class: "BothNamedVectorAndLegacyConfiguration",
 							ModuleConfig: map[string]interface{}{
-								"generative-palm": map[string]interface{}{
+								"generative-google": map[string]interface{}{
 									"apiEndpoint": "generativelanguage.googleapis.com",
 								},
 							},

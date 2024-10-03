@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -57,7 +58,7 @@ func Test_GetAction(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
@@ -686,7 +687,7 @@ func Test_GetThing(t *testing.T) {
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		logger, _ := test.NewNullLogger()
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
@@ -1059,7 +1060,7 @@ type fakeGetManager struct {
 	repo            *fakeVectorRepo
 	extender        *fakeExtender
 	projector       *fakeProjector
-	authorizer      *fakeAuthorizer
+	authorizer      *mocks.FakeAuthorizer
 	locks           *fakeLocks
 	metrics         *fakeMetrics
 	modulesProvider *fakeModulesProvider
@@ -1070,7 +1071,7 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 		repo:            new(fakeVectorRepo),
 		extender:        new(fakeExtender),
 		projector:       new(fakeProjector),
-		authorizer:      new(fakeAuthorizer),
+		authorizer:      mocks.NewMockAuthorizer(),
 		locks:           new(fakeLocks),
 		metrics:         new(fakeMetrics),
 		modulesProvider: new(fakeModulesProvider),

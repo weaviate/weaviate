@@ -292,7 +292,7 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 		}
 
 		if job.tokens[objCounter] > rateLimit.LimitTokens || job.tokens[objCounter] > maxTokensPerBatch {
-			job.errs[objCounter] = fmt.Errorf("text too long for vectorization")
+			job.errs[objCounter] = fmt.Errorf("text too long for vectorization. Tokens for text: %v, max tokens per batch: %v, ApiKey absolute token limit: %v", job.tokens[objCounter], maxTokensPerBatch, rateLimit.LimitTokens)
 			objCounter++
 			continue
 		}

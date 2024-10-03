@@ -12,6 +12,7 @@
 package helper
 
 import (
+	"errors"
 	"net/http"
 	"testing"
 
@@ -155,6 +156,10 @@ func ObjectExistsCL(t *testing.T, class string, id strfmt.UUID, cl replica.Consi
 	req := objects.NewObjectsClassHeadParams().
 		WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Objects.ObjectsClassHead(req, nil)
+	notFoundErr := objects.NewObjectsClassHeadNotFound()
+	if errors.As(err, &notFoundErr) {
+		return false, nil
+	}
 	if err != nil {
 		return false, err
 	}

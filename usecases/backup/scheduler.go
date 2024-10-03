@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 var (
@@ -35,7 +36,7 @@ const (
 type Scheduler struct {
 	// deps
 	logger     logrus.FieldLogger
-	authorizer authorizer
+	authorizer authorization.Authorizer
 	backupper  *coordinator
 	restorer   *coordinator
 	backends   BackupBackendProvider
@@ -43,7 +44,7 @@ type Scheduler struct {
 
 // NewScheduler creates a new scheduler with two coordinators
 func NewScheduler(
-	authorizer authorizer,
+	authorizer authorization.Authorizer,
 	client client,
 	sourcer selector,
 	backends BackupBackendProvider,
@@ -76,7 +77,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}(time.Now())
 
 	path := fmt.Sprintf("backups/%s/%s", req.Backend, req.ID)
-	if err := s.authorizer.Authorize(pr, "add", path); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.ADD, path); err != nil {
 		return nil, err
 	}
 	store, err := coordBackend(s.backends, req.Backend, req.ID)
@@ -124,7 +125,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		logOperation(s.logger, "try_restore", req.ID, req.Backend, begin, err)
 	}(time.Now())
 	path := fmt.Sprintf("backups/%s/%s/restore", req.Backend, req.ID)
-	if err := s.authorizer.Authorize(pr, "restore", path); err != nil {
+	if err := s.authorizer.Authorize(pr, authorization.RESTORE, path); err != nil {
 		return nil, err
 	}
 	store, err := coordBackend(s.backends, req.Backend, req.ID)
@@ -176,7 +177,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		logOperation(s.logger, "backup_status", backupID, backend, begin, err)
 	}(time.Now())
 	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
-	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.GET, path); err != nil {
 		return nil, err
 	}
 	store, err := coordBackend(s.backends, backend, backupID)
@@ -199,7 +200,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 		logOperation(s.logger, "restoration_status", backupID, backend, time.Now(), err)
 	}(time.Now())
 	path := fmt.Sprintf("backups/%s/%s/restore", backend, backupID)
-	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.GET, path); err != nil {
 		return nil, err
 	}
 	store, err := coordBackend(s.backends, backend, backupID)
@@ -223,7 +224,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 	}(time.Now())
 
 	path := fmt.Sprintf("backups/%s/%s", backend, backupID)
-	if err := s.authorizer.Authorize(principal, "delete", path); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.DELETE, path); err != nil {
 		return err
 	}
 
@@ -275,7 +276,7 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
 	}(time.Now())
 	path := fmt.Sprintf("backups/%s", backend)
-	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
+	if err := s.authorizer.Authorize(principal, authorization.GET, path); err != nil {
 		return nil, err
 	}
 

@@ -51,10 +51,13 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, base: basesettings.NewBaseClassSettings(cfg, false)}
+	return &classSettings{
+		cfg:  cfg,
+		base: basesettings.NewBaseClassSettingsWithAltNames(cfg, false, "multi2vec-google", []string{"multi2vec-palm"}),
+	}
 }
 
-// PaLM params
+// Google params
 func (ic *classSettings) Location() string {
 	return ic.getStringProperty(locationProperty, "")
 }
@@ -110,7 +113,7 @@ func (ic *classSettings) Properties() ([]string, error) {
 	fields := []string{"textFields", "imageFields", "videoFields"}
 
 	for _, field := range fields {
-		fields, ok := ic.cfg.Class()[field]
+		fields, ok := ic.base.GetSettings()[field]
 		if !ok {
 			continue
 		}
@@ -137,7 +140,7 @@ func (ic *classSettings) field(name, property string) bool {
 		return false
 	}
 
-	fields, ok := ic.cfg.Class()[name]
+	fields, ok := ic.base.GetSettings()[name]
 	if !ok {
 		return false
 	}
@@ -291,7 +294,7 @@ func (ic *classSettings) validateWeights(name string, count int) error {
 }
 
 func (ic *classSettings) getWeights(name string) ([]interface{}, bool) {
-	weights, ok := ic.cfg.Class()["weights"]
+	weights, ok := ic.base.GetSettings()["weights"]
 	if ok {
 		weightsObject, ok := weights.(map[string]interface{})
 		if ok {
