@@ -361,7 +361,6 @@ func (a *API) EnsureLSM(
 			// TODO we only care about tenants we have for new versions, make diff func instead of
 			// using bool or return error or other?
 			return nil, "", errors.New("tenant does not exist locally, you can ignore this error, the tenant will be downloaded later")
-
 		}
 	}
 	if !doUpdateTenantIfExistsLocally {
