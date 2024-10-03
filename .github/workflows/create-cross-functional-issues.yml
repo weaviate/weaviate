@@ -2,7 +2,7 @@ name: Create Cross-Functional Issues
 
 on:
   pull_request:
-    types: [opened, edited, synchronize]
+    types: [opened]
   workflow_dispatch:
     inputs:
       pr_body:
@@ -14,11 +14,11 @@ jobs:
   create-cross-functional-issues:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Check PR body
         id: check_pr
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           github-token: ${{secrets.CROSS_REPO_ISSUE_WRITER_TOKEN}}
           script: |
@@ -33,11 +33,11 @@ jobs:
             const body = pr.body || '';
 
             const checkboxes = [
-              { repo: 'weaviate-io-test', regex: /- \[x\] This change requires public documentation \(weaviate-io\) to be updated/ },
-              { repo: 'weaviate-python-client-test', regex: /- \[x\] Python \(weaviate-python-client\)/ },
-              { repo: 'typescript-client-test', regex: /- \[x\] JavaScript\/TypeScript \(typescript-client\)/ },
-              { repo: 'weaviate-go-client-test', regex: /- \[x\] Go \(weaviate-go-client\)/ },
-              { repo: 'java-client-test', regex: /- \[x\] Java \(java-client\)/ }
+              { repo: 'weaviate-io', regex: /- \[x\] This change requires public documentation \(weaviate-io\) to be updated/ },
+              { repo: 'weaviate-python-client', regex: /- \[x\] Python \(weaviate-python-client\)/ },
+              { repo: 'typescript-client', regex: /- \[x\] JavaScript\/TypeScript \(typescript-client\)/ },
+              { repo: 'weaviate-go-client', regex: /- \[x\] Go \(weaviate-go-client\)/ },
+              { repo: 'java-client', regex: /- \[x\] Java \(java-client\)/ }
             ];
 
             const results = checkboxes.map(checkbox => ({
