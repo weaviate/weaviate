@@ -24,7 +24,7 @@ This also starts other dependencies like `contextionary` (for vectorizing), `min
 ### Start Weaviate Querier
 
 ``` sh
-rm -rf ./tmp/question
+rm -rf /tmp/question
 # Note, you may want to delete the contents of weaviate-offload minio as well, something like (add --force if you're sure):
 # mc rm --recursive local/weaviate-offload/question
 
