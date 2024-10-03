@@ -10,6 +10,8 @@
 
 ### Cross-functional impact
 
+Note: GitHub actions will automatically create an issue in the corresponding repository for each checked box below. . (See `.github/workflows/create-cross-functional-issues.yml`)
+
 - [ ] This change requires public documentation (weaviate-io) to be updated. Check the box to automatically create a corresponding issue.
 - Does it require a change in the client libraries? If yes, please check the boxes for the affected client libraries.
     - [ ] Python (weaviate-python-client)
