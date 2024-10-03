@@ -37,7 +37,7 @@ var (
 func (r *restorer) Restore(ctx context.Context,
 	req *Request,
 	desc *backup.BackupDescriptor,
-	store nodeStore,
+	store NodeStore,
 ) (*models.BackupRestoreResponse, error) {
 	status := string(backup.Started)
 	returnData := &models.BackupRestoreResponse{

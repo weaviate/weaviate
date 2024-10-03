@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"fmt"
 )
 
 type backupHandlers struct {
@@ -91,16 +92,25 @@ func parseCompressionLevel(l string) ubak.CompressionLevel {
 func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	fmt.Printf("BackupHandler: %+v\n", params)
+	fmt.Printf("Body: %+v\n", params.Body)
+	fmt.Printf("Config: %+v\n", params.Body.Config)
+	S3Bucket := ""
+	S3Path := ""
+	if params.Body.Config != nil {
+		S3Bucket = params.Body.Config.S3Bucket
+		S3Path = params.Body.Config.S3Path
+	}
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.Body.ID,
 		Backend:     params.Backend,
-		Bucket:      params.Body.Config.S3Bucket,
-		Path:        params.Body.Config.S3Path,
+		Bucket:      S3Bucket,
+		Path:        S3Path,
 		Include:     params.Body.Include,
 		Exclude:     params.Body.Exclude,
 		Compression: compressionFromBCfg(params.Body.Config),
-		S3Bucket:    params.Body.Config.S3Bucket,
-		S3Path:      params.Body.Config.S3Path,
+		S3Bucket:    S3Bucket,
+		S3Path:      S3Path,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

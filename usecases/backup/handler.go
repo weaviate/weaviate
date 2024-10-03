@@ -80,6 +80,18 @@ type Handler struct {
 	backends   BackupBackendProvider
 }
 
+func (h *Handler) GetBackUpper() *backupper {
+	return h.backupper
+}
+
+func (h *Handler) GetRestorer() *restorer {
+	return h.restorer
+}
+
+func (h *Handler) GetBackends() BackupBackendProvider {
+	return h.backends
+}
+
 func NewHandler(
 	logger logrus.FieldLogger,
 	authorizer authorizer,
@@ -274,12 +286,12 @@ func validateID(backupID string) error {
 	return nil
 }
 
-func nodeBackend(node string, provider BackupBackendProvider, backend, id string) (nodeStore, error) {
+func nodeBackend(node string, provider BackupBackendProvider, backend, id string) (NodeStore, error) {
 	caps, err := provider.BackupBackend(backend)
 	if err != nil {
-		return nodeStore{}, err
+		return NodeStore{}, err
 	}
-	return nodeStore{objStore{b: caps, BackupId: fmt.Sprintf("%s/%s", id, node)}}, nil
+	return NodeStore{ObjectStore{Backend: caps, BackupId: fmt.Sprintf("%s/%s", id, node)}}, nil
 }
 
 // basePath of the backup

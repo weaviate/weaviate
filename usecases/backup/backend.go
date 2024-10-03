@@ -65,55 +65,55 @@ const (
 
 var _NUMCPU = runtime.NumCPU()
 
-type objStore struct {
-	b modulecapabilities.BackupBackend
+type ObjectStore struct {
+	Backend modulecapabilities.BackupBackend
 
 	BackupId string // use supplied backup id
 	S3Bucket string // Override bucket for one call
 	S3Path   string // Override path for one call
 }
 
-func (s *objStore) HomeDir(overrideBucket, overridePath string) string {
-	return s.b.HomeDir(overrideBucket, overridePath, s.BackupId)
+func (s *ObjectStore) HomeDir(overrideBucket, overridePath string) string {
+	return s.Backend.HomeDir(overrideBucket, overridePath, s.BackupId)
 }
 
-func (s *objStore) WriteToFile(ctx context.Context, key, destPath, bucketName, bucketPath string) error {
-	return s.b.WriteToFile(ctx, s.BackupId, key, destPath, bucketName, bucketPath)
+func (s *ObjectStore) WriteToFile(ctx context.Context, key, destPath, bucketName, bucketPath string) error {
+	return s.Backend.WriteToFile(ctx, s.BackupId, key, destPath, bucketName, bucketPath)
 }
 
 // SourceDataPath is data path of all source files
-func (s *objStore) SourceDataPath() string {
-	return s.b.SourceDataPath()
+func (s *ObjectStore) SourceDataPath() string {
+	return s.Backend.SourceDataPath()
 }
 
-func (s *objStore) Write(ctx context.Context, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
-	return s.b.Write(ctx, s.BackupId, key, bucketName, bucketPath, r)
+func (s *ObjectStore) Write(ctx context.Context, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
+	return s.Backend.Write(ctx, s.BackupId, key, bucketName, bucketPath, r)
 }
 
-func (s *objStore) Read(ctx context.Context, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
-	return s.b.Read(ctx, s.BackupId, key, bucketName, bucketPath, w)
+func (s *ObjectStore) Read(ctx context.Context, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
+	return s.Backend.Read(ctx, s.BackupId, key, bucketName, bucketPath, w)
 }
 
-func (s *objStore) Initialize(ctx context.Context) error {
-	return s.b.Initialize(ctx, s.BackupId)
+func (s *ObjectStore) Initialize(ctx context.Context) error {
+	return s.Backend.Initialize(ctx, s.BackupId)
 }
 
 // meta marshals and uploads metadata
-func (s *objStore) putMeta(ctx context.Context, key, bucketName, bucketPath string, desc interface{}) error {
+func (s *ObjectStore) putMeta(ctx context.Context, key, bucketName, bucketPath string, desc interface{}) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
 		return fmt.Errorf("marshal meta file %q: %w", key, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
-	if err := s.b.PutObject(ctx, s.BackupId, key, bucketName, bucketPath, bytes); err != nil {
+	if err := s.Backend.PutObject(ctx, s.BackupId, key, bucketName, bucketPath, bytes); err != nil {
 		return fmt.Errorf("upload meta file %q: %w", key, err)
 	}
 	return nil
 }
 
-func (s *objStore) meta(ctx context.Context, key, bucketName, bucketPath string, dest interface{}) error {
-	bytes, err := s.b.GetObject(ctx, s.BackupId, key, bucketName, bucketPath)
+func (s *ObjectStore) meta(ctx context.Context, key, bucketName, bucketPath string, dest interface{}) error {
+	bytes, err := s.Backend.GetObject(ctx, s.BackupId, key, bucketName, bucketPath)
 	if err != nil {
 		return err
 	}
@@ -124,21 +124,21 @@ func (s *objStore) meta(ctx context.Context, key, bucketName, bucketPath string,
 	return nil
 }
 
-type nodeStore struct {
-	objStore
+type NodeStore struct {
+	ObjectStore
 }
 
 // Meta gets meta data using standard path or deprecated old path
 //
 // adjustBasePath: sets the base path to the old path if the backup has been created prior to v1.17.
-func (s *nodeStore) Meta(ctx context.Context, backupID, bucketName, bucketPath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
+func (s *NodeStore) Meta(ctx context.Context, backupID, bucketName, bucketPath string, adjustBasePath bool) (*backup.BackupDescriptor, error) {
 	var result backup.BackupDescriptor
 	err := s.meta(ctx, BackupFile, bucketName, bucketPath, &result)
 	if err != nil {
-		cs := &objStore{s.b, backupID, bucketName, bucketPath} // for backward compatibility
+		cs := &ObjectStore{s.Backend, backupID, bucketName, bucketPath} // for backward compatibility
 		if err := cs.meta(ctx, BackupFile, bucketName, bucketPath, &result); err == nil {
 			if adjustBasePath {
-				s.objStore.BackupId = backupID
+				s.ObjectStore.BackupId = backupID
 			}
 			return &result, nil
 		}
@@ -148,12 +148,12 @@ func (s *nodeStore) Meta(ctx context.Context, backupID, bucketName, bucketPath s
 }
 
 // meta marshals and uploads metadata
-func (s *nodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor, bucketName, bucketPath string) error {
+func (s *NodeStore) PutMeta(ctx context.Context, desc *backup.BackupDescriptor, bucketName, bucketPath string) error {
 	return s.putMeta(ctx, BackupFile, bucketName, bucketPath, desc)
 }
 
 type coordStore struct {
-	objStore
+	ObjectStore
 }
 
 // PutMeta puts coordinator's global metadata into object store
@@ -177,14 +177,14 @@ func (s *coordStore) Meta(ctx context.Context, filename, bucketName, bucketPath 
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
 	sourcer  Sourcer
-	backend  nodeStore
+	backend  NodeStore
 	backupID string
 	zipConfig
 	setStatus func(st backup.Status)
 	log       logrus.FieldLogger
 }
 
-func newUploader(sourcer Sourcer, backend nodeStore,
+func newUploader(sourcer Sourcer, backend NodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
@@ -277,7 +277,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
 	}
-	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.b), classLabel)
+	metric, err := monitoring.GetMetrics().BackupStoreDurations.GetMetricWithLabelValues(getType(u.backend.Backend), classLabel)
 	if err == nil {
 		timer := prometheus.NewTimer(metric)
 		defer timer.ObserveDuration()
@@ -439,7 +439,7 @@ func (u *uploader) compress(ctx context.Context,
 // fileWriter downloads files from object store and writes files to the destination folder destDir
 type fileWriter struct {
 	sourcer    Sourcer
-	backend    nodeStore
+	backend    NodeStore
 	tempDir    string
 	destDir    string
 	movedFiles []string // files successfully moved to destination folder
@@ -449,7 +449,7 @@ type fileWriter struct {
 	logger     logrus.FieldLogger
 }
 
-func newFileWriter(sourcer Sourcer, backend nodeStore,
+func newFileWriter(sourcer Sourcer, backend NodeStore,
 	compressed bool, logger logrus.FieldLogger,
 ) *fileWriter {
 	destDir := backend.SourceDataPath()

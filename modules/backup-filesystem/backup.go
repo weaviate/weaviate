@@ -157,17 +157,15 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucke
 func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
 
+
+
 	var backupPath string
 	var err error
 	if bucketName != "" {
-		backupPath, err = m.getObjectPath(ctx, bucketPath, backupID, key)
+		backupPath = filepath.Join(bucketPath, backupID, key)
 	} else {
-		backupPath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
+		backupPath = filepath.Join(m.backupsPath, backupID, key)
 	}
-	if err != nil {
-		return -1, err
-	}
-
 	dir := path.Dir(backupPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return 0, fmt.Errorf("make dir %q: %w", dir, err)

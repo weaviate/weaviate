@@ -290,11 +290,11 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 	if err != nil {
 		return coordStore{}, err
 	}
-	return coordStore{objStore{b: caps, BackupId: id, S3Bucket: overrideBucket, S3Path: overridePath}}, nil
+	return coordStore{ObjectStore{Backend: caps, BackupId: id, S3Bucket: overrideBucket, S3Path: overridePath}}, nil
 }
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
-	if !store.b.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
+	if !store.Backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
 		return nil, errLocalBackendDBRO
 	}
 
@@ -335,7 +335,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 }
 
 func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore, req *BackupRequest) (*backup.DistributedBackupDescriptor, error) {
-	if !store.b.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
+	if !store.Backend.IsExternal() && s.restorer.nodeResolver.NodeCount() > 1 {
 		return nil, errLocalBackendDBRO
 	}
 	if len(req.Include) > 0 && len(req.Exclude) > 0 {
