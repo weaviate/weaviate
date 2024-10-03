@@ -27,22 +27,24 @@ import (
 )
 
 type Server struct {
-	grpcServer         *grpc.Server
-	listenAddress      string
-	grpcMessageMaxSize int
-	sentryEnabled      bool
-	querierManager     *QuerierManager
-	log                *logrus.Logger
+	grpcServer                *grpc.Server
+	listenAddress             string
+	grpcMessageMaxSize        int
+	sentryEnabled             bool
+	querierManager            *QuerierManager
+	dataEventsChannelCapacity int
+	log                       *logrus.Logger
 }
 
 func NewServer(listenAddress string, grpcMessageMaxSize int,
-	sentryEnabled bool, querierManager *QuerierManager, log *logrus.Logger) *Server {
+	sentryEnabled bool, querierManager *QuerierManager, dataEventsChannelCapacity int, log *logrus.Logger) *Server {
 	return &Server{
-		listenAddress:      listenAddress,
-		grpcMessageMaxSize: grpcMessageMaxSize,
-		sentryEnabled:      sentryEnabled,
-		querierManager:     querierManager,
-		log:                log,
+		listenAddress:             listenAddress,
+		grpcMessageMaxSize:        grpcMessageMaxSize,
+		sentryEnabled:             sentryEnabled,
+		querierManager:            querierManager,
+		dataEventsChannelCapacity: dataEventsChannelCapacity,
+		log:                       log,
 	}
 }
 
@@ -89,7 +91,7 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 	// use/derive their context from stream.Context()
 
 	// set up a querier and register it
-	q := NewQuerier()
+	q := NewQuerier(s.dataEventsChannelCapacity)
 	if s.querierManager != nil {
 		s.querierManager.Register(q)
 		defer s.querierManager.Unregister(q)

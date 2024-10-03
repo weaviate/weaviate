@@ -384,6 +384,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		1024*1024*1024,
 		true,
 		querierManager,
+		appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity,
 		appState.Logger)
 	appState.MetadataServer = metadataServer
 

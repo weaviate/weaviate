@@ -44,7 +44,7 @@ func testServerSetup(t *testing.T) (*Server, *logrus.Logger, int) {
 	}()
 
 	querierManager := NewQuerierManager(log)
-	server := NewServer(fmt.Sprintf(":%d", port), 1024*1024*1024, false, querierManager, log)
+	server := NewServer(fmt.Sprintf(":%d", port), 1024*1024*1024, false, querierManager, 100, log)
 	enterrors.GoWrapper(func() {
 		err = server.Open()
 		require.Nil(t, err)

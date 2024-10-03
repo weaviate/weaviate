@@ -75,10 +75,10 @@ type Querier struct {
 }
 
 // NewQuerier creates a new querier node. The class tenant data events channel is buffered
-// to avoid blocking the sender, currently with a buffer size of 100.
-func NewQuerier() *Querier {
+// to avoid blocking the sender when possible.
+func NewQuerier(dataEventsChannelCapacity int) *Querier {
 	return &Querier{
-		classTenantDataEvents: make(chan ClassTenant, 100), // TODO is 100 a good buffer size? config?
+		classTenantDataEvents: make(chan ClassTenant, dataEventsChannelCapacity),
 	}
 }
 
