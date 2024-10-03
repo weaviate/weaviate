@@ -347,9 +347,7 @@ func (a *API) EnsureLSM(
 	// from the system clock, things will probably break below
 	currentLocalTime := time.Now().UnixMicro()
 
-	// TODO background cleanup of old disk path? we don't want to delete the old disk path until
-	// all the searches reading from it have completed. Also should replace sync.Map with an LRU
-	// and/or buffer pool type abstraction
+	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
 	cachedTenantLsmkvStore, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
 	proceedWithDownload := false
 	if doUpdateTenantIfExistsLocally {

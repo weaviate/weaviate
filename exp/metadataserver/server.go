@@ -149,7 +149,6 @@ func (s *Server) QuerierStream(stream api.MetadataService_QuerierStreamServer) e
 					},
 				})
 				if err != nil {
-					// TODO test this, how to avoid infinite error loop?
 					// unexpected error
 					returnErr = fmt.Errorf("querier register stream send: %w", err)
 					return
