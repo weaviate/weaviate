@@ -24,9 +24,9 @@ This also starts other dependencies like `contextionary` (for vectorizing), `min
 ### Start Weaviate Querier
 
 ``` sh
-rm -rf ./querier-data
+rm -rf ./tmp/question
 # Note, you may want to delete the contents of weaviate-offload minio as well, something like (add --force if you're sure):
-# mc rm --recursive local/weaviate-offload/
+# mc rm --recursive local/weaviate-offload/question
 
 export OFFLOAD_S3_BUCKET_AUTO_CREATE=true
 export OFFLOAD_S3_ENDPOINT=http://localhost:9000
