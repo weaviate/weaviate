@@ -30,11 +30,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	path := fmt.Sprintf("objects/%s/%s", class, id)
-	if class == "" {
-		path = fmt.Sprintf("objects/%s", id)
-	}
-	err := m.authorizer.Authorize(principal, authorization.UPDATE, path)
+	err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(class, id))
 	if err != nil {
 		return nil, err
 	}

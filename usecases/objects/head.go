@@ -14,7 +14,6 @@ package objects
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -26,10 +25,7 @@ import (
 func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, class string,
 	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
-	path := fmt.Sprintf("objects/%s", id)
-	if class != "" {
-		path = fmt.Sprintf("objects/%s/%s", class, id)
-	}
+	path := authorization.Objects(class, id)
 	if err := m.authorizer.Authorize(principal, authorization.HEAD, path); err != nil {
 		return false, &Error{path, StatusForbidden, err}
 	}

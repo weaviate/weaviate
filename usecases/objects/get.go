@@ -30,11 +30,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	path := fmt.Sprintf("objects/%s", id)
-	if class != "" {
-		path = fmt.Sprintf("objects/%s/%s", class, id)
-	}
-	err := m.authorizer.Authorize(principal, authorization.GET, path)
+	err := m.authorizer.Authorize(principal, authorization.GET, authorization.Objects(class, id))
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +61,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	err := m.authorizer.Authorize(principal, authorization.LIST, "objects")
+	err := m.authorizer.Authorize(principal, authorization.LIST, authorization.OBJECTS)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +80,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	err := m.authorizer.Authorize(principal, authorization.GET, fmt.Sprintf("objects/%s", id.String()))
+	err := m.authorizer.Authorize(principal, authorization.GET, authorization.Objects("", id))
 	if err != nil {
 		return nil, err
 	}
