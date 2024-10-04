@@ -57,13 +57,13 @@ func (m *Parser) ParseClass(class *models.Class) error {
 		return fmt.Errorf("parse vector index config: %w", err)
 	}
 
-	// if err := m.parseModuleConfig(class); err != nil {
-	// 	return fmt.Errorf("parse module config: %w", err)
-	// }
+	if err := m.parseModuleConfig(class); err != nil {
+		return fmt.Errorf("parse module config: %w", err)
+	}
 
-	// if err := m.parseVectorConfig(class); err != nil {
-	// 	return fmt.Errorf("parse vector config: %w", err)
-	// }
+	if err := m.parseVectorConfig(class); err != nil {
+		return fmt.Errorf("parse vector config: %w", err)
+	}
 
 	return nil
 }
@@ -128,7 +128,7 @@ func (m *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 		for key, value := range mapC {
 			if number, ok := value.(json.Number); ok {
 				if integer, err := number.Int64(); err == nil {
-					parsedC[key] = float64(integer)
+					parsedC[key] = integer
 				} else if float, err := number.Float64(); err == nil {
 					parsedC[key] = float
 				} else {

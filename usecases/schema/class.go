@@ -219,9 +219,9 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
-	// if err := h.parser.ParseClass(updated); err != nil {
-	// 	return err
-	// }
+	if err := h.parser.ParseClass(updated); err != nil {
+		return err
+	}
 
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
