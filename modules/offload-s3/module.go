@@ -47,7 +47,7 @@ const (
 
 // verify we implement the modules.Module interface
 var (
-	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.Module(&Module{})
 )
 
 type Module struct {
@@ -59,6 +59,8 @@ type Module struct {
 	logger       logrus.FieldLogger
 	timeout      time.Duration
 	app          *cli.App
+
+	metrics *monitoring.TenantOffloadMetrics
 }
 
 func New() *Module {
@@ -70,6 +72,9 @@ func New() *Module {
 		timeout:     120 * time.Second,
 		// we use custom cli app to avoid some bugs in underlying dependencies
 		// specially with .After implementation.
+		metrics: monitoring.NewTenantOffloadMetrics(monitoring.Config{
+			MetricsNamespace: "weaviate",
+		}, prometheus.DefaultRegisterer),
 		app: &cli.App{
 			Name:                 "weaviate-s5cmd",
 			Usage:                "weaviate fast S3 and local filesystem execution tool",
@@ -250,6 +255,8 @@ func (m *Module) create(ctx context.Context) error {
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
 // {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Upload(ctx context.Context, className, shardName, nodeName string) error {
+	start := time.Now()
+
 	if err := validate(className, shardName, nodeName); err != nil {
 		return err
 	}
@@ -266,24 +273,28 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
 	}
 
-	dmetric, err := monitoring.GetMetrics().TenantCloudOffloadDataTransferred.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
-	if err == nil {
+	var err error
+	defer func() {
+		// Update few useful metrics
 		size, _ := dirSize(localPath)
-		dmetric.Add(float64(size))
-	}
-	metric, err := monitoring.GetMetrics().TenantCloudOffloadDurations.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
-	if err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
+		m.metrics.FetchedBytes.Add(float64(size))
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		m.metrics.OpsDuration.WithLabelValues("upload", status).Observe(time.Since(start).Seconds())
+	}()
 
-	return m.app.RunContext(ctx, cmd)
+	err = m.app.RunContext(ctx, cmd)
+	return err
 }
 
 // Download downloads the content of a shard to desired node from
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
 // {dataPath}/{className}/{shardName}/{content}
 func (m *Module) Download(ctx context.Context, className, shardName, nodeName string) error {
+	start := time.Now()
+
 	if err := validate(className, shardName, nodeName); err != nil {
 		return err
 	}
@@ -300,22 +311,22 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 		fmt.Sprintf("%s/", localPath),
 	}
 
+	var err error
+
 	defer func() {
-		// data will exists after download
-		dmetric, err := monitoring.GetMetrics().TenantCloudOffloadDataTransferred.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
-		if err == nil {
-			size, _ := dirSize(localPath)
-			dmetric.Add(float64(size))
+		// Update few useful metrics
+		size, _ := dirSize(localPath)
+		m.metrics.FetchedBytes.Add(float64(size))
+		status := "success"
+		if err != nil {
+			status = "failed"
 		}
+		m.metrics.OpsDuration.WithLabelValues("download", status).Observe(time.Since(start).Seconds())
 	}()
 
-	metric, err := monitoring.GetMetrics().TenantCloudLoadDurations.GetMetricWithLabelValues("s3", className, shardName, nodeName)
-	if err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
+	err = m.app.RunContext(ctx, cmd)
 
-	return m.app.RunContext(ctx, cmd)
+	return err
 }
 
 // Delete deletes content of a shard assigned to specific node in
@@ -323,6 +334,8 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 // Careful: if shardName and nodeName is passed empty it will delete all class frozen shards in cloud storage
 // {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Delete(ctx context.Context, className, shardName, nodeName string) error {
+	start := time.Now()
+
 	if className == "" {
 		return fmt.Errorf("can't pass empty class name")
 	}
@@ -351,11 +364,15 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 		cloudPath,
 	}
 
-	metric, err := monitoring.GetMetrics().TenantCloudDeleteDurations.GetMetricWithLabelValues("s3", className, shardName, nodeName)
-	if err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
+	var err error
+	defer func() {
+		// Update few useful metrics
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		m.metrics.OpsDuration.WithLabelValues("delete", status).Observe(time.Since(start).Seconds())
+	}()
 
 	err = m.app.RunContext(ctx, cmd)
 	if err != nil && !strings.Contains(err.Error(), "no object found") {
