@@ -57,13 +57,13 @@ func (m *Parser) ParseClass(class *models.Class) error {
 		return fmt.Errorf("parse vector index config: %w", err)
 	}
 
-	if err := m.parseModuleConfig(class); err != nil {
-		return fmt.Errorf("parse module config: %w", err)
-	}
+	// if err := m.parseModuleConfig(class); err != nil {
+	// 	return fmt.Errorf("parse module config: %w", err)
+	// }
 
-	if err := m.parseVectorConfig(class); err != nil {
-		return fmt.Errorf("parse vector config: %w", err)
-	}
+	// if err := m.parseVectorConfig(class); err != nil {
+	// 	return fmt.Errorf("parse vector config: %w", err)
+	// }
 
 	return nil
 }
