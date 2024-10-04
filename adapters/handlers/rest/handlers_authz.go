@@ -18,19 +18,19 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type authZHandlers struct {
-	enforcer *casbin.SyncedCachedEnforcer
-	logger   logrus.FieldLogger
-	metrics  *monitoring.PrometheusMetrics
+	authorizer authorization.Authorizer
+	enforcer   *casbin.SyncedCachedEnforcer
+	logger     logrus.FieldLogger
+	metrics    *monitoring.PrometheusMetrics
 }
 
-func setupAuthZHandlers(api *operations.WeaviateAPI, enforcer *casbin.SyncedCachedEnforcer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
-) {
-
-	h := &authZHandlers{enforcer: enforcer, logger: logger, metrics: metrics}
+func setupAuthZHandlers(api *operations.WeaviateAPI, enforcer *casbin.SyncedCachedEnforcer, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger) {
+	h := &authZHandlers{enforcer: enforcer, authorizer: authorizer, logger: logger, metrics: metrics}
 
 	// policy handlers
 	api.AuthzAddPolicyHandler = authz.AddPolicyHandlerFunc(h.addPolicy)
@@ -47,6 +47,8 @@ func setupAuthZHandlers(api *operations.WeaviateAPI, enforcer *casbin.SyncedCach
 func (h *authZHandlers) addPolicy(params authz.AddPolicyParams, principal *models.Principal) middleware.Responder {
 	// TODO is the logged user is admin ?
 	// TODO validate
+	// TODO based on the logged in user from the principal we check if that user is allowed to add policy
+	h.authorizer.Authorize(principal, *params.Body.Action, *params.Body.Object)
 	if _, err := h.enforcer.AddPolicy(params.Body.Role, params.Body.Object, params.Body.Action); err != nil {
 		return authz.NewAddPolicyInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -65,6 +67,8 @@ func (h *authZHandlers) addPolicy(params authz.AddPolicyParams, principal *model
 func (h *authZHandlers) getPolicies(params authz.GetPoliciesParams, principal *models.Principal) middleware.Responder {
 	// TODO is the logged user is admin ?
 	// TODO validate
+	// TODO based on the logged in user from the principal we check if that user is allowed to get policy
+	// h.authorizer.Authorize(principal, *params.Body.Action, *params.Body.Object)
 	policies, err := h.enforcer.GetPolicy()
 	if err != nil {
 		return authz.NewGetPoliciesInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -85,6 +89,8 @@ func (h *authZHandlers) getPolicies(params authz.GetPoliciesParams, principal *m
 func (h *authZHandlers) deletePolicy(params authz.DeletePolicyParams, principal *models.Principal) middleware.Responder {
 	// TODO is the logged user is admin ?
 	// TODO validate
+	// TODO based on the logged in user from the principal we check if that user is allowed to delete policy
+	// h.authorizer.Authorize(principal, *params.Body.Action, *params.Body.Object)
 	if _, err := h.enforcer.RemovePolicy(params.ID); err != nil {
 		return authz.NewDeletePolicyInternalServerError().WithPayload(errPayloadFromSingleErr(err))
 	}
@@ -104,6 +110,8 @@ func (h *authZHandlers) deletePolicy(params authz.DeletePolicyParams, principal 
 func (h *authZHandlers) addRole(params authz.AddRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO is the logged user is admin ?
 	// TODO validate
+	// TODO based on the logged in user from the principal we check if that user is allowed to add Role
+	// h.authorizer.Authorize(principal, *params.Body.Action, *params.Body.Object)
 	roleUser := params.Body.User
 	if roleUser == nil {
 		roleUser = params.Body.Key
@@ -123,6 +131,8 @@ func (h *authZHandlers) addRole(params authz.AddRoleParams, principal *models.Pr
 func (h *authZHandlers) getRolesForUsers(params authz.GetRolesForUsersParams, principal *models.Principal) middleware.Responder {
 	// TODO is the logged user is admin ?
 	// TODO validate
+	// TODO based on the logged in user from the principal we check if that user is allowed to list roles for users
+	// h.authorizer.Authorize(principal, *params.Body.Action, *params.Body.Object)
 	roles, err := h.enforcer.GetUsersForRole(params.Body.Role)
 	if err != nil {
 		return authz.NewGetRolesForUsersInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -150,6 +160,8 @@ func (h *authZHandlers) getUsersForRoles(params authz.GetUsersForRoleParams, pri
 func (h *authZHandlers) removeRole(params authz.RemoveRoleParams, principal *models.Principal) middleware.Responder {
 	// TODO is the logged user is admin ?
 	// TODO validate
+	// TODO based on the logged in user from the principal we check if that user is allowed to remove role for users
+	// h.authorizer.Authorize(principal, *params.Body.Action, *params.Body.Object)
 	roleUser := params.Body.User
 	if roleUser == nil {
 		roleUser = params.Body.Key
