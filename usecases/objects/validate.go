@@ -25,7 +25,7 @@ import (
 func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principal,
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
-	err := m.authorizer.Authorize(principal, authorization.VALIDATE, "objects")
+	err := m.authorizer.Authorize(principal, authorization.VALIDATE, authorization.OBJECTS)
 	if err != nil {
 		return err
 	}
