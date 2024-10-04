@@ -88,7 +88,6 @@ func (m *Parser) parseModuleConfig(class *models.Class) error {
 }
 
 func (m *Parser) parseVectorConfig(class *models.Class) error {
-	fmt.Printf("before class.VectorConfig: %v\n", class.VectorConfig)
 	if class.VectorConfig == nil {
 		return nil
 	}
@@ -109,7 +108,6 @@ func (m *Parser) parseVectorConfig(class *models.Class) error {
 		newVC[vector] = config
 	}
 	class.VectorConfig = newVC
-	fmt.Printf("after class.VectorConfig: %v\n", class.VectorConfig)
 	return nil
 }
 
