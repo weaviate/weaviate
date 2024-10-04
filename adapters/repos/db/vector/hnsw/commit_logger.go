@@ -12,6 +12,7 @@
 package hnsw
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
@@ -41,13 +42,25 @@ func commitLogDirectory(rootPath, name string) string {
 	return fmt.Sprintf("%s/%s.hnsw.commitlog.d", rootPath, name)
 }
 
+func snapshotFileName(commitLogFileName string) string {
+	return fmt.Sprintf("%s.snapshot", commitLogFileName)
+}
+
+/*
+type noopCondensor struct{}
+
+func (c *noopCondensor) Do(_ string) error {
+	return nil
+}
+*/
+
 func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	maintenanceCallbacks cyclemanager.CycleCallbackGroup, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
 		rootPath:  rootPath,
 		id:        name,
-		condensor: NewMemoryCondensor(logger),
+		condensor: NewMemoryCondensor(logger), //&noopCondensor{},
 		logger:    logger,
 
 		// both can be overwritten using functional options
@@ -92,7 +105,7 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 
 	if !ok {
 		// this is a new commit log, initialize with the current time stamp
-		fileName = fmt.Sprintf("%d", time.Now().Unix())
+		fileName = fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
 
 	fd, err := os.OpenFile(commitLogFileName(rootPath, name, fileName),
@@ -105,7 +118,7 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 }
 
 // getCommitFileNames in order, from old to new
-func getCommitFileNames(rootPath, name string) ([]string, error) {
+func getCommitFileNames(rootPath, name string, createdAfter int64) ([]string, error) {
 	dir := commitLogDirectory(rootPath, name)
 	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
@@ -121,6 +134,13 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 	files, err = removeTmpCombiningFiles(dir, files)
 	if err != nil {
 		return nil, errors.Wrap(err, "remove temporary files")
+	}
+
+	if createdAfter > 0 {
+		files, err = removeOldCommitFiles(dir, files, createdAfter)
+		if err != nil {
+			return nil, errors.Wrap(err, "remove old commit files")
+		}
 	}
 
 	if len(files) == 0 {
@@ -152,6 +172,70 @@ func getCommitFileNames(rootPath, name string) ([]string, error) {
 	return out, nil
 }
 
+func getLastSnapshot(rootPath, name string) (snap *DeserializationResult, ts int64, err error) {
+	dir := commitLogDirectory(rootPath, name)
+	err = os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return nil, 0, errors.Wrap(err, "create commit logger directory")
+	}
+
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, 0, errors.Wrap(err, "browse commit logger directory")
+	}
+
+	for i := len(files) - 1; i >= 0; i-- {
+		info := files[i]
+		path := filepath.Join(dir, info.Name())
+
+		if strings.HasSuffix(info.Name(), ".snapshot.tmp") {
+			// a temporary snapshot file was found which means that the snapshoting
+			// process never completed, this file is thus considered corrupt (too
+			// short) and must be deleted. The original sources still exist (because
+			// the only get deleted after the .tmp file is removed), so it's safe to
+			// delete this without data loss.
+			if err := os.Remove(path); err != nil {
+				return nil, 0, errors.Wrap(err, "remove tmp snapshot file")
+			}
+			continue
+		}
+
+		if !strings.HasSuffix(info.Name(), ".snapshot") {
+			// not a snapshot file
+			continue
+		}
+
+		if snap == nil {
+			snapFile, err := os.Open(path)
+			if err != nil {
+				return nil, 0, errors.Wrapf(err, "open snapshot file %q", path)
+			}
+			defer snapFile.Close()
+
+			r := bufio.NewReader(snapFile)
+
+			snap, err = readStateFrom(r)
+			if err != nil {
+				return nil, 0, errors.Wrapf(err, "read snapshot file %q", path)
+			}
+
+			ts, err = asTimeStamp(strings.TrimSuffix(info.Name(), ".snapshot"))
+			if err != nil {
+				return nil, 0, errors.Wrapf(err, "read snapshot timestamp %q", path)
+			}
+
+			continue
+		}
+
+		// remove older snapshot
+		if err := os.Remove(path); err != nil {
+			return nil, 0, errors.Wrapf(err, "remove snapshot file %q", path)
+		}
+	}
+
+	return snap, ts, nil
+}
+
 // getCurrentCommitLogFileName returns the fileName and true if a file was
 // present. If no file was present, the second arg is false.
 func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
@@ -160,14 +244,16 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 		return "", false, errors.Wrap(err, "browse commit logger directory")
 	}
 
-	if len(files) == 0 {
-		return "", false, nil
+	if len(files) > 0 {
+		files = removeTmpScratchOrHiddenFiles(files)
+		files, err = removeTmpCombiningFiles(dirPath, files)
+		if err != nil {
+			return "", false, errors.Wrap(err, "clean up tmp combining files")
+		}
 	}
 
-	files = removeTmpScratchOrHiddenFiles(files)
-	files, err = removeTmpCombiningFiles(dirPath, files)
-	if err != nil {
-		return "", false, errors.Wrap(err, "clean up tmp combining files")
+	if len(files) == 0 {
+		return "", false, nil
 	}
 
 	ec := &errorcompounder.ErrorCompounder{}
@@ -198,6 +284,14 @@ func removeTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
 			continue
 		}
 
+		if strings.HasSuffix(info.Name(), ".snapshot") {
+			continue
+		}
+
+		if strings.HasSuffix(info.Name(), ".snapshot.tmp") {
+			continue
+		}
+
 		if strings.HasPrefix(info.Name(), ".") {
 			continue
 		}
@@ -224,6 +318,31 @@ func removeTmpCombiningFiles(dirPath string,
 
 			if err := os.Remove(filepath.Join(dirPath, info.Name())); err != nil {
 				return out, errors.Wrap(err, "remove tmp combining file")
+			}
+			continue
+		}
+
+		out[i] = info
+		i++
+	}
+
+	return out[:i], nil
+}
+
+func removeOldCommitFiles(dirPath string,
+	in []os.DirEntry, createdAfter int64,
+) ([]os.DirEntry, error) {
+	out := make([]os.DirEntry, len(in))
+	i := 0
+	for _, info := range in {
+		ts, err := asTimeStamp(info.Name())
+		if err != nil {
+			return nil, errors.Wrapf(err, "read commitlog timestamp %q", info.Name())
+		}
+
+		if ts <= createdAfter {
+			if err := os.Remove(filepath.Join(dirPath, info.Name())); err != nil {
+				return out, errors.Wrapf(err, "remove old commit file %q", info.Name())
 			}
 			continue
 		}
@@ -465,7 +584,7 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	}
 
 	// this is a new commit log, initialize with the current time stamp
-	fileName := fmt.Sprintf("%d", time.Now().Unix())
+	fileName := fmt.Sprintf("%d", time.Now().UnixMilli())
 
 	if force {
 		l.logger.WithField("action", "commit_log_file_switched").
@@ -495,7 +614,7 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 }
 
 func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
-	files, err := getCommitFileNames(l.rootPath, l.id)
+	files, err := getCommitFileNames(l.rootPath, l.id, 0)
 	if err != nil {
 		return false, err
 	}
