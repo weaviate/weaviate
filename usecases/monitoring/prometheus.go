@@ -145,8 +145,8 @@ func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOfflo
 		OpsDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: cfg.MetricsNamespace,
 			Name:      "tenant_offload_operation_duration_seconds",
-			Buckets:   defaultBuckets,
-		}, []string{"operation", "status"}), // status can be "sucess" or "failure"
+			Buckets:   latencyBuckets,
+		}, []string{"operation", "status"}), // status can be "success" or "failure"
 	}
 }
 
@@ -172,13 +172,13 @@ func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
 			Namespace: cfg.MetricsNamespace,
 			Name:      "request_duration_seconds",
 			Help:      "Time (in seconds) spent serving HTTP requests.",
-			Buckets:   defaultBuckets,
+			Buckets:   latencyBuckets,
 		}, []string{"method", "route", "status_code"}),
 		PerTenantRequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: cfg.MetricsNamespace,
 			Name:      "per_tenant_request_duration_seconds",
 			Help:      "Time (in seconds) spent serving HTTP requests for a particular tenant.",
-			Buckets:   defaultBuckets,
+			Buckets:   latencyBuckets,
 		}, []string{"method", "route", "status_code", "tenant", "collection"}),
 		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: cfg.MetricsNamespace,
@@ -299,12 +299,13 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 const mb = 1024 * 1024
 
 var (
+	// msBuckets and sBuckets are deprecated. Use `latencyBuckets` and `sizeBuckets` instead.
 	msBuckets = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
 	sBuckets  = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
 
-	// defaultBuckets is default histogram bucket for response time (in seconds).
+	// latencyBuckets is default histogram bucket for response time (in seconds).
 	// It also includes request that served *very* fast and *very* slow
-	defaultBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+	latencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
 
 	// sizeBuckets defines buckets for request/response body sizes.
 	// TODO(kavi): Check with real data on prod and tweak accordingly.

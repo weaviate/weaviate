@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
+	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/query"
 	"github.com/weaviate/weaviate/exp/queryschema"
 	"github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -123,11 +124,11 @@ func main() {
 		protocol.RegisterWeaviateServer(grpcServer, grpcQuerier)
 
 		log.WithField("addr", opts.Query.GRPCListenAddr).Info("starting querier over grpc")
-		go func() {
+		errors.GoWrapper(func() {
 			if err := grpcServer.Serve(listener); err != nil {
 				log.Fatal("failed to start grpc server", err)
 			}
-		}()
+		}(), log)
 
 		// serve /metrics
 		mux := http.NewServeMux()

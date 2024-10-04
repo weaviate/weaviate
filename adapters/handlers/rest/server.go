@@ -36,7 +36,6 @@ import (
 	"golang.org/x/net/netutil"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
-	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -113,8 +112,6 @@ type Server struct {
 	shuttingDown int32
 	interrupted  bool
 	interrupt    chan os.Signal
-
-	metrics *monitoring.ServerMetrics
 }
 
 // Logf logs message either via defined user logger or via system one if no user logger is defined.
@@ -382,8 +379,6 @@ func (s *Server) Listen() error {
 			return err
 		}
 
-		listener = monitoring.CountingListener(listener, s.api.ServerMetrics.TCPActiveConnections.WithLabelValues("http"))
-
 		h, p, err := swag.SplitHostPort(listener.Addr().String())
 		if err != nil {
 			return err
@@ -398,7 +393,6 @@ func (s *Server) Listen() error {
 		if err != nil {
 			return err
 		}
-		tlsListener = monitoring.CountingListener(tlsListener, s.api.ServerMetrics.TCPActiveConnections.WithLabelValues("http"))
 
 		sh, sp, err := swag.SplitHostPort(tlsListener.Addr().String())
 		if err != nil {
