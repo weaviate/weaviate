@@ -44,6 +44,8 @@ func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
 		}
 	}
 
+	// TODO add all permissions in RBAC for the logged in user to this class
+	// TODO we shall also check if we want to do it with autoSchema,when we auto create class on object creation
 	s.metricRequestsTotal.logOk(params.ObjectClass.Class)
 	return schema.NewSchemaObjectsCreateOK().WithPayload(params.ObjectClass)
 }

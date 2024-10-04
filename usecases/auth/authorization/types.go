@@ -66,6 +66,8 @@ const (
 	OBJECTS = "objects"
 )
 
+// TODO add translation layer between weaviate and Casbin permissions
+
 // SchemaShard returns the path for a specific schema shard.
 // Parameters:
 // - class: The class name.
