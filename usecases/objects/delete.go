@@ -32,11 +32,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	principal *models.Principal, class string, id strfmt.UUID,
 	repl *additional.ReplicationProperties, tenant string,
 ) error {
-	path := fmt.Sprintf("objects/%s/%s", class, id)
-	if class == "" {
-		path = fmt.Sprintf("objects/%s", id)
-	}
-	err := m.authorizer.Authorize(principal, authorization.DELETE, path)
+	err := m.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(class, id))
 	if err != nil {
 		return err
 	}

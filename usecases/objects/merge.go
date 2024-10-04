@@ -46,7 +46,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 	cls, id := updates.Class, updates.ID
-	path := fmt.Sprintf("objects/%s/%s", cls, id)
+	path := authorization.Objects(cls, id)
 	if err := m.authorizer.Authorize(principal, authorization.UPDATE, path); err != nil {
 		return &Error{path, StatusForbidden, err}
 	}

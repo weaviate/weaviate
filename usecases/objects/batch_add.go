@@ -30,7 +30,7 @@ var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
-	err := b.authorizer.Authorize(principal, authorization.CREATE, "batch/objects")
+	err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.BATCH_OBJECTS)
 	if err != nil {
 		return nil, err
 	}
