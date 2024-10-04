@@ -112,7 +112,7 @@ func Test_Schema_Authorization(t *testing.T) {
 			methodName:       "AddTenants",
 			additionalArgs:   []interface{}{"className", []*models.Tenant{{Name: "P1"}}},
 			expectedVerb:     authorization.UPDATE,
-			expectedResource: tenantsPath,
+			expectedResource: authorization.SCHEMA_TENANTS,
 		},
 		{
 			methodName: "UpdateTenants",
@@ -120,31 +120,31 @@ func Test_Schema_Authorization(t *testing.T) {
 				{Name: "P1", ActivityStatus: models.TenantActivityStatusHOT},
 			}},
 			expectedVerb:     authorization.UPDATE,
-			expectedResource: tenantsPath,
+			expectedResource: authorization.SCHEMA_TENANTS,
 		},
 		{
 			methodName:       "DeleteTenants",
 			additionalArgs:   []interface{}{"className", []string{"P1"}},
 			expectedVerb:     authorization.DELETE,
-			expectedResource: tenantsPath,
+			expectedResource: authorization.SCHEMA_TENANTS,
 		},
 		{
 			methodName:       "GetTenants",
 			additionalArgs:   []interface{}{"className"},
 			expectedVerb:     authorization.GET,
-			expectedResource: tenantsPath,
+			expectedResource: authorization.SCHEMA_TENANTS,
 		},
 		{
 			methodName:       "GetConsistentTenants",
 			additionalArgs:   []interface{}{"className", false, []string{}},
 			expectedVerb:     authorization.GET,
-			expectedResource: tenantsPath,
+			expectedResource: authorization.SCHEMA_TENANTS,
 		},
 		{
 			methodName:       "ConsistentTenantExists",
 			additionalArgs:   []interface{}{"className", false, "P1"},
 			expectedVerb:     authorization.GET,
-			expectedResource: tenantsPath,
+			expectedResource: authorization.SCHEMA_TENANTS,
 		},
 	}
 
