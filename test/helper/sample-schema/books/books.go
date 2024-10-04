@@ -31,6 +31,30 @@ func ClassContextionaryVectorizer() *models.Class {
 	return class(defaultClassName, "text2vec-contextionary")
 }
 
+func ClassOpenAIWithOptions() *models.Class {
+	c := class(defaultClassName, "text2vec-openai")
+	c.ModuleConfig.(map[string]interface{})["text2vec-openai"] = map[string]interface{}{
+		"model":      "text-embedding-3-large",
+		"dimensions": 3072,
+	}
+	return c
+}
+
+func ClassNamedOpenAIWithOptions() *models.Class {
+	vc := map[string]models.VectorConfig{
+		"all": {
+			Vectorizer: map[string]interface{}{
+				"text2vec-openai": map[string]interface{}{
+					"model":      "text-embedding-3-large",
+					"dimensions": 3072,
+				},
+			},
+			VectorIndexType: "hnsw",
+		},
+	}
+	return classNamedVectors(defaultClassName, vc)
+}
+
 func ClassNamedContextionaryVectorizer() *models.Class {
 	vc := map[string]models.VectorConfig{
 		"all": {

@@ -219,6 +219,10 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	if err := h.parser.ParseClass(updated); err != nil {
+		return err
+	}
+
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
 	}
@@ -780,6 +784,10 @@ func validateImmutableFields(initial, updated *models.Class) error {
 
 	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
 		return errors.Errorf("module config is immutable")
+	}
+
+	if !reflect.DeepEqual(initial.VectorConfig, updated.VectorConfig) {
+		return errors.Errorf("vector config is immutable")
 	}
 
 	return nil
