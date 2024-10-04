@@ -128,7 +128,7 @@ func main() {
 			if err := grpcServer.Serve(listener); err != nil {
 				log.Fatal("failed to start grpc server", err)
 			}
-		}(), log)
+		}, log)
 
 		// serve /metrics
 		mux := http.NewServeMux()
