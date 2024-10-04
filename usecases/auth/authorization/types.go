@@ -72,14 +72,10 @@ const (
 // - shard: The shard name.
 // Returns: The formatted schema shard path.
 func SchemaShard(class, shard string) string {
-	return fmt.Sprintf("schema/%s/shards/%s", class, shard)
-}
+	if class != "" && shard != "" {
+		return fmt.Sprintf("schema/%s/shards/%s", class, shard)
+	}
 
-// ClassShards returns the path for all shards of a specific class.
-// Parameters:
-// - class: The class name.
-// Returns: The formatted class shards path.
-func ClassShards(class string) string {
 	return fmt.Sprintf("schema/%s/shards", class)
 }
 
@@ -90,11 +86,11 @@ func ClassShards(class string) string {
 // Returns: The formatted objects path.
 func Objects(class string, id strfmt.UUID) string {
 	if class != "" && id != "" {
-		return fmt.Sprintf("objects/%s/%s", class, id)
+		return fmt.Sprintf("objects/%s/%s", class, id.String())
 	}
 
 	if id != "" {
-		return fmt.Sprintf("objects/%s", id)
+		return fmt.Sprintf("objects/%s", id.String())
 	}
 
 	if class != "" {

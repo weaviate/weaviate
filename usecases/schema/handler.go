@@ -227,7 +227,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, tenant string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ClassShards(class))
+	err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.SchemaShard(class, ""))
 	if err != nil {
 		return nil, err
 	}
