@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -68,7 +69,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
@@ -292,7 +293,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)
@@ -437,7 +438,7 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 			GetSchemaResponse: schema,
 		}
 		logger, _ := test.NewNullLogger()
-		authorizer := &fakeAuthorizer{}
+		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, locks,
 			schemaManager, config, logger, authorizer, nil)

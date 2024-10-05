@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -118,7 +119,7 @@ type Handler struct {
 	validator validator
 
 	logger                  logrus.FieldLogger
-	Authorizer              authorizer
+	Authorizer              authorization.Authorizer
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -134,7 +135,7 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -165,7 +166,7 @@ func NewHandler(
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) {
-	err := h.Authorizer.Authorize(principal, "list", "schema/*")
+	err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA)
 	if err != nil {
 		return schema.Schema{}, err
 	}
@@ -175,7 +176,7 @@ func (h *Handler) GetSchema(principal *models.Principal) (schema.Schema, error) 
 
 // GetSchema retrieves a locally cached copy of the schema
 func (h *Handler) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return schema.Schema{}, err
 	}
 
@@ -215,8 +216,7 @@ func (h *Handler) NodeName() string {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	err := h.Authorizer.Authorize(principal, "update",
-		fmt.Sprintf("schema/%s/shards/%s", class, shard))
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SchemaShard(class, shard))
 	if err != nil {
 		return 0, err
 	}
@@ -227,7 +227,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, tenant string,
 ) (models.ShardStatusList, error) {
-	err := h.Authorizer.Authorize(principal, "list", fmt.Sprintf("schema/%s/shards", class))
+	err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.SchemaShard(class, ""))
 	if err != nil {
 		return nil, err
 	}

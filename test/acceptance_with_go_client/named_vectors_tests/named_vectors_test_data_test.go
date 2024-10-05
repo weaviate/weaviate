@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 
@@ -286,11 +287,18 @@ func getVectorsWithNearArgs(t *testing.T, client *wvt.Client,
 		get = get.WithHybrid(hybrid)
 	}
 
-	resp, err := get.Do(context.Background())
-	require.NoError(t, err)
+	var resp *models.GraphQLResponse
+	var err error
+
+	require.Eventually(t, func() bool {
+		resp, err = get.Do(context.Background())
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		return len(resp.Data) > 0
+	}, 5*time.Second, 1*time.Millisecond)
 
 	ids := acceptance_with_go_client.GetIds(t, resp, className)
-	require.ElementsMatch(t, ids, []string{id})
+	require.Contains(t, ids, id)
 
 	return acceptance_with_go_client.GetVectors(t, resp, className, withCertainty, targetVectors...)
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -40,7 +41,7 @@ import (
 )
 
 func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, err
 	}
 	cl := h.schemaReader.ReadOnlyClass(name)
@@ -50,7 +51,7 @@ func (h *Handler) GetClass(ctx context.Context, principal *models.Principal, nam
 func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Principal,
 	name string, consistency bool,
 ) (*models.Class, uint64, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, 0, err
 	}
 	if consistency {
@@ -64,7 +65,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 	principal *models.Principal, names ...string,
 ) (map[string]versioned.Class, error) {
-	if err := h.Authorizer.Authorize(principal, "list", "schema/*"); err != nil {
+	if err := h.Authorizer.Authorize(principal, authorization.LIST, authorization.ALL_SCHEMA); err != nil {
 		return nil, err
 	}
 
@@ -98,7 +99,7 @@ func (h *Handler) GetCachedClass(ctxWithClassCache context.Context,
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
 ) (*models.Class, uint64, error) {
-	err := h.Authorizer.Authorize(principal, "create", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.SCHEMA_OBJECTS)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -113,7 +114,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
 	}
 
-	if err := h.setClassDefaults(cls, h.config.Replication); err != nil {
+	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
 		return nil, 0, err
 	}
 
@@ -196,7 +197,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 
 // DeleteClass from the schema
 func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, class string) error {
-	err := h.Authorizer.Authorize(principal, "delete", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.SCHEMA_OBJECTS)
 	if err != nil {
 		return err
 	}
@@ -208,7 +209,7 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	className string, updated *models.Class,
 ) error {
-	err := h.Authorizer.Authorize(principal, "update", "schema/objects")
+	err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.SCHEMA_OBJECTS)
 	if err != nil || updated == nil {
 		return err
 	}
@@ -256,6 +257,25 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 
 	_, err = h.schemaManager.UpdateClass(ctx, updated, shardingState)
 	return err
+}
+
+func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
+	if err := m.setClassDefaults(class, globalCfg); err != nil {
+		return err
+	}
+
+	if class.ReplicationConfig == nil {
+		class.ReplicationConfig = &models.ReplicationConfig{
+			Factor:                           int64(m.config.Replication.MinimumFactor),
+			ObjectDeletionConflictResolution: models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion,
+		}
+		return nil
+	}
+
+	if class.ReplicationConfig.ObjectDeletionConflictResolution == "" {
+		class.ReplicationConfig.ObjectDeletionConflictResolution = models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion
+	}
+	return nil
 }
 
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {

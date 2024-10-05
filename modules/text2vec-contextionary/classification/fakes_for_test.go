@@ -235,12 +235,6 @@ func (f *fakeVectorRepoKNN) get(id strfmt.UUID) (*models.Object, bool) {
 	return t, ok
 }
 
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
-}
-
 func newFakeVectorRepoContextual(unclassified, targets search.Results) *fakeVectorRepoContextual {
 	return &fakeVectorRepoContextual{
 		unclassified: unclassified,

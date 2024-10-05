@@ -664,7 +664,11 @@ func TestGRPCRequest(t *testing.T) {
 			name: "filter simple",
 			req: &pb.SearchRequest{
 				Collection: classname, Metadata: &pb.MetadataRequest{Vector: true},
-				Filters: &pb.Filters{Operator: pb.Filters_OPERATOR_EQUAL, TestValue: &pb.Filters_ValueText{ValueText: "test"}, On: []string{"name"}},
+				Filters: &pb.Filters{
+					Operator:  pb.Filters_OPERATOR_EQUAL,
+					TestValue: &pb.Filters_ValueText{ValueText: "test"},
+					On:        []string{"name"},
+				},
 			},
 			out: dto.GetParams{
 				ClassName: classname, Pagination: defaultPagination,

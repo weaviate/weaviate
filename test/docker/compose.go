@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -432,7 +434,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
 	network, err := tescontainersnetwork.New(
 		ctx,
-		tescontainersnetwork.WithCheckDuplicate(),
 		tescontainersnetwork.WithAttachable(),
 	)
 	if err != nil {
@@ -636,7 +637,10 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, "/v1/.well-known/ready")
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", hostname)
+		}
 		containers = append(containers, container)
 		if err != nil {
 			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
@@ -706,9 +710,15 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
 	eg := errgroup.Group{}
+	wellKnownEndpointFunc := func(hostname string) string {
+		if slices.Contains(strings.Split(settings["MAINTENANCE_NODES"], ","), hostname) {
+			return "/v1/.well-known/live"
+		}
+		return "/v1/.well-known/ready"
+	}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort)
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node1"))
 		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
@@ -724,7 +734,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort)
+				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate2)
 			}
@@ -741,7 +751,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort)
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}
