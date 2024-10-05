@@ -9,11 +9,8 @@ function build() {
   echo "Build containers (this will take the longest)..."
   GIT_REVISION=$(git rev-parse --short HEAD)
   GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  VERSION=$(git describe --tag)
-  BUILD_USER=$(whoami)@$(hostname)
-  BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-  docker compose -f "$1" build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --build-arg VERSION="$VERSION" --build-arg BUILD_USER="$BUILD_USER" --build-arg BUILD_DATE="$BUILD_DATE" --build-arg EXTRA_BUILD_ARGS="-race" "$2"
+  docker compose -f "$1" build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --build-arg EXTRA_BUILD_ARGS="-race" "$2"
   echo "Start up docker compose setup..."
 }
 
