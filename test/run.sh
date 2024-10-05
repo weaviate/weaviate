@@ -173,11 +173,8 @@ function build_docker_image_for_tests() {
   echo "This could take some time..."
   GIT_REVISION=$(git rev-parse --short HEAD)
   GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-  VERSION=$(git describe --tag)
-  BUILD_USER=$(whoami)@$(hostname)
-  BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-  docker build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --build-arg VERSION="$VERSION" --build-arg BUILD_USER="$BUILD_USER" --build-arg BUILD_DATE="$BUILD_DATE" -t $module_test_image .
+  docker build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --build-arg -t $module_test_image .
   export "TEST_WEAVIATE_IMAGE"=$module_test_image
 }
 
