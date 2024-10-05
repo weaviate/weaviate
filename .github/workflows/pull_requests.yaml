@@ -327,7 +327,7 @@ jobs:
           install-only: true
       - name: goreleaser
         run: |
-          GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) VERSION=$(git describe --tag) BUILD_USER=$(whoami)@$(hostname) BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
+          WEAVIATE_GIT_REVISION=$(git rev-parse --short HEAD) WEAVIATE_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) WEAVIATE_VERSION=$(git describe --tag) WEAVIATE_BUILD_USER=$(whoami)@$(hostname) WEAVIATE_BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
         uses: actions/upload-artifact@v4
         with:
