@@ -25,9 +25,70 @@ import (
 var BLOCK_SIZE = 128
 
 type blockEntry struct {
-	offset    int
+	offset    uint64
 	maxId     uint64
 	maxImpact float32
+}
+
+func (b *blockEntry) size() int {
+	return 20
+}
+
+func (b *blockEntry) encode() []byte {
+	out := make([]byte, 20)
+	binary.LittleEndian.PutUint64(out, b.maxId)
+	binary.LittleEndian.PutUint64(out[8:], b.offset)
+	binary.LittleEndian.PutUint32(out[16:], math.Float32bits(b.maxImpact))
+	return out
+}
+
+func decodeBlockEntry(data []byte) *blockEntry {
+	return &blockEntry{
+		maxId:     binary.LittleEndian.Uint64(data),
+		offset:    binary.LittleEndian.Uint64(data[8:]),
+		maxImpact: math.Float32frombits(binary.LittleEndian.Uint32(data[12:])),
+	}
+}
+
+type blockData struct {
+	docIds      []byte
+	tfs         []byte
+	propLenghts []byte
+}
+
+func (b *blockData) size() int {
+	return 2*3 + len(b.docIds) + len(b.tfs) + len(b.propLenghts)
+}
+
+func (b *blockData) encode() []byte {
+	out := make([]byte, len(b.docIds)+len(b.tfs)+len(b.propLenghts)+6)
+	offset := 0
+	// write the lengths of the slices
+	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.docIds)))
+	offset += 2
+	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.tfs)))
+	offset += 2
+	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.propLenghts)))
+	offset += 2
+
+	offset += copy(out[offset:], b.docIds)
+	offset += copy(out[offset:], b.tfs)
+	offset += copy(out[offset:], b.propLenghts)
+	return out
+}
+
+func decodeBlockData(data []byte) *blockData {
+	docIdsLen := binary.LittleEndian.Uint16(data)
+	termFreqsLen := binary.LittleEndian.Uint16(data[2:])
+	propLengthsLen := binary.LittleEndian.Uint16(data[4:])
+	docIds := data[6 : 6+docIdsLen]
+	termFreqs := data[6+docIdsLen : 6+docIdsLen+termFreqsLen]
+	propLengths := data[6+docIdsLen+termFreqsLen : 6+docIdsLen+termFreqsLen+propLengthsLen]
+	return &blockData{
+		docIds:      docIds,
+		tfs:         termFreqs,
+		propLenghts: propLengths,
+	}
 }
 
 func extractTombstones(nodes *binarySearchNodeMap) (*sroar.Bitmap, []MapPair) {
@@ -46,7 +107,7 @@ func extractTombstones(nodes *binarySearchNodeMap) (*sroar.Bitmap, []MapPair) {
 	return out, values
 }
 
-func encodeBlock(nodes []MapPair) []byte {
+func encodeBlock(nodes []MapPair) *blockData {
 	docIds := make([]uint64, len(nodes))
 	termFreqs := make([]uint64, len(nodes))
 	propLengths := make([]uint64, len(nodes))
@@ -62,15 +123,15 @@ func encodeBlock(nodes []MapPair) []byte {
 	return packed
 }
 
-func convertToBlocks(nodes *binarySearchNodeMap) ([][]byte, [][]byte, *sroar.Bitmap) {
+func createBlocks(nodes *binarySearchNodeMap) ([]*blockEntry, []*blockData, *sroar.Bitmap) {
 	tombstones, values := extractTombstones(nodes)
 
 	blockCount := (len(values) + (BLOCK_SIZE - 1)) / BLOCK_SIZE
 
-	blocks := make([][]byte, blockCount)
-	encodedBlocks := make([][]byte, blockCount)
+	blockMetadata := make([]*blockEntry, blockCount)
+	blockDataEncoded := make([]*blockData, blockCount)
 
-	offset := 0
+	offset := uint64(0)
 
 	for i := 0; i < blockCount; i++ {
 		start := i * BLOCK_SIZE
@@ -80,16 +141,101 @@ func convertToBlocks(nodes *binarySearchNodeMap) ([][]byte, [][]byte, *sroar.Bit
 		}
 
 		maxId := binary.BigEndian.Uint64(nodes.values[end-1].Key)
+		blockDataEncoded[i] = encodeBlock(values[start:end])
 
-		blocks[i] = make([]byte, 16)
-		binary.LittleEndian.PutUint64(blocks[i], maxId)
-		binary.LittleEndian.PutUint64(blocks[i][8:], uint64(offset))
+		blockMetadata[i] = &blockEntry{
+			maxId:  maxId,
+			offset: offset,
+		}
 
-		encodedBlocks[i] = encodeBlock(values[start:end])
-		offset += len(encodedBlocks[i])
+		offset += uint64(blockDataEncoded[i].size())
 	}
 
-	return blocks, encodedBlocks, tombstones
+	return blockMetadata, blockDataEncoded, tombstones
+}
+
+func encodeBlocks(blockEntries []*blockEntry, blockDatas []*blockData, docCount uint64) []byte {
+	length := 0
+	for i := range blockDatas {
+		length += blockDatas[i].size() + blockEntries[i].size()
+	}
+	out := make([]byte, length+8)
+	offset := 0
+
+	binary.LittleEndian.PutUint64(out, docCount)
+	offset += 8
+
+	for _, blockEntry := range blockEntries {
+		copy(out[offset:], blockEntry.encode())
+		offset += blockEntry.size()
+	}
+	for _, blockData := range blockDatas {
+		// write the block data
+		copy(out[offset:], blockData.encode())
+		offset += blockData.size()
+	}
+
+	return out
+}
+
+func decodeBlocks(data []byte) ([]*blockEntry, []*blockData) {
+	docCount := int(binary.LittleEndian.Uint64(data))
+	offset := 8
+
+	// calculate the number of blocks by dividing the number of documents by the block size and rounding up
+	blockCount := (docCount + (BLOCK_SIZE - 1)) / BLOCK_SIZE
+
+	blockEntries := make([]*blockEntry, blockCount)
+	blockDatas := make([]*blockData, blockCount)
+
+	blockDataInitialOffset := offset + blockCount*20
+
+	for i := 0; i < blockCount; i++ {
+		blockEntries[i] = decodeBlockEntry(data[offset:])
+		dataOffset := int(blockEntries[i].offset) + blockDataInitialOffset
+		blockDatas[i] = decodeBlockData(data[dataOffset:])
+		offset += blockEntries[i].size()
+	}
+
+	return blockEntries, blockDatas
+}
+
+func convertFromBlocks(blockEntries []*blockEntry, encodedBlocks []*blockData, objectCount uint64) ([]*blockEntry, *binarySearchNodeMap) {
+	out := &binarySearchNodeMap{
+		values: make([]MapPair, 0, objectCount),
+	}
+
+	decodedBlock := make([]*blockEntry, len(encodedBlocks))
+
+	for i := range blockEntries {
+
+		blockSize := uint64(BLOCK_SIZE)
+		if i == len(blockEntries)-1 {
+			blockSize = objectCount % uint64(BLOCK_SIZE)
+		}
+		blockSizeInt := int(blockSize)
+
+		docIds, tfs, propLengths := packedDecode(encodedBlocks[i], blockSizeInt)
+
+		for j := 0; j < blockSizeInt; j++ {
+			docId := docIds[j]
+			tf := float32(tfs[j])
+			pl := float32(propLengths[j])
+
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, docId)
+
+			value := make([]byte, 8)
+			binary.LittleEndian.PutUint32(value, math.Float32bits(tf))
+			binary.LittleEndian.PutUint32(value[4:], math.Float32bits(pl))
+
+			out.values = append(out.values, MapPair{
+				Key:   key,
+				Value: value,
+			})
+		}
+	}
+	return decodedBlock, out
 }
 
 // a single node of strategy "inverted"

@@ -292,26 +292,22 @@ func unpackDeltas(packed []byte, deltasCount int) []uint64 {
 	return deltas
 }
 
-func packedEncode(docIds, termFreqs, propLengths []uint64) []byte {
+func packedEncode(docIds, termFreqs, propLengths []uint64) *blockData {
 	docIdsDeltas := deltaEncode(docIds)
 	docIdsPacked := packDeltas(docIdsDeltas)
 	termFreqsPacked := packDeltas(termFreqs)
 	propLengthsPacked := packDeltas(propLengths)
-	output := make([]byte, len(docIdsPacked)+len(termFreqsPacked)+len(propLengthsPacked)+4)
-	binary.LittleEndian.PutUint16(output, uint16(len(docIdsPacked)))
-	binary.LittleEndian.PutUint16(output[2:], uint16(len(termFreqsPacked)))
 
-	copy(output[4:], docIdsPacked)
-	copy(output[4+len(docIdsPacked):], termFreqsPacked)
-	copy(output[4+len(docIdsPacked)+len(termFreqsPacked):], propLengthsPacked)
-	return output
+	return &blockData{
+		docIds:      docIdsPacked,
+		tfs:         termFreqsPacked,
+		propLenghts: propLengthsPacked,
+	}
 }
 
-func packedDecode(values []byte, numValues int) ([]uint64, []uint64, []uint64) {
-	docIdsLen := binary.LittleEndian.Uint16(values)
-	termFreqsLen := binary.LittleEndian.Uint16(values[2:])
-	docIds := deltaDecode(unpackDeltas(values[4:4+docIdsLen], numValues))
-	termFreqs := unpackDeltas(values[4+docIdsLen:4+docIdsLen+termFreqsLen], numValues)
-	propLengths := unpackDeltas(values[4+docIdsLen+termFreqsLen:], numValues)
+func packedDecode(values *blockData, numValues int) ([]uint64, []uint64, []uint64) {
+	docIds := deltaDecode(unpackDeltas(values.docIds, numValues))
+	termFreqs := unpackDeltas(values.tfs, numValues)
+	propLengths := unpackDeltas(values.propLenghts, numValues)
 	return docIds, termFreqs, propLengths
 }

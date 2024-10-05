@@ -102,7 +102,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	for _, mapNode := range flat {
 		if len(mapNode.values) > 0 {
-			blocks, values, _ := convertToBlocks(mapNode)
+			blocks, values, _ := createBlocks(mapNode)
 
 			ki := segmentindex.Key{
 				Key:        mapNode.key,
@@ -116,6 +116,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 			totalWritten += 4
 
 			for _, block := range blocks {
+				block := block.encode()
 				if _, err := f.Write(block); err != nil {
 					return nil, nil, err
 				}
@@ -123,6 +124,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 			}
 
 			for _, value := range values {
+				value := value.encode()
 				if _, err := f.Write(value); err != nil {
 					return nil, nil, err
 				}

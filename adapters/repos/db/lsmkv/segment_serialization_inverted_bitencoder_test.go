@@ -96,7 +96,7 @@ func BenchmarkBits(m *testing.B) {
 		timePacked += int(stopTime.Sub(startTime))
 
 		sizeBaseline += len(encoded)
-		sizePacked += len(encoded2)
+		sizePacked += encoded2.size()
 
 		for i := range docIds {
 			assert.Equal(m, docIds[i], decodedDocIds[i])
@@ -130,4 +130,43 @@ func BenchmarkDecoder(b *testing.B) {
 	for j := 0; j < 40000000; j++ {
 		packedDecode(encoded2, len(docIds))
 	}
+}
+
+func TestMapList(m *testing.T) {
+	// Example input values
+
+	collectionSize := BLOCK_SIZE_TEST*7 + 15
+	mapList := make([]MapPair, collectionSize)
+
+	for i := range mapList {
+		docId := uint64(100 + i)
+
+		key := make([]byte, 8)
+		binary.BigEndian.PutUint64(key, docId)
+
+		tf := float32(math.Round(rand.Float64()*10)) + 1
+		pl := float32(math.Round(rand.Float64()*10)) + 1
+
+		value := make([]byte, 8)
+		binary.LittleEndian.PutUint32(value, math.Float32bits(tf))
+		binary.LittleEndian.PutUint32(value[4:], math.Float32bits(pl))
+
+		mapList[i] = MapPair{
+			Key:   key,
+			Value: value,
+		}
+	}
+
+	mapNode := &binarySearchNodeMap{
+		values: mapList,
+	}
+
+	// Baseline encoding
+	blockEntries, blockDatas, _ := createBlocks(mapNode)
+	blocksEncoded := encodeBlocks(blockEntries, blockDatas, uint64(collectionSize))
+
+	blockEntries2, blockDatas2 := decodeBlocks(blocksEncoded)
+
+	assert.Equal(m, blockEntries, blockEntries2)
+	assert.Equal(m, blockDatas, blockDatas2)
 }
