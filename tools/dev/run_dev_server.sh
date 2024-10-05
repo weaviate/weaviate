@@ -31,7 +31,6 @@ BUILD_TAGS="-X ${VPREFIX}.Branch=${GIT_BRANCH} -X ${VPREFIX}.Version=${VERSION} 
 
 
 function go_run() {
-  GIT_HASH=$(git rev-parse --short HEAD)
    go run -ldflags "${BUILD_TAGS}" "$@"
 }
 

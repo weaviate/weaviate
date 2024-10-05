@@ -102,7 +102,7 @@ jobs:
           name: coverage-report-unit
           path: coverage-unit.txt
   Integration-Tests:
-    name: integration-tests  
+    name: integration-tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -327,7 +327,7 @@ jobs:
           install-only: true
       - name: goreleaser
         run: |
-          GIT_HASH=$(git rev-parse --short HEAD) goreleaser build  --clean --snapshot
+          GIT_REVISION=$(git rev-parse --short HEAD) GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD) VERSION=$(git describe --tag) BUILD_USER=$(whoami)@$(hostname) BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") goreleaser build  --clean --snapshot
       - name: Upload macos
         uses: actions/upload-artifact@v4
         with:
@@ -410,9 +410,9 @@ jobs:
           PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
         run: ./ci/generate_docker_report.sh
   Push-Docker-Fast:
-    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork    
+    if: ${{ !github.event.pull_request.head.repo.fork && startsWith(github.head_ref, 'build') }} # no PRs from fork
     name: push-docker-fast
-    runs-on: ubuntu-latest-8-cores    
+    runs-on: ubuntu-latest-8-cores
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
