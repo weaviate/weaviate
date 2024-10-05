@@ -7,7 +7,7 @@ function main() {
   run_all_tests=true
   run_acceptance_tests=false
   run_acceptance_only_fast=false
-  run_acceptance_only_python=false  
+  run_acceptance_only_python=false
   run_acceptance_go_client=false
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
@@ -114,7 +114,7 @@ function main() {
 
     # echo_green "Import required schema and test fixtures..."
     # # Note: It's not best practice to do this as part of the test script
-    # # It would be better if each test independently prepared (and also 
+    # # It would be better if each test independently prepared (and also
     # # cleaned up) the test fixtures it needs, but one step at a time ;)
     # suppress_on_success import_test_fixtures
 
@@ -171,8 +171,13 @@ function build_docker_image_for_tests() {
   suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
   echo_green "Building weaviate image for module acceptance tests..."
   echo "This could take some time..."
-  GIT_HASH=$(git rev-parse --short HEAD)
-  docker build --build-arg GITHASH="$GIT_HASH" -t $module_test_image .
+  GIT_REVISION=$(git rev-parse --short HEAD)
+  GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  VERSION=$(git describe --tag)
+  BUILD_USER=$(whoami)@$(hostname)
+  BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+  docker build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --build-arg VERSION="$VERSION" --build-arg BUILD_USER="$BUILD_USER" --build-arg BUILD_DATE="$BUILD_DATE" -t $module_test_image .
   export "TEST_WEAVIATE_IMAGE"=$module_test_image
 }
 
@@ -241,7 +246,7 @@ function run_acceptance_only_fast() {
         echo "Test for $pkg failed" >&2
         return 1
       fi
-    done 
+    done
 }
 
 function run_acceptance_go_client_only_fast() {
@@ -355,13 +360,13 @@ suppress_on_success() {
 
 function echo_green() {
   green='\033[0;32m'
-  nc='\033[0m' 
+  nc='\033[0m'
   echo -e "${green}${*}${nc}"
 }
 
 function echo_red() {
   red='\033[0;31m'
-  nc='\033[0m' 
+  nc='\033[0m'
   echo -e "${red}${*}${nc}"
 }
 
