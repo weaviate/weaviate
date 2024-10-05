@@ -18,13 +18,26 @@ import (
 )
 
 // These package level variables are set during build time via ldflags -X
-// Also these information are passed to prometheus version package so that it's available in nice `weaviate_info` metric
+// Also these information are passed to prometheus version package so that it's available in `weaviate_build_info` metric
 var (
-	Version   string
-	Revision  string
-	Branch    string
+	// Version is Weviate's version. e.g: 1.26.4.
+	// We usually read it from `openapi-specs/schema.json` in this repository.
+	Version string
+
+	// Revision represents the GIT commit of the build.
+	Revision string
+
+	// Branch is the GIT branch of the build.
+	Branch string
+
+	// BuildUser represents who triggered the build.
+	// Usually something like `$(whoami)@$(hostname)`
 	BuildUser string
+
+	// BuildDate represents build date and time of the build.
 	BuildDate string
+
+	// GoVersion represents the Go compiler version used in the build
 	GoVersion string
 )
 

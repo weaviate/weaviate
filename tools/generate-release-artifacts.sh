@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# NOTES:
+# 1. This script is used only in case of emergencies when our CI pipelines fail to generate release binaries.
+# 2. This script generates only linux binaries. We use different script for Mac binaries (`tools/dev/goreleaser_and_sign.sh`)
+
 set -eou pipefail
 
 OS=${GOOS:-"linux"}
@@ -43,22 +47,19 @@ function step_complete() {
 }
 
 function build_binary_arm64() {
-  build_binary "linux" "arm64"
-  build_binary "darwin" "arm64"
+  build_binary "arm64"
 }
 
 function build_binary_amd64() {
-  build_binary "linux" "amd64"
-  build_binary "darwin" "amd64"
+  build_binary "amd64"
 }
 
 function build_binary() {
-  os=$1
-  arch=$2
+  arch=$1
   arch_dir="${BUILD_ARTIFACTS_DIR}/${arch}"
 
   echo_green "Building linux/${arch} binary..."
-  GOOS=$os GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" ${BUILD_TAGS}"
+  GOOS=linux GOARCH=$arch go build -o $BUILD_ARTIFACTS_DIR/$arch/weaviate -ldflags "-w -extldflags \"-static\" ${BUILD_TAGS}"
   step_complete
 
   cd $arch_dir
@@ -67,18 +68,18 @@ function build_binary() {
   cp ../../../../README.md .
   cp ../../../../LICENSE .
 
-  echo_green "Packing ${os}/${arch} distribution..."
-  DIST="weaviate-${VERSION}-${os}-${arch}.tar.gz"
-  tar cvfz "$DIST" weaviate LICENSE README.md
+  echo_green "Packing linux/${arch} distribution..."
+  LINUX_DIST="weaviate-${VERSION}-linux-${arch}.tar.gz"
+  tar cvfz "$LINUX_DIST" weaviate LICENSE README.md
   step_complete
 
-  echo_green "Calculating ${os}/${arch} checksums..."
-  shasum -a 256 "$DIST" | cut -d ' ' -f 1 > "${DIST}.sha256"
-  md5 "$DIST" | cut -d ' ' -f 4 > "${DIST}.md5"
+  echo_green "Calculating linux/${arch} checksums..."
+  shasum -a 256 "$LINUX_DIST" | cut -d ' ' -f 1 > "${LINUX_DIST}.sha256"
+  md5 "$LINUX_DIST" | cut -d ' ' -f 4 > "${LINUX_DIST}.md5"
   step_complete
 
-  echo_green "Move ${os}/${arch} artifacts to ${BUILD_ARTIFACTS_DIR} directory..."
-  mv $DIST* ../
+  echo_green "Move linux/${arch} artifacts to ${BUILD_ARTIFACTS_DIR} directory..."
+  mv $LINUX_DIST* ../
   step_complete
 
   echo_green "Clean up ${arch} directory"

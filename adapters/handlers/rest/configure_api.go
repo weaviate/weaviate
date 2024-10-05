@@ -35,8 +35,8 @@ import (
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/prometheus/common/version"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
@@ -190,7 +190,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		appState.TenantActivity = tenantactivity.NewHandler()
 
-		// export build tags to prometheus metric as well
+		// export build tags to prometheus metric
 		build.SetPrometheusBuildInfo()
 		prometheus.MustRegister(version.NewCollector(build.AppName))
 
