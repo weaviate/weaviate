@@ -43,6 +43,7 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
+		config.Monitoring.MetricsNamespace = "weaviate"
 
 		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
 			entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
