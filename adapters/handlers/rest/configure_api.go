@@ -34,6 +34,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pbnjay/memory"
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -185,6 +186,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState := startupRoutine(ctx, options)
 
 	if appState.ServerConfig.Config.Monitoring.Enabled {
+		appState.ServerMetrics = monitoring.NewServerMetrics(appState.ServerConfig.Config.Monitoring, prometheus.DefaultRegisterer)
 		appState.TenantActivity = tenantactivity.NewHandler()
 
 		// only monitoring tool supported at the moment is prometheus
