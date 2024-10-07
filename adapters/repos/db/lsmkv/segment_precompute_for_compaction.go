@@ -79,15 +79,10 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	var invertedKeyLength, invertedValueLength uint16
 	if header.Strategy == segmentindex.StrategyInverted {
-		// inverted strategy has a different data layout
-		// 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
-		invertedKeyLength = binary.LittleEndian.Uint16(contents[dataStartPos : dataStartPos+2])
-		invertedValueLength = binary.LittleEndian.Uint16(contents[dataStartPos+2 : dataStartPos+4])
-		keysLength := binary.LittleEndian.Uint64(contents[dataStartPos+4 : dataStartPos+12])
+		keysLength := binary.LittleEndian.Uint64(contents[dataStartPos : dataStartPos+8])
 
-		dataStartPos += 2 + 2 + 8
+		dataStartPos += 8
 		dataEndPos = dataStartPos + keysLength
-		// tombstoneCount := binary.LittleEndian.Uint64(contents[dataStartPos+12+keysLength : dataStartPos+12+keysLength+8])
 	}
 
 	seg := &segment{
