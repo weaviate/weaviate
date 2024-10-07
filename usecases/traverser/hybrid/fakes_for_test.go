@@ -24,9 +24,10 @@ func newFakeTargetVectorParamHelper() *fakeTargetVectorParamHelper {
 	return &fakeTargetVectorParamHelper{}
 }
 
-func newFakeSchemaManager() *fakeSchemaManager {
+// newFakeSchemaManager retrieves information about "fake" classes.
+func newFakeSchemaManager(classes ...*models.Class) *fakeSchemaManager {
 	return &fakeSchemaManager{
-		schema: schema.Schema{Objects: &models.Schema{}},
+		schema: schema.Schema{Objects: &models.Schema{Classes: classes}},
 	}
 }
 

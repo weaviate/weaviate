@@ -13,6 +13,7 @@ package hybrid
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -50,7 +51,9 @@ func TestSearcher(t *testing.T) {
 				provider := &fakeModuleProvider{}
 				schemaGetter := newFakeSchemaManager()
 				targetVectorParamHelper := newFakeTargetVectorParamHelper()
+
 				_, err := Search(ctx, params, logger, sparse, dense, nil, provider, schemaGetter, targetVectorParamHelper)
+
 				require.Nil(t, err)
 			},
 		},
@@ -79,7 +82,9 @@ func TestSearcher(t *testing.T) {
 					}, []float32{0.008}, nil
 				}
 				dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
+
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
@@ -117,6 +122,7 @@ func TestSearcher(t *testing.T) {
 				}
 
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
+
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
@@ -127,7 +133,7 @@ func TestSearcher(t *testing.T) {
 			},
 		},
 		{
-			name: "combined hybrid search",
+			name: "combined hybrid search (default fusion algorithm)",
 			f: func(t *testing.T) {
 				params := &Params{
 					HybridSearch: &searchparams.HybridSearch{
@@ -164,7 +170,9 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
+
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
+
 				require.Nil(t, err)
 				assert.Len(t, res, 2)
 				assert.NotNil(t, res[0])
@@ -180,9 +188,8 @@ func TestSearcher(t *testing.T) {
 				assert.Equal(t, float32(0.008333334), res[0].Score)
 			},
 		},
-
 		{
-			name: "combined hybrid search",
+			name: "combined hybrid search (relative score fusion)",
 			f: func(t *testing.T) {
 				params := &Params{
 					HybridSearch: &searchparams.HybridSearch{
@@ -220,7 +227,9 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
+
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
+
 				require.Nil(t, err)
 				assert.Len(t, res, 2)
 				assert.NotNil(t, res[0])
@@ -264,7 +273,9 @@ func TestSearcher(t *testing.T) {
 				dense := func([]float32) ([]*storobj.Object, []float32, error) {
 					return nil, nil, nil
 				}
+
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
+
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
@@ -309,7 +320,9 @@ func TestSearcher(t *testing.T) {
 				provider := &fakeModuleProvider{}
 				schemaGetter := newFakeSchemaManager()
 				targetVectorParamHelper := newFakeTargetVectorParamHelper()
+
 				res, err := Search(ctx, params, logger, sparse, dense, nil, provider, schemaGetter, targetVectorParamHelper)
+
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
@@ -354,7 +367,9 @@ func TestSearcher(t *testing.T) {
 				provider := &fakeModuleProvider{}
 				schemaGetter := newFakeSchemaManager()
 				targetVectorParamHelper := newFakeTargetVectorParamHelper()
+
 				res, err := Search(ctx, params, logger, sparse, dense, nil, provider, schemaGetter, targetVectorParamHelper)
+
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
 				assert.NotNil(t, res[0])
@@ -362,6 +377,39 @@ func TestSearcher(t *testing.T) {
 				assert.Contains(t, res[0].ExplainScore, "1889a225-3b28-477d-b8fc-5f6071bb4731")
 				assert.Equal(t, res[0].Vector, []float32{1, 2, 3})
 				assert.Equal(t, res[0].Dist, float32(0.008))
+			},
+		},
+		{
+			name: "nearText with no vectorizer configured for collection",
+			f: func(t *testing.T) {
+				params := &Params{
+					HybridSearch: &searchparams.HybridSearch{
+						NearTextParams: &searchparams.NearTextParams{
+							Certainty: 0.6,
+							Values:    []string{"biology"},
+						},
+						Alpha: 0.5,
+					},
+					Class: class,
+				}
+				sparse := func() ([]*storobj.Object, []float32, error) {
+					return []*storobj.Object{}, []float32{}, nil
+				}
+				dense := func([]float32) ([]*storobj.Object, []float32, error) {
+					return []*storobj.Object{}, []float32{}, nil
+				}
+
+				schema := newFakeSchemaManager(&models.Class{
+					Class:      class,
+					Vectorizer: "none",
+				})
+				modules := &fakeModuleProvider{}
+				targetVector := newFakeTargetVectorParamHelper()
+
+				_, err := Search(ctx, params, logger, sparse, dense, nil, modules, schema, targetVector)
+
+				require.NotNil(t, err, "near_text search on a collection with no vectorizer should return an error")
+				fmt.Println(err)
 			},
 		},
 	}

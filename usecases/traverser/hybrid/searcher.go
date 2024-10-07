@@ -282,6 +282,11 @@ func decideSearchVector(ctx context.Context,
 			if err != nil {
 				return nil, err
 			}
+
+			if targetVector == "" {
+				return nil, fmt.Errorf("collections must have at least 1 vectorizer to use near_text search, %q has none", class)
+			}
+
 			vector, err := vectorFromModuleInput(ctx, class, query, targetVector, modules)
 			if err != nil {
 				return nil, err
