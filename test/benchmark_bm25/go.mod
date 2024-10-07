@@ -1,6 +1,6 @@
 module github.com/weaviate/weaviate/test/benchmark_bm25
 
-go 1.22
+go 1.22.0
 
 replace github.com/weaviate/weaviate => ../..
 
