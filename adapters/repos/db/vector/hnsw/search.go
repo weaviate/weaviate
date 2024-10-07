@@ -186,6 +186,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		floatDistancer = h.distancerProvider.New(queryVector)
 	}
 
+	entryPointElem := entrypoints.Pop()
+	entrypoints.Insert(entryPointElem.ID, entryPointElem.Dist)
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
 
@@ -230,49 +232,102 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			continue
 		}
 
-		if level > 0 || allowList == nil || !h.acornSearch.Load() {
+		var slice *common.VectorUint64Slice
+		var slice2 *common.VectorUint64Slice
+		var slice3 *common.VectorUint64Slice
+		if allowList == nil || !h.acornSearch.Load() {
 			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 			copy(connectionsReusable, candidateNode.connections[level])
 		} else {
-			slice := h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
-			defer h.pools.tempVectorsUint64.Put(slice)
+			slice = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
 			connectionsReusable = slice.Slice
+			slice2 = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+			slice3 = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero * h.maximumConnectionsLayerZero * h.maximumConnectionsLayerZero)
+			pendingNextRound := slice2.Slice
+			pendingThisRound := slice3.Slice
 
 			realLen := 0
 			index := 0
 
-			for index < len(candidateNode.connections[level]) && realLen < M*h.maximumConnectionsLayerZero {
-				nodeId := candidateNode.connections[level][index]
-				index++
-				if !visitedExp.Visited(nodeId) {
-					if allowList.Contains(nodeId) {
-						connectionsReusable[realLen] = nodeId
-						realLen++
-						visitedExp.Visit(nodeId)
+			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
+			copy(pendingNextRound, candidateNode.connections[level])
+			for realLen < M*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+				if cap(pendingThisRound) >= len(pendingNextRound) {
+					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
+				} else {
+					pendingThisRound = make([]uint64, len(pendingNextRound))
+					slice3.Slice = pendingThisRound
+				}
+				copy(pendingThisRound, pendingNextRound)
+				pendingNextRound = pendingNextRound[:0]
+				for index < len(pendingThisRound) && realLen < M*h.maximumConnectionsLayerZero {
+					nodeId := pendingThisRound[index]
+					index++
+					if ok := visited.Visited(nodeId); ok {
+						// skip if we've already visited this neighbor
 						continue
 					}
-				}
-				visitedExp.Visit(nodeId)
-
-				node := h.nodes[nodeId]
-				if node == nil {
-					continue
-				}
-				for _, expId := range node.connections[level] {
-					if realLen >= M*h.maximumConnectionsLayerZero {
-						break
-					}
-
-					if visitedExp.Visited(expId) {
+					if !visitedExp.Visited(nodeId) {
+						if allowList.Contains(nodeId) {
+							connectionsReusable[realLen] = nodeId
+							realLen++
+							visitedExp.Visit(nodeId)
+							continue
+						}
+					} else {
 						continue
 					}
+					visitedExp.Visit(nodeId)
 
-					visitedExp.Visit(expId)
-
-					if allowList.Contains(expId) {
-						connectionsReusable[realLen] = expId
-						realLen++
+					node := h.nodes[nodeId]
+					if node == nil {
+						continue
 					}
+					for _, expId := range node.connections[level] {
+						if visitedExp.Visited(expId) {
+							continue
+						}
+						if visited.Visited(expId) {
+							continue
+						}
+
+						if realLen >= M*h.maximumConnectionsLayerZero {
+							break
+						}
+
+						if allowList.Contains(expId) {
+							visitedExp.Visit(expId)
+							connectionsReusable[realLen] = expId
+							realLen++
+						} else {
+							visitedExp.Visit(expId)
+							pendingNextRound = append(pendingNextRound, expId)
+						}
+					}
+				}
+			}
+			if realLen == 0 && results.Len() < 10 {
+				now := []uint64{pendingThisRound[0]}
+				var next []uint64
+				pass := false
+				hops := 0
+				for !pass {
+					hops++
+					for _, x := range now {
+						if pass {
+							break
+						}
+						node := h.nodes[x]
+						for _, y := range node.connections[level] {
+							if allowList.Contains(y) {
+								pass = true
+								break
+							}
+						}
+						next = append(next, node.connections[level]...)
+					}
+					now = next
+					next = next[:0]
 				}
 			}
 			connectionsReusable = connectionsReusable[:realLen]
@@ -310,7 +365,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if !h.acornSearch.Load() && level == 0 && allowList != nil && !allowList.Contains(neighborID) {
+				if !h.acornSearch.Load() && allowList != nil && !allowList.Contains(neighborID) {
 					continue
 				}
 
@@ -335,6 +390,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					worstResultDistance = results.Top().Dist
 				}
 			}
+		}
+		if allowList != nil && h.acornSearch.Load() {
+			h.pools.tempVectorsUint64.Put(slice)
+			h.pools.tempVectorsUint64.Put(slice2)
+			h.pools.tempVectorsUint64.Put(slice3)
 		}
 	}
 
@@ -479,12 +539,98 @@ func (h *hnsw) handleDeletedNode(docID uint64, operation string) {
 			"tombstone was added", docID)
 }
 
+type FastSet struct {
+	boolSet []bool
+	size    int
+}
+
+func NewFastSet(allow helpers.AllowList) *FastSet {
+	bools := make([]bool, 1_000_000)
+	it := allow.Iterator()
+	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
+		bools[docID] = true
+	}
+	return &FastSet{
+		boolSet: bools,
+		size:    allow.Len(),
+	}
+}
+
+func (s *FastSet) Contains(node uint64) bool {
+	return s.boolSet[node]
+}
+
+func (s *FastSet) DeepCopy() helpers.AllowList {
+	panic("DeepCopy")
+}
+
+func (s *FastSet) Insert(ids ...uint64) {
+	panic("DeepCopy")
+}
+func (s *FastSet) WrapOnWrite() helpers.AllowList {
+	panic("DeepCopy")
+}
+func (s *FastSet) Slice() []uint64 {
+	panic("DeepCopy")
+}
+
+func (s *FastSet) IsEmpty() bool {
+	panic("DeepCopy")
+}
+func (s *FastSet) Len() int {
+	return s.size
+}
+func (s *FastSet) Min() uint64 {
+	panic("DeepCopy")
+}
+func (s *FastSet) Max() uint64 {
+	panic("DeepCopy")
+}
+func (s *FastSet) Size() uint64 {
+	panic("DeepCopy")
+}
+func (s *FastSet) Truncate(uint64) helpers.AllowList {
+	panic("DeepCopy")
+}
+
+func (s *FastSet) Iterator() helpers.AllowListIterator {
+	return &fastIterator{
+		source:  s,
+		current: 0,
+	}
+}
+func (s *FastSet) LimitedIterator(limit int) helpers.AllowListIterator {
+	panic("DeepCopy")
+}
+
+type fastIterator struct {
+	current uint64
+	source  *FastSet
+}
+
+func (s *fastIterator) Len() int {
+	return s.source.Len()
+}
+
+func (s *fastIterator) Next() (uint64, bool) {
+	index := s.current
+	size := uint64(len(s.source.boolSet))
+	for index < size && !s.source.boolSet[index] {
+		index++
+	}
+	s.current = index + 1
+	return index, index < size
+}
+
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
-	ef int, allowList helpers.AllowList,
+	ef int, allowOld helpers.AllowList,
 ) ([]uint64, []float32, error) {
+	h.acornSearch.Store(true)
 	if h.isEmpty() {
 		return nil, nil, nil
 	}
+
+	allowList := NewFastSet(allowOld)
 
 	if k < 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
@@ -519,6 +665,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 		res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, 1, level, nil, compressorDistancer)
 		if err != nil {
+			panic(1)
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
 
@@ -537,6 +684,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 				// deleted, but not cleaned up properly. Make sure to add a tombstone to
 				// this node, so it can be cleaned up in the next cycle.
 				if err := h.addTombstone(cand.ID); err != nil {
+					panic(2)
 					return nil, nil, err
 				}
 
@@ -560,6 +708,35 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
+	h.acornSearch.Store(true)
+	/*if allowList != nil {
+		h.acornSearch.Store(true)
+		size := allowList.Len()
+		seeds, ok := h.seeds[size]
+		if !ok {
+			it := allowList.Iterator()
+			indices := make([]uint64, size)
+			i := 0
+			for idx, ok := it.Next(); ok; idx, ok = it.Next() {
+				indices[i] = idx
+				i++
+			}
+			seeds = make([]uint64, 10)
+			for i := range seeds {
+				index := rand.Uint64() % uint64(size)
+				seeds[i] = indices[index]
+			}
+			h.seeds[size] = seeds
+			h.logger.Debug("seeding for ... ", size)
+		}
+		for _, entryPoint := range seeds {
+			entryPointDistance, _, _ := h.distToNode(nil, entryPoint, searchVec)
+			eps.Insert(entryPoint, entryPointDistance)
+		}
+		for eps.Len() > ef {
+			eps.Pop()
+		}
+	}*/
 	res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, ef, 0, allowList, compressorDistancer)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
