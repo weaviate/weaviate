@@ -509,7 +509,7 @@ func (m *dummyBackupModuleWithAltNames) Type() modulecapabilities.ModuleType {
 	return modulecapabilities.Backup
 }
 
-func (m *dummyBackupModuleWithAltNames) HomeDir(overrideBucket, overridePath, backupID string) string {
+func (m *dummyBackupModuleWithAltNames) HomeDir(backupID, overrideBucket, overridePath  string) string {
 	return ""
 }
 
@@ -545,6 +545,6 @@ func (m *dummyBackupModuleWithAltNames) PutFile(ctx context.Context, backupID, k
 	return nil
 }
 
-func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID string) error {
+func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
 	return nil
 }

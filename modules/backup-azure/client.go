@@ -100,7 +100,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azu
 	return &azureClient{client, *config, serviceURL, dataPath}, nil
 }
 
-func (a *azureClient) HomeDir(overrideBucket, overridePath, backupID string) string {
+func (a *azureClient) HomeDir(backupID, overrideBucket, overridePath  string) string {
 	if overrideBucket == "" {
 		overrideBucket = a.config.Container
 	}
@@ -172,14 +172,14 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key, bucketName, 
 	return nil
 }
 
-func (a *azureClient) Initialize(ctx context.Context, backupID string) error {
+func (a *azureClient) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
 	key := "access-check"
 
-	if err := a.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {
+	if err := a.PutObject(ctx, backupID, key, bucketName, bucketPath, []byte("")); err != nil {
 		return errors.Wrap(err, "failed to access-check Azure backup module")
 	}
 
-	objectName := a.makeObjectName("", []string{backupID, key})
+	objectName := a.makeObjectName(bucketPath, []string{backupID, key})
 	if _, err := a.client.DeleteBlob(ctx, a.config.Container, objectName, nil); err != nil {
 		return errors.Wrap(err, "failed to remove access-check Azure backup module")
 	}

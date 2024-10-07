@@ -71,7 +71,7 @@ func (s *s3Client) makeObjectName(parts ...string) string {
 	return path.Join(s.config.BackupPath, base)
 }
 
-func (s *s3Client) HomeDir(overrideBucket, overridePath, backupID string) string {
+func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath  string) string {
 	remoteBucket := s.config.Bucket
 	remotePath := s.config.BackupPath
 
@@ -155,7 +155,7 @@ func (s *s3Client) PutObject(ctx context.Context, backupID, key, bucketName, buc
 	return nil
 }
 
-func (s *s3Client) Initialize(ctx context.Context, backupID string) error {
+func (s *s3Client) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
 	key := "access-check"
 
 	if err := s.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {

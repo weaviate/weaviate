@@ -94,8 +94,8 @@ func (s *ObjectStore) Read(ctx context.Context, key, bucketName, bucketPath stri
 	return s.Backend.Read(ctx, s.BackupId, key, bucketName, bucketPath, w)
 }
 
-func (s *ObjectStore) Initialize(ctx context.Context) error {
-	return s.Backend.Initialize(ctx, s.BackupId)
+func (s *ObjectStore) Initialize(ctx context.Context, bucketName, bucketPath string) error {
+	return s.Backend.Initialize(ctx, s.BackupId, bucketName, bucketPath)
 }
 
 // meta marshals and uploads metadata

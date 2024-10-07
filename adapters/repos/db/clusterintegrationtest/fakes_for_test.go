@@ -287,7 +287,7 @@ type fakeBackupBackend struct {
 	startedAt   time.Time
 }
 
-func (f *fakeBackupBackend) HomeDir(overrideBucket, overridePath, backupID string) string {
+func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath  string) string {
 	f.Lock()
 	defer f.Unlock()
 	if overridePath != "" {
@@ -381,7 +381,7 @@ func (f *fakeBackupBackend) PutObject(ctx context.Context, backupID, key, bucket
 	return nil
 }
 
-func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID string) error {
+func (f *fakeBackupBackend) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
 	f.Lock()
 	defer f.Unlock()
 	return nil

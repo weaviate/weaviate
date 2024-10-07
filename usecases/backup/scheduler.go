@@ -90,7 +90,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.Initialize(ctx, req.S3Bucket, req.S3Path); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 	breq := Request{
@@ -205,7 +205,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	if err := s.authorizer.Authorize(principal, "get", path); err != nil {
 		return nil, err
 	}
-	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath) // FIXME?
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return nil, backup.NewErrUnprocessable(err)
@@ -218,7 +218,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	return st, nil
 }
 
-func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, backupID string,
+func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
 ) error {
 	defer func(begin time.Time) {
 		var err error
@@ -230,21 +230,21 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 
-	store, err := coordBackend(s.backends, backend, backupID, "", "") // FIXME?
+	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath) // FIXME?
 	if err != nil {
 		err = fmt.Errorf("no backup provider %q: %w, did you enable the right module?", backend, err)
 		return backup.NewErrUnprocessable(err)
 	}
 
-	if err := validateID(backupID); err != nil {
+	if err := validateID(backupID, ); err != nil {
 		return err
 	}
 
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.Initialize(ctx, overrideBucket, overridePath); err != nil {
 		return backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 
-	meta, _ := store.Meta(ctx, GlobalBackupFile, "", "") // FIXME
+	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
 	if meta != nil {
 		// if existed meta and not in the next cases shall be cancellable
 		switch meta.Status {
@@ -267,7 +267,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return err
 	}
 	s.backupper.abortAll(ctx,
-		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend}, nodes)
+		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend, S3Bucket: overrideBucket, S3Path: overridePath}, nodes)
 
 	return nil
 }

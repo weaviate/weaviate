@@ -98,7 +98,7 @@ func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	return content, nil
 }
 
-func (g *gcsClient) HomeDir(overrideBucket, overridePath, backupID string) string {
+func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath  string) string {
 	return "gs://" + path.Join(g.config.Bucket,
 		g.makeObjectName(overridePath, []string{backupID}))
 }
@@ -182,7 +182,7 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, bucketName, bu
 	return nil
 }
 
-func (g *gcsClient) Initialize(ctx context.Context, backupID string) error {
+func (g *gcsClient) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
 	key := "access-check"
 
 	if err := g.PutObject(ctx, backupID, key, "", "", []byte("")); err != nil {

@@ -33,7 +33,7 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	}
 
 	classes := req.Include
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.Initialize(ctx, req.S3Bucket, req.S3Path); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
 

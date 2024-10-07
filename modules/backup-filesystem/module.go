@@ -69,7 +69,7 @@ func (m *Module) Init(ctx context.Context,
 	return nil
 }
 
-func (m *Module) HomeDir(overrideBucket, overridePath, backupID string) string {
+func (m *Module) HomeDir(backupID, overrideBucket, overridePath  string) string {
 	if overridePath != "" {
 		return path.Join(overridePath, backupID)
 	} else {

@@ -95,7 +95,7 @@ func newFakeBackend() *fakeBackend {
 	}
 }
 
-func (fb *fakeBackend) HomeDir(overrideBucket, overridePath, backupID string) string {
+func (fb *fakeBackend) HomeDir(backupID, overrideBucket, overridePath  string) string {
 	fb.RLock()
 	defer fb.RUnlock()
 	args := fb.Called(overrideBucket, overridePath, backupID)
@@ -134,7 +134,7 @@ func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, bucketName,
 	return nil, args.Error(1)
 }
 
-func (fb *fakeBackend) Initialize(ctx context.Context, backupID string) error {
+func (fb *fakeBackend) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
 	fb.Lock()
 	defer fb.Unlock()
 	args := fb.Called(ctx, backupID)

@@ -124,7 +124,7 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPat
 	return nil
 }
 
-func (m *Module) Initialize(ctx context.Context, backupID string) error {
+func (m *Module) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
 	// TODO: does anything need to be done here?
 	return nil
 }

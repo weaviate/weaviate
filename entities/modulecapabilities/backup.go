@@ -22,7 +22,7 @@ type BackupBackend interface {
 	// Name returns backend's name
 	Name() string
 	// HomeDir is the base storage location of all backup files, which can be a bucket, a directory, etc.
-	HomeDir(overrideBucket, overridePath, backupID string) string
+	HomeDir(backupID, overrideBucket, overridePath  string) string
 
 	// GetObject giving backupID and key
 	GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error)
@@ -40,7 +40,7 @@ type BackupBackend interface {
 	PutObject(ctx context.Context, backupID, key, bucketName, bucketPath string, byes []byte) error
 
 	// Initialize initializes backup provider and make sure that app have access rights to write into the object store.
-	Initialize(ctx context.Context, backupID string) error
+	Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error
 
 	// Write writes the content of the reader to the object with key
 	// bucketName and bucketPath override the initialised bucketName and bucketPath
