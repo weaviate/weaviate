@@ -28,10 +28,6 @@ func HammingBitwiseGo(x, y []uint64) float32 {
 	return total
 }
 
-func setBit(n uint64, pos int) uint64 {
-	return n | (1 << pos)
-}
-
 func testHammingBitwiseFixedValue(t *testing.T, size uint, hammingBitwiseFn func(x []uint64, y []uint64) float32) {
 	for num := 0; num < 255; num++ {
 		vec1 := make([]uint64, size)
@@ -61,17 +57,8 @@ func testHammingBitwiseRandomValue(t *testing.T, size uint, hammingBitwiseFn fun
 		vec1 := make([]uint64, size)
 		vec2 := make([]uint64, size)
 		for j := range vec1 {
-			for k := 0; k < 64; k++ {
-				rand := r.Intn(3)
-				if rand == 0 {
-					vec1[j] = setBit(vec1[j], k)
-					vec2[j] = setBit(vec2[j], k)
-				} else if rand == 1 {
-					vec1[j] = setBit(vec1[j], k)
-				} else {
-					vec2[j] = setBit(vec2[j], k)
-				}
-			}
+			vec1[j] = r.Uint64()
+			vec2[j] = r.Uint64()
 
 		}
 		vec1s[i] = vec1
@@ -125,7 +112,7 @@ func TestCompareHammingBitwise(t *testing.T) {
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
 			testHammingBitwiseFixedValue(t, size, asm.HammingBitwise)
-			// testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX256)
+			testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX256)
 		})
 	}
 }

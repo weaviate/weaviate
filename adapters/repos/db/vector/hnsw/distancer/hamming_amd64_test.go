@@ -39,10 +39,10 @@ func testHammingBitwiseFixedValue(t *testing.T, size uint, hammingBitwiseFn func
 		res := hammingBitwiseFn(vec1, vec2)
 
 		resControl := HammingBitwiseGo(vec1, vec2)
-		// if resControl != res {
-		t.Logf("for dim: %d -> want: %f, got: %f", size, resControl, res)
-		t.Fail()
-		// }
+		if resControl != res {
+			t.Logf("for dim: %d -> want: %f, got: %f", size, resControl, res)
+			t.Fail()
+		}
 	}
 }
 
