@@ -114,7 +114,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string,
 	}
 	apiKey, err := v.getApiKey(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "Weaviate Embedding API key")
+		return nil, errors.Wrap(err, "Weaviate API key")
 	}
 
 	req.Header.Set("Authorization", apiKey)
@@ -211,13 +211,13 @@ func getErrorMessage(statusCode int, resBodyError string, errorTemplate string) 
 }
 
 func (v *vectorizer) getApiKey(ctx context.Context) (string, error) {
-	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Embedding-Key"); apiKey != "" {
+	if apiKey := modulecomponents.GetValueFromContext(ctx, "X-Weaviate-Api-Key"); apiKey != "" {
 		return apiKey, nil
 	}
 	if v.apiKey != "" {
 		return v.apiKey, nil
 	}
 	return "", errors.New("no api key found " +
-		"neither in request header: X-Weaviate-Embedding-Key " +
-		"nor in environment variable under WEAVIATE_EMBEDDING_KEY")
+		"neither in request header: X-Weaviate-Api-Key " +
+		"nor in environment variable under WEAVIATE_APIKEY")
 }

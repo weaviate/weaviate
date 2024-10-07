@@ -92,7 +92,7 @@ func (m *WeaviateEmbedModule) InitExtension(modules []modulecapabilities.Module)
 func (m *WeaviateEmbedModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	logger logrus.FieldLogger,
 ) error {
-	apiKey := os.Getenv("WEAVIATE_EMBEDDING_KEY")
+	apiKey := os.Getenv("WEAVIATE_APIKEY")
 	client := clients.New(apiKey, timeout, logger)
 
 	m.vectorizer = vectorizer.New(client, m.logger)
