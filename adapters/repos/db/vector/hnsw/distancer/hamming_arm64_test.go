@@ -20,7 +20,6 @@ import (
 )
 
 func HammingBitwiseGo(x, y []uint64) float32 {
-
 	total := float32(0)
 	for segment := range x {
 		total += float32(bits.OnesCount64(x[segment] ^ y[segment]))
@@ -137,7 +136,6 @@ func BenchmarkHammingBitwise(b *testing.B) {
 	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
-
 			benchmarkHammingBitwise(b, dim, asm.HammingBitwise)
 
 			b.Run("pure go", func(b *testing.B) { benchmarkHammingBitwise(b, dim, HammingBitwiseGo) })

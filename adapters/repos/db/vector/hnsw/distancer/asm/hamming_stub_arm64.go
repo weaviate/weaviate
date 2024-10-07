@@ -103,7 +103,6 @@ func Hamming(x []float32, y []float32) float32 {
 }
 
 func HammingBitwise(x []uint64, y []uint64) float32 {
-
 	l := len(x)
 
 	var res uint64
