@@ -32,15 +32,11 @@ inline uint64_t popcnt_AVX2_lookup_512(__m256i *vec, __m256i *low_mask_vec,
   return result;
 }
 
-void popcount(__m512i *v_ptr, __m512i *result, char *constants_avx512) {
+void popcount(__m512i *v_ptr, __m512i *result, uint64_t *constants_avx512) {
   __m512i v = *v_ptr;
-  const __m512i m1 = _mm512_set1_epi8(constants_avx512[0]);
-  const __m512i m2 = _mm512_set1_epi8((constants_avx512[1]));
-  const __m512i m4 = _mm512_set1_epi8(constants_avx512[2]);
-
-  // const __m512i m1 = _mm512_loadu_epi64(constants_avx512 + 0);
-  // const __m512i m2 = _mm512_loadu_epi64(constants_avx512 + 8);
-  // const __m512i m4 = _mm512_loadu_epi64(constants_avx512 + 16);
+  const __m512i m1 = _mm512_set1_epi64(constants_avx512[0]);
+  const __m512i m2 = _mm512_set1_epi64((constants_avx512[1]));
+  const __m512i m4 = _mm512_set1_epi64(constants_avx512[2]);
 
   const __m512i t1 = _mm512_sub_epi8(v, (_mm512_srli_epi16(v, 1) & m1));
   const __m512i t2 = _mm512_add_epi8(t1 & m2, (_mm512_srli_epi16(t1, 2) & m2));
@@ -67,18 +63,18 @@ uint64_t simd_sum_epu64_256(__m256i *v_ptr) {
          (uint64_t)(_mm256_extract_epi64(v, 3));
 }
 
-uint64_t simd_sum_epu64(__m512i *v_ptr) {
+uint64_t simd_sum_epu64_512(__m512i *v_ptr) {
 
   __m512i v = *v_ptr;
 
-  const __m256i lo = _mm512_extracti64x4_epi64(v, 0);
-  const __m256i hi = _mm512_extracti64x4_epi64(v, 1);
+  __m256i lo = _mm512_extracti64x4_epi64(v, 0);
+  __m256i hi = _mm512_extracti64x4_epi64(v, 1);
 
   return simd_sum_epu64_256(&lo) + simd_sum_epu64_256(&hi);
 }
 
 uint64_t popcnt_AVX512_harleyseal(__m512i *data, uint64_t *size_ptr,
-                                  char *constants_avx512) {
+                                  uint64_t *constants_avx512) {
 
   uint64_t size = *size_ptr;
 
@@ -138,7 +134,7 @@ uint64_t popcnt_AVX512_harleyseal(__m512i *data, uint64_t *size_ptr,
     total = _mm512_add_epi64(total, result);
   }
 
-  return simd_sum_epu64(&total);
+  return simd_sum_epu64_512(&total);
 }
 
 static inline uint64_t popcnt_64bit_512(uint64_t *src,
@@ -151,12 +147,9 @@ static inline uint64_t popcnt_64bit_512(uint64_t *src,
 }
 
 void hamming_bitwise_512(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
-                         char *constants_avx512, uint64_t *popcnt_constants) {
+                         uint64_t *popcnt_constants) {
 
   int n = *len;
-
-  // __m256i lookup_vec = _mm256_loadu_si256((__m256i *)lookup_avx);
-  // __m256i low_mask_vec = _mm256_set1_epi64x(popcnt_constants[4]);
 
   uint64_t sum = 0;
 
@@ -177,34 +170,11 @@ void hamming_bitwise_512(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
 
   __m256i zeros_256 = _mm256_setzero_si256();
 
-  size_t size = 16;
-  // __m512i test[16];
-  // test[0] = _mm512_set1_epi64(1);
-  // // test[1] = _mm512_set1_epi64(31);
-  // // test[0] = _mm512_setzero_si512();
-  // test[1] = _mm512_setzero_si512();
-  // test[2] = _mm512_setzero_si512();
-  // test[3] = _mm512_setzero_si512();
-  // test[4] = _mm512_setzero_si512();
-  // test[5] = _mm512_setzero_si512();
-  // test[6] = _mm512_setzero_si512();
-  // test[7] = _mm512_setzero_si512();
-  // test[8] = _mm512_setzero_si512();
-  // test[9] = _mm512_setzero_si512();
-  // test[10] = _mm512_setzero_si512();
-  // test[11] = _mm512_setzero_si512();
-  // test[12] = _mm512_setzero_si512();
-  // test[13] = _mm512_setzero_si512();
-  // test[14] = _mm512_setzero_si512();
-  // test[15] = _mm512_setzero_si512();
-
-  // uint64_t test_res = popcnt_AVX512_harleyseal(test, &size,
-  // constants_avx512);
-
-  // *res = test_res;
-  // return;
-
+  // process 128 uint64s at a time
   while (n >= 128) {
+
+    size_t size = 16;
+
     __m512i a_vec0 = _mm512_loadu_si512((__m512i const *)a);
     __m512i a_vec1 = _mm512_loadu_si512((__m512i const *)(a + 8));
     __m512i a_vec2 = _mm512_loadu_si512((__m512i const *)(a + 16));
@@ -258,25 +228,12 @@ void hamming_bitwise_512(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
     cmp_results[14] = _mm512_xor_si512(a_vec14, b_vec14);
     cmp_results[15] = _mm512_xor_si512(a_vec15, b_vec15);
 
-    sum += popcnt_AVX512_harleyseal(cmp_results, &size, constants_avx512);
+    sum += popcnt_AVX512_harleyseal(cmp_results, &size, popcnt_constants);
 
     n -= 128;
     a += 128;
     b += 128;
   }
-
-  // while (n >= 16) {
-  //   __m512i a_vec0 = _mm512_loadu_si512((__m512i const *)a);
-  //   __m512i b_vec0 = _mm512_loadu_si512((__m512i const *)b);
-
-  //   __m512i cmp_result_1 = _mm512_xor_si512(a_vec0, b_vec0);
-
-  //   sum += popcnt_AVX512_harleyseal(&cmp_result_1, constants_avx512);
-
-  //   n -= 16;
-  //   a += 16;
-  //   b += 16;
-  // }
 
   while (n) {
     uint64_t xor = a[0] ^ b[0];
@@ -285,8 +242,6 @@ void hamming_bitwise_512(uint64_t *a, uint64_t *b, uint64_t *res, long *len,
     a++;
     b++;
   }
-
-  // sum += 8;
 
   *res = sum;
   return;

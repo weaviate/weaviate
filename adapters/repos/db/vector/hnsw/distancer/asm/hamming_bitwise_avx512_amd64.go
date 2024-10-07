@@ -18,7 +18,7 @@ func CSA(h, l, a_ptr, b_ptr, c_ptr unsafe.Pointer)
 func simd_sum_epu64_256(v_ptr unsafe.Pointer)
 
 //go:noescape
-func simd_sum_epu64(v_ptr unsafe.Pointer)
+func simd_sum_epu64_512(v_ptr unsafe.Pointer)
 
 //go:noescape
 func popcnt_AVX512_harleyseal(data, size_ptr, constants_avx512 unsafe.Pointer)
@@ -27,4 +27,4 @@ func popcnt_AVX512_harleyseal(data, size_ptr, constants_avx512 unsafe.Pointer)
 func popcnt_64bit_512(src, popcnt_constants unsafe.Pointer)
 
 //go:noescape
-func hamming_bitwise_512(a, b, res, len, constants_avx512, popcnt_constants unsafe.Pointer)
+func hamming_bitwise_512(a, b, res, len, popcnt_constants unsafe.Pointer)
