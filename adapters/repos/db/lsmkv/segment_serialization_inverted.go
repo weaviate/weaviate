@@ -200,12 +200,10 @@ func decodeBlocks(data []byte) ([]*blockEntry, []*blockData) {
 	return blockEntries, blockDatas
 }
 
-func convertFromBlocks(blockEntries []*blockEntry, encodedBlocks []*blockData, objectCount uint64) ([]*blockEntry, *binarySearchNodeMap) {
+func convertFromBlocks(blockEntries []*blockEntry, encodedBlocks []*blockData, objectCount uint64) *binarySearchNodeMap {
 	out := &binarySearchNodeMap{
 		values: make([]MapPair, 0, objectCount),
 	}
-
-	decodedBlock := make([]*blockEntry, len(encodedBlocks))
 
 	for i := range blockEntries {
 
@@ -235,7 +233,7 @@ func convertFromBlocks(blockEntries []*blockEntry, encodedBlocks []*blockData, o
 			})
 		}
 	}
-	return decodedBlock, out
+	return out
 }
 
 // a single node of strategy "inverted"

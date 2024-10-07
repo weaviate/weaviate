@@ -133,19 +133,21 @@ func BenchmarkDecoder(b *testing.B) {
 }
 
 func TestMapList(m *testing.T) {
-	// Example input values
-
 	collectionSize := BLOCK_SIZE_TEST*7 + 15
+
+	currentUncompressedSize := collectionSize * 29 // non-tombstone records have 29 bytes
+	bestUncompressedSize := collectionSize * 16    // best possible uncompressed size for non-tombstone records 8 for key, 8 for value
+
 	mapList := make([]MapPair, collectionSize)
 
 	for i := range mapList {
-		docId := uint64(100 + i)
+		docId := uint64(100 + i*10)
 
 		key := make([]byte, 8)
 		binary.BigEndian.PutUint64(key, docId)
 
-		tf := float32(math.Round(rand.Float64()*10)) + 1
-		pl := float32(math.Round(rand.Float64()*10)) + 1
+		tf := float32(math.Round(rand.Float64()*100)) + 1
+		pl := float32(math.Round(rand.Float64()*1000)) + 1
 
 		value := make([]byte, 8)
 		binary.LittleEndian.PutUint32(value, math.Float32bits(tf))
@@ -161,12 +163,19 @@ func TestMapList(m *testing.T) {
 		values: mapList,
 	}
 
-	// Baseline encoding
 	blockEntries, blockDatas, _ := createBlocks(mapNode)
 	blocksEncoded := encodeBlocks(blockEntries, blockDatas, uint64(collectionSize))
+
+	compressedSize := len(blocksEncoded)
+
+	m.Logf("Compression ratios: %.2f %.2f\n", float32(currentUncompressedSize)/float32(compressedSize), float32(bestUncompressedSize)/float32(compressedSize))
 
 	blockEntries2, blockDatas2 := decodeBlocks(blocksEncoded)
 
 	assert.Equal(m, blockEntries, blockEntries2)
 	assert.Equal(m, blockDatas, blockDatas2)
+
+	mapNode2 := convertFromBlocks(blockEntries2, blockDatas2, uint64(collectionSize))
+
+	assert.Equal(m, mapNode, mapNode2)
 }
