@@ -217,7 +217,7 @@ jobs:
             echo "run_pipeline=false" >> $GITHUB_ENV
           fi
       - name: configure gcp
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         id: creds-gcp
         env:
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -228,7 +228,7 @@ jobs:
           echo "::add-mask::$google_apikey"
           echo "google_apikey=$google_apikey" >> "$GITHUB_OUTPUT"
       - name: configure aws
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         id: creds-aws
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -240,7 +240,7 @@ jobs:
           role-skip-session-tagging: true
           output-credentials: true
       - name: Acceptance tests (modules)
-        if : ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
+        if: ${{ env.run_pipeline == 'true' || startsWith(github.ref, 'refs/tags') }}
         env:
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
           PALM_APIKEY: ${{ steps.creds-gcp.outputs.google_apikey }}
