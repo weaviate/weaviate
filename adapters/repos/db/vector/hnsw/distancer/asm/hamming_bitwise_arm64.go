@@ -6,4 +6,4 @@ package asm
 import "unsafe"
 
 //go:noescape
-func hamming(a, b, res, len unsafe.Pointer)
+func hamming_bitwise(a, b, res, len unsafe.Pointer)
