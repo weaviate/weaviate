@@ -636,7 +636,6 @@ func (s *fastIterator) Next() (uint64, bool) {
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	ef int, allowOld helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	h.acornSearch.Store(true)
 	if h.isEmpty() {
 		return nil, nil, nil
 	}
@@ -675,7 +674,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 		res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, 1, level, nil, compressorDistancer)
 		if err != nil {
-			panic(1)
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 		}
 
@@ -694,7 +692,6 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 				// deleted, but not cleaned up properly. Make sure to add a tombstone to
 				// this node, so it can be cleaned up in the next cycle.
 				if err := h.addTombstone(cand.ID); err != nil {
-					panic(2)
 					return nil, nil, err
 				}
 
@@ -718,35 +715,23 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
-	h.acornSearch.Store(true)
-	/*if allowList != nil {
-		h.acornSearch.Store(true)
-		size := allowList.Len()
-		seeds, ok := h.seeds[size]
-		if !ok {
-			it := allowList.Iterator()
-			indices := make([]uint64, size)
-			i := 0
-			for idx, ok := it.Next(); ok; idx, ok = it.Next() {
-				indices[i] = idx
-				i++
-			}
-			seeds = make([]uint64, 10)
-			for i := range seeds {
-				index := rand.Uint64() % uint64(size)
-				seeds[i] = indices[index]
-			}
-			h.seeds[size] = seeds
-			h.logger.Debug("seeding for ... ", size)
+	if h.acornSearch.Load() && allowList != nil {
+		size := h.maximumConnectionsLayerZero
+		if size >= ef {
+			size = ef - 1
+		}
+		it := allowList.Iterator()
+		i := 0
+		seeds := make([]uint64, size)
+		for idx, ok := it.Next(); ok && i < size; idx, ok = it.Next() {
+			seeds[i] = idx
+			i++
 		}
 		for _, entryPoint := range seeds {
 			entryPointDistance, _, _ := h.distToNode(nil, entryPoint, searchVec)
 			eps.Insert(entryPoint, entryPointDistance)
 		}
-		for eps.Len() > ef {
-			eps.Pop()
-		}
-	}*/
+	}
 	res, err := h.searchLayerByVectorWithDistancer(searchVec, eps, ef, 0, allowList, compressorDistancer)
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
