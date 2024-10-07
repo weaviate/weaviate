@@ -299,6 +299,14 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
+func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
+
+	sg.segments = append(sg.segments, segment)
+	return nil
+}
+
 func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()

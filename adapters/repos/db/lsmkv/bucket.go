@@ -1031,7 +1031,12 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("flush: %w", err)
 	}
 
-	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(); err != nil {
+	segment, err := b.initAndPrecomputeNewSegment()
+	if err != nil {
+		return fmt.Errorf("precompute metadata: %w", err)
+	}
+
+	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
 
@@ -1048,7 +1053,20 @@ func (b *Bucket) FlushAndSwitch() error {
 	return nil
 }
 
-func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
+func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
+	// Note that this operation does not require the flush lock, i.e. it can
+	// happen in the background and we can accept new writes will this
+	// pre-compute is happening.
+	path := b.flushing.path
+	segment, err := b.disk.initAndPrecomputeNewSegment(path + ".db")
+	if err != nil {
+		return nil, err
+	}
+
+	return segment, nil
+}
+
+func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
@@ -1057,8 +1075,7 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing() error {
 		return nil
 	}
 
-	path := b.flushing.path
-	if err := b.disk.add(path + ".db"); err != nil {
+	if err := b.disk.addInitializedSegment(seg); err != nil {
 		return err
 	}
 	b.flushing = nil
