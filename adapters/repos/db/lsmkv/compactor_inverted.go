@@ -23,11 +23,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-var (
-	defaultInvertedKeyLength   = uint16(8)
-	defaultInvertedValueLength = uint16(8)
-)
-
 type compactorInverted struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
@@ -82,12 +77,6 @@ func (c *compactorInverted) do() error {
 
 	c.offset = segmentindex.HeaderSize
 
-	err = c.writeKeyValueLen()
-	if err != nil {
-		return errors.Wrap(err, "write key and value length")
-	}
-	c.offset += 2 + 2 // 2 bytes for key length, 2 bytes for value length
-
 	kis, tombstones, err := c.writeKeys()
 	if err != nil {
 		return errors.Wrap(err, "write keys")
@@ -130,22 +119,6 @@ func (c *compactorInverted) init() error {
 
 	if _, err := c.bufw.Write(make([]byte, segmentindex.HeaderSize)); err != nil {
 		return errors.Wrap(err, "write empty header")
-	}
-
-	return nil
-}
-
-func (c *compactorInverted) writeKeyValueLen() error {
-	// write default key and value length
-	buf := make([]byte, 2)
-	binary.LittleEndian.PutUint16(buf, defaultInvertedKeyLength)
-	if _, err := c.bufw.Write(buf[:2]); err != nil {
-		return err
-	}
-
-	binary.LittleEndian.PutUint16(buf, defaultInvertedValueLength)
-	if _, err := c.bufw.Write(buf[:2]); err != nil {
-		return err
 	}
 
 	return nil
