@@ -173,8 +173,7 @@ type hnsw struct {
 	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 
-	allocChecker memwatch.AllocChecker
-
+	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
 }
 
