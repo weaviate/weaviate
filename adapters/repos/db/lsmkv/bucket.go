@@ -1014,6 +1014,50 @@ func (b *Bucket) isReadOnly() bool {
 	return b.status == storagestate.StatusReadOnly
 }
 
+// FlushAndSwitch is the main way to flush a memtable, replace it with a new
+// one, and make sure that the flushed segment gets added to the segment group.
+//
+// Flushing and adding a segment can take considerable time, which is why the
+// whole process is designed to be non-blocking.
+//
+// To achieve a non-blocking flush, the process is split into four parts:
+//
+//  1. atomicallySwitchMemtable: A new memtable is created, the previous
+//     memtable is moved from "active" to "flushing". This switch is blocking
+//     (holds b.flushLock.Lock()), but extremely fast, as we essentially just
+//     switch a pointer.
+//
+//  2. flush: The previous memtable is flushed to disk. This may take
+//     considerable time as we are I/O-bound. This is done "in the
+//     background"meaning that it does not block any CRUD operations for the
+//     user. It only blocks the flush process itself, meaning only one flush per
+//     bucket can happen simultaneously. This is by design.
+//
+//  3. initAndPrecomputeNewSegment: (Newly added in
+//     https://github.com/weaviate/weaviate/pull/5943, early October 2024). After
+//     the previous flush step the segment can now be initialized. However, to
+//     make it usable for real life, we still need to compute metadata, such as
+//     bloom filters (all types) and net count additions (only Replace type).
+//     Bloom filters can be calculated in isolation and are therefore fairly
+//     trivial. Net count additions on the other hand are more complex, as they
+//     depend on all previous segments. Calculating net count additions can take
+//     a considerable amount of time, especially as the buckets grow larger. As a
+//     result, we need to provide two guarantees: (1) the calculation is
+//     non-blocking from a user's POV and (2) for the duration of the
+//     calculation, the segment group is considered stable, i.e. no other
+//     segments are added, removed, or merged. We can achieve this by holding a
+//     `b.disk.maintenanceLock.RLock()` which prevents modification of the
+//     segments array, but does not block user operation (which are themselves
+//     RLock-holders on that same Lock).
+//
+//  4. atomicallyAddDiskSegmentAndRemoveFlushing: The previous method returned
+//     a fully initialized segment that has not yet been added to the segment
+//     group. This last step is the counter part to the first step and again
+//     blocking, but fast. It adds the segment to the segment group  which at
+//     this point is just a simple array append. At the same time it removes the
+//     "flushing" memtable. It holds the `b.flushLock.Lock()` making this
+//     operation atomic, but blocking.
+//
 // FlushAndSwitch is typically called periodically and does not require manual
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
