@@ -59,9 +59,8 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		tombstoneBuffer = tombstones.ToBuffer()
 	}
 
-	totalDataLength := (2 + 2) + 8 + totalValueSizeInverted(actuallyWrittenKeys, actuallyWritten) + 8 + len(tombstoneBuffer) // 2 bytes for key length, 2 bytes for value length, 8 bytes for number of tombstones, 8 bytes for each tombstone
 	header := segmentindex.Header{
-		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
+		IndexStart:       0, // will be updated later
 		Level:            0, // always level zero on a new one
 		Version:          0, // always version 0 for now
 		SecondaryIndices: m.secondaryIndices,
@@ -76,20 +75,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	totalWritten := headerSize
 
 	buf := make([]byte, 8)
-
-	binary.LittleEndian.PutUint16(buf, uint16(defaultInvertedKeyLength))
-	if _, err := f.Write(buf[:2]); err != nil {
-		return nil, nil, err
-	}
-
-	binary.LittleEndian.PutUint16(buf, uint16(defaultInvertedValueLength))
-	if _, err := f.Write(buf[:2]); err != nil {
-		return nil, nil, err
-	}
-
-	totalWritten += 4
-
-	keysLen := totalValueSizeInverted(actuallyWrittenKeys, actuallyWritten)
+	keysLen := 0
 	binary.LittleEndian.PutUint64(buf, uint64(keysLen))
 	if _, err := f.Write(buf); err != nil {
 		return nil, nil, err
@@ -109,27 +95,12 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				ValueStart: totalWritten,
 			}
 
-			if err := binary.Write(f, binary.LittleEndian, uint32(len(blocks))); err != nil {
+			blocksEncoded := encodeBlocks(blocks, values, uint64(len(mapNode.values)))
+
+			if _, err := f.Write(blocksEncoded); err != nil {
 				return nil, nil, err
 			}
-
-			totalWritten += 4
-
-			for _, block := range blocks {
-				block := block.encode()
-				if _, err := f.Write(block); err != nil {
-					return nil, nil, err
-				}
-				totalWritten += len(block)
-			}
-
-			for _, value := range values {
-				value := value.encode()
-				if _, err := f.Write(value); err != nil {
-					return nil, nil, err
-				}
-				totalWritten += len(value)
-			}
+			totalWritten += len(blocksEncoded)
 
 			// write key length
 			binary.LittleEndian.PutUint32(buf, uint32(len(mapNode.key)))
@@ -152,7 +123,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		}
 	}
 
-	keysLen = actuallyWritten - 28
+	keysLen = totalWritten - 28
 
 	binary.LittleEndian.PutUint64(buf, uint64(len(tombstoneBuffer)))
 	if _, err := f.Write(buf); err != nil {
@@ -175,15 +146,17 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	ff.Seek(8, io.SeekStart)
 	buf = make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(totalWritten))
-	if _, err := f.Write(buf); err != nil {
+	if _, err := ff.Write(buf); err != nil {
 		return nil, nil, err
 	}
 
-	ff.Seek(28, io.SeekStart)
+	ff.Seek(16, io.SeekStart)
 	binary.LittleEndian.PutUint64(buf, uint64(keysLen))
-	if _, err := f.Write(buf); err != nil {
+	if _, err := ff.Write(buf); err != nil {
 		return nil, nil, err
 	}
+
+	ff.Sync()
 
 	ff.Seek(int64(totalWritten), io.SeekStart)
 
