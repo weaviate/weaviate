@@ -139,7 +139,7 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(vectors map[string][]float32,
 func (s *Shard) updateVectorIndex(vector []float32,
 	status objectInsertStatus,
 ) error {
-	return s.updateVectorInVectorIndex(vector, status, s.queue, s.vectorIndex)
+	return s.updateVectorInVectorIndex(vector, status, s.queue)
 }
 
 func (s *Shard) updateVectorIndexForName(vector []float32,
@@ -153,11 +153,11 @@ func (s *Shard) updateVectorIndexForName(vector []float32,
 	if vectorIndex == nil {
 		return fmt.Errorf("vector index not found for target vector %s", targetVector)
 	}
-	return s.updateVectorInVectorIndex(vector, status, queue, vectorIndex)
+	return s.updateVectorInVectorIndex(vector, status, queue)
 }
 
 func (s *Shard) updateVectorInVectorIndex(vector []float32,
-	status objectInsertStatus, queue *IndexQueue, vectorIndex VectorIndex,
+	status objectInsertStatus, queue *IndexQueue,
 ) error {
 	// even if no vector is provided in an update, we still need
 	// to delete the previous vector from the index, if it
@@ -181,12 +181,11 @@ func (s *Shard) updateVectorInVectorIndex(vector []float32,
 		return nil
 	}
 
-	if err := vectorIndex.Add(status.docID, vector); err != nil {
+	if err := queue.Push(context.TODO(), vectorDescriptor{
+		id:     status.docID,
+		vector: vector,
+	}); err != nil {
 		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
-	}
-
-	if err := vectorIndex.Flush(); err != nil {
-		return errors.Wrap(err, "flush all vector index buffered WALs")
 	}
 
 	return nil
