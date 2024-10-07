@@ -409,7 +409,6 @@ func TestSearcher(t *testing.T) {
 				_, err := Search(ctx, params, logger, sparse, dense, nil, modules, schema, targetVector)
 
 				require.NotNil(t, err, "near_text search on a collection with no vectorizer should return an error")
-				fmt.Println(err)
 			},
 		},
 	}
