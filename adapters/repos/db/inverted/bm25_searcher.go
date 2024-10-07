@@ -296,7 +296,8 @@ WordLoop:
 	}
 }
 
-func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool, allRequests []termListRequest, additional additional.Properties,
+func (b *BM25Searcher) getTopKObjects(topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore], additionalExplanations bool,
+	allRequests []termListRequest, additional additional.Properties,
 ) ([]*storobj.Object, []float32, error) {
 	objectsBucket := b.store.Bucket(helpers.ObjectsBucketLSM)
 	scores := make([]float32, 0, topKHeap.Len())
