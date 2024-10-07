@@ -257,7 +257,7 @@ function run_acceptance_go_client_named_vectors() {
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests'); do
-      if ! go test -count 1 -race "$pkg"; then
+      if ! go test -v -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
