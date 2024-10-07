@@ -71,7 +71,7 @@ func NewTempUint64VectorsPool() *TempVectorUint64Pool {
 
 func (pool *TempVectorUint64Pool) Get(capacity int) *VectorUint64Slice {
 	container := pool.pool.Get().(*VectorUint64Slice)
-	if len(container.Slice) >= capacity {
+	if cap(container.Slice) >= capacity {
 		container.Slice = container.Slice[:capacity]
 	} else {
 		container.Slice = make([]uint64, capacity)
