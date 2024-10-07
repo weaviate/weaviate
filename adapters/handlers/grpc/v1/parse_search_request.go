@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/adapters/handlers/grpc/v1/generative"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -43,9 +44,27 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearVideo"
 )
 
-func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.Class, config *config.Config) (dto.GetParams, error) {
+type generativeParser interface {
+	Extract(req *pb.GenerativeSearch, class *models.Class) *generate.Params
+	ProviderName() string
+	ReturnMetadata() bool
+}
+
+type Parser struct {
+	generative generativeParser
+	getClass   func(string) *models.Class
+}
+
+func NewParser(uses127Api bool, getClass func(string) *models.Class) *Parser {
+	return &Parser{
+		generative: generative.NewParser(uses127Api),
+		getClass:   getClass,
+	}
+}
+
+func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
-	class := getClass(req.Collection)
+	class := p.getClass(req.Collection)
 	if class == nil {
 		return dto.GetParams{}, fmt.Errorf("could not find class %s in schema", req.Collection)
 	}
@@ -69,7 +88,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, getClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
+	out.Properties, err = extractPropertiesRequest(req.Properties, p.getClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -296,7 +315,7 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 		if out.AdditionalProperties.ModuleParams == nil {
 			out.AdditionalProperties.ModuleParams = make(map[string]interface{})
 		}
-		out.AdditionalProperties.ModuleParams["generate"] = extractGenerative(req, class)
+		out.AdditionalProperties.ModuleParams["generate"] = p.generative.Extract(req.Generative, class)
 	}
 
 	if req.Rerank != nil {
@@ -311,12 +330,12 @@ func searchParamsFromProto(req *pb.SearchRequest, getClass func(string) *models.
 	}
 
 	if req.Filters != nil {
-		clause, err := extractFilters(req.Filters, getClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.getClass, req.Collection)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
 		filter := &filters.LocalFilter{Root: &clause}
-		if err := filters.ValidateFilters(getClass, filter); err != nil {
+		if err := filters.ValidateFilters(p.getClass, filter); err != nil {
 			return dto.GetParams{}, err
 		}
 		out.Filters = filter
@@ -498,26 +517,6 @@ func extractSorting(sortIn []*pb.SortBy) []filters.Sort {
 		sortOut[i] = filters.Sort{Order: order, Path: sortIn[i].Path}
 	}
 	return sortOut
-}
-
-func extractGenerative(req *pb.SearchRequest, class *models.Class) *generate.Params {
-	generative := generate.Params{}
-	if req.Generative.SingleResponsePrompt != "" {
-		generative.Prompt = &req.Generative.SingleResponsePrompt
-		singleResultPrompts := generate.ExtractPropsFromPrompt(generative.Prompt)
-		generative.PropertiesToExtract = append(generative.PropertiesToExtract, singleResultPrompts...)
-	}
-	if req.Generative.GroupedResponseTask != "" {
-		generative.Task = &req.Generative.GroupedResponseTask
-	}
-	if len(req.Generative.GroupedProperties) > 0 {
-		generative.Properties = req.Generative.GroupedProperties
-		generative.PropertiesToExtract = append(generative.PropertiesToExtract, generative.Properties...)
-	} else {
-		// if users do not supply a properties, all properties need to be extracted
-		generative.PropertiesToExtract = append(generative.PropertiesToExtract, schema.GetPropertyNamesFromClass(class, false)...)
-	}
-	return &generative
 }
 
 func extractRerank(req *pb.SearchRequest) *rank.Params {

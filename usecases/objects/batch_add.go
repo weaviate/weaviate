@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -29,7 +30,7 @@ var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
-	err := b.authorizer.Authorize(principal, "create", "batch/objects")
+	err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.BATCH_OBJECTS)
 	if err != nil {
 		return nil, err
 	}

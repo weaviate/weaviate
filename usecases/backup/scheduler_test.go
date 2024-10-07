@@ -26,6 +26,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -755,7 +757,7 @@ type fakeScheduler struct {
 	schema       fakeSchemaManger
 	backend      *fakeBackend
 	backendErr   error
-	auth         *fakeAuthorizer
+	auth         authorization.Authorizer
 	nodeResolver nodeResolver
 	log          logrus.FieldLogger
 }
@@ -765,7 +767,7 @@ func newFakeScheduler(resolver nodeResolver) *fakeScheduler {
 	fc.backend = newFakeBackend()
 	fc.backendErr = nil
 	logger, _ := test.NewNullLogger()
-	fc.auth = &fakeAuthorizer{}
+	fc.auth = mocks.NewMockAuthorizer()
 	fc.log = logger
 	if resolver == nil {
 		fc.nodeResolver = &fakeNodeResolver{}

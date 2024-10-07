@@ -152,9 +152,13 @@ func CombineMultiTargetResults(ctx context.Context, shard DistanceForVector, log
 		// remove objects that have missing target vectors
 		if len(scoresToRemove) > 0 {
 			for i := range fusionInput {
-				for j := range fusionInput[i] {
+				for j := len(fusionInput[i]) - 1; j >= 0; j-- {
 					if _, ok := scoresToRemove[*fusionInput[i][j].DocID]; ok {
-						fusionInput[i] = append(fusionInput[i][:j], fusionInput[i][j+1:]...)
+						if j < len(fusionInput[i])-1 {
+							fusionInput[i] = append(fusionInput[i][:j], fusionInput[i][j+1:]...)
+						} else {
+							fusionInput[i] = fusionInput[i][:j]
+						}
 					}
 				}
 			}
