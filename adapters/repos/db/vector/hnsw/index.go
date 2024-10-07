@@ -174,6 +174,8 @@ type hnsw struct {
 	store              *lsmkv.Store
 
 	allocChecker memwatch.AllocChecker
+
+	seeds map[int][]uint64
 }
 
 type CommitLogger interface {
@@ -285,6 +287,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		shardFlushCallbacks:      shardFlushCallbacks,
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
+		seeds:                    make(map[int][]uint64),
 	}
 	index.acornSearch.Store(uc.FilteredSearch.Enabled)
 
