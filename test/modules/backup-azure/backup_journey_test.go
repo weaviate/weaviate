@@ -70,7 +70,7 @@ func Test_BackupJourney(t *testing.T) {
 
 	t.Run("single node override", func(t *testing.T) {
 		t.Log("pre-instance env setup")
-		overrideContainer:= "testbucketoverride"
+		overrideContainer := "testbucketoverride"
 		t.Setenv(envAzureContainer, overrideContainer)
 		t.Logf("BACKUP_AZURE_CONTAINER is set to %s", os.Getenv("BACKUP_AZURE_CONTAINER"))
 
@@ -85,7 +85,7 @@ func Test_BackupJourney(t *testing.T) {
 		azuriteEndpoint := compose.GetAzurite().URI()
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, overrideContainer)
-		//defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, overrideContainer)
+		// defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, overrideContainer)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {

@@ -120,7 +120,7 @@ func (g *azureClient) makeObjectName(overridePath string, parts []string) string
 }
 
 func (a *azureClient) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
-	objectName := a.makeObjectName(bucketPath, []string{backupID,key})
+	objectName := a.makeObjectName(bucketPath, []string{backupID, key})
 
 	containerName := a.config.Container
 	if bucketName != "" {
