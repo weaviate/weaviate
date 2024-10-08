@@ -179,3 +179,59 @@ func TestMapList(m *testing.T) {
 
 	assert.Equal(m, mapNode, mapNode2)
 }
+
+func TestMultipleMapLists(m *testing.T) {
+	postingListSizeRand := rand.NewZipf(rand.New(rand.NewSource(42)), 1.2, 1, 10000)
+	termFreqRand := rand.NewZipf(rand.New(rand.NewSource(42)), 1.2, 1, 100)
+	postlingListLenRand := rand.NewZipf(rand.New(rand.NewSource(42)), 1.2, 1, 1000)
+
+	numberCollections := 1000
+
+	currentUncompressedSize := uint64(0)
+	bestUncompressedSize := uint64(0)
+	compressedSize := uint64(0)
+
+	encodeSingleSeparate := 5
+
+	for i := 0; i < numberCollections; i++ {
+
+		collectionSize := postingListSizeRand.Uint64() + 1
+
+		currentUncompressedSize += collectionSize * 29 // non-tombstone records have 29 bytes
+		bestUncompressedSize += collectionSize * 16    // best possible uncompressed size for non-tombstone records 8 for key, 8 for value
+
+		mapList := make([]MapPair, collectionSize)
+
+		for i := range mapList {
+			docId := uint64(100 + i*10)
+
+			key := make([]byte, 8)
+			binary.BigEndian.PutUint64(key, docId)
+
+			tf := float32(termFreqRand.Uint64()) + 1
+			pl := float32(postlingListLenRand.Uint64()) + 1
+
+			value := make([]byte, 8)
+			binary.LittleEndian.PutUint32(value, math.Float32bits(tf))
+			binary.LittleEndian.PutUint32(value[4:], math.Float32bits(pl))
+
+			mapList[i] = MapPair{
+				Key:   key,
+				Value: value,
+			}
+		}
+
+		mapNode := &binarySearchNodeMap{
+			values: mapList,
+		}
+
+		blocksEncoded, _ := createAndEncodeBlocks(mapNode, encodeSingleSeparate)
+
+		compressedSize += uint64(len(blocksEncoded))
+
+		mapNode2 := decodeAndConvertFromBlocks(blocksEncoded, uint64(collectionSize), encodeSingleSeparate)
+
+		assert.Equal(m, mapNode, mapNode2)
+	}
+	m.Logf("Compression ratios: %.2f %.2f\n", float32(currentUncompressedSize)/float32(compressedSize), float32(bestUncompressedSize)/float32(compressedSize))
+}
