@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -123,6 +124,12 @@ type Bucket struct {
 	// optional segment size limit. If set, a compaction will skip segments that
 	// sum to more than the specified value.
 	maxSegmentSize int64
+
+	// this serves as a hint for the compaction process that a flush is ongoing.
+	// This does synchronize anything, there are the proper locks in place to do
+	// so. However, the hint can help the compaction process to delay an action
+	// without blocking.
+	isFlushing atomic.Bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -184,6 +191,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
 			maxSegmentSize:        b.maxSegmentSize,
+			isFlushing:            &b.isFlushing,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -325,14 +333,26 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 // secondary indexes, use [Bucket.GetBySecondary] to retrieve an object using
 // its secondary key
 func (b *Bucket) Get(key []byte) ([]byte, error) {
+	beforeFlushLock := time.Now()
 	b.flushLock.RLock()
+	if time.Since(beforeFlushLock) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(beforeFlushLock)).
+			WithField("action", "lsm_bucket_get_acquire_flush_lock").
+			Debugf("Waited more than 100ms to obtain a flush lock during get")
+	}
 	defer b.flushLock.RUnlock()
 
 	return b.get(key)
 }
 
 func (b *Bucket) get(key []byte) ([]byte, error) {
+	beforeMemtable := time.Now()
 	v, err := b.active.get(key)
+	if time.Since(beforeMemtable) > 100*time.Millisecond {
+		b.logger.WithField("duration", time.Since(beforeMemtable)).
+			WithField("action", "lsm_bucket_get_active_memtable").
+			Warnf("Waited more than 100ms to retrieve object from memtable")
+	}
 	if err == nil {
 		// item found and no error, return and stop searching, since the strategy
 		// is replace
@@ -349,7 +369,13 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 	}
 
 	if b.flushing != nil {
+		beforeFlushMemtable := time.Now()
 		v, err := b.flushing.get(key)
+		if time.Since(beforeFlushMemtable) > 100*time.Millisecond {
+			b.logger.WithField("duration", time.Since(beforeFlushMemtable)).
+				WithField("action", "lsm_bucket_get_flushing_memtable").
+				Debugf("Waited over 100ms to retrieve object from flushing memtable")
+		}
 		if err == nil {
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
@@ -1062,6 +1088,9 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
+	b.isFlushing.Store(true)
+	defer b.isFlushing.Store(false)
+
 	before := time.Now()
 
 	b.logger.WithField("action", "lsm_memtable_flush_start").
