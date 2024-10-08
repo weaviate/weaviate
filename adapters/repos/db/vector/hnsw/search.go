@@ -556,7 +556,7 @@ type FastSet struct {
 }
 
 func NewFastSet(allow helpers.AllowList) *FastSet {
-	bools := make([]bool, 1_000_000)
+	bools := make([]bool, allow.Max()+1)
 	it := allow.Iterator()
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		bools[docID] = true
@@ -568,7 +568,7 @@ func NewFastSet(allow helpers.AllowList) *FastSet {
 }
 
 func (s *FastSet) Contains(node uint64) bool {
-	return s.boolSet[node]
+	return uint64(len(s.boolSet)) > node && s.boolSet[node]
 }
 
 func (s *FastSet) DeepCopy() helpers.AllowList {
@@ -640,7 +640,10 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		return nil, nil, nil
 	}
 
-	allowList := NewFastSet(allowOld)
+	var allowList helpers.AllowList = nil
+	if allowOld != nil {
+		allowList = NewFastSet(allowOld)
+	}
 
 	if k < 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
@@ -728,7 +731,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			i++
 		}
 		for _, entryPoint := range seeds {
-			entryPointDistance, _, _ := h.distToNode(nil, entryPoint, searchVec)
+			entryPointDistance, _, _ := h.distToNode(compressorDistancer, entryPoint, searchVec)
 			eps.Insert(entryPoint, entryPointDistance)
 		}
 	}
