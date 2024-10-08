@@ -229,7 +229,7 @@ func TestMultipleMapLists(m *testing.T) {
 
 		compressedSize += uint64(len(blocksEncoded))
 
-		mapNode2 := decodeAndConvertFromBlocks(blocksEncoded, uint64(collectionSize), encodeSingleSeparate)
+		mapNode2 := decodeAndConvertFromBlocks(blocksEncoded, encodeSingleSeparate)
 
 		assert.Equal(m, mapNode, mapNode2)
 	}

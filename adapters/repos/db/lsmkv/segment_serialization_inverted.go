@@ -163,7 +163,7 @@ func encodeBlocks(blockEntries []*blockEntry, blockDatas []*blockData, docCount 
 	binary.LittleEndian.PutUint64(out, docCount)
 	offset := 8
 
-	binary.LittleEndian.PutUint64(out[offset:], uint64(length+8))
+	binary.LittleEndian.PutUint64(out[offset:], uint64(length))
 	offset += 8
 
 	for _, blockEntry := range blockEntries {
@@ -181,18 +181,20 @@ func encodeBlocks(blockEntries []*blockEntry, blockDatas []*blockData, docCount 
 
 func createAndEncodeSingleValue(mapPairs []MapPair) ([]byte, *sroar.Bitmap) {
 	tombstones := sroar.NewBitmap()
-	buffer := make([]byte, 16*len(mapPairs))
-	actuallyWritten := 0
+	buffer := make([]byte, 8+16*len(mapPairs))
+	offset := 0
+	binary.LittleEndian.PutUint64(buffer, uint64(len(mapPairs)))
+	offset += 8
 	for i := 0; i < len(mapPairs); i++ {
 		if mapPairs[i].Tombstone {
 			id := binary.BigEndian.Uint64(mapPairs[i].Key)
 			tombstones.Set(id)
 		}
-		actuallyWritten++
-		copy(buffer[i*16:i*16+8], mapPairs[i].Key)
-		copy(buffer[i*16+8:i*16+16], mapPairs[i].Value)
+		copy(buffer[offset:offset+8], mapPairs[i].Key)
+		copy(buffer[offset+8:offset+16], mapPairs[i].Value)
+		offset += 16
 	}
-	return buffer[:actuallyWritten*16], tombstones
+	return buffer[:offset], tombstones
 }
 
 func createAndEncodeBlocks(nodes *binarySearchNodeMap, encodeSingleSeparate int) ([]byte, *sroar.Bitmap) {
@@ -226,21 +228,24 @@ func decodeBlocks(data []byte) ([]*blockEntry, []*blockData) {
 	return blockEntries, blockDatas
 }
 
-func decodeAndConvertFromBlocks(data []byte, collectionSize uint64, encodeSingleSeparate int) *binarySearchNodeMap {
+func decodeAndConvertFromBlocks(data []byte, encodeSingleSeparate int) *binarySearchNodeMap {
+	collectionSize := binary.LittleEndian.Uint64(data)
+
 	if collectionSize <= uint64(encodeSingleSeparate) {
 		binarySearchNodeMap := &binarySearchNodeMap{
 			values: make([]MapPair, 0, collectionSize),
 		}
-
+		offset := 8
 		for i := 0; i < len(data)/16; i += 1 {
 			key := make([]byte, 8)
-			copy(key, data[i*16:i*16+8])
+			copy(key, data[offset:offset+8])
 			value := make([]byte, 8)
-			copy(value, data[i*16+8:i*16+16])
+			copy(value, data[offset+8:offset+16])
 			binarySearchNodeMap.values = append(binarySearchNodeMap.values, MapPair{
 				Key:   key,
 				Value: value,
 			})
+			offset += 16
 		}
 		return binarySearchNodeMap
 	}
@@ -501,7 +506,7 @@ func ParseInvertedNodeInto(r io.Reader, node *segmentCollectionNode) error {
 	// update the global offset.
 	offset := 0
 
-	buf := make([]byte, 8)
+	buf := make([]byte, 24)
 	_, err := io.ReadFull(r, buf[0:8])
 	if err != nil {
 		return fmt.Errorf("read values len: %w", err)
@@ -511,19 +516,19 @@ func ParseInvertedNodeInto(r io.Reader, node *segmentCollectionNode) error {
 	offset += 8
 
 	resizeValuesOfInvertedNode(node, valuesLen)
-	for i := range node.values {
-		_, err = io.ReadFull(r, node.values[i].value)
+
+	toReadSize := uint64(0)
+	if valuesLen == 1 {
+	} else {
+		encodedBuf := make([]byte, 24+toReadSize)
+		toReadSize = binary.LittleEndian.Uint64(buf[8:16])
+		_, err = io.ReadFull(r, encodedBuf[24:])
 		if err != nil {
-			return fmt.Errorf("read node value: %w", err)
+			return fmt.Errorf("read values len: %w", err)
 		}
 
-		offset += int(invPayloadLen)
 	}
 
-	_, err = io.ReadFull(r, buf[0:4])
-	if err != nil {
-		return fmt.Errorf("read values len: %w", err)
-	}
 	keyLen := binary.LittleEndian.Uint32(buf)
 	offset += 4
 
