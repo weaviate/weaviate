@@ -580,6 +580,10 @@ func parseVotersNames(cfg config.Raft) (m map[string]struct{}) {
 }
 
 func ConfigureAPI(api *operations.WeaviateAPI) http.Handler {
+	return configureAPI(api)
+}
+
+func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx := context.Background()
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()

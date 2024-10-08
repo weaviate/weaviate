@@ -63,6 +63,27 @@ func Test_BackupJourney(t *testing.T) {
 				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil, false)
 		})
 
+		require.Nil(t, compose.Terminate(ctx))
+	})
+
+	t.Run("single node", func(t *testing.T) {
+		t.Log("pre-instance env setup")
+		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
+
+		compose, err := docker.New().
+			WithBackendAzure(azureBackupJourneyContainerName).
+			WithText2VecContextionary().
+			WithWeaviate().
+			Start(ctx)
+		require.Nil(t, err)
+
+		t.Log("post-instance env setup")
+		azuriteEndpoint := compose.GetAzurite().URI()
+		t.Setenv(envAzureEndpoint, azuriteEndpoint)
+		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		// defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		helper.SetupClient(compose.GetWeaviate().URI())
+
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, nil, true)
