@@ -320,7 +320,8 @@ type Raft struct {
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
 
-	ForceOneNodeRecovery bool
+	EnableOneNodeRecovery bool
+	ForceOneNodeRecovery  bool
 
 	EnableFQDNResolver bool
 	FQDNResolverTLD    string

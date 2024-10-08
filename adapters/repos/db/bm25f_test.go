@@ -246,7 +246,7 @@ func TestBM25FJourney(t *testing.T) {
 	require.NotNil(t, idx)
 
 	// Check basic search
-	addit := additional.Properties{}
+	addit := additional.Properties{Vector: true}
 
 	t.Run("bm25f journey", func(t *testing.T) {
 		kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "journey"}
@@ -266,6 +266,9 @@ func TestBM25FJourney(t *testing.T) {
 		require.Equal(t, uint64(3), res[3].DocID)
 		require.Equal(t, uint64(0), res[4].DocID)
 		require.Equal(t, uint64(2), res[5].DocID)
+
+		// vectors should be returned
+		require.NotNil(t, res[0].Vector)
 
 		// Without additionalExplanations no explainScore entry should be present
 		require.NotContains(t, res[0].Object.Additional, "explainScore")
