@@ -10,72 +10,88 @@ type Scheduler struct {
 	logger logrus.FieldLogger
 
 	queues struct {
-		sync.RWMutex
+		sync.Mutex
 
 		m map[string]*queueState
 	}
+
+	workers []chan Task
 }
 
-func (m *Scheduler) RegisterQueue(id string, config QueueConfig) {
-	m.queues.Lock()
-	defer m.queues.Unlock()
+func (s *Scheduler) RegisterQueue(q QueueDecoder) {
+	s.queues.Lock()
+	defer s.queues.Unlock()
 
-	m.queues.m[id] = &queueState{
-		config: config,
+	s.queues.m[q.ID()] = &queueState{
+		q: q,
 	}
 
-	m.logger.WithField("id", id).Debug("queue registered")
+	s.logger.WithField("id", q.ID()).Debug("queue registered")
 }
 
-func (m *Scheduler) UnregisterQueue(id string) {
-	m.queues.Lock()
-	defer m.queues.Unlock()
+func (s *Scheduler) UnregisterQueue(id string) {
+	s.queues.Lock()
+	defer s.queues.Unlock()
 
-	delete(m.queues.m, id)
+	delete(s.queues.m, id)
 
-	m.logger.WithField("id", id).Debug("queue unregistered")
+	s.logger.WithField("id", id).Debug("queue unregistered")
 }
 
-func (m *Scheduler) Start() {
+func (s *Scheduler) Start() {
 
 }
 
-func (m *Scheduler) Close() {
+func (s *Scheduler) Close() {
 }
 
-func (m *Scheduler) PauseQueue(id string) {
-	m.queues.Lock()
-	defer m.queues.Unlock()
+func (s *Scheduler) PauseQueue(id string) {
+	s.queues.Lock()
+	defer s.queues.Unlock()
 
-	q, ok := m.queues.m[id]
+	q, ok := s.queues.m[id]
 	if !ok {
 		return
 	}
 
 	q.paused = true
 
-	m.logger.WithField("id", id).Debug("queue paused")
+	s.logger.WithField("id", id).Debug("queue paused")
 }
 
-func (m *Scheduler) ResumeQueue(id string) {
-	m.queues.Lock()
-	defer m.queues.Unlock()
+func (s *Scheduler) ResumeQueue(id string) {
+	s.queues.Lock()
+	defer s.queues.Unlock()
 
-	q, ok := m.queues.m[id]
+	q, ok := s.queues.m[id]
 	if !ok {
 		return
 	}
 
 	q.paused = false
 
-	m.logger.WithField("id", id).Debug("queue resumed")
-}
-
-type QueueConfig struct {
-	Path string
+	s.logger.WithField("id", id).Debug("queue resumed")
 }
 
 type queueState struct {
-	config QueueConfig
+	q      QueueDecoder
 	paused bool
+}
+
+func (s *Scheduler) schedule() {
+	s.queues.Lock()
+	defer s.queues.Unlock()
+
+	// loop over the queues in a random order
+	for id, q := range s.queues.m {
+		if q.paused {
+			continue
+		}
+
+		s.scheduleQueue(q)
+	}
+}
+
+func (s *Scheduler) scheduleQueue(q *queueState) {
+
 }
