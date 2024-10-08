@@ -13,7 +13,6 @@ package hybrid
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
