@@ -191,8 +191,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.TenantActivity = tenantactivity.NewHandler()
 
 		// export build tags to prometheus metric
+		build.Version = parseVersionFromSwaggerSpec() // Version is always static and loaded from swagger spec.
 		build.SetPrometheusBuildInfo()
 		prometheus.MustRegister(version.NewCollector(build.AppName))
+
+		// config.ServerVersion is deprecated: It's there to be backward compatible
+		// use build.Version instead.
+		config.ServerVersion = build.Version
 
 		// only monitoring tool supported at the moment is prometheus
 		enterrors.GoWrapper(func() {
@@ -591,7 +596,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Minute)
 	defer cancel()
 
-	config.ServerVersion = parseVersionFromSwaggerSpec()
 	appState := MakeAppState(ctx, connectorOptionGroup)
 
 	appState.Logger.WithFields(logrus.Fields{

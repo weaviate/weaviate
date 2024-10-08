@@ -18,7 +18,6 @@ RUN go mod download
 FROM build_base AS server_builder
 ARG TARGETARCH
 ARG GIT_BRANCH="unknown"
-ARG VERSION="unknown"
 ARG GIT_REVISION="unknown"
 ARG BUILD_USER="unknown"
 ARG BUILD_DATE="unknown"
@@ -27,7 +26,6 @@ COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
       -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
-      -X github.com/weaviate/weaviate/usecases/build.Version='"$VERSION"' \
       -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
       -X github.com/weaviate/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
       -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
