@@ -75,7 +75,10 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
-	containerName := override[0]
+	containerName := "container"
+	if override[0] != "" {
+		containerName = override[0]
+	}
 	endpoint := os.Getenv(envAzureEndpoint)
 	metadataFilename := "backup.json"
 
@@ -135,6 +138,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 
 		t.Run("assert backup meta contents", func(t *testing.T) {
 			obj, err := azure.GetObject(testCtx, backupID, metadataFilename, override[0], override[1])
+			t.Logf("Error: %+v", err)
 			require.Nil(t, err)
 
 			var meta backup.BackupDescriptor
@@ -160,6 +164,9 @@ func moduleLevelCopyObjects(t *testing.T) {
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
 	containerName := "container"
+	if override[0] != "" {
+		containerName = override[0]
+	}
 	endpoint := os.Getenv(envAzureEndpoint)
 
 	t.Log("setup env")
@@ -177,6 +184,7 @@ func moduleLevelCopyObjects(t *testing.T) {
 
 		t.Run("put object to bucket", func(t *testing.T) {
 			err := azure.PutObject(testCtx, backupID, key, override[0], override[1], []byte("hello"))
+			t.Logf("Error: %+v", err)
 			assert.Nil(t, err)
 		})
 
@@ -196,6 +204,9 @@ func moduleLevelCopyFiles(t *testing.T) {
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
 	containerName := "container"
+	if override[0] != "" {
+		containerName = override[0]
+	}
 	endpoint := os.Getenv(envAzureEndpoint)
 
 	t.Log("setup env")
