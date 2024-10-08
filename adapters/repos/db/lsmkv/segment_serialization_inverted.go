@@ -178,6 +178,30 @@ func encodeBlocks(blockEntries []*blockEntry, blockDatas []*blockData, docCount 
 	return out
 }
 
+func createAndEncodeSingleValue(mapPairs []MapPair) ([]byte, *sroar.Bitmap) {
+	tombstones := sroar.NewBitmap()
+	buffer := make([]byte, 16*len(mapPairs))
+	actuallyWritten := 0
+	for i := 0; i < len(mapPairs); i++ {
+		if mapPairs[i].Tombstone {
+			id := binary.BigEndian.Uint64(mapPairs[i].Key)
+			tombstones.Set(id)
+		}
+		actuallyWritten++
+		copy(buffer[i*16:i*16+8], mapPairs[i].Key)
+		copy(buffer[i*16+8:i*16+16], mapPairs[i].Value)
+	}
+	return buffer[:actuallyWritten*16], tombstones
+}
+
+func createAndEncodeBlocks(nodes *binarySearchNodeMap, encodeSingleSeparate int) ([]byte, *sroar.Bitmap) {
+	if len(nodes.values) <= encodeSingleSeparate {
+		return createAndEncodeSingleValue(nodes.values)
+	}
+	blockEntries, blockDatas, tombstones := createBlocks(nodes)
+	return encodeBlocks(blockEntries, blockDatas, uint64(len(nodes.values))), tombstones
+}
+
 func decodeBlocks(data []byte) ([]*blockEntry, []*blockData) {
 	docCount := int(binary.LittleEndian.Uint64(data))
 	offset := 8
@@ -200,6 +224,28 @@ func decodeBlocks(data []byte) ([]*blockEntry, []*blockData) {
 	return blockEntries, blockDatas
 }
 
+func decodeAndConvertFromBlocks(data []byte, collectionSize uint64, encodeSingleSeparate int) *binarySearchNodeMap {
+	if collectionSize <= uint64(encodeSingleSeparate) {
+		binarySearchNodeMap := &binarySearchNodeMap{
+			values: make([]MapPair, 0, collectionSize),
+		}
+
+		for i := 0; i < len(data)/16; i += 1 {
+			key := make([]byte, 8)
+			copy(key, data[i*16:i*16+8])
+			value := make([]byte, 8)
+			copy(value, data[i*16+8:i*16+16])
+			binarySearchNodeMap.values = append(binarySearchNodeMap.values, MapPair{
+				Key:   key,
+				Value: value,
+			})
+		}
+		return binarySearchNodeMap
+	}
+	blockEntries, blockDatas := decodeBlocks(data)
+	return convertFromBlocks(blockEntries, blockDatas, collectionSize)
+}
+
 func convertFromBlocks(blockEntries []*blockEntry, encodedBlocks []*blockData, objectCount uint64) *binarySearchNodeMap {
 	out := &binarySearchNodeMap{
 		values: make([]MapPair, 0, objectCount),
@@ -209,7 +255,7 @@ func convertFromBlocks(blockEntries []*blockEntry, encodedBlocks []*blockData, o
 
 		blockSize := uint64(BLOCK_SIZE)
 		if i == len(blockEntries)-1 {
-			blockSize = objectCount % uint64(BLOCK_SIZE)
+			blockSize = objectCount - uint64(BLOCK_SIZE)*uint64(i)
 		}
 		blockSizeInt := int(blockSize)
 

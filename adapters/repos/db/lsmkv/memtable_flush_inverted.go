@@ -88,7 +88,6 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 	for _, mapNode := range flat {
 		if len(mapNode.values) > 0 {
-			blocks, values, _ := createBlocks(mapNode)
 
 			ki := segmentindex.Key{
 				Key:        mapNode.key,
@@ -102,7 +101,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 			}
 			totalWritten += 8
 
-			blocksEncoded := encodeBlocks(blocks, values, uint64(len(mapNode.values)))
+			blocksEncoded, _ := createAndEncodeBlocks(mapNode, 1)
 
 			// write blocks encoded size
 			binary.LittleEndian.PutUint64(buf, uint64(len(blocksEncoded)))
