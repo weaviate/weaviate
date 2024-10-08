@@ -31,18 +31,7 @@ const (
 	SnowflakeArcticEmbedM = "Snowflake/snowflake-arctic-embed-m-v1.5"
 )
 
-var (
-	availableWeaviateModels = []string{
-		SnowflakeArcticEmbedM,
-	}
-	availableTruncates = []string{"left", "right"}
-)
-
 var SnowflakeArcticEmbedMDefaultDimensions int64 = 768
-
-var availableWeaviateModelsDimensions = map[string][]int64{
-	SnowflakeArcticEmbedM: {SnowflakeArcticEmbedMDefaultDimensions, 256},
-}
 
 type classSettings struct {
 	basesettings.BaseClassSettings
