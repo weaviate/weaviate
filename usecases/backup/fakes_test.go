@@ -95,7 +95,7 @@ func newFakeBackend() *fakeBackend {
 	}
 }
 
-func (fb *fakeBackend) HomeDir(backupID, overrideBucket, overridePath  string) string {
+func (fb *fakeBackend) HomeDir(backupID, overrideBucket, overridePath string) string {
 	fb.RLock()
 	defer fb.RUnlock()
 	args := fb.Called(overrideBucket, overridePath, backupID)

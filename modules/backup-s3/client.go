@@ -71,7 +71,7 @@ func (s *s3Client) makeObjectName(parts ...string) string {
 	return path.Join(s.config.BackupPath, base)
 }
 
-func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath  string) string {
+func (s *s3Client) HomeDir(backupID, overrideBucket, overridePath string) string {
 	remoteBucket := s.config.Bucket
 	remotePath := s.config.BackupPath
 

@@ -128,7 +128,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 
 			expected := fmt.Sprintf("http://%s/devstoreaccount1/%s/%s", os.Getenv(envAzureEndpoint), containerName, backupID)
 			if override[1] != "" {
-				expected = fmt.Sprintf("http://%s/devstoreaccount1/%s/%s/%s", os.Getenv(envAzureEndpoint), containerName, override[1],backupID)
+				expected = fmt.Sprintf("http://%s/devstoreaccount1/%s/%s/%s", os.Getenv(envAzureEndpoint), containerName, override[1], backupID)
 			}
 			assert.Equal(t, expected, dest)
 		})

@@ -12,10 +12,10 @@
 package journey
 
 import (
+	"fmt"
 	"strconv"
 	"testing"
 	"time"
-	"fmt"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/backups"

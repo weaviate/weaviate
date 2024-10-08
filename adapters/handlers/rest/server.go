@@ -65,7 +65,7 @@ func NewServer(api *operations.WeaviateAPI) *Server {
 // ConfigureAPI configures the API and handlers.
 func (s *Server) ConfigureAPI() {
 	if s.api != nil {
-		s.handler = ConfigureAPI(s.api)
+		s.handler = configureAPI(s.api)
 	}
 }
 
@@ -143,7 +143,7 @@ func (s *Server) SetAPI(api *operations.WeaviateAPI) {
 	}
 
 	s.api = api
-	s.handler = ConfigureAPI(api)
+	s.handler = configureAPI(api)
 }
 
 func (s *Server) hasScheme(scheme string) bool {

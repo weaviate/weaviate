@@ -236,7 +236,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		return backup.NewErrUnprocessable(err)
 	}
 
-	if err := validateID(backupID, ); err != nil {
+	if err := validateID(backupID); err != nil {
 		return err
 	}
 

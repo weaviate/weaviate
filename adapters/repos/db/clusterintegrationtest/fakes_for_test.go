@@ -287,7 +287,7 @@ type fakeBackupBackend struct {
 	startedAt   time.Time
 }
 
-func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath  string) string {
+func (f *fakeBackupBackend) HomeDir(backupID, overrideBucket, overridePath string) string {
 	f.Lock()
 	defer f.Unlock()
 	if overridePath != "" {

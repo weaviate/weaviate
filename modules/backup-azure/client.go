@@ -100,7 +100,7 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string) (*azu
 	return &azureClient{client, *config, serviceURL, dataPath}, nil
 }
 
-func (a *azureClient) HomeDir(backupID, overrideBucket, overridePath  string) string {
+func (a *azureClient) HomeDir(backupID, overrideBucket, overridePath string) string {
 	if overrideBucket == "" {
 		overrideBucket = a.config.Container
 	}

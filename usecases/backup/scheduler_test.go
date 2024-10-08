@@ -835,7 +835,7 @@ func TestCancellingBackup(t *testing.T) {
 		fakeScheduler.backend.On("GetObject", mock.Anything, "abc", GlobalBackupFile).Return(b, nil)
 		fakeScheduler.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 
-		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, "abc","","")
+		err = fakeScheduler.scheduler().Cancel(ctx, nil, backendName, "abc", "", "")
 		assert.NotNil(t, err)
 		assert.Equal(t, "backup already succeeded", err.Error())
 		fakeScheduler.backend.AssertExpectations(t)

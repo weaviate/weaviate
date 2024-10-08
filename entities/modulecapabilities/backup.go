@@ -22,7 +22,7 @@ type BackupBackend interface {
 	// Name returns backend's name
 	Name() string
 	// HomeDir is the base storage location of all backup files, which can be a bucket, a directory, etc.
-	HomeDir(backupID, overrideBucket, overridePath  string) string
+	HomeDir(backupID, overrideBucket, overridePath string) string
 
 	// GetObject giving backupID and key
 	GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error)
