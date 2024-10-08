@@ -1,6 +1,8 @@
 package queue
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -74,8 +76,10 @@ func (s *Scheduler) ResumeQueue(id string) {
 }
 
 type queueState struct {
-	q      QueueDecoder
-	paused bool
+	q         QueueDecoder
+	paused    bool
+	readFiles []string
+	cursor    int
 }
 
 func (s *Scheduler) schedule() {
@@ -93,5 +97,35 @@ func (s *Scheduler) schedule() {
 }
 
 func (s *Scheduler) scheduleQueue(q *queueState) {
+}
 
+func (s *Scheduler) readNextChunk(q *queueState) (*os.File, error) {
+	if q.cursor+1 < len(q.readFiles) {
+		q.cursor++
+
+		return os.Open(q.readFiles[q.cursor])
+	}
+
+	q.readFiles = nil
+	q.cursor = 0
+
+	// read the directory
+	entries, err := os.ReadDir(q.q.Path())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		q.readFiles = append(q.readFiles, filepath.Join(q.q.Path(), entry.Name()))
+	}
+
+	if len(q.readFiles) == 0 {
+		return nil, nil
+	}
+
+	return os.Open(q.readFiles[q.cursor])
 }
