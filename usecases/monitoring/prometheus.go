@@ -307,8 +307,8 @@ var (
 	// It also includes request that served *very* fast and *very* slow
 	latencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
 
-	// sizeBuckets defines buckets for request/response body sizes.
-	// TODO(kavi): Check with real data on prod and tweak accordingly.
+	// sizeBuckets defines buckets for request/response body sizes (in bytes).
+	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
 	sizeBuckets = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
 
 	metrics *PrometheusMetrics = nil
