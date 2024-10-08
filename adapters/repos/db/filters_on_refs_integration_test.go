@@ -776,7 +776,7 @@ func getParamsWithFilter(className string, filter *filters.LocalFilter) dto.GetP
 		Filters: filter,
 		// we don't care about actually resolving the ref as long as filtering
 		// on it worked
-		Properties: nil,
+		Properties: search.SelectProperties{{Name: "name"}, {Name: "code"}},
 		Pagination: &filters.Pagination{
 			Offset: 0,
 			Limit:  10,

@@ -36,6 +36,7 @@ func createTestIndex(t *testing.T) *flat {
 	index, err := New(Config{
 		ID:               uuid.New().String(),
 		DistanceProvider: distancer,
+		RootPath:         dirName,
 	}, flatent.UserConfig{
 		PQ: flatent.CompressionUserConfig{
 			Enabled: false,

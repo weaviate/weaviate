@@ -147,12 +147,6 @@ func (f *fakeVectorSearcher) ResolveReferences(ctx context.Context, objs search.
 	return nil, nil
 }
 
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
-}
-
 type fakeVectorRepo struct {
 	mock.Mock
 }
@@ -284,7 +278,7 @@ func (f *fakeInterpretation) AdditionalPropertyFn(ctx context.Context,
 	return in, nil
 }
 
-func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeInterpretation) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return true
 }
 
@@ -303,7 +297,7 @@ func (f *fakeExtender) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeExtender) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -332,7 +326,7 @@ func (f *fakeProjector) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakeProjector) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 
@@ -353,7 +347,7 @@ func (f *fakePathBuilder) AdditionalPropertyFn(ctx context.Context,
 	return f.returnArgs, nil
 }
 
-func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument) interface{} {
+func (f *fakePathBuilder) ExtractAdditionalFn(param []*ast.Argument, class *models.Class) interface{} {
 	return nil
 }
 

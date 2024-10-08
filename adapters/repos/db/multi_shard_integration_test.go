@@ -388,7 +388,8 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 					Pagination: &filters.Pagination{
 						Limit: limit,
 					},
-					ClassName: "TestClass",
+					ClassName:  "TestClass",
+					Properties: search.SelectProperties{{Name: "boolProp"}},
 				})
 				assert.Nil(t, err)
 

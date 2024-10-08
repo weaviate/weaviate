@@ -766,11 +766,13 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 			visitedPairs[currentNode] = true
 			h.shardedNodeLocks.RLock(currentNode.nodeId)
 			node := h.nodes[currentNode.nodeId]
-			node.Lock()
-			neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
-			node.Unlock()
+			if node != nil {
+				node.Lock()
+				neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+				node.Unlock()
+				candidateList = append(candidateList, neighbors...)
+			}
 			h.shardedNodeLocks.RUnlock(currentNode.nodeId)
-			candidateList = append(candidateList, neighbors...)
 		}
 	}
 

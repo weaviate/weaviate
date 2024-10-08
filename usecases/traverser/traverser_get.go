@@ -20,6 +20,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
@@ -41,7 +42,7 @@ func (t *Traverser) GetClass(ctx context.Context, principal *models.Principal,
 	defer t.metrics.QueriesGetDec(params.ClassName)
 	defer t.metrics.QueriesObserveDuration(params.ClassName, before.UnixMilli())
 
-	err := t.authorizer.Authorize(principal, "get", "traversal/*")
+	err := t.authorizer.Authorize(principal, authorization.GET, authorization.ALL_TRAVERSAL)
 	if err != nil {
 		return nil, err
 	}

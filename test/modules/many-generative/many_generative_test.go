@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package generative_palm_tests
+package tests
 
 import (
 	"testing"
@@ -45,7 +45,7 @@ func testGenerativeManyModules(host, ollamaApiEndpoint, region, gcpProject strin
 				"region":  region,
 				"model":   "amazon.titan-text-lite-v1",
 			},
-			"generative-palm": map[string]interface{}{
+			"generative-google": map[string]interface{}{
 				"projectId": gcpProject,
 				"modelId":   "gemini-1.0-pro",
 			},

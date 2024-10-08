@@ -1,0 +1,249 @@
+syntax = "proto3";
+
+package weaviate.v1;
+
+import "v1/base.proto";
+
+option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
+option java_package = "io.weaviate.client.grpc.protocol.v1";
+option java_outer_classname = "WeaviateProtoGenerative";
+
+message GenerativeSearch {
+  message Single {
+    string prompt = 1;
+    bool debug = 2;
+    // only allow one at the beginning, but multiple in the future
+    repeated GenerativeProvider queries = 3;  
+  }
+  
+  message Grouped {
+    string task = 1;
+    optional TextArray properties = 2;
+  }
+
+  string single_response_prompt = 1 [deprecated = true];
+  string grouped_response_task = 2 [deprecated = true];
+  repeated string grouped_properties = 3 [deprecated = true];
+  Single single = 4;
+  Grouped grouped = 5;
+}
+  
+
+
+message GenerativeProvider {
+  bool return_metadata = 1;
+  oneof kind {
+    GenerativeAnthropic anthropic = 2;
+    GenerativeAnyscale anyscale = 3;
+    GenerativeAWS aws = 4;
+    GenerativeCohere cohere = 5;
+    GenerativeDummy dummy = 6;
+    GenerativeMistral mistral = 7;
+    GenerativeOctoAI octoai = 8;
+    GenerativeOllama ollama = 9;
+    GenerativeOpenAI openai = 10;
+    GenerativeGoogle google = 11;
+  }
+}
+
+message GenerativeAnthropic{
+  optional string base_url = 1;
+  optional int64 max_tokens = 2;
+  optional string model = 3;
+  optional double temperature = 4;
+  optional int64 top_k = 5;
+  optional double top_p = 6;
+  optional TextArray stop_sequences = 7;
+}
+
+message GenerativeAnyscale{
+  optional string base_url = 1;
+  optional string model = 2;
+  optional double temperature = 3;
+}
+
+message GenerativeAWS{
+  optional string model = 3;
+  optional double temperature = 8;
+}
+
+message GenerativeCohere{
+  optional string base_url = 1;
+  optional double frequency_penalty = 2;
+  optional int64 max_tokens = 3;
+  optional string model = 4;
+  optional int64 k = 5;
+  optional double p = 6;
+  optional double presence_penalty = 7;
+  optional TextArray stop_sequences = 8;
+  optional double temperature = 9;
+}
+
+message GenerativeDummy{
+}
+
+message GenerativeMistral{
+  optional string base_url = 1;
+  optional int64 max_tokens = 2;
+  optional string model = 3;
+  optional double temperature = 4;
+  optional double top_p = 5;
+}
+
+message GenerativeOctoAI{
+  optional string base_url = 1;
+  optional int64 max_tokens = 2;
+  optional string model = 3;
+  optional int64 n = 4;
+  optional double temperature = 5;
+  optional double top_p = 6;
+}
+
+message GenerativeOllama{
+  optional string api_endpoint = 1;
+  optional string model = 2;
+  optional double temperature = 3;
+}
+
+message GenerativeOpenAI{
+  optional double frequency_penalty = 1;
+  optional bool log_probs = 2;
+  optional int64 max_tokens = 3;
+  string model = 4;
+  optional int64 n = 5;
+  optional double presence_penalty = 6;
+  optional TextArray stop = 7;
+  optional double temperature = 8;
+  optional double top_p = 9;
+  optional int64 top_log_probs = 10;
+}
+
+message GenerativeGoogle{
+  optional double frequency_penalty = 1;
+  optional int64 max_tokens = 2;
+  optional string model = 3;
+  optional double presence_penalty = 4;
+  optional double temperature = 5;
+  optional int64 top_k = 6;
+  optional double top_p = 7;
+  optional TextArray stop_sequences = 8;
+}
+
+message GenerativeAnthropicMetadata {
+  message Usage {
+    int64 input_tokens = 1;
+    int64 output_tokens = 2;
+  }
+  Usage usage = 1;
+}
+
+message GenerativeAnyscaleMetadata {
+}
+
+message GenerativeAWSMetadata {
+}
+
+message GenerativeCohereMetadata {
+  message ApiVersion {
+    optional string version = 1;
+    optional bool is_deprecated = 2;
+    optional bool is_experimental = 3;
+  }
+  message BilledUnits {
+    optional double input_tokens = 1;
+    optional double output_tokens = 2;
+    optional double search_units = 3;
+    optional double classifications = 4;
+  }
+  message Tokens {
+    optional double input_tokens = 1;
+    optional double output_tokens = 2;
+  }
+  optional ApiVersion api_version = 1;
+  optional BilledUnits billed_units = 2;
+  optional Tokens tokens = 3;
+  optional TextArray warnings = 4;
+}
+
+message GenerativeDummyMetadata {
+}
+
+message GenerativeMistralMetadata {
+  message Usage {
+    optional int64 prompt_tokens = 1;
+    optional int64 completion_tokens = 2;
+    optional int64 total_tokens = 3;
+  }
+  optional Usage usage = 1;
+}
+
+message GenerativeOctoAIMetadata {
+  message Usage {
+    optional int64 prompt_tokens = 1;
+    optional int64 completion_tokens = 2;
+    optional int64 total_tokens = 3;
+  }
+  optional Usage usage = 1;
+}
+
+message GenerativeOllamaMetadata {
+}
+
+message GenerativeOpenAIMetadata {
+  message Usage {
+    optional int64 prompt_tokens = 1;
+    optional int64 completion_tokens = 2;
+    optional int64 total_tokens = 3;
+  }
+  optional Usage usage = 1;
+}
+
+message GenerativeGoogleMetadata {
+  message TokenCount {
+    optional int64 total_billable_characters = 1;
+    optional int64 total_tokens = 2;
+  }
+  message TokenMetadata {
+    optional TokenCount input_token_count = 1;
+    optional TokenCount output_token_count = 2;
+  }
+  message Metadata {
+    optional TokenMetadata token_metadata = 1;
+  }
+  message UsageMetadata {
+    optional int64 prompt_token_count = 1;
+    optional int64 candidates_token_count = 2;
+    optional int64 total_token_count = 3;
+  }
+  optional Metadata metadata = 1;
+  optional UsageMetadata usage_metadata = 2;
+}
+
+message GenerativeMetadata {
+  oneof kind {
+    GenerativeAnthropicMetadata anthropic = 1;
+    GenerativeAnyscaleMetadata anyscale = 2;
+    GenerativeAWSMetadata aws = 3;
+    GenerativeCohereMetadata cohere = 4;
+    GenerativeDummyMetadata dummy = 5;
+    GenerativeMistralMetadata mistral = 6;
+    GenerativeOctoAIMetadata octoai = 7;
+    GenerativeOllamaMetadata ollama = 8;
+    GenerativeOpenAIMetadata openai = 9;
+    GenerativeGoogleMetadata google = 10;
+  }
+}
+
+message GenerativeReply {
+  string result = 1;
+  optional GenerativeDebug debug = 2;
+  optional GenerativeMetadata metadata = 3;
+}
+
+message GenerativeResult {
+  repeated GenerativeReply values = 1;
+}
+
+message GenerativeDebug {
+  optional string full_prompt = 1;
+}

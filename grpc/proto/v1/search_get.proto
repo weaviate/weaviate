@@ -4,6 +4,7 @@ package weaviate.v1;
 
 import "google/protobuf/struct.proto";
 import "v1/base.proto";
+import "v1/generative.proto";
 import "v1/properties.proto";
 
 option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
@@ -49,7 +50,8 @@ message SearchRequest {
   optional Rerank rerank = 61;
 
   bool uses_123_api = 100 [deprecated = true];
-  bool uses_125_api = 101;
+  bool uses_125_api = 101 [deprecated = true];
+  bool uses_127_api = 102; 
 }
 
 message GroupBy {
@@ -70,11 +72,6 @@ message SortBy {
   repeated string path = 2;
 }
 
-message GenerativeSearch {
-  string single_response_prompt = 1;
-  string grouped_response_task = 2;
-  repeated string grouped_properties = 3;
-}
 
 message MetadataRequest {
   bool uuid = 1;
@@ -259,16 +256,13 @@ message Rerank {
 message SearchReply {
   float took = 1;
   repeated SearchResult results = 2;
-  optional string generative_grouped_result = 3;
+  optional string generative_grouped_result = 3 [deprecated = true];
   repeated GroupByResult group_by_results = 4;
+  optional GenerativeResult generative_grouped_results = 5;
 }
 
 message RerankReply {
   double score = 1;
-}
-
-message GenerativeReply {
-  string result = 1;
 }
 
 message GroupByResult {
@@ -278,13 +272,16 @@ message GroupByResult {
   int64 number_of_objects = 4;
   repeated SearchResult objects = 5;
   optional RerankReply rerank = 6;
-  optional GenerativeReply generative = 7;
+  optional GenerativeReply generative = 7 [deprecated = true];
+  optional GenerativeResult generative_result = 8;
 }
 
 message SearchResult {
   PropertiesResult properties = 1;
   MetadataResult metadata = 2;
+  optional GenerativeResult generative = 3;
 }
+
 
 message MetadataResult {
   string id = 1;
@@ -303,8 +300,8 @@ message MetadataResult {
   string explain_score = 13;
   bool explain_score_present = 14;
   optional bool is_consistent = 15;
-  string generative = 16;
-  bool generative_present = 17;
+  string generative = 16 [deprecated = true];
+  bool generative_present = 17 [deprecated = true];
   bool is_consistent_present = 18;
   bytes vector_bytes = 19;
   bytes id_as_bytes = 20;

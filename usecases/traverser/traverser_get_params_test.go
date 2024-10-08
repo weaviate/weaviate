@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -158,7 +159,7 @@ func TestGet_NestedRefDepthLimit(t *testing.T) {
 				QueryCrossReferenceDepthLimit: depth,
 			},
 		}
-		return NewTraverser(&cfg, &fakeLocks{}, logger, &fakeAuthorizer{},
+		return NewTraverser(&cfg, &fakeLocks{}, logger, mocks.NewMockAuthorizer(),
 			&fakeVectorRepo{}, &fakeExplorer{}, schemaGetter, nil, nil, -1)
 	}
 

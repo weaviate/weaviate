@@ -87,7 +87,7 @@ func (d *DockerCompose) Start(ctx context.Context, container string) error {
 
 func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time.Duration) error {
 	if nodeIndex >= len(d.containers) {
-		return errors.Errorf("node index is greater than available nodes")
+		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
 	}
 	if err := d.containers[nodeIndex].container.Stop(ctx, timeout); err != nil {
 		return err

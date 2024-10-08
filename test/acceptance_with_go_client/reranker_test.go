@@ -52,15 +52,34 @@ func TestReRanker(t *testing.T) {
 	uids := []string{uuid.New().String(), uuid.New().String()}
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]interface{}{"first": "apple", "second": "longlong"},
-	).WithID(uids[0]).Do(ctx)
+	).WithID(uids[0]).WithVector([]float32{1, 0}).Do(ctx)
 	require.Nil(t, err)
 
 	_, err = c.Data().Creator().WithClassName(className).WithProperties(
 		map[string]interface{}{"first": "apple", "second": "longlonglong"},
-	).WithID(uids[1]).Do(ctx)
+	).WithID(uids[1]).WithVector([]float32{1, 0}).Do(ctx)
 	require.Nil(t, err)
+	nv := graphql.NearVectorArgumentBuilder{}
 
-	t.Run("Rerank", func(t *testing.T) {
+	// vector search and non-vector search take different codepaths to the storage object. We need to make sure that
+	// for both paths all the necessary properties are unmarshalled from binary, even if they are not requested by the
+	// user.
+	t.Run("Rerank with vector search", func(t *testing.T) {
+		fields := []graphql.Field{
+			{Name: "_additional{id}"},
+			{Name: "_additional{rerank(property: \"second\",query: \"apple\" ){score}}"},
+		}
+		result, err := c.GraphQL().Get().WithClassName(className).WithNearVector(nv.WithVector([]float32{1, 0})).WithFields(fields...).Do(ctx)
+		require.Nil(t, err)
+
+		expected := []float64{12, 8}
+		for i := 0; i < 2; i++ {
+			rerankScore := result.Data["Get"].(map[string]interface{})[className].([]interface{})[i].(map[string]interface{})["_additional"].(map[string]interface{})["rerank"].([]interface{})[0].(map[string]interface{})["score"].(float64)
+			require.Equal(t, rerankScore, expected[i])
+		}
+	})
+
+	t.Run("Rerank without vector search", func(t *testing.T) {
 		fields := []graphql.Field{
 			{Name: "_additional{id}"},
 			{Name: "_additional{rerank(property: \"second\",query: \"apple\" ){score}}"},

@@ -122,6 +122,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"isAzure":          true,
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
 					"maxTokens":        4097,
@@ -148,6 +149,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "Azure OpenAI config with baseURL",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
+					"isAzure":          true,
 					"baseURL":          "some-base-url",
 					"resourceName":     "weaviate",
 					"deploymentId":     "gpt-3.5-turbo",
@@ -259,6 +261,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"resourceName": "resource-name",
+					"isAzure":      true,
 				},
 			},
 			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),
@@ -268,6 +271,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"deploymentId": "deployment-name",
+					"isAzure":      true,
 				},
 			},
 			wantErr: errors.Errorf("both resourceName and deploymentId must be provided"),

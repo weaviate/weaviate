@@ -36,8 +36,8 @@ import (
 
 var compile, _ = regexp.Compile(`{([\w\s]*?)}`)
 
-func buildUrlFn(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
-	if resourceName != "" && deploymentID != "" {
+func buildUrlFn(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
+	if isAzure {
 		host := baseURL
 		if host == "" || host == "https://api.openai.com" {
 			// Fall back to old assumption
@@ -58,7 +58,7 @@ type openai struct {
 	openAIApiKey       string
 	openAIOrganization string
 	azureApiKey        string
-	buildUrl           func(isLegacy bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
+	buildUrl           func(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error)
 	httpClient         *http.Client
 	logger             logrus.FieldLogger
 }
@@ -221,17 +221,39 @@ func (v *openai) getDebugInformation(debug bool, prompt string) *modulecapabilit
 
 func (v *openai) getResponseParams(usage *usage) map[string]interface{} {
 	if usage != nil {
-		return map[string]interface{}{"openai": map[string]interface{}{"usage": usage}}
+		return map[string]interface{}{openaiparams.Name: map[string]interface{}{"usage": usage}}
+	}
+	return nil
+}
+
+func GetResponseParams(result map[string]interface{}) *responseParams {
+	if params, ok := result[openaiparams.Name].(map[string]interface{}); ok {
+		if usage, ok := params["usage"].(*usage); ok {
+			return &responseParams{Usage: usage}
+		}
 	}
 	return nil
 }
 
 func (v *openai) buildOpenAIUrl(ctx context.Context, settings config.ClassSettings) (string, error) {
 	baseURL := settings.BaseURL()
+
+	deploymentID := settings.DeploymentID()
+	resourceName := settings.ResourceName()
+
 	if headerBaseURL := v.getValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {
 		baseURL = headerBaseURL
 	}
-	return v.buildUrl(settings.IsLegacy(), settings.ResourceName(), settings.DeploymentID(), baseURL, settings.ApiVersion())
+
+	if headerDeploymentID := v.getValueFromContext(ctx, "X-Azure-Deployment-Id"); headerDeploymentID != "" {
+		deploymentID = headerDeploymentID
+	}
+
+	if headerResourceName := v.getValueFromContext(ctx, "X-Azure-Resource-Name"); headerResourceName != "" {
+		resourceName = headerResourceName
+	}
+
+	return v.buildUrl(settings.IsLegacy(), settings.IsAzure(), resourceName, deploymentID, baseURL, settings.ApiVersion())
 }
 
 func (v *openai) generateInput(prompt string, params openaiparams.Params, settings config.ClassSettings) (generateInput, error) {
@@ -465,4 +487,8 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 	}
 	*c = openAICode(str)
 	return nil
+}
+
+type responseParams struct {
+	Usage *usage `json:"usage,omitempty"`
 }

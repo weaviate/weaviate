@@ -271,6 +271,24 @@ func TestClient(t *testing.T) {
 		assert.Equal(t, "http://default-url.com/v1/embeddings", buildURL)
 	})
 
+	t.Run("when X-Azure-* headers are passed", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+
+		config := ent.VectorizationConfig{
+			IsAzure:    true,
+			ApiVersion: "",
+		}
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Azure-Deployment-Id", []string{"spoofDeployment"})
+		ctxWithValue = context.WithValue(ctxWithValue,
+			"X-Azure-Resource-Name", []string{"spoofResource"})
+
+		buildURL, err := c.buildURL(ctxWithValue, config)
+		require.NoError(t, err)
+		assert.Equal(t, "https://spoofResource.openai.azure.com/openai/deployments/spoofDeployment/embeddings?api-version=", buildURL)
+	})
+
 	t.Run("pass rate limit headers requests", func(t *testing.T) {
 		c := New("", "", "", 0, nullLogger())
 

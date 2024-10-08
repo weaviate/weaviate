@@ -49,8 +49,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string) (string, error) {
-			return buildUrl(server.URL, resourceName, deploymentID)
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+			return buildUrl(server.URL, resourceName, deploymentID, isAzure)
 		}
 
 		expected := ent.AnswerResult{
@@ -77,8 +77,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string) (string, error) {
-			return buildUrl(server.URL, resourceName, deploymentID)
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+			return buildUrl(server.URL, resourceName, deploymentID, isAzure)
 		}
 
 		_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
@@ -100,8 +100,8 @@ func TestGetAnswer(t *testing.T) {
 		defer server.Close()
 
 		c := New("openAIApiKey", "", "", 0, nullLogger())
-		c.buildUrlFn = func(baseURL, resourceName, deploymentID string) (string, error) {
-			return buildUrl(server.URL, resourceName, deploymentID)
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID string, isAzure bool) (string, error) {
+			return buildUrl(server.URL, resourceName, deploymentID, isAzure)
 		}
 
 		_, err := c.Answer(context.Background(), "My name is John", "What is my name?", nil)
@@ -116,13 +116,26 @@ func TestGetAnswer(t *testing.T) {
 		ctxWithValue := context.WithValue(context.Background(),
 			"X-Openai-Baseurl", []string{"http://base-url-passed-in-header.com"})
 
-		buildURL, err := c.buildOpenAIUrl(ctxWithValue, "http://default-url.com", "", "")
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, "http://default-url.com", "", "", false)
 		require.NoError(t, err)
 		assert.Equal(t, "http://base-url-passed-in-header.com/v1/completions", buildURL)
 
-		buildURL, err = c.buildOpenAIUrl(context.TODO(), "http://default-url.com", "", "")
+		buildURL, err = c.buildOpenAIUrl(context.TODO(), "http://default-url.com", "", "", false)
 		require.NoError(t, err)
 		assert.Equal(t, "http://default-url.com/v1/completions", buildURL)
+	})
+
+	t.Run("when X-Azure-DeploymentId is passed", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+
+		ctxWithValue := context.WithValue(context.Background(),
+			"X-Azure-Deployment-Id", []string{"headerDeploymentId"})
+		ctxWithValue = context.WithValue(ctxWithValue,
+			"X-Azure-Resource-Name", []string{"headerResourceName"})
+
+		buildURL, err := c.buildOpenAIUrl(ctxWithValue, "", "", "", true)
+		require.NoError(t, err)
+		assert.Equal(t, "https://headerResourceName.openai.azure.com/openai/deployments/headerDeploymentId/completions?api-version=2022-12-01", buildURL)
 	})
 }
 
