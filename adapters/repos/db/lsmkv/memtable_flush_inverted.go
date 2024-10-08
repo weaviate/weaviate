@@ -103,13 +103,6 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 
 			blocksEncoded, _ := createAndEncodeBlocks(mapNode, 1)
 
-			// write blocks encoded size
-			binary.LittleEndian.PutUint64(buf, uint64(len(blocksEncoded)))
-			if _, err := f.Write(buf); err != nil {
-				return nil, nil, err
-			}
-			totalWritten += 8
-
 			if _, err := f.Write(blocksEncoded); err != nil {
 				return nil, nil, err
 			}

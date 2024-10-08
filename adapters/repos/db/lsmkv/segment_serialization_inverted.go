@@ -159,10 +159,11 @@ func encodeBlocks(blockEntries []*blockEntry, blockDatas []*blockData, docCount 
 	for i := range blockDatas {
 		length += blockDatas[i].size() + blockEntries[i].size()
 	}
-	out := make([]byte, length+8)
-	offset := 0
-
+	out := make([]byte, length+8+8)
 	binary.LittleEndian.PutUint64(out, docCount)
+	offset := 8
+
+	binary.LittleEndian.PutUint64(out[offset:], uint64(length+8))
 	offset += 8
 
 	for _, blockEntry := range blockEntries {
@@ -203,8 +204,9 @@ func createAndEncodeBlocks(nodes *binarySearchNodeMap, encodeSingleSeparate int)
 }
 
 func decodeBlocks(data []byte) ([]*blockEntry, []*blockData) {
+	offset := 0
 	docCount := int(binary.LittleEndian.Uint64(data))
-	offset := 8
+	offset += 16
 
 	// calculate the number of blocks by dividing the number of documents by the block size and rounding up
 	blockCount := (docCount + (BLOCK_SIZE - 1)) / BLOCK_SIZE

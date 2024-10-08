@@ -185,7 +185,7 @@ func TestMultipleMapLists(m *testing.T) {
 	termFreqRand := rand.NewZipf(rand.New(rand.NewSource(42)), 1.2, 1, 100)
 	postlingListLenRand := rand.NewZipf(rand.New(rand.NewSource(42)), 1.2, 1, 1000)
 
-	numberCollections := 1000
+	numberCollections := 10000
 
 	currentUncompressedSize := uint64(0)
 	bestUncompressedSize := uint64(0)
