@@ -6,20 +6,17 @@ set -eou pipefail
 # This script calls goreleaser and signs + notarize the binaries for macos. Thus needed to export few ENV variables
 # to be used in .goreleaser.yaml in the root of the repository.
 
-export WEAVIATE_GIT_REVISION=$(git rev-parse --short HEAD)
-export WEAVIATE_GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+GIT_REVISION=$(git rev-parse --short HEAD)
+GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+BUILD_USER="$(whoami)@$(hostname)"
+BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-# detect if commit is tagged or not (format is "vA.B.Z" with tag and "vA.B.Z-commit" without tag)
-export WEAVIATE_VERSION="$(git describe --tag)"
-export WEAVIATE_BUILD_USER="$(whoami)@$(hostname)"
-export WEAVIATE_BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-
+extra_args=
 
 if [[ "$WEAVIATE_VERSION" == *"-"* ]]; then
-  goreleaser build --clean --snapshot
-else
-  goreleaser build --clean
-fi
+    extra_args+=("--snapshot")
+
+GIT_REVISION="$GIT_REVISION" GIT_BRANCH="$GIT_BRANCH" BUILD_USER="$BUILD_USER" BUILD_DATE="$BUILD_USER" goreleaser build --clean "$extra_args"
 
 codesign -f -o runtime --timestamp -s "Developer ID Application: Weaviate B.V. (QUZ8SKLS6R)" dist/weaviate_darwin_all/weaviate
 
