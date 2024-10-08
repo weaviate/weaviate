@@ -8,7 +8,7 @@ set -eou pipefail
 
 GIT_REVISION=$(git rev-parse --short HEAD)
 GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-BUILD_USER="$(whoami)@$(hostname)"
+BUILD_USER="ci"
 BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 extra_args=""
