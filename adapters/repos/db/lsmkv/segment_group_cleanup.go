@@ -54,8 +54,8 @@ func newSegmentCleaner(sg *SegmentGroup) (segmentCleaner, error) {
 		return cleaner, nil
 	case StrategyMapCollection,
 		StrategySetCollection,
-		StrategyRoaringSet:
-		// TODO AL: add roaring set range
+		StrategyRoaringSet,
+		StrategyRoaringSetRange:
 		return &segmentCleanerNoop{}, nil
 	default:
 		return nil, fmt.Errorf("unrecognized strategy %q", sg.strategy)
