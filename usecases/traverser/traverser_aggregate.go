@@ -31,7 +31,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	t.metrics.QueriesAggregateInc(params.ClassName.String())
 	defer t.metrics.QueriesAggregateDec(params.ClassName.String())
 
-	err := t.authorizer.Authorize(principal, authorization.GET, "traversal/*")
+	err := t.authorizer.Authorize(principal, authorization.GET, authorization.ALL_TRAVERSAL)
 	if err != nil {
 		return nil, err
 	}
