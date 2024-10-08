@@ -11,12 +11,15 @@ GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 BUILD_USER="$(whoami)@$(hostname)"
 BUILD_DATE="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
-extra_args=
+extra_args=""
 
-if [[ "$WEAVIATE_VERSION" == *"-"* ]]; then
-    extra_args+=("--snapshot")
+# detect if commit is tagged or not (format is "vA.B.Z" with tag and "vA.B.Z-commit" without tag)
+VERSION="$(git describe --tag)"
+if [[ "$VERSION" == *"-"* ]]; then
+    extra_args="--snapshot"
+fi
 
-GIT_REVISION="$GIT_REVISION" GIT_BRANCH="$GIT_BRANCH" BUILD_USER="$BUILD_USER" BUILD_DATE="$BUILD_USER" goreleaser build --clean "$extra_args"
+GIT_REVISION="$GIT_REVISION" GIT_BRANCH="$GIT_BRANCH" BUILD_USER="$BUILD_USER" BUILD_DATE="$BUILD_DATE" goreleaser build --clean $extra_args
 
 codesign -f -o runtime --timestamp -s "Developer ID Application: Weaviate B.V. (QUZ8SKLS6R)" dist/weaviate_darwin_all/weaviate
 
