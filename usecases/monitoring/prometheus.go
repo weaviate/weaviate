@@ -26,7 +26,7 @@ type Config struct {
 
 	// Metrics namespace group the metrics with common prefix.
 	// currently used only on ServerMetrics.
-	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:"weaviate"`
+	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
 type PrometheusMetrics struct {

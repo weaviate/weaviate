@@ -526,6 +526,7 @@ case $CONFIG in
       BACKUP_S3_ENDPOINT="localhost:9000" \
       ENABLE_MODULES="backup-filesystem,text2vec-contextionary,offload-s3" \
       PROMETHEUS_MONITORING_PORT="2112" \
+      PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
