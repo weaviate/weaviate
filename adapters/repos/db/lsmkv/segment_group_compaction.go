@@ -22,7 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -398,34 +397,6 @@ func (sg *SegmentGroup) stripTmpExtension(oldPath, left, right string) (string, 
 	}
 
 	return newPath, nil
-}
-
-func (sg *SegmentGroup) compactIfLevelsMatch(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	sg.monitorSegments()
-
-	compacted, err := sg.compactOnce()
-	if err != nil {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			WithError(err).
-			Errorf("compaction failed")
-	}
-
-	if compacted {
-		return true
-	} else {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			Trace("no segment eligible for compaction")
-		return false
-	}
-}
-
-func (sg *SegmentGroup) Len() int {
-	sg.maintenanceLock.RLock()
-	defer sg.maintenanceLock.RUnlock()
-
-	return len(sg.segments)
 }
 
 func (sg *SegmentGroup) monitorSegments() {

@@ -138,6 +138,7 @@ func ParseReplaceNode(r io.Reader, secondaryIndexCount uint16) (segmentReplaceNo
 		out.offset += n
 	}
 
+	out.secondaryIndexCount = secondaryIndexCount
 	if secondaryIndexCount > 0 {
 		out.secondaryKeys = make([][]byte, secondaryIndexCount)
 	}

@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -64,6 +65,9 @@ type SegmentGroup struct {
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
+
+	segmentCleaner  segmentCleaner
+	cleanupInterval time.Duration
 }
 
 type sgConfig struct {
@@ -77,6 +81,7 @@ type sgConfig struct {
 	calcCountNetAdditions bool
 	forceCompaction       bool
 	maxSegmentSize        int64
+	cleanupInterval       time.Duration
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -102,6 +107,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		calcCountNetAdditions:   cfg.calcCountNetAdditions,
 		compactLeftOverSegments: cfg.forceCompaction,
 		maxSegmentSize:          cfg.maxSegmentSize,
+		cleanupInterval:         cfg.cleanupInterval,
 		allocChecker:            allocChecker,
 	}
 
@@ -259,8 +265,15 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		sg.metrics.ObjectCount(sg.count())
 	}
 
+	sc, err := newSegmentCleaner(sg)
+	if err != nil {
+		return nil, err
+	}
+	sg.segmentCleaner = sc
+
+	// TODO AL: use separate cycle callback for cleanup?
 	id := "segmentgroup/compaction/" + sg.dir
-	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactIfLevelsMatch)
+	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	return sg, nil
 }
@@ -484,6 +497,9 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	if err := sg.compactionCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running compaction in progress: %w", ctx.Err())
 	}
+	if err := sg.segmentCleaner.close(); err != nil {
+		return err
+	}
 
 	// Lock acquirement placed after compaction cycle stop request, due to occasional deadlock,
 	// because compaction logic used in cycle also requires maintenance lock.
@@ -536,4 +552,39 @@ func fileExists(path string) (bool, error) {
 	}
 
 	return false, err
+}
+
+func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	sg.monitorSegments()
+
+	if compacted, err := sg.compactOnce(); err != nil {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			WithError(err).
+			Errorf("compaction failed")
+	} else if !compacted {
+		sg.logger.WithField("action", "lsm_compaction").
+			WithField("path", sg.dir).
+			Trace("no segments eligible for compaction")
+	} else {
+		return true
+	}
+
+	if cleaned, err := sg.segmentCleaner.cleanupOnce(shouldAbort); err != nil {
+		sg.logger.WithField("action", "lsm_cleanup").
+			WithField("path", sg.dir).
+			WithError(err).
+			Errorf("cleanup failed")
+	} else if cleaned {
+		return true
+	}
+
+	return false
+}
+
+func (sg *SegmentGroup) Len() int {
+	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
+	return len(sg.segments)
 }

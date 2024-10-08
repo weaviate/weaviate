@@ -560,6 +560,7 @@ type IndexConfig struct {
 	MemtablesMaxSizeMB               int
 	MemtablesMinActiveSeconds        int
 	MemtablesMaxActiveSeconds        int
+	SegmentsCleanupIntervalHours     int64
 	MaxSegmentSize                   int64
 	HNSWMaxLogSize                   int64
 	HNSWWaitForCachePrefill          bool
