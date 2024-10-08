@@ -93,7 +93,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := azure.Initialize(testCtx, backupID)
+			err := azure.Initialize(testCtx, backupID, override[0], override[1])
 			assert.Nil(t, err)
 		})
 
@@ -124,9 +124,12 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = azure.PutObject(testCtx, backupID, metadataFilename, override[0], override[1], b)
 			require.Nil(t, err)
 
-			dest := azure.HomeDir(override[0], override[1], backupID) // FIXME
+			dest := azure.HomeDir(backupID, override[0], override[1])
 
 			expected := fmt.Sprintf("http://%s/devstoreaccount1/%s/%s", os.Getenv(envAzureEndpoint), containerName, backupID)
+			if override[1] != "" {
+				expected = fmt.Sprintf("http://%s/devstoreaccount1/%s/%s/%s", os.Getenv(envAzureEndpoint), containerName, override[1],backupID)
+			}
 			assert.Equal(t, expected, dest)
 		})
 

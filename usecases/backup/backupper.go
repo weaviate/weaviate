@@ -62,7 +62,7 @@ func (b *backupper) Backup(ctx context.Context,
 	}
 
 	return &backup.CreateMeta{
-		Path:   store.HomeDir(bucketName, bucketPath), // FIXME?
+		Path:   store.HomeDir(bucketName, bucketPath),
 		Status: backup.Started,
 	}, nil
 }

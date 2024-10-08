@@ -74,7 +74,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := fs.Initialize(testCtx, backupID)
+			err := fs.Initialize(testCtx, backupID, override[0], override[1])
 			assert.Nil(t, err)
 		})
 
@@ -105,7 +105,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = fs.PutObject(testCtx, backupID, metadataFilename, "", "", b)
 			require.Nil(t, err)
 
-			dest := fs.HomeDir(override[0], override[1], backupID)
+			dest := fs.HomeDir(backupID, override[0], override[1])
 			expected := fmt.Sprintf("%s/%s", backupDir, backupID)
 			assert.Equal(t, expected, dest)
 		})

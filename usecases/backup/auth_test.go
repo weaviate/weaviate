@@ -63,7 +63,7 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "Cancel",
-			additionalArgs:   []interface{}{"s3", "123"},
+			additionalArgs:   []interface{}{"s3", "123", "",""}, //FIXME
 			expectedVerb:     "delete",
 			expectedResource: "backups/s3/123",
 		},

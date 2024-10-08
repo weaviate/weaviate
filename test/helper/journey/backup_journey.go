@@ -47,6 +47,7 @@ const (
 func backupJourney(t *testing.T, className, backend, backupID string,
 	journeyType journeyType, dataIntegrityCheck dataIntegrityCheck,
 	tenantNames []string, pqEnabled bool, nodeMapping map[string]string,
+	override bool,
 ) {
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
@@ -66,7 +67,12 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 		if journeyType == clusterJourney {
 			time.Sleep(3 * time.Second)
 		}
-		resp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
+		cfg := helper.DefaultBackupConfig()
+		if override {
+			cfg.S3Bucket = "testbucketoverride"
+			cfg.S3Path = "testBucketPathOverride"
+		}
+		resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
 
 		// wait for create success
@@ -109,7 +115,12 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	})
 
 	t.Run("restore backup", func(t *testing.T) {
-		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backend, backupID, nodeMapping)
+		cfg := helper.DefaultRestoreConfig()
+		if override {
+			cfg.S3Bucket = "testbucketoverride"
+			cfg.S3Path = "testBucketPathOverride"
+		}
+		_, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
 		require.Nil(t, err, "expected nil, got: %v", err)
 
 		// wait for restore success

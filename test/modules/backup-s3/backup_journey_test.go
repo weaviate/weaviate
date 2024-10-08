@@ -68,7 +68,11 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil)
+				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil, false)
+		})
+		t.Run("backup-s3", func(t *testing.T) {
+			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, nil, true)
 		})
 	})
 

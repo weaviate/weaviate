@@ -16,10 +16,10 @@ import (
 )
 
 // BackupJourneyTests_SingleNode this method gathers all backup related e2e tests
-func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, className, backupID string, tenantNames []string) {
+func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, className, backupID string, tenantNames []string, overrideLocation bool) {
 	if len(tenantNames) > 0 {
 		t.Run("multi-tenant single node backup", func(t *testing.T) {
-			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, tenantNames, false)
+			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, tenantNames, overrideLocation)
 		})
 		t.Run("multi-tenant single node backup with empty class", func(t *testing.T) {
 			singleNodeBackupEmptyClassJourneyTest(t, weaviateEndpoint, backend, className, backupID+"_empty", tenantNames)

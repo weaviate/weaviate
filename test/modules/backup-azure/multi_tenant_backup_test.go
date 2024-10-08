@@ -56,7 +56,11 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames)
+				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames, false)
+		})
+		t.Run("backup-azure", func(t *testing.T) {
+			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames, true)
 		})
 
 		require.Nil(t, compose.Terminate(ctx))

@@ -104,7 +104,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
-			err := s3.Initialize(testCtx, backupID)
+			err := s3.Initialize(testCtx, backupID, override[0], override[1])
 			assert.Nil(t, err)
 		})
 
@@ -136,7 +136,7 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			err = s3.PutObject(testCtx, backupID, metadataFilename, override[0], override[1], b)
 			require.Nil(t, err)
 
-			dest := s3.HomeDir(override[0], override[1], backupID)
+			dest := s3.HomeDir(backupID, override[0], override[1])
 			if override[1] != "" {
 				expected := fmt.Sprintf("s3://%s/%s", override[1], backupID)
 				assert.Equal(t, expected, dest)

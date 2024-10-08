@@ -23,7 +23,7 @@ import (
 
 var connectorOptionGroup *swag.CommandLineOptionsGroup
 
-// configureAPI -> see configure_api.go
+// ConfigureAPI -> see configure_api.go
 
 // configureServer -> see configure_server.go
 

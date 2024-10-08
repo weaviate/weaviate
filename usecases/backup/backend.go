@@ -74,7 +74,7 @@ type ObjectStore struct {
 }
 
 func (s *ObjectStore) HomeDir(overrideBucket, overridePath string) string {
-	return s.Backend.HomeDir(overrideBucket, overridePath, s.BackupId)
+	return s.Backend.HomeDir(s.BackupId, overrideBucket, overridePath)
 }
 
 func (s *ObjectStore) WriteToFile(ctx context.Context, key, destPath, bucketName, bucketPath string) error {
