@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
@@ -662,6 +663,32 @@ func newMockResolverWithNoModules() *mockResolver {
 func (m *mockResolver) GetClass(ctx context.Context, principal *models.Principal,
 	params dto.GetParams,
 ) ([]interface{}, error) {
+	// order is random due to map access, sort to make tests deterministic
+	if params.NearVector != nil && params.NearVector.TargetVectors != nil && params.NearVector.Vectors != nil {
+		tv := targetsAndVectors{targets: params.NearVector.TargetVectors, vectors: params.NearVector.Vectors}
+		sort.Sort(tv)
+		params.NearVector.TargetVectors = tv.targets
+		params.NearVector.Vectors = tv.vectors
+	}
+
 	args := m.Called(params)
 	return args.Get(0).([]interface{}), args.Error(1)
+}
+
+type targetsAndVectors struct {
+	targets []string
+	vectors [][]float32
+}
+
+func (t targetsAndVectors) Len() int {
+	return len(t.targets)
+}
+
+func (t targetsAndVectors) Swap(i, j int) {
+	t.targets[i], t.targets[j] = t.targets[j], t.targets[i]
+	t.vectors[i], t.vectors[j] = t.vectors[j], t.vectors[i]
+}
+
+func (t targetsAndVectors) Less(i, j int) bool {
+	return t.targets[i] < t.targets[j]
 }
