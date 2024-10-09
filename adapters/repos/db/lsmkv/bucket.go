@@ -1088,7 +1088,9 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
-	b.isFlushing.Store(true)
+	if b.isFlushing.Swap(true) {
+		return fmt.Errorf("unexpected concurrent call to flush and switch")
+	}
 	defer b.isFlushing.Store(false)
 
 	before := time.Now()
