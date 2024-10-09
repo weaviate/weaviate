@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -15,7 +16,7 @@ import (
 )
 
 type Scheduler struct {
-	logger logrus.FieldLogger
+	SchedulerOptions
 
 	queues struct {
 		sync.Mutex
@@ -27,15 +28,15 @@ type Scheduler struct {
 	ctx      context.Context
 	cancelFn context.CancelFunc
 
-	workers         []chan Batch
 	tasksProcessing *common.SharedGauge
 
 	wg sync.WaitGroup
 }
 
 type SchedulerOptions struct {
-	Logger  logrus.FieldLogger
-	Workers []chan Batch
+	Logger           logrus.FieldLogger
+	Workers          []chan Batch
+	ScheduleInterval time.Duration
 }
 
 func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
@@ -48,10 +49,13 @@ func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
 	}
 	opts.Logger = opts.Logger.WithField("component", "queue-scheduler")
 
+	if opts.ScheduleInterval == 0 {
+		opts.ScheduleInterval = time.Second
+	}
+
 	s := Scheduler{
-		logger:          opts.Logger,
-		tasksProcessing: common.NewSharedGauge(),
-		workers:         opts.Workers,
+		SchedulerOptions: opts,
+		tasksProcessing:  common.NewSharedGauge(),
 	}
 
 	s.ctx, s.cancelFn = context.WithCancel(context.Background())
@@ -67,7 +71,7 @@ func (s *Scheduler) RegisterQueue(q QueueDecoder) {
 		q: q,
 	}
 
-	s.logger.WithField("id", q.ID()).Debug("queue registered")
+	s.Logger.WithField("id", q.ID()).Debug("queue registered")
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
@@ -76,7 +80,7 @@ func (s *Scheduler) UnregisterQueue(id string) {
 
 	delete(s.queues.m, id)
 
-	s.logger.WithField("id", id).Debug("queue unregistered")
+	s.Logger.WithField("id", id).Debug("queue unregistered")
 }
 
 func (s *Scheduler) Start() {
@@ -87,7 +91,7 @@ func (s *Scheduler) Start() {
 
 		s.scheduler()
 	}
-	enterrors.GoWrapper(f, s.logger)
+	enterrors.GoWrapper(f, s.Logger)
 }
 
 func (s *Scheduler) Close() error {
@@ -110,7 +114,7 @@ func (s *Scheduler) Close() error {
 	// wait for the workers to finish processing tasks
 	s.tasksProcessing.Wait()
 
-	s.logger.Debug("scheduler closed")
+	s.Logger.Debug("scheduler closed")
 
 	return nil
 }
@@ -126,7 +130,7 @@ func (s *Scheduler) PauseQueue(id string) {
 
 	q.paused = true
 
-	s.logger.WithField("id", id).Debug("queue paused")
+	s.Logger.WithField("id", id).Debug("queue paused")
 }
 
 func (s *Scheduler) ResumeQueue(id string) {
@@ -140,7 +144,7 @@ func (s *Scheduler) ResumeQueue(id string) {
 
 	q.paused = false
 
-	s.logger.WithField("id", id).Debug("queue resumed")
+	s.Logger.WithField("id", id).Debug("queue resumed")
 }
 
 type queueState struct {
@@ -151,22 +155,48 @@ type queueState struct {
 }
 
 func (s *Scheduler) scheduler() {
+	t := time.NewTicker(s.ScheduleInterval)
 
+	for {
+		select {
+		case <-s.ctx.Done():
+			// stop the ticker
+			t.Stop()
+			return
+		case <-t.C:
+			s.schedule()
+		}
+	}
 }
 
 func (s *Scheduler) schedule() {
-	s.queues.Lock()
-	defer s.queues.Unlock()
-
 	// loop over the queues in random order
-	for id, q := range s.queues.m {
-		if q.paused {
+	s.queues.Lock()
+	ids := make([]string, 0, len(s.queues.m))
+	for id := range s.queues.m {
+		ids = append(ids, id)
+	}
+	s.queues.Unlock()
+
+	for _, id := range ids {
+		s.queues.Lock()
+		q, ok := s.queues.m[id]
+		if !ok {
+			// queue was unregistered
+			s.queues.Unlock()
 			continue
 		}
 
+		if q.paused {
+			s.queues.Unlock()
+			continue
+		}
+
+		s.queues.Unlock()
+
 		err := s.scheduleQueue(q)
 		if err != nil {
-			s.logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
+			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
 	}
 }
@@ -177,7 +207,7 @@ func (s *Scheduler) scheduleQueue(q *queueState) error {
 		return err
 	}
 
-	batches := make([][]Task, len(s.workers))
+	batches := make([][]Task, len(s.Workers))
 
 	for {
 		t, err := q.q.DecodeTask(f)
@@ -189,13 +219,19 @@ func (s *Scheduler) scheduleQueue(q *queueState) error {
 			return err
 		}
 
-		slot := t.Key() % uint64(len(s.workers))
+		slot := t.Key() % uint64(len(s.Workers))
 		batches[slot] = append(batches[slot], t)
 	}
 
 	err = f.Close()
 	if err != nil {
-		s.logger.WithField("file", path).WithError(err).Warn("failed to close chunk file")
+		s.Logger.WithField("file", path).WithError(err).Warn("failed to close chunk file")
+	}
+
+	if len(batches) == 0 {
+		s.Logger.WithField("file", path).Warn("read chunk is empty. removing file")
+		s.removeChunk(path)
+		return nil
 	}
 
 	var counter atomic.Int32
@@ -212,7 +248,7 @@ func (s *Scheduler) scheduleQueue(q *queueState) error {
 		case <-s.ctx.Done():
 			s.tasksProcessing.Decr()
 			return nil
-		case s.workers[i] <- Batch{
+		case s.Workers[i] <- Batch{
 			Tasks: batch,
 			Ctx:   s.ctx,
 			Done: func() {
@@ -273,9 +309,9 @@ func (s *Scheduler) readNextChunk(q *queueState) (*os.File, string, error) {
 func (s *Scheduler) removeChunk(path string) {
 	err := os.Remove(path)
 	if err != nil {
-		s.logger.WithError(err).WithField("file", path).Error("failed to remove chunk")
+		s.Logger.WithError(err).WithField("file", path).Error("failed to remove chunk")
 		return
 	}
 
-	s.logger.WithField("file", path).Debug("chunk removed")
+	s.Logger.WithField("file", path).Debug("chunk removed")
 }
