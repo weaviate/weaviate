@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -73,7 +74,7 @@ func newDeleteDependency() (*Manager, *fakeVectorRepo) {
 		new(fakeSchemaManager),
 		new(config.WeaviateConfig),
 		logger,
-		new(fakeAuthorizer),
+		mocks.NewMockAuthorizer(),
 		vectorRepo,
 		getFakeModulesProvider(),
 		new(fakeMetrics), nil)

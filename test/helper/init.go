@@ -26,10 +26,12 @@ import (
 
 // Configuration flags provided by the user that runs an acceptance test.
 var (
-	ServerPort   string
-	ServerHost   string
-	ServerScheme string
-	DebugHTTP    bool
+	ServerPort     string
+	ServerHost     string
+	ServerGRPCPort string
+	ServerGRPCHost string
+	ServerScheme   string
+	DebugHTTP      bool
 )
 
 // Credentials for the root key
@@ -50,9 +52,14 @@ func init() {
 func ResetClient() {
 	ServerScheme = "http"
 	ServerPort = "8080"
+	ServerGRPCPort = ""
 	RootAuth = nil
 }
 
 func GetWeaviateURL() string {
 	return fmt.Sprintf("%s://%s:%s", ServerScheme, ServerHost, ServerPort)
+}
+
+func GetWeaviateGRPCURL() string {
+	return fmt.Sprintf("%s:%s", ServerGRPCHost, ServerGRPCPort)
 }

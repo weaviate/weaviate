@@ -24,6 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -55,31 +57,31 @@ func Test_Kinds_Authorization(t *testing.T) {
 		{
 			methodName:       "GetObject",
 			additionalArgs:   []interface{}{"", strfmt.UUID("foo"), additional.Properties{}},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "DeleteObject",
 			additionalArgs:   []interface{}{"class", strfmt.UUID("foo")},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "objects/class/foo",
 		},
 		{ // deprecated by the one above
 			methodName:       "DeleteObject",
 			additionalArgs:   []interface{}{"", strfmt.UUID("foo")},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{"class", strfmt.UUID("foo"), (*models.Object)(nil)},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/class/foo",
 		},
 		{ // deprecated by the one above
 			methodName:       "UpdateObject",
 			additionalArgs:   []interface{}{"", strfmt.UUID("foo"), (*models.Object)(nil)},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/foo",
 		},
 		{
@@ -88,19 +90,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 				&models.Object{Class: "class", ID: "foo"},
 				(*additional.ReplicationProperties)(nil),
 			},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/class/foo",
 		},
 		{
 			methodName:       "GetObjectsClass",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "GetObjectClassFromName",
 			additionalArgs:   []interface{}{strfmt.UUID("foo")},
-			expectedVerb:     "get",
+			expectedVerb:     authorization.GET,
 			expectedResource: "objects/foo",
 		},
 		{
@@ -135,19 +137,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 		{
 			methodName:       "AddObjectReference",
 			additionalArgs:   []interface{}{AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}, (*models.SingleRef)(nil)},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/class/foo",
 		},
 		{
 			methodName:       "DeleteObjectReference",
 			additionalArgs:   []interface{}{strfmt.UUID("foo"), "some prop", (*models.SingleRef)(nil)},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/foo",
 		},
 		{
 			methodName:       "UpdateObjectReferences",
 			additionalArgs:   []interface{}{&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "some prop"}},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "objects/class/foo",
 		},
 	}
@@ -174,7 +176,8 @@ func Test_Kinds_Authorization(t *testing.T) {
 				schemaManager := &fakeSchemaManager{}
 				locks := &fakeLocks{}
 				cfg := &config.WeaviateConfig{}
-				authorizer := &authDenier{}
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.SetErr(errors.New("just a test fake"))
 				vectorRepo := &fakeVectorRepo{}
 				manager := NewManager(locks, schemaManager,
 					cfg, logger, authorizer,
@@ -183,15 +186,15 @@ func Test_Kinds_Authorization(t *testing.T) {
 				args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 				out, _ := callFuncByName(manager, test.methodName, args...)
 
-				require.Len(t, authorizer.calls, 1, "authorizer must be called")
+				require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 				aerr := out[len(out)-1].Interface().(error)
 				if err, ok := aerr.(*Error); !ok || !err.Forbidden() {
 					assert.Equal(t, errors.New("just a test fake"), aerr,
 						"execution must abort with authorizer error")
 				}
 
-				assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-					authorizer.calls[0], "correct parameters must have been used on authorizer")
+				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resource: test.expectedResource},
+					authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 			})
 		}
 	})
@@ -223,7 +226,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				[]*models.BatchReference{},
 				&additional.ReplicationProperties{},
 			},
-			expectedVerb:     "update",
+			expectedVerb:     authorization.UPDATE,
 			expectedResource: "batch/*",
 		},
 
@@ -236,7 +239,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				&additional.ReplicationProperties{},
 				"",
 			},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "batch/objects",
 		},
 		{
@@ -246,7 +249,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				&additional.ReplicationProperties{},
 				"",
 			},
-			expectedVerb:     "delete",
+			expectedVerb:     authorization.DELETE,
 			expectedResource: "batch/objects",
 		},
 	}
@@ -269,7 +272,8 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			schemaManager := &fakeSchemaManager{}
 			locks := &fakeLocks{}
 			cfg := &config.WeaviateConfig{}
-			authorizer := &authDenier{}
+			authorizer := mocks.NewMockAuthorizer()
+			authorizer.SetErr(errors.New("just a test fake"))
 			vectorRepo := &fakeVectorRepo{}
 			modulesProvider := getFakeModulesProvider()
 			manager := NewBatchManager(vectorRepo, modulesProvider, locks, schemaManager, cfg, logger, authorizer, nil)
@@ -277,28 +281,13 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			args := append([]interface{}{context.Background(), principal}, test.additionalArgs...)
 			out, _ := callFuncByName(manager, test.methodName, args...)
 
-			require.Len(t, authorizer.calls, 1, "authorizer must be called")
+			require.Len(t, authorizer.Calls(), 1, "authorizer must be called")
 			assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 				"execution must abort with authorizer error")
-			assert.Equal(t, authorizeCall{principal, test.expectedVerb, test.expectedResource},
-				authorizer.calls[0], "correct parameters must have been used on authorizer")
+			assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resource: test.expectedResource},
+				authorizer.Calls()[0], "correct parameters must have been used on authorizer")
 		}
 	})
-}
-
-type authorizeCall struct {
-	principal *models.Principal
-	verb      string
-	resource  string
-}
-
-type authDenier struct {
-	calls []authorizeCall
-}
-
-func (a *authDenier) Authorize(principal *models.Principal, verb, resource string) error {
-	a.calls = append(a.calls, authorizeCall{principal, verb, resource})
-	return errors.New("just a test fake")
 }
 
 // inspired by https://stackoverflow.com/a/33008200

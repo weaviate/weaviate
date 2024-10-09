@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -73,7 +74,7 @@ type Manager struct {
 	locks             locks
 	schemaManager     schemaManager
 	logger            logrus.FieldLogger
-	authorizer        authorizer
+	authorizer        authorization.Authorizer
 	vectorRepo        VectorRepo
 	timeSource        timeSource
 	modulesProvider   ModulesProvider
@@ -119,10 +120,6 @@ type locks interface {
 	LockSchema() (func() error, error)
 }
 
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
-}
-
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32, vectors models.Vectors,
 		repl *additional.ReplicationProperties, schemaVersion uint64) error
@@ -162,7 +159,7 @@ type ModulesProvider interface {
 // NewManager creates a new manager
 func NewManager(locks locks, schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
-	authorizer authorizer, vectorRepo VectorRepo,
+	authorizer authorization.Authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
 ) *Manager {
 	if allocChecker == nil {

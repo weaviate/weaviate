@@ -317,12 +317,6 @@ func largeTestDataSize(size int) search.Results {
 	return out
 }
 
-type fakeAuthorizer struct{}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return nil
-}
-
 func beaconRef(target string) *models.SingleRef {
 	beacon := fmt.Sprintf("weaviate://localhost/%s", target)
 	return &models.SingleRef{Beacon: strfmt.URI(beacon)}

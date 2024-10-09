@@ -274,6 +274,14 @@ func FromEnv(config *Config) error {
 		config.QueryNestedCrossReferenceLimit = DefaultQueryNestedCrossReferenceLimit
 	}
 
+	if err := parsePositiveInt(
+		"QUERY_CROSS_REFERENCE_DEPTH_LIMIT",
+		func(val int) { config.QueryCrossReferenceDepthLimit = val },
+		DefaultQueryCrossReferenceDepthLimit,
+	); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("MAX_IMPORT_GOROUTINES_FACTOR"); v != "" {
 		asFloat, err := strconv.ParseFloat(v, 64)
 		if err != nil {
@@ -400,6 +408,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("REPLICATION_FORCE_OBJECT_DELETION_CONFLICT_RESOLUTION"); v != "" {
+		config.Replication.ForceObjectDeletionConflictResolution = v
+	}
+
 	config.DisableTelemetry = false
 	if entcfg.Enabled(os.Getenv("DISABLE_TELEMETRY")) {
 		config.DisableTelemetry = true
@@ -512,6 +524,7 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
 
 	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
@@ -618,8 +631,11 @@ func parsePositiveInt(varName string, cb func(val int), defaultValue int) error 
 }
 
 const (
-	DefaultQueryMaximumResults            = int64(10000)
+	DefaultQueryMaximumResults = int64(10000)
+	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
+	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
+	DefaultQueryCrossReferenceDepthLimit = 5
 )
 
 const (
@@ -770,6 +786,20 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	cfg.FastFailureDetection = entcfg.Enabled(os.Getenv("FAST_FAILURE_DETECTION"))
+
+	// MAINTENANCE_NODES is experimental and subject to removal/change. It is an optional, comma
+	// separated list of hostnames that are in maintenance mode. In maintenance mode, the node will
+	// return an error for all data requests, but will still participate in the raft cluster and
+	// schema operations. This can be helpful is a node is too overwhelmed by startup tasks to handle
+	// data requests and you need to start up the node to give it time to "catch up".
+
+	// avoid the case where strings.Split creates a slice with only the empty string as I think
+	// that will be confusing for future code. eg ([]string{""}) instead of an empty slice ([]string{}).
+	// https://go.dev/play/p/3BDp1vhbkYV shows len(1) when m = "".
+	cfg.MaintenanceNodes = []string{}
+	if m := os.Getenv("MAINTENANCE_NODES"); m != "" {
+		cfg.MaintenanceNodes = strings.Split(m, ",")
+	}
 
 	return cfg, nil
 }

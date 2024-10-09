@@ -25,6 +25,8 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
@@ -43,14 +45,14 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeValidator{}, logger, &fakeAuthorizer{nil},
+		schemaManager, schemaManager, &fakeValidator{}, logger, mocks.NewMockAuthorizer(),
 		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakes.NewFakeClusterState(), &fakeScaleOutManager{}, nil)
 	require.Nil(t, err)
 	return &handler, schemaManager
 }
 
-func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorizer) (*Handler, *fakeSchemaManager) {
+func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, authorizer authorization.Authorizer) (*Handler, *fakeSchemaManager) {
 	cfg := config.Config{}
 	metaHandler := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
@@ -134,14 +136,6 @@ func (f *fakeDB) GetShardsStatus(class, tenant string) (models.ShardStatusList, 
 
 func (f *fakeDB) TriggerSchemaUpdateCallbacks() {
 	f.Called()
-}
-
-type fakeAuthorizer struct {
-	err error
-}
-
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, verb, resource string) error {
-	return f.err
 }
 
 type fakeScaleOutManager struct{}

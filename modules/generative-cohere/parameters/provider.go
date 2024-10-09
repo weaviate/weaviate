@@ -13,10 +13,10 @@ package parameters
 
 import "github.com/weaviate/weaviate/entities/modulecapabilities"
 
-const name = "cohere"
+const Name = "cohere"
 
 func AdditionalGenerativeParameters(client modulecapabilities.GenerativeClient) map[string]modulecapabilities.GenerativeProperty {
 	return map[string]modulecapabilities.GenerativeProperty{
-		name: {Client: client, RequestParamsFunction: input, ResponseParamsFunction: output, ExtractRequestParamsFunction: extract},
+		Name: {Client: client, RequestParamsFunction: input, ResponseParamsFunction: output, ExtractRequestParamsFunction: extract},
 	}
 }

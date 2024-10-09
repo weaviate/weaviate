@@ -946,6 +946,7 @@ func (index *flat) AlreadyIndexed() uint64 {
 
 func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer {
 	var distFunc func(nodeID uint64) (float32, error)
+	queryVector = index.normalized(queryVector)
 	defaultDistFunc := func(nodeID uint64) (float32, error) {
 		vec, err := index.vectorById(nodeID)
 		if err != nil {
@@ -964,6 +965,9 @@ func (index *flat) QueryVectorDistancer(queryVector []float32) common.QueryVecto
 		} else {
 			queryVecEncode := index.bq.Encode(queryVector)
 			distFunc = func(nodeID uint64) (float32, error) {
+				if int32(nodeID) > index.bqCache.Len() {
+					return -1, fmt.Errorf("node %v is larger than the cache size %v", nodeID, index.bqCache.Len())
+				}
 				vec, err := index.bqCache.Get(context.Background(), nodeID)
 				if err != nil {
 					return 0, err

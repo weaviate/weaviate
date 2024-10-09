@@ -45,7 +45,7 @@ func NewBackupsList(ctx *middleware.Context, handler BackupsListHandler) *Backup
 /*
 	BackupsList swagger:route GET /backups/{backend} backups backupsList
 
-List all backups in progress
+[Coming soon] List all backups in progress not implemented yet.
 */
 type BackupsList struct {
 	Context *middleware.Context

@@ -387,6 +387,15 @@
           "description": "Enable asynchronous replication",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "objectDeletionConflictResolution": {
+          "description": "Conflict resolution strategy for deleted objects",
+          "type": "string",
+          "enum": [
+            "NoAutomatedResolution",
+            "PermanentDeletion"
+          ],
+          "x-omitempty": true
         }
       },
       "type": "object"
@@ -4834,7 +4843,7 @@
         }
       },
       "get": {
-        "description": "List all backups in progress",
+        "description": "[Coming soon] List all backups in progress not implemented yet.",
         "operationId": "backups.list",
         "x-serviceIds": [
           "weaviate.local.backup"
