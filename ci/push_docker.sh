@@ -12,7 +12,7 @@ function release() {
   tag_preview=
 
   git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
-  git_branch=$(git rev-parse --abbrev-ref HEAD)
+  git_branch="$GITHUB_REF"
   build_user="ci"
   build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
