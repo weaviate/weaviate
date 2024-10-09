@@ -102,6 +102,7 @@ import (
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
@@ -1256,6 +1257,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modollama.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modweaviateembed.Name]; ok {
+		appState.Modules.Register(modweaviateembed.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modweaviateembed.Name).
 			Debug("enabled module")
 	}
 
