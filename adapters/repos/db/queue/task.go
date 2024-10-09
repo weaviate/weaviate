@@ -13,3 +13,9 @@ type TaskGroup interface {
 
 	AddTask(op uint64, task Task) bool
 }
+
+type Batch struct {
+	Tasks []Task
+	Ctx   context.Context
+	Done  func()
+}

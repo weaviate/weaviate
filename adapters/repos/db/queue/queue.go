@@ -1,7 +1,9 @@
 package queue
 
+import "io"
+
 type QueueDecoder interface {
 	ID() string
 	Path() string
-	DecodeTask([]byte) (Task, int, error)
+	DecodeTask(io.Reader) (Task, error)
 }
