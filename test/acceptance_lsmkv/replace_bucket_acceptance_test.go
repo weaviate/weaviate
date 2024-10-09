@@ -68,7 +68,13 @@ func TestHelloWorld(t *testing.T) {
 	var putOutsideThreshold []float32
 	var getOutsideThreshold []float32
 
+	totalIngested := 0
+	totalSpotChecks := 0
+
 	for _, r := range results {
+		totalIngested += r.ingested
+		totalSpotChecks += r.getSpotChecks
+
 		for r.worstPutQueries.Len() > 0 {
 			tookMs := r.worstPutQueries.Pop().Dist * 1000
 			if tookMs > float32(putThreshold.Milliseconds()) {
@@ -94,6 +100,20 @@ func TestHelloWorld(t *testing.T) {
 		t.Errorf("%d get queries outside threshold (%s) : %v", len(getOutsideThreshold), getThreshold, getOutsideThreshold)
 	} else {
 		logger.Infof("all get queries were within threshold (%s)", getThreshold)
+	}
+
+	// This a sanity check to make sure the test actually ran. The expected total
+	// is a lot more, but if the test were to just block for 60s and do nothing,
+	// this sanity check should catch it.
+	if totalIngested < 500_000 {
+		t.Errorf("expected at least 500k entries but got %d", totalIngested)
+	} else {
+		logger.Infof("ingested %d entries", totalIngested)
+	}
+	if totalSpotChecks < 500_000 {
+		t.Errorf("expected at least 500k spot checks but got %d", totalSpotChecks)
+	} else {
+		logger.Infof("performed %d spot checks", totalSpotChecks)
 	}
 }
 
