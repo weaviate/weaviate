@@ -24,6 +24,7 @@ function main() {
   run_cleanup=false
   run_acceptance_go_client_only_fast=false
   run_acceptance_go_client_named_vectors=false
+  run_acceptance_lsmkv=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -43,6 +44,7 @@ function main() {
           --acceptance-module-tests-only|--modules-only|-m) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true; run_module_except_backup_tests=true;;
           --acceptance-module-tests-only-backup|--modules-backup-only|-mob) run_all_tests=false; run_module_tests=true; run_module_only_backup_tests=true;;
           --acceptance-module-tests-except-backup|--modules-except-backup|-meb) run_all_tests=false; run_module_tests=true; run_module_except_backup_tests=true; echo $run_module_except_backup_tests ;;
+          --acceptance-lsmkv|--lsmkv) run_all_tests=false; run_acceptance_lsmkv=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -61,6 +63,7 @@ function main() {
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
+              "--acceptance-lsmkv | --lsmkv"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -120,7 +123,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors || $run_all_tests || $only_acceptance
+    if $run_acceptance_tests || $run_acceptance_only_fast || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors || $run_all_tests || $only_acceptance 
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -158,6 +161,11 @@ function main() {
     echo_green "Cleaning up all running docker containers..."
     docker rm -f $(docker ps -a -q)
   fi
+
+  if $run_acceptance_lsmkv || $run_acceptance_tests || $run_all_tests; then
+  echo "running lsmkv acceptance lsmkv tests"
+    run_acceptance_lsmkv "$@"
+  fi
   echo "Done!"
 }
 
@@ -187,6 +195,18 @@ function run_integration_tests() {
   fi
 
   ./test/integration/run.sh --include-slow
+}
+
+function run_acceptance_lsmkv() {
+    echo "This test runs without the race detector because it asserts performance"
+    cd 'test/acceptance_lsmkv'
+    for pkg in $(go list ./...); do
+      if ! go test -timeout=15m -count 1 "$pkg"; then
+        echo "Test for $pkg failed" >&2
+        return 1
+      fi
+    done
+    cd -
 }
 
 function run_acceptance_tests() {
