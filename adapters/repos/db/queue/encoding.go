@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -27,6 +28,7 @@ type Encoder struct {
 	logger logrus.FieldLogger
 	dir    string
 
+	m sync.Mutex
 	w bufio.Writer
 	f *os.File
 }
@@ -46,6 +48,9 @@ func NewEncoder(dir string) (*Encoder, error) {
 }
 
 func (e *Encoder) Encode(op uint8, key uint64) (int, error) {
+	e.m.Lock()
+	defer e.m.Unlock()
+
 	err := e.ensureChunk()
 	if err != nil {
 		return 0, err
@@ -66,29 +71,10 @@ func (e *Encoder) Encode(op uint8, key uint64) (int, error) {
 
 func (e *Encoder) ensureChunk() error {
 	if e.f != nil && e.w.Size()+9 /* size of op + key */ > chunkSize {
-		fName := e.f.Name()
-
-		// flush and close current chunk
-		err := e.w.Flush()
+		err := e.promoteChunk()
 		if err != nil {
-			return errors.Wrap(err, "failed to flush chunk")
+			return err
 		}
-		err = e.f.Close()
-		if err != nil {
-			return errors.Wrap(err, "failed to close chunk")
-		}
-
-		e.f = nil
-
-		// rename the file to remove the .partial suffix
-		// and add a timestamp to the filename
-		newPath := filepath.Join(e.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixNano()))
-		err = os.Rename(fName, newPath)
-		if err != nil {
-			return errors.Wrap(err, "failed to rename chunk file")
-		}
-
-		e.logger.WithField("file", newPath).Debug("chunk file created")
 	}
 
 	if e.f == nil {
@@ -105,4 +91,41 @@ func (e *Encoder) ensureChunk() error {
 	}
 
 	return nil
+}
+
+func (e *Encoder) promoteChunk() error {
+	fName := e.f.Name()
+
+	// flush and close current chunk
+	err := e.w.Flush()
+	if err != nil {
+		return errors.Wrap(err, "failed to flush chunk")
+	}
+	err = e.f.Close()
+	if err != nil {
+		return errors.Wrap(err, "failed to close chunk")
+	}
+
+	e.f = nil
+
+	// rename the file to remove the .partial suffix
+	// and add a timestamp to the filename
+	newPath := filepath.Join(e.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixNano()))
+	err = os.Rename(fName, newPath)
+	if err != nil {
+		return errors.Wrap(err, "failed to rename chunk file")
+	}
+
+	e.logger.WithField("file", newPath).Debug("chunk file created")
+
+	return nil
+}
+
+// This method is used by the scheduler to promote the current chunk
+// when it's been stalled for too long.
+func (e *Encoder) promoteChunkLock() error {
+	e.m.Lock()
+	defer e.m.Unlock()
+
+	return e.promoteChunk()
 }
