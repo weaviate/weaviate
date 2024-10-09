@@ -560,7 +560,7 @@ func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
 // Warning: waitForFlushingToComplete gives you no synchronization guarantees,
 // it mainly acts as a hint that a flushing has just completed, but it gives no
 // guarantees that a new flushing hasn't started yet. The idea is that it's
-// better to delay the attempt to obtain a a maintenance lock because it will
+// better to delay the attempt to obtain a maintenance lock because it will
 // start blocking user operations if we have to wait for it. But never rely on
 // this behavior alone, always use it in combination with a proper lock.
 func (sg *SegmentGroup) waitForFlushingToComplete(stepSize time.Duration, maxWait time.Duration) {
