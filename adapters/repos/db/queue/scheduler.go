@@ -1,6 +1,7 @@
 package queue
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"io"
@@ -63,15 +64,15 @@ func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
 	return &s, nil
 }
 
-func (s *Scheduler) RegisterQueue(q QueueDecoder) {
+func (s *Scheduler) RegisterQueue(q *Queue) {
 	s.queues.Lock()
 	defer s.queues.Unlock()
 
-	s.queues.m[q.ID()] = &queueState{
+	s.queues.m[q.ID] = &queueState{
 		q: q,
 	}
 
-	s.Logger.WithField("id", q.ID()).Debug("queue registered")
+	s.Logger.WithField("id", q.ID).Debug("queue registered")
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
@@ -148,7 +149,7 @@ func (s *Scheduler) ResumeQueue(id string) {
 }
 
 type queueState struct {
-	q         QueueDecoder
+	q         *Queue
 	paused    bool
 	readFiles []string
 	cursor    int
@@ -207,11 +208,12 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	if err != nil || f == nil {
 		return err
 	}
+	r := bufio.NewReader(f)
 
-	batches := make([][]Task, len(s.Workers))
+	batches := make([][]*Task, len(s.Workers))
 
 	for {
-		t, err := q.q.DecodeTask(f)
+		t, err := q.q.DecodeTask(r)
 		if err == io.EOF {
 			break
 		}
@@ -282,7 +284,7 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 	q.cursor = 0
 
 	// read the directory
-	entries, err := os.ReadDir(q.q.Path())
+	entries, err := os.ReadDir(q.q.Path)
 	if err != nil {
 		return nil, "", err
 	}
@@ -297,7 +299,7 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 			continue
 		}
 
-		q.readFiles = append(q.readFiles, filepath.Join(q.q.Path(), entry.Name()))
+		q.readFiles = append(q.readFiles, filepath.Join(q.q.Path, entry.Name()))
 	}
 
 	if len(q.readFiles) == 0 {
