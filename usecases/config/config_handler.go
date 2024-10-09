@@ -33,19 +33,13 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+// ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
 // ServerVersion is set when the misc handlers are setup.
 // When misc handlers are setup, the entire swagger spec
 // is already being parsed for the server version. This is
 // a good time for us to set ServerVersion, so that the
 // spec only needs to be parsed once.
 var ServerVersion string
-
-var (
-	// GitHash keeps the current git hash commit information, value injected by the compiler using ldflags -X at build time.
-	GitHash = "unknown"
-	// ImageTag keeps the docker tag the weaviate binary was built in, value injected by the compiler using ldflags -X at build time.
-	ImageTag = "localhost"
-)
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
