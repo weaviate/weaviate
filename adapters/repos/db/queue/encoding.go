@@ -129,3 +129,18 @@ func (e *Encoder) promoteChunkLock() error {
 
 	return e.promoteChunk()
 }
+
+func Decode(r *bufio.Reader) (uint8, uint64, error) {
+	op, err := r.ReadByte()
+	if err != nil {
+		return 0, 0, errors.Wrap(err, "failed to read op")
+	}
+
+	var key uint64
+	err = binary.Read(r, binary.LittleEndian, &key)
+	if err != nil {
+		return 0, 0, errors.Wrap(err, "failed to read key")
+	}
+
+	return op, key, nil
+}
