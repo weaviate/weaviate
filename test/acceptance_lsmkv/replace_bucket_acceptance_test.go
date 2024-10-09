@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
-func TestHelloWorld(t *testing.T) {
+func TestLSMKV_ReplaceBucket(t *testing.T) {
 	putThreshold := 100 * time.Millisecond
 	getThreshold := 100 * time.Millisecond
 	trackWorstQueries := 10
