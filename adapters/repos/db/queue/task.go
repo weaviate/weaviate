@@ -2,25 +2,22 @@ package queue
 
 import "context"
 
-type TaskRecord struct {
-	Op  uint8
-	Key uint64
+type Task struct {
+	Op     uint8
+	DocIDs []uint64
+	exec   TaskExecutor
 }
 
-type Task interface {
-	Key() uint64
-	Op() uint8
-	Execute(context.Context) error
+func (t *Task) Key() uint64 {
+	return t.DocIDs[0]
 }
 
-type TaskGroup interface {
-	Task
-
-	AddTask(op uint64, task Task) bool
+func (t *Task) Execute(ctx context.Context) error {
+	return t.exec(ctx, t.Op, t.DocIDs...)
 }
 
 type Batch struct {
-	Tasks []Task
+	Tasks []*Task
 	Ctx   context.Context
 	Done  func()
 }
