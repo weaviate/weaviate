@@ -28,7 +28,7 @@ type Scheduler struct {
 	ctx      context.Context
 	cancelFn context.CancelFunc
 
-	tasksProcessing *common.SharedGauge
+	activeTasks *common.SharedGauge
 
 	wg sync.WaitGroup
 }
@@ -55,7 +55,7 @@ func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
 
 	s := Scheduler{
 		SchedulerOptions: opts,
-		tasksProcessing:  common.NewSharedGauge(),
+		activeTasks:      common.NewSharedGauge(),
 	}
 
 	s.ctx, s.cancelFn = context.WithCancel(context.Background())
@@ -89,7 +89,7 @@ func (s *Scheduler) Start() {
 	f := func() {
 		defer s.wg.Done()
 
-		s.scheduler()
+		s.runScheduler()
 	}
 	enterrors.GoWrapper(f, s.Logger)
 }
@@ -112,7 +112,7 @@ func (s *Scheduler) Close() error {
 	s.wg.Wait()
 
 	// wait for the workers to finish processing tasks
-	s.tasksProcessing.Wait()
+	s.activeTasks.Wait()
 
 	s.Logger.Debug("scheduler closed")
 
@@ -154,7 +154,7 @@ type queueState struct {
 	cursor    int
 }
 
-func (s *Scheduler) scheduler() {
+func (s *Scheduler) runScheduler() {
 	t := time.NewTicker(s.ScheduleInterval)
 
 	for {
@@ -194,15 +194,16 @@ func (s *Scheduler) schedule() {
 
 		s.queues.Unlock()
 
-		err := s.scheduleQueue(q)
+		s.Logger.WithField("id", id).Debug("scheduling queue")
+		err := s.dispatchQueue(q)
 		if err != nil {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
 	}
 }
 
-func (s *Scheduler) scheduleQueue(q *queueState) error {
-	f, path, err := s.readNextChunk(q)
+func (s *Scheduler) dispatchQueue(q *queueState) error {
+	f, path, err := s.removeQueueChunk(q)
 	if err != nil || f == nil {
 		return err
 	}
@@ -242,17 +243,17 @@ func (s *Scheduler) scheduleQueue(q *queueState) error {
 			continue
 		}
 
-		s.tasksProcessing.Incr()
+		s.activeTasks.Incr()
 
 		select {
 		case <-s.ctx.Done():
-			s.tasksProcessing.Decr()
+			s.activeTasks.Decr()
 			return nil
 		case s.Workers[i] <- Batch{
 			Tasks: batch,
 			Ctx:   s.ctx,
 			Done: func() {
-				defer s.tasksProcessing.Decr()
+				defer s.activeTasks.Decr()
 
 				if counter.Add(-1) == 0 {
 					s.removeChunk(path)
@@ -265,7 +266,7 @@ func (s *Scheduler) scheduleQueue(q *queueState) error {
 	return nil
 }
 
-func (s *Scheduler) readNextChunk(q *queueState) (*os.File, string, error) {
+func (s *Scheduler) removeQueueChunk(q *queueState) (*os.File, string, error) {
 	if q.cursor+1 < len(q.readFiles) {
 		q.cursor++
 
