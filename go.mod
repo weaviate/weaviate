@@ -65,6 +65,7 @@ require (
 	github.com/ikawaha/kagome/v2 v2.9.11
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
+	github.com/prometheus/common v0.60.0
 	github.com/tailor-inc/graphql v0.4.1
 	github.com/urfave/cli/v2 v2.27.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
@@ -178,7 +179,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
-	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/rs/xid v1.6.0 // indirect

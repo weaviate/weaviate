@@ -250,8 +250,7 @@ func processDenseSearch(ctx context.Context,
 			return nil, err
 		}
 	} else {
-		targetVector := getTargetVector(params.TargetVectors)
-		vector = params.HybridSearch.NearVectorParams.VectorPerTarget[targetVector]
+		vector = params.HybridSearch.NearVectorParams.Vectors[0]
 	}
 
 	res, dists, err := denseSearch(vector)

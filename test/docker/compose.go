@@ -49,6 +49,7 @@ import (
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -282,6 +283,11 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 
 func (d *Compose) WithText2VecHuggingFace() *Compose {
 	d.enableModules = append(d.enableModules, modhuggingface.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecWeaviate() *Compose {
+	d.enableModules = append(d.enableModules, modweaviateembed.Name)
 	return d
 }
 
