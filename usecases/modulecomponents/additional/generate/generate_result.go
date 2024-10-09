@@ -152,14 +152,14 @@ func (p *GenerateProvider) getTextProperties(result search.Result,
 				if valueString, ok := value.(string); ok {
 					textProperties[property] = valueString
 				} else if valueArray, ok := value.([]string); ok {
-					textProperties[property] = strings.Join(valueArray, " ")
+					textProperties[property] = strings.Join(valueArray, ",")
 				}
 			}
 		} else {
 			if valueString, ok := value.(string); ok {
 				textProperties[property] = valueString
 			} else if valueArray, ok := value.([]string); ok {
-				textProperties[property] = strings.Join(valueArray, " ")
+				textProperties[property] = strings.Join(valueArray, ",")
 			}
 		}
 	}
