@@ -123,6 +123,11 @@ type Bucket struct {
 	// optional segment size limit. If set, a compaction will skip segments that
 	// sum to more than the specified value.
 	maxSegmentSize int64
+
+	// optional segments cleanup interval. If set, segments will be cleaned of
+	// redundant obsolete data, that was deleted or updated in newer segments
+	// (currently supported only in buckets of REPLACE strategy)
+	segmentsCleanupInterval time.Duration
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -184,6 +189,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			useBloomFilter:        b.useBloomFilter,
 			calcCountNetAdditions: b.calcCountNetAdditions,
 			maxSegmentSize:        b.maxSegmentSize,
+			cleanupInterval:       b.segmentsCleanupInterval,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
