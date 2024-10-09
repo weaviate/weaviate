@@ -725,8 +725,13 @@ func (st *Store) recoverSingleNode(force bool) error {
 		return err
 	}
 
+	recoveryConfig := st.cfg
+	// Force the recovery to be metadata only and un-assign the associated DB to ensure no DB operations are made during
+	// the restore to avoid any data change.
+	recoveryConfig.MetadataOnlyVoters = true
+	recoveryConfig.DB = nil
 	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:           st.cfg,
+		cfg:           recoveryConfig,
 		log:           st.log,
 		raftResolver:  st.raftResolver,
 		raftTransport: st.raftTransport,
