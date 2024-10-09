@@ -17,14 +17,18 @@ RUN go mod download
 # This image builds the weaviate server
 FROM build_base AS server_builder
 ARG TARGETARCH
-ARG GITHASH="unknown"
-ARG DOCKER_IMAGE_TAG="unknown"
+ARG GIT_BRANCH="unknown"
+ARG GIT_REVISION="unknown"
+ARG BUILD_USER="unknown"
+ARG BUILD_DATE="unknown"
 ARG EXTRA_BUILD_ARGS=""
 COPY . .
 RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
-      -X github.com/weaviate/weaviate/usecases/config.GitHash='"$GITHASH"' \
-      -X github.com/weaviate/weaviate/usecases/config.ImageTag='"$DOCKER_IMAGE_TAG"'' \
+      -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
+      -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
+      -X github.com/weaviate/weaviate/usecases/build.BuildUser='"$BUILD_USER"' \
+      -X github.com/weaviate/weaviate/usecases/build.BuildDate='"$BUILD_DATE"'' \
       -o /weaviate-server ./cmd/weaviate-server
 
 ###############################################################################

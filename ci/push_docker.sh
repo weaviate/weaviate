@@ -11,14 +11,15 @@ function release() {
   tag_exact=
   tag_preview=
 
-  git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
-  git_branch=$(git branch)
+  git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
+  git_branch=$(git rev-parse --abbrev-ref HEAD)
+  build_user="ci"
+  build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
   prefix="preview"
   if [ "$git_branch" == "main" ] || [ "$git_branch" == "stable/v*" ]; then
     prefix="$(echo $git_branch | sed 's/\//-/g')"
   fi
-
 
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
   if [ "$GITHUB_REF_NAME" == "main" ]; then
@@ -40,7 +41,8 @@ function release() {
     fi
   fi
 
-  args=("--build-arg=GITHASH=$git_hash" "--build-arg=DOCKER_IMAGE_TAG=$weaviate_version" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
+  args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
+
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")
