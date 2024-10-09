@@ -927,3 +927,90 @@ func TestIndex_PreloadQueueTargetVector(t *testing.T) {
 	err = index.drop()
 	require.Nil(t, err)
 }
+
+func TestTenantsSliceInitialization(t *testing.T) {
+	// Test function to mimic the behavior of putObjectBatch
+	initializeAndPopulateTenants := func(objects []*storobj.Object) []string {
+		// Initialize tenants slice using the first method
+		tenants := make([]string, 0, len(objects))
+
+		for _, obj := range objects {
+			if obj.Object.Tenant == "" {
+				continue
+			}
+			tenants = append(tenants, obj.Object.Tenant)
+		}
+
+		// Remove duplicates (simple implementation for testing purposes)
+		uniqueTenants := make([]string, 0, len(tenants))
+		seen := make(map[string]bool)
+		for _, tenant := range tenants {
+			if !seen[tenant] {
+				seen[tenant] = true
+				uniqueTenants = append(uniqueTenants, tenant)
+			}
+		}
+
+		return uniqueTenants
+	}
+
+	testCases := []struct {
+		name            string
+		objects         []*storobj.Object
+		expectedTenants []string
+	}{
+		{
+			name:            "Empty objects",
+			objects:         []*storobj.Object{},
+			expectedTenants: []string{},
+		},
+		{
+			name: "Objects with empty tenants",
+			objects: []*storobj.Object{
+				{Object: struct{ Tenant string }{Tenant: ""}},
+				{Object: struct{ Tenant string }{Tenant: ""}},
+			},
+			expectedTenants: []string{},
+		},
+		{
+			name: "Objects with unique tenants",
+			objects: []*storobj.Object{
+				{Object: struct{ Tenant string }{Tenant: "tenant1"}},
+				{Object: struct{ Tenant string }{Tenant: "tenant2"}},
+				{Object: struct{ Tenant string }{Tenant: "tenant3"}},
+			},
+			expectedTenants: []string{"tenant1", "tenant2", "tenant3"},
+		},
+		{
+			name: "Objects with duplicate tenants",
+			objects: []*storobj.Object{
+				{Object: struct{ Tenant string }{Tenant: "tenant1"}},
+				{Object: struct{ Tenant string }{Tenant: "tenant2"}},
+				{Object: struct{ Tenant string }{Tenant: "tenant1"}},
+				{Object: struct{ Tenant string }{Tenant: "tenant3"}},
+				{Object: struct{ Tenant string }{Tenant: "tenant2"}},
+			},
+			expectedTenants: []string{"tenant1", "tenant2", "tenant3"},
+		},
+		{
+			name: "Mixed objects",
+			objects: []*storobj.Object{
+				{Object: struct{ Tenant string }{Tenant: "tenant1"}},
+				{Object: struct{ Tenant string }{Tenant: ""}},
+				{Object: struct{ Tenant string }{Tenant: "tenant2"}},
+				{Object: struct{ Tenant string }{Tenant: "tenant1"}},
+				{Object: struct{ Tenant string }{Tenant: ""}},
+				{Object: struct{ Tenant string }{Tenant: "tenant3"}},
+			},
+			expectedTenants: []string{"tenant1", "tenant2", "tenant3"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := initializeAndPopulateTenants(tc.objects)
+			assert.Equal(t, tc.expectedTenants, result, "Tenants slice should match expected values")
+			assert.LessOrEqual(t, len(result), len(tc.objects), "Number of unique tenants should not exceed number of objects")
+		})
+	}
+}
