@@ -16,7 +16,12 @@ import (
 // It is set to 144KB to be a multiple of 4KB (common page size)
 // and of 9 bytes (size of a single record).
 // This also works for larger page sizes (e.g. 16KB for macOS).
+// The goal is to have a quick way of determining the number of records
+// without having to read the entire file or to maintain an index.
 const chunkSize = 144 * 1024
+
+const partialChunkFile = "chunk.bin.partial"
+const chunkFileFmt = "chunk-%d.bin"
 
 type Encoder struct {
 	logger logrus.FieldLogger
@@ -26,10 +31,18 @@ type Encoder struct {
 	f *os.File
 }
 
-func NewEncoder(dir string) *Encoder {
-	return &Encoder{
+func NewEncoder(dir string) (*Encoder, error) {
+	e := Encoder{
 		dir: dir,
 	}
+
+	// create the directory if it doesn't exist
+	err := os.MkdirAll(dir, 0755)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create directory")
+	}
+
+	return &e, nil
 }
 
 func (e *Encoder) Encode(op uint8, key uint64) (int, error) {
@@ -68,7 +81,8 @@ func (e *Encoder) ensureChunk() error {
 		e.f = nil
 
 		// rename the file to remove the .partial suffix
-		newPath := fName[:len(fName)-len(".partial")]
+		// and add a timestamp to the filename
+		newPath := filepath.Join(e.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixNano()))
 		err = os.Rename(fName, newPath)
 		if err != nil {
 			return errors.Wrap(err, "failed to rename chunk file")
@@ -78,8 +92,8 @@ func (e *Encoder) ensureChunk() error {
 	}
 
 	if e.f == nil {
-		// create new chunk
-		path := filepath.Join(e.dir, fmt.Sprintf("chunk-%d.bin.partial", time.Now().UnixNano()))
+		// create or open partial chunk
+		path := filepath.Join(e.dir, partialChunkFile)
 		// open append mode, write only
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {

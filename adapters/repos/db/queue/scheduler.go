@@ -203,7 +203,7 @@ func (s *Scheduler) schedule() {
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) error {
-	f, path, err := s.removeQueueChunk(q)
+	f, path, err := s.readQueueChunk(q)
 	if err != nil || f == nil {
 		return err
 	}
@@ -266,7 +266,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	return nil
 }
 
-func (s *Scheduler) removeQueueChunk(q *queueState) (*os.File, string, error) {
+func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 	if q.cursor+1 < len(q.readFiles) {
 		q.cursor++
 
@@ -289,6 +289,11 @@ func (s *Scheduler) removeQueueChunk(q *queueState) (*os.File, string, error) {
 
 	for _, entry := range entries {
 		if entry.IsDir() {
+			continue
+		}
+
+		// skip the partial chunk file
+		if entry.Name() == partialChunkFile {
 			continue
 		}
 
