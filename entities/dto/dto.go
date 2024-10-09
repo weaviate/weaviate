@@ -39,7 +39,7 @@ const DefaultTargetCombinationType = Minimum
 type TargetCombination struct {
 	// just one of these can be set, precedence in order
 	Type    TargetCombinationType
-	Weights map[string]float32
+	Weights []float32
 }
 
 type GetParams struct {
