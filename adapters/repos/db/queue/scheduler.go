@@ -11,6 +11,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 type Scheduler struct {
@@ -28,6 +29,8 @@ type Scheduler struct {
 
 	workers         []chan Batch
 	tasksProcessing *common.SharedGauge
+
+	wg sync.WaitGroup
 }
 
 type SchedulerOptions struct {
@@ -77,10 +80,39 @@ func (s *Scheduler) UnregisterQueue(id string) {
 }
 
 func (s *Scheduler) Start() {
+	s.wg.Add(1)
 
+	f := func() {
+		defer s.wg.Done()
+
+		s.scheduler()
+	}
+	enterrors.GoWrapper(f, s.logger)
 }
 
-func (s *Scheduler) Close() {
+func (s *Scheduler) Close() error {
+	if s == nil {
+		// scheduler not initialized. No op.
+		return nil
+	}
+
+	// check if the scheduler is already closed
+	if s.ctx.Err() != nil {
+		return nil
+	}
+
+	// stop scheduling
+	s.cancelFn()
+
+	// wait for the scheduler to stop
+	s.wg.Wait()
+
+	// wait for the workers to finish processing tasks
+	s.tasksProcessing.Wait()
+
+	s.logger.Debug("scheduler closed")
+
+	return nil
 }
 
 func (s *Scheduler) PauseQueue(id string) {
@@ -116,6 +148,10 @@ type queueState struct {
 	paused    bool
 	readFiles []string
 	cursor    int
+}
+
+func (s *Scheduler) scheduler() {
+
 }
 
 func (s *Scheduler) schedule() {
