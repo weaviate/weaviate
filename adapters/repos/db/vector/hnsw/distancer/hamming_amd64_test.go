@@ -17,10 +17,10 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"golang.org/x/sys/cpu"
 )
 
 func HammingBitwiseGo(x, y []uint64) float32 {
-
 	total := float32(0)
 	for segment := range x {
 		total += float32(bits.OnesCount64(x[segment] ^ y[segment]))
@@ -111,10 +111,17 @@ func TestCompareHammingBitwise(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
-			testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX256)
-			testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX256)
-			testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX512)
-			testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX512)
+			testHammingBitwiseFixedValue(t, size, hammingBitwiseImpl)
+			testHammingBitwiseRandomValue(t, size, hammingBitwiseImpl)
+
+			if cpu.X86.HasAVX2 {
+				testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX256)
+				testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX256)
+			}
+			if cpu.X86.HasAMXBF16 && cpu.X86.HasAVX512 {
+				testHammingBitwiseFixedValue(t, size, asm.HammingBitwiseAVX512)
+				testHammingBitwiseRandomValue(t, size, asm.HammingBitwiseAVX512)
+			}
 		})
 	}
 }
@@ -139,7 +146,6 @@ func BenchmarkHammingBitwise(b *testing.B) {
 	dims := []int{2, 4, 6, 8, 10, 12, 16, 24, 30, 32, 128, 256, 300, 384, 512, 768, 1024, 1536}
 	for _, dim := range dims {
 		b.Run(fmt.Sprintf("%d dimensions", dim), func(b *testing.B) {
-
 			benchmarkHammingBitwise(b, dim, asm.HammingBitwiseAVX256)
 
 			b.Run("pure go", func(b *testing.B) { benchmarkHammingBitwise(b, dim, HammingBitwiseGo) })

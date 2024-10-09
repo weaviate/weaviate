@@ -83,7 +83,6 @@ func HammingBitwiseAVX256(x []uint64, y []uint64) float32 {
 }
 
 func HammingBitwiseAVX512(x []uint64, y []uint64) float32 {
-
 	var res uint64
 
 	l := len(x)
