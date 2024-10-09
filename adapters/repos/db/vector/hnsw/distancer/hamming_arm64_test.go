@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer/asm"
+	"golang.org/x/sys/cpu"
 )
 
 func HammingBitwiseGo(x, y []uint64) float32 {
@@ -110,8 +111,10 @@ func TestCompareHammingBitwise(t *testing.T) {
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("with size %d", size), func(t *testing.T) {
-			testHammingBitwiseFixedValue(t, size, asm.HammingBitwise)
-			testHammingBitwiseRandomValue(t, size, asm.HammingBitwise)
+			if cpu.ARM64.HasASIMD {
+				testHammingBitwiseFixedValue(t, size, asm.HammingBitwise)
+				testHammingBitwiseRandomValue(t, size, asm.HammingBitwise)
+			}
 		})
 	}
 }
