@@ -215,6 +215,8 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	if err != nil {
 		return err
 	}
+	// if there are no more chunks to read,
+	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
 	if f == nil {
 		f, path, err = s.checkIfStale(q)
 		if err != nil || f == nil {
@@ -222,9 +224,10 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 		}
 	}
 
+	// decode all tasks from the chunk
+	// and partition them by worker
 	r := bufio.NewReader(f)
-
-	batches := make([][]*Task, len(s.Workers))
+	partitions := make([][]*Task, len(s.Workers))
 
 	for {
 		t, err := q.q.DecodeTask(r)
@@ -236,8 +239,9 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 			return err
 		}
 
+		// TODO: introduce other partitioning strategies if needed
 		slot := t.Key() % uint64(len(s.Workers))
-		batches[slot] = append(batches[slot], t)
+		partitions[slot] = append(partitions[slot], t)
 	}
 
 	err = f.Close()
@@ -245,16 +249,20 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 		s.Logger.WithField("file", path).WithError(err).Warn("failed to close chunk file")
 	}
 
-	if len(batches) == 0 {
+	if len(partitions) == 0 {
 		s.Logger.WithField("file", path).Warn("read chunk is empty. removing file")
 		s.removeChunk(path)
 		return nil
 	}
 
-	var counter atomic.Int32
-	counter.Store(int32(len(batches)))
+	// TODO: compress the tasks before sending them to the workers
 
-	for i, batch := range batches {
+	// keep track of the number of active tasks
+	// for this chunk to remove it when all tasks are done
+	var counter atomic.Int32
+	counter.Store(int32(len(partitions)))
+
+	for i, batch := range partitions {
 		if len(batch) == 0 {
 			continue
 		}

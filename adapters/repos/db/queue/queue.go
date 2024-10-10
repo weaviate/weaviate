@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 type Queue struct {
@@ -21,8 +22,9 @@ type Queue struct {
 
 type TaskExecutor func(ctx context.Context, op uint8, keys ...uint64) error
 
-func NewQueue(s *Scheduler, id, path string, execFn TaskExecutor) (*Queue, error) {
-	enc, err := NewEncoder(path)
+func NewQueue(s *Scheduler, logger logrus.FieldLogger, id, path string, execFn TaskExecutor) (*Queue, error) {
+	logger = logger.WithField("queue", id)
+	enc, err := NewEncoder(path, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +54,7 @@ func (q *Queue) Push(op uint8, keys ...uint64) error {
 		}
 	}
 
-	return nil
+	return q.enc.Flush()
 }
 
 func (q *Queue) DecodeTask(r *bufio.Reader) (*Task, error) {

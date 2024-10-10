@@ -19,23 +19,30 @@ import (
 // This also works for larger page sizes (e.g. 16KB for macOS).
 // The goal is to have a quick way of determining the number of records
 // without having to read the entire file or to maintain an index.
-const chunkSize = 144 * 1024
+const defaultChunkSize = 144 * 1024
 
 const partialChunkFile = "chunk.bin.partial"
 const chunkFileFmt = "chunk-%d.bin"
 
 type Encoder struct {
-	logger logrus.FieldLogger
-	dir    string
+	logger    logrus.FieldLogger
+	dir       string
+	chunkSize int
 
 	m sync.Mutex
 	w bufio.Writer
 	f *os.File
 }
 
-func NewEncoder(dir string) (*Encoder, error) {
+func NewEncoder(dir string, logger logrus.FieldLogger) (*Encoder, error) {
+	return NewEncoderWith(dir, logger, defaultChunkSize)
+}
+
+func NewEncoderWith(dir string, logger logrus.FieldLogger, chunkSize int) (*Encoder, error) {
 	e := Encoder{
-		dir: dir,
+		dir:       dir,
+		logger:    logger,
+		chunkSize: chunkSize,
 	}
 
 	// create the directory if it doesn't exist
@@ -69,8 +76,20 @@ func (e *Encoder) Encode(op uint8, key uint64) (int, error) {
 	return 0, nil
 }
 
+func (e *Encoder) Flush() error {
+	e.m.Lock()
+	defer e.m.Unlock()
+
+	err := e.w.Flush()
+	if err != nil {
+		return errors.Wrap(err, "failed to flush")
+	}
+
+	return e.f.Sync()
+}
+
 func (e *Encoder) ensureChunk() error {
-	if e.f != nil && e.w.Size()+9 /* size of op + key */ > chunkSize {
+	if e.f != nil && e.w.Buffered()+9 /* size of op + key */ > e.chunkSize {
 		err := e.promoteChunkNoLock()
 		if err != nil {
 			return err
@@ -94,6 +113,10 @@ func (e *Encoder) ensureChunk() error {
 }
 
 func (e *Encoder) promoteChunkNoLock() error {
+	if e.f == nil {
+		return nil
+	}
+
 	fName := e.f.Name()
 
 	// flush and close current chunk
