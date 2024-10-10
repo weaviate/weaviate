@@ -71,7 +71,7 @@ func (e *Encoder) Encode(op uint8, key uint64) (int, error) {
 
 func (e *Encoder) ensureChunk() error {
 	if e.f != nil && e.w.Size()+9 /* size of op + key */ > chunkSize {
-		err := e.promoteChunk()
+		err := e.promoteChunkNoLock()
 		if err != nil {
 			return err
 		}
@@ -93,7 +93,7 @@ func (e *Encoder) ensureChunk() error {
 	return nil
 }
 
-func (e *Encoder) promoteChunk() error {
+func (e *Encoder) promoteChunkNoLock() error {
 	fName := e.f.Name()
 
 	// flush and close current chunk
@@ -123,11 +123,11 @@ func (e *Encoder) promoteChunk() error {
 
 // This method is used by the scheduler to promote the current chunk
 // when it's been stalled for too long.
-func (e *Encoder) promoteChunkLock() error {
+func (e *Encoder) promoteChunk() error {
 	e.m.Lock()
 	defer e.m.Unlock()
 
-	return e.promoteChunk()
+	return e.promoteChunkNoLock()
 }
 
 func Decode(r *bufio.Reader) (uint8, uint64, error) {
