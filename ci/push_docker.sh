@@ -46,11 +46,12 @@ function release() {
     if [ "$pr_title" == "" ]; then
       tag_preview="${DOCKER_REPO}:${prefix}-${git_hash}"
       weaviate_version="${prefix}-${git_hash}"
+      git_branch="$GITHUB_REF_NAME"
     else
       tag_preview="${DOCKER_REPO}:${prefix}-${pr_title}-${git_hash}"
       weaviate_version="${prefix}-${pr_title}-${git_hash}"
+      git_branch="$GITHUB_HEAD_REF"
     fi
-    git_branch="$GITHUB_HEAD_REF"
   fi
 
   args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
