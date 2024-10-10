@@ -38,7 +38,7 @@ func (m *Module) GetObject(ctx context.Context, backupID, key, bucketName, bucke
 
 	contents, err := os.ReadFile(metaPath)
 	if err != nil {
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", metaPath))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "1 get object '%s'", metaPath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
@@ -53,13 +53,13 @@ func (m *Module) getObjectPath(ctx context.Context, path, backupID, key string) 
 	metaPath := filepath.Join(path, backupID, key)
 
 	if err := ctx.Err(); err != nil {
-		return "", backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", metaPath))
+		return "", backup.NewErrContextExpired(errors.Wrapf(err, "2 get object '%s'", metaPath))
 	}
 
 	if _, err := os.Stat(metaPath); errors.Is(err, os.ErrNotExist) {
-		return "", backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", metaPath))
+		return "", backup.NewErrNotFound(errors.Wrapf(err, "3 get object '%s'", metaPath))
 	} else if err != nil {
-		return "", backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", metaPath))
+		return "", backup.NewErrInternal(errors.Wrapf(err, "4 get object '%s'", metaPath))
 	}
 
 	return metaPath, nil
@@ -130,18 +130,17 @@ func (m *Module) Initialize(ctx context.Context, backupID, bucketName, bucketPat
 }
 
 func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
-	var sourcePath string
+	var objectPath string
 	var err error
 	if bucketName != "" {
-		sourcePath, err = m.getObjectPath(ctx, bucketPath, backupID, key)
+		objectPath = filepath.Join(bucketPath, backupID, key)
 	} else {
-		sourcePath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
-	}
-	if err != nil {
-		return err
+		objectPath = filepath.Join(m.backupsPath, backupID, key)
 	}
 
-	bytesWritten, err := m.copyFile(sourcePath, destPath)
+
+	fmt.Printf("WriteToFile: Copying file from %s to %s\n", objectPath, destPath)
+	bytesWritten, err := m.copyFile(objectPath, destPath)
 	if err != nil {
 		return err
 	}

@@ -255,8 +255,8 @@ func TestManagerCreateBackup(t *testing.T) {
 			Classes:  req1.Include,
 			ID:       backupID,
 			Status:   &status1,
-			S3path:   path,
-			S3bucket: req1.S3Bucket,
+			Path:   path,
+			Bucket: req1.S3Bucket,
 		}
 		assert.Equal(t, resp1, want1)
 		resp2, err := m.Backup(ctx, nil, &req1)
@@ -322,7 +322,7 @@ func TestManagerCreateBackup(t *testing.T) {
 			Classes: req.Include,
 			ID:      backupID,
 			Status:  &status1,
-			S3path:  path,
+			Path:  path,
 		}
 		assert.Equal(t, resp, want1)
 		m.backupper.waitForCompletion(10, 50)
@@ -362,7 +362,7 @@ func TestManagerCreateBackup(t *testing.T) {
 			Classes: req.Include,
 			ID:      backupID,
 			Status:  &status1,
-			S3path:  path,
+			Path:  path,
 		}
 		assert.Equal(t, resp, want1)
 		m.backupper.waitForCompletion(10, 50)
@@ -406,7 +406,7 @@ func TestManagerCreateBackup(t *testing.T) {
 			Classes: req.Include,
 			ID:      backupID,
 			Status:  &status1,
-			S3path:  path,
+			Path:  path,
 		}
 		assert.Equal(t, resp, want1)
 		m.backupper.waitForCompletion(10, 50)

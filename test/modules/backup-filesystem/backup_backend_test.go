@@ -175,10 +175,17 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, dataDir, fs.SourceDataPath())
 		})
 
+		fmt.Printf("Source data path: %s\n", fs.SourceDataPath())
+
+
+		
 		t.Run("fetch file from backend", func(t *testing.T) {
 			destPath := dataDir + "/file_0.copy.db"
 
+			fmt.Printf("Copying file from %s to %s\n", fpath, destPath)
+			fmt.Printf("Calling WriteToFile with backupID: %s, key: %s, destPath: %s, override: %s\n", backupID, key, destPath, override)
 			err := fs.WriteToFile(testCtx, backupID, key, destPath, override[0], override[1])
+			t.Logf("Error: %+v", err)
 			require.Nil(t, err)
 
 			contents, err := os.ReadFile(destPath)

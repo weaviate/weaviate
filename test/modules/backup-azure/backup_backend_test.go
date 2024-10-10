@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -212,7 +211,9 @@ func moduleLevelCopyFiles(t *testing.T) {
 	t.Log("setup env")
 	t.Setenv(envAzureEndpoint, endpoint)
 	t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, endpoint))
+	fmt.Printf("Connection string: %s\n", os.Getenv(envAzureStorageConnectionString))
 	t.Setenv(envAzureContainer, containerName)
+	fmt.Printf("Creating container %s\n", containerName)
 	moduleshelper.CreateAzureContainer(testCtx, t, endpoint, containerName)
 	defer moduleshelper.DeleteAzureContainer(testCtx, t, endpoint, containerName)
 
@@ -232,12 +233,9 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, dataDir, azure.SourceDataPath())
 		})
 
+
 		t.Run("copy file to backend", func(t *testing.T) {
-			srcPath := fpath
-			fmt.Printf("Reading file from %s\n", srcPath)
-			content, err := ioutil.ReadFile(srcPath)
-			require.Nil(t, err)
-			err = azure.PutObject(testCtx, backupID, key, override[0], override[1], content)
+			err = azure.PutObject(testCtx, backupID, key, override[0], override[1], expectedContents)
 			require.Nil(t, err)
 
 			contents, err := azure.GetObject(testCtx, backupID, key, override[0], override[1])

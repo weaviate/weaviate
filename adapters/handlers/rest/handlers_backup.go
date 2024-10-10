@@ -135,7 +135,15 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusParams,
 	principal *models.Principal,
 ) middleware.Responder {
-	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID, *params.S3bucket, *params.S3path)
+	overrideBucket := ""
+	if params.S3bucket != nil {
+		overrideBucket = *params.S3bucket
+	}
+	overridePath := ""
+	if params.S3path != nil {
+		overridePath = *params.S3path
+	}
+	status, err := s.manager.BackupStatus(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch err.(type) {
@@ -163,6 +171,8 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 		Error:   status.Err,
 	}
 	s.metricRequestsTotal.logOk("")
+	str := fmt.Sprintf("%+v", payload)
+	fmt.Println(str) //FIXME s
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
 }
 

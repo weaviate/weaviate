@@ -3316,6 +3316,10 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -3331,12 +3335,8 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "s3bucket": {
-          "description": "Name of the S3 bucket",
-          "type": "string"
-        },
-        "s3path": {
-          "description": "destination path of backup files proper to selected bucket",
+        "path": {
+          "description": "destination bucket and path of backup files",
           "type": "string"
         },
         "status": {
@@ -8935,6 +8935,10 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -8950,12 +8954,8 @@ func init() {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
-        "s3bucket": {
-          "description": "Name of the S3 bucket",
-          "type": "string"
-        },
-        "s3path": {
-          "description": "destination path of backup files proper to selected bucket",
+        "path": {
+          "description": "destination bucket and path of backup files",
           "type": "string"
         },
         "status": {

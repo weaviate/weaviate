@@ -48,9 +48,9 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 			Classes:  classes,
 			ID:       req.ID,
 			Backend:  req.Backend,
-			S3bucket: req.Bucket,
+			Bucket: req.Bucket,
 			Status:   &status,
-			S3path:   meta.Path,
+			Path:   meta.Path,
 		}, nil
 	}
 }

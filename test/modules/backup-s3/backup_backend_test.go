@@ -209,6 +209,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 	backupID := "backup_id"
 	endpoint := os.Getenv(envMinioEndpoint)
 
+
 	t.Run("copy files", func(t *testing.T) {
 		fpaths := moduleshelper.CreateTestFiles(t, dataDir)
 		fpath := fpaths[0]

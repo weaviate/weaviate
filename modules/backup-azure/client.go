@@ -156,6 +156,7 @@ func (a *azureClient) PutObject(ctx context.Context, backupID, key, bucketName, 
 		containerName = bucketName
 	}
 
+	fmt.Printf("Uploading object %s to container %s\n", objectName, containerName)
 	reader := bytes.NewReader(data)
 	_, err := a.client.UploadStream(ctx,
 		containerName,
@@ -179,9 +180,14 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, bucketName, buck
 		return errors.Wrap(err, "failed to access-check Azure backup module")
 	}
 
+	containerName := a.config.Container
+	if bucketName != "" {
+		containerName = bucketName
+	}
+
 	objectName := a.makeObjectName(bucketPath, []string{backupID, key})
-	if _, err := a.client.DeleteBlob(ctx, a.config.Container, objectName, nil); err != nil {
-		return errors.Wrap(err, "failed to remove access-check Azure backup module")
+	if _, err := a.client.DeleteBlob(ctx, containerName, objectName, nil); err != nil {
+		return errors.Wrap(err, "failed to remove access-check Azure backup module at" + objectName)
 	}
 
 	return nil

@@ -133,12 +133,17 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
 			require.Nil(t, err)
 			require.NotNil(t, resp)
+			fmt.Printf("Backup create response: %+v\n", resp)
+
 			meta := resp.GetPayload()
 			require.NotNil(t, meta)
+			fmt.Printf("Backup create response meta: %+v\n", meta)
+
 			if err != nil {
-				t.Errorf("failed to get backup status: %+v", err)
+				fmt.Printf("failed to get backup status: %+v", err)
 			}
-			fmt.Printf("backup status: %s\n", *meta.Status)
+
+			fmt.Printf("backup status: %+v\n", meta)
 			switch *meta.Status {
 			case models.BackupCreateStatusResponseStatusSUCCESS:
 				return

@@ -47,7 +47,27 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-filesystem", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil)
+				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, false)
+		})
+	})
+
+	t.Run("single node", func(t *testing.T) {
+		compose, err := docker.New().
+			WithBackendFilesystem().
+			WithText2VecContextionary().
+			WithWeaviate().
+			Start(ctx)
+		require.Nil(t, err)
+
+		defer func() {
+			if err := compose.Terminate(ctx); err != nil {
+				t.Fatalf("failed to terminate test containers: %s", err.Error())
+			}
+		}()
+
+		t.Run("backup-filesystem", func(t *testing.T) {
+			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, true)
 		})
 	})
 

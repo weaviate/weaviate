@@ -108,12 +108,12 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		st := s.backupper.lastOp.get()
 		status := string(st.Status)
 		return &models.BackupCreateResponse{
-			Classes:  classes,
-			ID:       req.ID,
-			Backend:  req.Backend,
-			Status:   &status,
-			S3path:   st.Path,
-			S3bucket: req.S3Bucket,
+			Classes: classes,
+			ID:      req.ID,
+			Backend: req.Backend,
+			Status:  &status,
+			Path:    st.Path,
+			Bucket:  req.S3Bucket,
 		}, nil
 	}
 }
