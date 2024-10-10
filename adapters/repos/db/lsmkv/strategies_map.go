@@ -462,27 +462,6 @@ func (m *mapEncoder) DoMultiReusable(kvs []MapPair) ([]value, error) {
 	return m.pairBuf, nil
 }
 
-// DoMultiReusable reuses a MapPair buffer that it exposes to the caller on
-// this request. Warning: The caller must make sure that they no longer access
-// the return value once they call this method a second time, otherwise they
-// risk overwriting a previous result. The intended usage for example in a loop
-// where each loop copies the results, for example using a bufio.Writer.
-func (m *mapEncoder) DoMultiInverted(kvs []MapPair) ([]value, error) {
-	m.resizeBuffer(len(kvs))
-
-	for i, kv := range kvs {
-		m.resizeValueAtBuffer(i, invPayloadLen)
-		err := kv.EncodeBytesInverted(m.pairBuf[i].value)
-		if err != nil {
-			return nil, err
-		}
-
-		m.pairBuf[i].tombstone = kv.Tombstone
-	}
-
-	return m.pairBuf, nil
-}
-
 func (m *mapEncoder) resizeBuffer(size int) {
 	if cap(m.pairBuf) >= size {
 		m.pairBuf = m.pairBuf[:size]

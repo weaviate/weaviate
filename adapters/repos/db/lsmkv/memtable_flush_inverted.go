@@ -94,7 +94,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				ValueStart: totalWritten,
 			}
 
-			blocksEncoded, _ := createAndEncodeBlocks(mapNode, 1)
+			blocksEncoded, _ := createAndEncodeBlocks(mapNode.values, 1)
 
 			if _, err := f.Write(blocksEncoded); err != nil {
 				return nil, nil, err
@@ -122,7 +122,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		}
 	}
 
-	keysLen = totalWritten - 28
+	keysLen = totalWritten - (16 + 8)
 
 	binary.LittleEndian.PutUint64(buf, uint64(len(tombstoneBuffer)))
 	if _, err := f.Write(buf); err != nil {
@@ -160,17 +160,4 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 	ff.Seek(int64(totalWritten), io.SeekStart)
 
 	return keys[:actuallyWritten], tombstones, nil
-}
-
-func totalValueSizeInverted(actuallyWrittenKeys map[string]struct{}, actuallyWritten int) int {
-	var sum int
-	for key := range actuallyWrittenKeys {
-		sum += 8 // uint64 to indicate array length
-		sum += 4 // uint32 to indicate key size
-		sum += len(key)
-	}
-
-	sum += actuallyWritten * 16 // 8 bytes for value length, 8 bytes for value
-
-	return sum
 }

@@ -15,7 +15,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"io"
 
 	"github.com/pkg/errors"
@@ -68,7 +67,6 @@ func newCompactorInverted(w io.WriteSeeker,
 }
 
 func (c *compactorInverted) do() error {
-	return fmt.Errorf("not implemented")
 	var err error
 
 	if err := c.init(); err != nil {
@@ -81,6 +79,7 @@ func (c *compactorInverted) do() error {
 	if err != nil {
 		return errors.Wrap(err, "write keys")
 	}
+	c.keysLen = uint64(c.offset - segmentindex.HeaderSize - 8)
 
 	tombstoneSize, err := c.writeTombstones(tombstones)
 	if err != nil {
@@ -96,7 +95,7 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "flush buffered")
 	}
 
-	var dataEnd uint64 = segmentindex.HeaderSize + 2 + 2 + 8 + 8 + uint64(tombstoneSize)
+	var dataEnd uint64 = segmentindex.HeaderSize + 8 + 8 + uint64(tombstoneSize)
 	if len(kis) > 0 {
 		dataEnd = uint64(kis[len(kis)-1].ValueEnd) + 8 + uint64(tombstoneSize)
 	}
@@ -172,8 +171,6 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 	// the (dummy) header was already written, this is our initial offset
 
 	var kis []segmentindex.Key
-	pairs := newReusableInvertedPairs()
-	me := newMapEncoder()
 	sim := newSortedMapMerger()
 
 	for {
@@ -181,7 +178,6 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 			break
 		}
 		if bytes.Equal(key1, key2) {
-			pairs.ResizeRight(len(value2))
 
 			value1Clean, skip := c.cleanupValues(value1)
 			if skip {
@@ -189,33 +185,14 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 				continue
 			}
 
-			pairs.ResizeLeft(len(value1Clean))
-
-			for i, v := range value1Clean {
-				if err := pairs.left[i].FromBytesInverted(v.value, false, c.c1.segment.invertedKeyLength, c.c1.segment.invertedValueLength); err != nil {
-					return nil, nil, err
-				}
-			}
-
-			for i, v := range value2 {
-				if err := pairs.right[i].FromBytesInverted(v.value, false, c.c2.segment.invertedKeyLength, c.c2.segment.invertedValueLength); err != nil {
-					return nil, nil, err
-				}
-			}
-
-			sim.reset([][]MapPair{pairs.left, pairs.right})
+			sim.reset([][]MapPair{value1Clean, value2})
 			mergedPairs, err := sim.
 				doKeepTombstonesReusable()
 			if err != nil {
 				return nil, nil, err
 			}
 
-			mergedEncoded, err := me.DoMultiInverted(mergedPairs)
-			if err != nil {
-				return nil, nil, err
-			}
-
-			if values, skip := c.cleanupValues(mergedEncoded); !skip {
+			if values, skip := c.cleanupValues(mergedPairs); !skip {
 				ki, err := c.writeIndividualNode(c.offset, key2, values)
 				if err != nil {
 					return nil, nil, errors.Wrap(err, "write individual node (equal keys)")
@@ -261,7 +238,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, *sroar.Bitmap, erro
 }
 
 func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
-	values []value,
+	values []MapPair,
 ) (segmentindex.Key, error) {
 	// NOTE: There are no guarantees in the cursor logic that any memory is valid
 	// for more than a single iteration. Every time you call next() to advance
@@ -275,8 +252,6 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 	// reusable buffer for the key which surfaced this bug.
 	keyCopy := make([]byte, len(key))
 	copy(keyCopy, key)
-
-	c.keysLen += 8 + uint64(len(values)*invPayloadLen) + 4 + uint64(len(keyCopy))
 
 	return segmentInvertedNode{
 		values:     values,
@@ -325,7 +300,7 @@ func (c *compactorInverted) writeHeader(level, version, secondaryIndices uint16,
 // writer and it is now safe to seek to the beginning and override the initial
 // header
 func (c *compactorInverted) writeKeysLength() error {
-	if _, err := c.w.Seek(16+2+2, io.SeekStart); err != nil {
+	if _, err := c.w.Seek(16, io.SeekStart); err != nil {
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
 
@@ -340,13 +315,13 @@ func (c *compactorInverted) writeKeysLength() error {
 // Removes values with tombstone set from input slice. Output slice may be smaller than input one.
 // Returned skip of true means there are no values left (key can be omitted in segment)
 // WARN: method can alter input slice by swapping its elements and reducing length (not capacity)
-func (c *compactorInverted) cleanupValues(values []value) (vals []value, skip bool) {
+func (c *compactorInverted) cleanupValues(values []MapPair) (vals []MapPair, skip bool) {
 	// Reuse input slice not to allocate new memory
 	// Rearrange slice in a way that tombstoned values are moved to the end
 	// and reduce slice's length.
 	last := 0
 	for i := 0; i < len(values); i++ {
-		docId := binary.BigEndian.Uint64(values[i].value[0:8])
+		docId := binary.BigEndian.Uint64(values[i].Key)
 		if !(c.tombstonesToClean != nil && c.tombstonesToClean.Contains(docId)) {
 			values[last], values[i] = values[i], values[last]
 			last++
