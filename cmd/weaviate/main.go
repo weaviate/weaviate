@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/handlers/rest"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/exp/query"
@@ -29,6 +30,7 @@ import (
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/client"
 	"github.com/weaviate/weaviate/modules/text2vec-contextionary/vectorizer"
+	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -55,6 +57,9 @@ func main() {
 		}
 		log.WithField("err", err).Fatal("failed to parse command line args")
 	}
+
+	// Set version from swagger spec.
+	build.Version = rest.ParseVersionFromSwaggerSpec()
 
 	switch opts.Target {
 	case "querier":
