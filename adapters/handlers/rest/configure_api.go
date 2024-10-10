@@ -50,6 +50,7 @@ import (
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
+	"github.com/weaviate/weaviate/exp/metadataserver"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -388,6 +389,35 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
 	appState.Scaler = scaler
 
+	// let classTenantDataEvents be nil if the metadata server is not enabled since the metadata
+	// server/querierManager are the users of the channel
+	var classTenantDataEvents chan metadataserver.ClassTenant
+	querierManager := metadataserver.NewQuerierManager(appState.Logger)
+	metadataServer := metadataserver.NewServer(
+		appState.ServerConfig.Config.MetadataServer.GrpcListenAddress,
+		1024*1024*1024,
+		true,
+		querierManager,
+		appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity,
+		appState.Logger)
+	appState.MetadataServer = metadataServer
+
+	if appState.ServerConfig.Config.MetadataServer.Enabled {
+		classTenantDataEvents = make(chan metadataserver.ClassTenant, appState.ServerConfig.Config.MetadataServer.DataEventsChannelCapacity)
+		enterrors.GoWrapper(func() {
+			err := metadataServer.Open()
+			if err != nil {
+				appState.Logger.Errorf("metadata server did not start: %v", err)
+			}
+		}, appState.Logger)
+
+		enterrors.GoWrapper(func() {
+			for classTenantDataEvent := range classTenantDataEvents {
+				querierManager.NotifyClassTenantDataEvent(classTenantDataEvent)
+			}
+		}, appState.Logger)
+	}
+
 	server2port, err := parseNode2Port(appState)
 	if len(server2port) == 0 || err != nil {
 		appState.Logger.
@@ -431,6 +461,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		EnableFQDNResolver:     appState.ServerConfig.Config.Raft.EnableFQDNResolver,
 		FQDNResolverTLD:        appState.ServerConfig.Config.Raft.FQDNResolverTLD,
 		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
+		ClassTenantDataEvents:  classTenantDataEvents,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -678,6 +709,12 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
+
+		if appState.ServerConfig.Config.MetadataServer.Enabled {
+			if appState.MetadataServer != nil {
+				appState.MetadataServer.Close()
+			}
+		}
 
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			sentry.Flush(2 * time.Second)

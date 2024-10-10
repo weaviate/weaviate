@@ -81,6 +81,7 @@ func LegacySnapshot(nodeID string, m map[string]types.ClassState) (*raft.Snapsho
 		Classes:    make(map[string]*metaClass, len(m)),
 	}
 	for k, v := range m {
+		// TODO support classTenantDataEvents here?
 		snap.Classes[k] = &metaClass{Class: v.Class, Sharding: v.Shards}
 	}
 

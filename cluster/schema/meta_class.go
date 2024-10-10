@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/exp/metadataserver"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 )
@@ -35,6 +36,9 @@ type (
 		ShardVersion uint64
 		// ShardProcesses map[tenantName-action(FREEZING/UNFREEZING)]map[nodeID]TenantsProcess
 		ShardProcesses map[string]NodeShardProcess
+		// classTenantDataEvents receives messages for tenant events if the metadataserver is
+		// enabled (eg when a tenant is frozen). It will be nil if not enabled
+		classTenantDataEvents chan metadataserver.ClassTenant
 	}
 )
 
@@ -478,6 +482,25 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 
 		if count == len(processes) {
 			copy.Status = req.Tenant.Status
+			// TODO ask loic for thoughts on how to move this out of meta class? Also does that need to be in the metaclass ?
+			// Maybe we could move up the code to instead be at the raft/apply level directly and avoid the intricacies of
+			// querier notification at the schema level ? IMO that package should only care about the schema and that's it.
+
+			// Note, the channel being nil indicates that it is not enabled to receive events. Technically,
+			// this nil check isn't needed but I think it makes the intent more clear
+			if m.classTenantDataEvents != nil {
+				// Whenever a tenant is frozen, we send an event on the class tenant data events
+				// channel. This send is non-blocking and will drop events if the channel is full.
+				select {
+				case m.classTenantDataEvents <- metadataserver.ClassTenant{
+					ClassName:  m.Class.Class,
+					TenantName: name,
+				}:
+				default:
+					// drop event if channel is full, we don't want to have any slow ops on
+					// this critical path of the raft apply
+				}
+			}
 		} else {
 			copy.Status = onAbortStatus
 			req.Tenant.Status = onAbortStatus

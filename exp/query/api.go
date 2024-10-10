@@ -19,8 +19,10 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -66,9 +68,11 @@ type API struct {
 
 	schema  SchemaQuerier
 	offload *modsloads3.Module
-	// NOTE: This lock may be in-efficient if downloaded needed from multiple tenants
-	// TODO(kavi): Optimize based on some data later.
-	omu sync.Mutex
+	// cachedTenantLsmkvStores: tenantName -> tenantLsmkvStore (lsm object and path to tenant dir on disk)
+	// the tenantLsmkvStore value is updated if new tenant data versions are downloaded.
+	// Note that tenantLsmkvStore.localTenantPath points to the root of the tenant dir,
+	// not the lsm subdir.
+	cachedTenantLsmkvStores sync.Map
 
 	vectorizer text2vecbase.TextVectorizer
 	stopwords  *stopwords.Detector
@@ -87,7 +91,7 @@ func NewAPI(
 	config *Config,
 	log logrus.FieldLogger,
 ) *API {
-	return &API{
+	api := &API{
 		log:        log,
 		config:     config,
 		schema:     schema,
@@ -95,6 +99,7 @@ func NewAPI(
 		vectorizer: vectorizer,
 		stopwords:  stopwords,
 	}
+	return api
 }
 
 // Search serves vector search over the offloaded tenant on object storage.
@@ -116,11 +121,10 @@ func (a *API) Search(ctx context.Context, req *SearchRequest) (*SearchResponse, 
 		return nil, fmt.Errorf("tenant %q is not offloaded, %w", req.Tenant, ErrInvalidTenant)
 	}
 
-	store, localPath, err := a.loadOrDownloadLSM(ctx, req.Collection, req.Tenant)
+	store, localPath, err := a.EnsureLSM(ctx, req.Collection, req.Tenant, false)
 	if err != nil {
 		return nil, err
 	}
-	defer store.Shutdown(ctx)
 
 	var resp SearchResponse
 
@@ -315,30 +319,108 @@ func (a *API) vectorSearch(
 	return objs, distance, nil
 }
 
-func (a *API) loadOrDownloadLSM(ctx context.Context, collection, tenant string) (*lsmkv.Store, string, error) {
-	localPath := path.Join(a.offload.DataPath, strings.ToLower(collection), strings.ToLower(tenant), defaultLSMRoot)
+type LSMEnsurer interface {
+	// EnsureLSM returns the store for this collection/tenant and the local path for the lsm store
+	EnsureLSM(ctx context.Context, collection, tenant string, doUpdateTenantIfExistsLocally bool) (*lsmkv.Store, string, error)
+}
 
-	// NOTE: Download only if path doesn't exist.
-	// Assumes, whatever in the path is latest.
-	// We will add a another way to keep this path upto date via some data versioning.
-	a.omu.Lock()
-	defer a.omu.Unlock()
+type tenantLsmkvStore struct {
+	s *lsmkv.Store
+	// localTenantPath is the path on disk to the tenant dir
+	localTenantPath string
+}
 
-	_, err := os.Stat(localPath)
-	if os.IsNotExist(err) {
+// EnsureLSM returns a cached lsmkv store or downloads a new one and returns that. If
+// doUpdateTenantIfExistsLocally is true then the tenant will only be downloaded if it exists
+// locally and if the tenant does not exist locally then this method will return nil. If
+// doUpdateTenantIfExistsLocally is false then the cached tenant will be returned immediately if
+// it exists locally, otherwise it will download and return it.
+func (a *API) EnsureLSM(
+	ctx context.Context,
+	collection,
+	tenant string,
+	doUpdateTenantIfExistsLocally bool,
+) (*lsmkv.Store, string, error) {
+	// TODO move EnsureLSM into its own type separate from API
+
+	// TODO if multiple calls to download the same tenant at nearly the same time happen
+	// we'll unecessarily download the same tenant multiple times. If multiple calls to download
+	// get the same microseconds value from the system, there could be issues.
+	// I think the easiest way to fix this would be to have a channel per tenant that we use to
+	// serialize downloads.
+	currentLocalTime := time.Now().UnixMicro()
+
+	// TODO replace sync.Map with an LRU and/or buffer pool type abstraction
+	cachedTenantLsmkvStore, tenantIsCachedLocally := a.cachedTenantLsmkvStores.Load(tenant)
+	proceedWithDownload := false
+	if doUpdateTenantIfExistsLocally {
+		if tenantIsCachedLocally {
+			// we should download because we've been told there is a new tenant version
+			// for a tenant we have locally
+			proceedWithDownload = true
+		} else {
+			// TODO we only care about tenants we have for new versions, make diff func instead of
+			// using bool or return error or other?
+			return nil, "", errors.New("tenant does not exist locally, you can ignore this error, the tenant will be downloaded later")
+		}
+	}
+	if !doUpdateTenantIfExistsLocally {
+		if tenantIsCachedLocally {
+			// tenant is cached, we can just return it because this is not a new version call
+			cachedLsmkvStore := cachedTenantLsmkvStore.(tenantLsmkvStore)
+			return cachedLsmkvStore.s, path.Join(cachedLsmkvStore.localTenantPath, defaultLSMRoot), nil
+		} else {
+			// we should download because the caller wants this tenant to exist locally but it does not
+			proceedWithDownload = true
+		}
+	}
+
+	// base collection path
+	localBaseCollectionPath := path.Join(
+		a.offload.DataPath,
+		strings.ToLower(collection),
+	)
+	// the path we will download to
+	localTenantTimePath := path.Join(
+		localBaseCollectionPath,
+		strings.ToLower(tenant),
+		fmt.Sprintf("%d", currentLocalTime),
+	)
+	// the path we will return
+	localLsmPath := path.Join(
+		localTenantTimePath,
+		defaultLSMRoot,
+	)
+	if proceedWithDownload {
 		// src - s3://<collection>/<tenant>/<node>/
-		// dst (local) - <data-path/<collection>/<tenant>
-		if err := a.offload.Download(ctx, collection, tenant, nodeName); err != nil {
+		// dst (local) - <data-path/<collection>/<tenant>/timestamp
+		if err := a.offload.DownloadToPath(ctx, collection, tenant, nodeName, localTenantTimePath); err != nil {
 			return nil, "", err
 		}
 	}
 
-	// TODO(kavi): Avoid creating store every time?
-	store, err := lsmkv.New(localPath, localPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(localLsmPath, localLsmPath, a.log, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create store to read offloaded tenant data: %w", err)
 	}
-	return store, localPath, nil
+	// remember to store the tenant root dir in tenantLsmkvStore, not the lsm path
+	if oldTenantLsmkvStoreAny, ok := a.cachedTenantLsmkvStores.Swap(tenant, tenantLsmkvStore{s: store, localTenantPath: localTenantTimePath}); ok {
+		// when we replace or evict an lsmkvStore, we need to shut it down.
+		// I'm assuming lsmkvStore has internal locks which prevent this shutdown call
+		// from cancelling searches running at the same time.
+		// I'm also assuming once Shutdown returns we don't need the old files on disk anymore.
+		oldTenantLsmkvStore := oldTenantLsmkvStoreAny.(tenantLsmkvStore)
+		oldTenantLsmkvStore.s.Shutdown(ctx)
+
+		// to be extra safe, only remove if the path looks reasonably like what we expect (datapath/collection/tenant/timestamp/*)
+		re := regexp.MustCompile(fmt.Sprintf(`%s/%s/\d+`, localBaseCollectionPath, tenant))
+		if re.MatchString(oldTenantLsmkvStore.localTenantPath) {
+			dirToRemove := strings.TrimSuffix(oldTenantLsmkvStore.localTenantPath, tenant)
+			a.log.Debugf("removing old tenant dir: %s", dirToRemove)
+			os.RemoveAll(dirToRemove)
+		}
+	}
+	return store, localLsmPath, nil
 }
 
 type SearchRequest struct {

@@ -25,4 +25,9 @@ type Config struct {
 	DataPath string `long:"datapath" description:"place to look for tenant data after downloading it from object storage" default:"/tmp"`
 
 	VectorizerAddr string `long:"vectorize-addr" description:"vectorizer address to be used to vectorize near-text query" default:"0.0.0.0:9999"`
+
+	// MetadataGRPCAddress is the host which will be used to connect to the metadata node's gRPC server.
+	// Note that this should be replaced later to avoid having a single metadata node as a single point of failure.
+	// If MetadataGRPCAddress is empty, the querier will connect to localhost.
+	MetadataGRPCAddress string `long:"metadata.grpc.address" description:"metadata grpc address" default:":9050"`
 }
