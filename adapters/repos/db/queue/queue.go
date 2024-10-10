@@ -3,6 +3,8 @@ package queue
 import (
 	"bufio"
 	"context"
+	"sync/atomic"
+	"time"
 
 	"github.com/pkg/errors"
 )
@@ -11,9 +13,10 @@ type Queue struct {
 	ID   string
 	Path string
 
-	s    *Scheduler
-	enc  *Encoder
-	exec TaskExecutor
+	s          *Scheduler
+	enc        *Encoder
+	exec       TaskExecutor
+	lastPushed atomic.Pointer[time.Time]
 }
 
 type TaskExecutor func(ctx context.Context, op uint8, keys ...uint64) error
@@ -38,6 +41,10 @@ func NewQueue(s *Scheduler, id, path string, execFn TaskExecutor) (*Queue, error
 }
 
 func (q *Queue) Push(op uint8, keys ...uint64) error {
+	now := time.Now()
+
+	q.lastPushed.Store(&now)
+
 	for _, key := range keys {
 		_, err := q.enc.Encode(op, key)
 		if err != nil {
