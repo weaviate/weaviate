@@ -12,7 +12,16 @@ function release() {
   tag_preview=
 
   git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
-  git_branch=$(git rev-parse --abbrev-ref HEAD)
+
+  # NOTE: Getting git branch name needs some work.
+  # CI checkout the code to specific commit. So doing something like `git rev-parse --abbrev-ref HEAD`
+  # to get the branch name won't work.
+  # We use $GITHUB_REF_NAME if code is checked out from `main` or any `tagged` branch.
+  # or $GITHUB_HEAD_REF if code is checked out from any `pull_request`.
+  # More info about those variables can be found here
+  # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables
+  git_branch=""
+
   build_user="ci"
   build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -24,20 +33,24 @@ function release() {
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
   if [ "$GITHUB_REF_NAME" == "main" ]; then
     tag_exact="${DOCKER_REPO}:${weaviate_version}-${git_hash}"
+    git_branch="$GITHUB_REF_NAME"
   elif [  "$GITHUB_REF_TYPE" == "tag" ]; then
         if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
             echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
             return 1
         fi
         tag_exact="${DOCKER_REPO}:${weaviate_version}"
+	git_branch="$GITHUB_REF_NAME"
   else
     pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g')"
     if [ "$pr_title" == "" ]; then
       tag_preview="${DOCKER_REPO}:${prefix}-${git_hash}"
       weaviate_version="${prefix}-${git_hash}"
+      git_branch="$GITHUB_REF_NAME"
     else
       tag_preview="${DOCKER_REPO}:${prefix}-${pr_title}-${git_hash}"
       weaviate_version="${prefix}-${pr_title}-${git_hash}"
+      git_branch="$GITHUB_HEAD_REF"
     fi
   fi
 
