@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -97,35 +96,40 @@ func TestBackup_Integration(t *testing.T) {
 		files, err := idx.ListFiles(ctx, dirName)
 		require.Nil(t, err)
 
-		// by this point there should be two files in the commitlog directory.
-		// one is the active log file, and the other is the previous active
-		// log which was in use prior to `SwitchCommitLogs`. additionally,
-		// maintenance has been paused, so we shouldn't see any .condensed
+		// by this point there should be four files in the commitlog directory.
+		// one is the active log file, and the other is the previous active log
+		// which was in use prior to `SwitchCommitLogs` (together with checksum files).
+		// additionally, maintenance has been paused, so we shouldn't see any .condensed
 		// files either.
 		//
 		// because `ListFiles` is used within the context of backups,
 		// it excludes any currently active log files, which are not part
 		// of the backup. in this case, the only other file is the prev
-		// commitlog, so we should only have 1 result here.
-		assert.Len(t, files, 1)
+		// commitlog, so we should only have 2 results here (including checksum file).
+		require.Len(t, files, 2)
 
 		t.Run("verify commitlog dir contents", func(t *testing.T) {
-			// checking to ensure that indeed there are only 2 files in the
+			// checking to ensure that indeed there are only 4 files in the
 			// commit log directory, and that one of them is the one result
 			// from `ListFiles`, and that the other is not a .condensed file
 			ls, err := os.ReadDir(path.Join(dirName, fmt.Sprintf("%s.hnsw.commitlog.d", indexID)))
 			require.Nil(t, err)
-			assert.Len(t, ls, 2)
+			require.Len(t, ls, 4)
 
 			var prevLogFound bool
-			for _, info := range ls {
-				if path.Base(files[0]) == info.Name() {
+			for i, info := range ls {
+				if i < 2 {
+					require.Equal(t, info.Name(), "."+ls[2+i].Name()+".checksum")
+					continue
+				}
+
+				if path.Base(files[1]) == info.Name() {
 					prevLogFound = true
 				}
 
-				assert.Empty(t, path.Ext(info.Name()))
+				require.Empty(t, path.Ext(info.Name()))
 			}
-			assert.True(t, prevLogFound, "previous commitlog not found in commitlog root dir")
+			require.True(t, prevLogFound, "previous commitlog not found in commitlog root dir")
 		})
 	})
 

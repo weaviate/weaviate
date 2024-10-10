@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/willf/bloom"
 )
 
@@ -54,7 +55,7 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
 func (s *segment) initBloomFilter(overwrite bool) error {
 	path := s.bloomFilterPath()
 
-	ok, err := fileExists(path)
+	ok, err := diskio.FileExists(path)
 	if err != nil {
 		return err
 	}
@@ -138,7 +139,7 @@ func (s *segment) precomputeBloomFilter() error {
 	before := time.Now()
 
 	path := fmt.Sprintf("%s.tmp", s.bloomFilterPath())
-	ok, err := fileExists(path)
+	ok, err := diskio.FileExists(path)
 	if err != nil {
 		return err
 	}
@@ -196,7 +197,7 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool) error {
 
 	path := s.bloomFilterSecondaryPath(pos)
 
-	ok, err := fileExists(path)
+	ok, err := diskio.FileExists(path)
 	if err != nil {
 		return err
 	}
@@ -259,7 +260,7 @@ func (s *segment) precomputeSecondaryBloomFilter(pos int) error {
 	before := time.Now()
 	path := fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(pos))
 
-	ok, err := fileExists(path)
+	ok, err := diskio.FileExists(path)
 	if err != nil {
 		return err
 	}

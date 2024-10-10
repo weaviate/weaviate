@@ -12,15 +12,18 @@
 package hnsw
 
 import (
-	"bufio"
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rwhasher"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 )
 
 type Deserializer struct {
@@ -81,8 +84,12 @@ func (d *Deserializer) resetReusableConnectionsSlice(size int) {
 	}
 }
 
-func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult, keepLinkReplaceInformation bool) (*DeserializationResult, int, error) {
-	validLength := 0
+func (d *Deserializer) Do(
+	r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	initialState *DeserializationResult, keepLinkReplaceInformation bool,
+) (*DeserializationResult, int, int, error) {
+	var commitLogValidSize, checksumValidSize int
+
 	out := initialState
 	commitTypeMetrics := make(map[HnswCommitType]int)
 	if out == nil {
@@ -96,77 +103,90 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 	}
 
 	for {
-		ct, err := d.ReadCommitType(fd)
+		r.Reset() // each record has its own checksum
+
+		ct, err := d.ReadCommitType(r)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, validLength, err
+			return nil, commitLogValidSize, checksumValidSize, err
 		}
 		commitTypeMetrics[ct]++
-		var readThisRound int
+		var readThisRound, checksumsReadThisRound int
 		switch ct {
 		case AddNode:
-			err = d.ReadNode(fd, out)
+			err = d.ReadNode(r, checksumReader, out)
 			readThisRound = 10
+			checksumsReadThisRound = 1
 		case SetEntryPointMaxLevel:
 			var entrypoint uint64
 			var level uint16
-			entrypoint, level, err = d.ReadEP(fd)
+			entrypoint, level, err = d.ReadEP(r, checksumReader)
 			out.Entrypoint = entrypoint
 			out.Level = level
 			out.EntrypointChanged = true
 			readThisRound = 10
+			checksumsReadThisRound = 1
 		case AddLinkAtLevel:
-			err = d.ReadLink(fd, out)
+			err = d.ReadLink(r, checksumReader, out)
 			readThisRound = 18
+			checksumsReadThisRound = 1
 		case AddLinksAtLevel:
-			readThisRound, err = d.ReadAddLinks(fd, out)
+			readThisRound, err = d.ReadAddLinks(r, checksumReader, out)
+			checksumsReadThisRound = 2
 		case ReplaceLinksAtLevel:
-			readThisRound, err = d.ReadLinks(fd, out, keepLinkReplaceInformation)
+			readThisRound, err = d.ReadLinks(r, checksumReader, out, keepLinkReplaceInformation)
+			checksumsReadThisRound = 2
 		case AddTombstone:
-			err = d.ReadAddTombstone(fd, out.Tombstones)
+			err = d.ReadAddTombstone(r, checksumReader, out.Tombstones)
 			readThisRound = 8
+			checksumsReadThisRound = 1
 		case RemoveTombstone:
-			err = d.ReadRemoveTombstone(fd, out.Tombstones, out.TombstonesDeleted)
+			err = d.ReadRemoveTombstone(r, checksumReader, out.Tombstones, out.TombstonesDeleted)
 			readThisRound = 8
+			checksumsReadThisRound = 1
 		case ClearLinks:
-			err = d.ReadClearLinks(fd, out, keepLinkReplaceInformation)
+			err = d.ReadClearLinks(r, checksumReader, out, keepLinkReplaceInformation)
 			readThisRound = 8
+			checksumsReadThisRound = 1
 		case ClearLinksAtLevel:
-			err = d.ReadClearLinksAtLevel(fd, out, keepLinkReplaceInformation)
+			err = d.ReadClearLinksAtLevel(r, checksumReader, out, keepLinkReplaceInformation)
 			readThisRound = 10
+			checksumsReadThisRound = 1
 		case DeleteNode:
-			err = d.ReadDeleteNode(fd, out, out.NodesDeleted)
+			err = d.ReadDeleteNode(r, checksumReader, out, out.NodesDeleted)
 			readThisRound = 8
+			checksumsReadThisRound = 1
 		case ResetIndex:
-			out.Entrypoint = 0
-			out.Level = 0
-			out.Nodes = make([]*vertex, cache.InitialSize)
+			err = d.ReadResetIndex(r, checksumReader, out)
+			checksumsReadThisRound = 1
 		case AddPQ:
 			var totalRead int
-			totalRead, err = d.ReadPQ(fd, out)
+			totalRead, checksumsReadThisRound, err = d.ReadPQ(r, checksumReader, out)
 			readThisRound = 9 + totalRead
 		case AddSQ:
-			err = d.ReadSQ(fd, out)
+			err = d.ReadSQ(r, checksumReader, out)
 			readThisRound = 10
+			checksumsReadThisRound = 1
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
 		if err != nil {
 			// do not return nil, err, because the err could be a recoverable one
-			return out, validLength, err
+			return out, commitLogValidSize, checksumValidSize, err
 		} else {
-			validLength += 1 + readThisRound // 1 byte for commit type
+			commitLogValidSize += 1 + readThisRound // 1 byte for commit type
+			checksumValidSize += checksumsReadThisRound * checksumReader.HashSize()
 		}
 	}
 	for commitType, count := range commitTypeMetrics {
 		d.logger.WithFields(logrus.Fields{"action": "hnsw_deserialization", "ops": count}).Debugf("hnsw commit logger %s", commitType)
 	}
-	return out, validLength, nil
+	return out, commitLogValidSize, checksumValidSize, nil
 }
 
-func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
+func (d *Deserializer) ReadNode(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader, res *DeserializationResult) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
@@ -175,6 +195,14 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	level, err := d.readUint16(r)
 	if err != nil {
 		return err
+	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, AddNode.String())
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
@@ -195,7 +223,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	return nil
 }
 
-func (d *Deserializer) ReadEP(r io.Reader) (uint64, uint16, error) {
+func (d *Deserializer) ReadEP(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader) (uint64, uint16, error) {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return 0, 0, err
@@ -206,10 +234,18 @@ func (d *Deserializer) ReadEP(r io.Reader) (uint64, uint16, error) {
 		return 0, 0, err
 	}
 
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return 0, 0, fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return 0, 0, fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, SetEntryPointMaxLevel.String())
+	}
+
 	return id, level, nil
 }
 
-func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
+func (d *Deserializer) ReadLink(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader, res *DeserializationResult) error {
 	source, err := d.readUint64(r)
 	if err != nil {
 		return err
@@ -223,6 +259,14 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	target, err := d.readUint64(r)
 	if err != nil {
 		return err
+	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, AddLinkAtLevel.String())
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
@@ -244,7 +288,7 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	return nil
 }
 
-func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
+func (d *Deserializer) ReadLinks(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader, res *DeserializationResult,
 	keepReplaceInfo bool,
 ) (int, error) {
 	d.resetResusableBuffer(12)
@@ -257,9 +301,25 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	level := binary.LittleEndian.Uint16(d.reusableBuffer[8:10])
 	length := binary.LittleEndian.Uint16(d.reusableBuffer[10:12])
 
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return 0, fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return 0, fmt.Errorf("%w: record header %q", commitlog.ErrInvalidChecksum, ReplaceLinksAtLevel.String())
+	}
+
 	targets, err := d.readUint64Slice(r, int(length))
 	if err != nil {
 		return 0, err
+	}
+
+	checksum, err = checksumReader.NextHash()
+	if err != nil {
+		return 0, fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return 0, fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, ReplaceLinksAtLevel.String())
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
@@ -293,7 +353,7 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	return 12 + int(length)*8, nil
 }
 
-func (d *Deserializer) ReadAddLinks(r io.Reader,
+func (d *Deserializer) ReadAddLinks(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
 	res *DeserializationResult,
 ) (int, error) {
 	d.resetResusableBuffer(12)
@@ -306,9 +366,25 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	level := binary.LittleEndian.Uint16(d.reusableBuffer[8:10])
 	length := binary.LittleEndian.Uint16(d.reusableBuffer[10:12])
 
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return 0, fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return 0, fmt.Errorf("%w: record header %q", commitlog.ErrInvalidChecksum, AddLinksAtLevel.String())
+	}
+
 	targets, err := d.readUint64Slice(r, int(length))
 	if err != nil {
 		return 0, err
+	}
+
+	checksum, err = checksumReader.NextHash()
+	if err != nil {
+		return 0, fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return 0, fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, AddLinksAtLevel.String())
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
@@ -332,10 +408,20 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	return 12 + int(length)*8, nil
 }
 
-func (d *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[uint64]struct{}) error {
+func (d *Deserializer) ReadAddTombstone(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	tombstones map[uint64]struct{},
+) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
+	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, AddTombstone.String())
 	}
 
 	tombstones[id] = struct{}{}
@@ -343,10 +429,20 @@ func (d *Deserializer) ReadAddTombstone(r io.Reader, tombstones map[uint64]struc
 	return nil
 }
 
-func (d *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]struct{}, tombstonesDeleted map[uint64]struct{}) error {
+func (d *Deserializer) ReadRemoveTombstone(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	tombstones map[uint64]struct{}, tombstonesDeleted map[uint64]struct{},
+) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
+	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, RemoveTombstone.String())
 	}
 
 	_, ok := tombstones[id]
@@ -362,12 +458,20 @@ func (d *Deserializer) ReadRemoveTombstone(r io.Reader, tombstones map[uint64]st
 	return nil
 }
 
-func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
-	keepReplaceInfo bool,
+func (d *Deserializer) ReadClearLinks(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	res *DeserializationResult, keepReplaceInfo bool,
 ) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
+	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, ClearLinks.String())
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
@@ -388,8 +492,8 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 	return nil
 }
 
-func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult,
-	keepReplaceInfo bool,
+func (d *Deserializer) ReadClearLinksAtLevel(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	res *DeserializationResult, keepReplaceInfo bool,
 ) error {
 	id, err := d.readUint64(r)
 	if err != nil {
@@ -399,6 +503,14 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 	level, err := d.readUint16(r)
 	if err != nil {
 		return err
+	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, ClearLinksAtLevel.String())
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
@@ -458,10 +570,20 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 	return nil
 }
 
-func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult, nodesDeleted map[uint64]struct{}) error {
+func (d *Deserializer) ReadDeleteNode(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	res *DeserializationResult, nodesDeleted map[uint64]struct{},
+) error {
 	id, err := d.readUint64(r)
 	if err != nil {
 		return err
+	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, DeleteNode.String())
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, id, d.logger)
@@ -478,7 +600,27 @@ func (d *Deserializer) ReadDeleteNode(r io.Reader, res *DeserializationResult, n
 	return nil
 }
 
-func (d *Deserializer) ReadTileEncoder(r io.Reader, res *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func (d *Deserializer) ReadResetIndex(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	res *DeserializationResult,
+) error {
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q with kmeans encoder", commitlog.ErrInvalidChecksum, ResetIndex.String())
+	}
+
+	res.Entrypoint = 0
+	res.Level = 0
+	res.Nodes = make([]*vertex, cache.InitialSize)
+
+	return nil
+}
+
+func (d *Deserializer) ReadTileEncoder(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	res *compressionhelpers.PQData, i uint16,
+) (compressionhelpers.PQEncoder, error) {
 	bins, err := d.readFloat64(r)
 	if err != nil {
 		return nil, err
@@ -511,10 +653,21 @@ func (d *Deserializer) ReadTileEncoder(r io.Reader, res *compressionhelpers.PQDa
 	if err != nil {
 		return nil, err
 	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return nil, fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return nil, fmt.Errorf("%w: record %q with tile encoder", commitlog.ErrInvalidChecksum, AddPQ.String())
+	}
+
 	return compressionhelpers.RestoreTileEncoder(bins, mean, stdDev, size, s1, s2, segment, encDistribution), nil
 }
 
-func (d *Deserializer) ReadKMeansEncoder(r io.Reader, data *compressionhelpers.PQData, i uint16) (compressionhelpers.PQEncoder, error) {
+func (d *Deserializer) ReadKMeansEncoder(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	data *compressionhelpers.PQData, i uint16,
+) (compressionhelpers.PQEncoder, error) {
 	ds := int(data.Dimensions / data.M)
 	centers := make([][]float32, 0, data.Ks)
 	for k := uint16(0); k < data.Ks; k++ {
@@ -528,6 +681,15 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, data *compressionhelpers.P
 		}
 		centers = append(centers, center)
 	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return nil, fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return nil, fmt.Errorf("%w: record %q with kmeans encoder", commitlog.ErrInvalidChecksum, AddPQ.String())
+	}
+
 	kms := compressionhelpers.NewKMeansWithCenters(
 		int(data.Ks),
 		ds,
@@ -537,31 +699,42 @@ func (d *Deserializer) ReadKMeansEncoder(r io.Reader, data *compressionhelpers.P
 	return kms, nil
 }
 
-func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, error) {
+func (d *Deserializer) ReadPQ(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader,
+	res *DeserializationResult,
+) (int, int, error) {
 	dims, err := d.readUint16(r)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	enc, err := d.readByte(r)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	ks, err := d.readUint16(r)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	m, err := d.readUint16(r)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	dist, err := d.readByte(r)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	useBitsEncoding, err := d.readByte(r)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return 0, 0, fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return 0, 0, fmt.Errorf("%w: record header %q", commitlog.ErrInvalidChecksum, AddPQ.String())
+	}
+
 	encoder := compressionhelpers.Encoder(enc)
 	pqData := compressionhelpers.PQData{
 		Dimensions:          dims,
@@ -571,9 +744,10 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 		EncoderDistribution: byte(dist),
 		UseBitsEncoding:     useBitsEncoding != 0,
 	}
-	var encoderReader func(io.Reader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
-	// var encoderReader func(io.Reader, *DeserializationResult, uint16) (compressionhelpers.PQEncoder, error)
+
+	var encoderReader func(rwhasher.ReaderHasher, commitlog.ChecksumReader, *compressionhelpers.PQData, uint16) (compressionhelpers.PQEncoder, error)
 	var totalRead int
+
 	switch encoder {
 	case compressionhelpers.UseTileEncoder:
 		encoderReader = d.ReadTileEncoder
@@ -582,24 +756,26 @@ func (d *Deserializer) ReadPQ(r io.Reader, res *DeserializationResult) (int, err
 		encoderReader = d.ReadKMeansEncoder
 		totalRead = int(pqData.Dimensions) * int(pqData.Ks) * 4
 	default:
-		return 0, errors.New("Unsuported encoder type")
+		return 0, 0, errors.New("Unsuported encoder type")
 	}
 
 	for i := uint16(0); i < m; i++ {
-		encoder, err := encoderReader(r, &pqData, i)
+		encoder, err := encoderReader(r, checksumReader, &pqData, i)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		pqData.Encoders = append(pqData.Encoders, encoder)
 	}
-	res.Compressed = true
 
+	res.Compressed = true
 	res.CompressionPQData = &pqData
 
-	return totalRead, nil
+	checksumsRead := 1 + int(pqData.M)
+
+	return totalRead, checksumsRead, nil
 }
 
-func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
+func (d *Deserializer) ReadSQ(r rwhasher.ReaderHasher, checksumReader commitlog.ChecksumReader, res *DeserializationResult) error {
 	a, err := d.readFloat32(r)
 	if err != nil {
 		return err
@@ -612,6 +788,15 @@ func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
 	if err != nil {
 		return err
 	}
+
+	checksum, err := checksumReader.NextHash()
+	if err != nil {
+		return fmt.Errorf("%w: reading checksum", err)
+	}
+	if !bytes.Equal(checksum, r.Hash()) {
+		return fmt.Errorf("%w: record %q", commitlog.ErrInvalidChecksum, AddSQ.String())
+	}
+
 	res.CompressionSQData = &compressionhelpers.SQData{
 		A:          a,
 		B:          b,
