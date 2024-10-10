@@ -251,7 +251,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 
 	if len(partitions) == 0 {
 		s.Logger.WithField("file", path).Warn("read chunk is empty. removing file")
-		s.removeChunk(path)
+		q.q.enc.removeChunk(path)
 		return nil
 	}
 
@@ -280,7 +280,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 				defer s.activeTasks.Decr()
 
 				if counter.Add(-1) == 0 {
-					s.removeChunk(path)
+					q.q.enc.removeChunk(path)
 				}
 			},
 		}:
@@ -316,8 +316,8 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 			continue
 		}
 
-		// skip the partial chunk file
-		if entry.Name() == partialChunkFile {
+		// check if the entry name matches the regex pattern of a chunk file
+		if !chunkFilePattern.Match([]byte(entry.Name())) {
 			continue
 		}
 
@@ -334,16 +334,6 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 	}
 
 	return f, q.readFiles[q.cursor], nil
-}
-
-func (s *Scheduler) removeChunk(path string) {
-	err := os.Remove(path)
-	if err != nil {
-		s.Logger.WithError(err).WithField("file", path).Error("failed to remove chunk")
-		return
-	}
-
-	s.Logger.WithField("file", path).Debug("chunk removed")
 }
 
 func (s *Scheduler) checkIfStale(q *queueState) (*os.File, string, error) {
