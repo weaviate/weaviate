@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -64,6 +66,8 @@ type SegmentGroup struct {
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
+
+	isFlushing *atomic.Bool
 }
 
 type sgConfig struct {
@@ -77,6 +81,7 @@ type sgConfig struct {
 	calcCountNetAdditions bool
 	forceCompaction       bool
 	maxSegmentSize        int64
+	isFlushing            *atomic.Bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -103,6 +108,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		compactLeftOverSegments: cfg.forceCompaction,
 		maxSegmentSize:          cfg.maxSegmentSize,
 		allocChecker:            allocChecker,
+		isFlushing:              cfg.isFlushing,
 	}
 
 	segmentIndex := 0
@@ -299,8 +305,22 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
+func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
+
+	sg.segments = append(sg.segments, segment)
+	return nil
+}
+
 func (sg *SegmentGroup) get(key []byte) ([]byte, error) {
+	beforeMaintenanceLock := time.Now()
 	sg.maintenanceLock.RLock()
+	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
+		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
+			WithField("action", "lsm_segment_group_get_obtain_maintenance_lock").
+			Debug("waited over 100ms to obtain maintenance lock in segment group get()")
+	}
 	defer sg.maintenanceLock.RUnlock()
 
 	return sg.getWithUpperSegmentBoundary(key, len(sg.segments)-1)
