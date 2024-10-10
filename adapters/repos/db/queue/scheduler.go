@@ -65,6 +65,7 @@ func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
 		SchedulerOptions: opts,
 		activeTasks:      common.NewSharedGauge(),
 	}
+	s.queues.m = make(map[string]*queueState)
 
 	s.ctx, s.cancelFn = context.WithCancel(context.Background())
 
@@ -231,7 +232,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 
 	for {
 		t, err := q.q.DecodeTask(r)
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil || t == nil {

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -104,6 +105,10 @@ func (e *Encoder) Flush() error {
 	err := e.w.Flush()
 	if err != nil {
 		return errors.Wrap(err, "failed to flush")
+	}
+
+	if e.f == nil {
+		return nil
 	}
 
 	return e.f.Sync()
@@ -253,6 +258,9 @@ func (e *Encoder) removeChunk(path string) {
 func Decode(r *bufio.Reader) (uint8, uint64, error) {
 	op, err := r.ReadByte()
 	if err != nil {
+		if err == io.EOF {
+			return 0, 0, err
+		}
 		return 0, 0, errors.Wrap(err, "failed to read op")
 	}
 
