@@ -159,25 +159,21 @@ func TestMapList(m *testing.T) {
 		}
 	}
 
-	mapNode := &binarySearchNodeMap{
-		values: mapList,
-	}
-
-	blockEntries, blockDatas, _ := createBlocks(mapNode)
+	blockEntries, blockDatas, _ := createBlocks(mapList)
 	blocksEncoded := encodeBlocks(blockEntries, blockDatas, uint64(collectionSize))
 
 	compressedSize := len(blocksEncoded)
 
 	m.Logf("Compression ratios: %.2f %.2f\n", float32(currentUncompressedSize)/float32(compressedSize), float32(bestUncompressedSize)/float32(compressedSize))
 
-	blockEntries2, blockDatas2 := decodeBlocks(blocksEncoded)
+	blockEntries2, blockDatas2, _ := decodeBlocks(blocksEncoded)
 
 	assert.Equal(m, blockEntries, blockEntries2)
 	assert.Equal(m, blockDatas, blockDatas2)
 
-	mapNode2 := convertFromBlocks(blockEntries2, blockDatas2, uint64(collectionSize))
+	mapList2 := convertFromBlocks(blockEntries2, blockDatas2, uint64(collectionSize))
 
-	assert.Equal(m, mapNode, mapNode2)
+	assert.Equal(m, mapList, mapList2)
 }
 
 func TestMultipleMapLists(m *testing.T) {
@@ -221,17 +217,13 @@ func TestMultipleMapLists(m *testing.T) {
 			}
 		}
 
-		mapNode := &binarySearchNodeMap{
-			values: mapList,
-		}
-
-		blocksEncoded, _ := createAndEncodeBlocks(mapNode, encodeSingleSeparate)
+		blocksEncoded, _ := createAndEncodeBlocks(mapList, encodeSingleSeparate)
 
 		compressedSize += uint64(len(blocksEncoded))
 
-		mapNode2 := decodeAndConvertFromBlocks(blocksEncoded, encodeSingleSeparate)
+		mapList2, _ := decodeAndConvertFromBlocks(blocksEncoded, encodeSingleSeparate)
 
-		assert.Equal(m, mapNode, mapNode2)
+		assert.Equal(m, mapList, mapList2)
 	}
 	m.Logf("Compression ratios: %.2f %.2f\n", float32(currentUncompressedSize)/float32(compressedSize), float32(bestUncompressedSize)/float32(compressedSize))
 }
