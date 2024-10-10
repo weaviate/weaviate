@@ -48,7 +48,7 @@ func (q *Queue) Push(op uint8, keys ...uint64) error {
 	q.lastPushed.Store(&now)
 
 	for _, key := range keys {
-		_, err := q.enc.Encode(op, key)
+		err := q.enc.Encode(op, key)
 		if err != nil {
 			return errors.Wrap(err, "failed to encode task")
 		}
@@ -68,4 +68,8 @@ func (q *Queue) DecodeTask(r *bufio.Reader) (*Task, error) {
 		DocIDs: []uint64{key},
 		exec:   q.exec,
 	}, nil
+}
+
+func (q *Queue) Size() int {
+	return q.enc.RecordCount()
 }

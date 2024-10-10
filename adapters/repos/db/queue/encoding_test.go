@@ -23,7 +23,7 @@ func TestEncoder(t *testing.T) {
 
 	// encode 120 records
 	for i := 0; i < 120; i++ {
-		_, err := enc.Encode(uint8(i), uint64(i+1))
+		err := enc.Encode(uint8(i), uint64(i+1))
 		require.NoError(t, err)
 	}
 
@@ -76,6 +76,16 @@ func TestEncoder(t *testing.T) {
 	// check the content of the partial file
 	checkContent(entries[2].Name(), 9*20, 100, 119)
 
+	// check the queue size
+	size := enc.RecordCount()
+	require.Equal(t, 120, size)
+
+	// check the queue size with a different encoder
+	enc2, err := NewEncoderWith(dir, logger, 9*50)
+	require.NoError(t, err)
+	size = enc2.RecordCount()
+	require.Equal(t, 120, size)
+
 	// promote the partial file
 	err = enc.promoteChunk()
 	require.NoError(t, err)
@@ -91,6 +101,10 @@ func TestEncoder(t *testing.T) {
 
 	// check the content of the 3rd file
 	checkContent(entries[2].Name(), 9*20, 100, 119)
+
+	// check the queue size again
+	size = enc.RecordCount()
+	require.Equal(t, 120, size)
 
 	// promote again, no-op
 	err = enc.promoteChunk()
