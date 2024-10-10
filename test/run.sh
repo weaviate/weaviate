@@ -174,7 +174,7 @@ function build_docker_image_for_tests() {
   GIT_REVISION=$(git rev-parse --short HEAD)
   GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
-  docker build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" -t $module_test_image .
+  docker build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --target weaviate -t $module_test_image .
   export "TEST_WEAVIATE_IMAGE"=$module_test_image
 }
 
