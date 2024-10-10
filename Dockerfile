@@ -78,7 +78,6 @@ CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
 # Weaviate experimental
 FROM alpine AS weaviate_experimental
 ENTRYPOINT ["/bin/weaviate"]
-ARG TARGET
 COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
 COPY --from=experimental_server_builder /weaviate /bin/weaviate
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
