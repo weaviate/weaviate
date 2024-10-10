@@ -38,6 +38,9 @@ type SchedulerOptions struct {
 	Logger           logrus.FieldLogger
 	Workers          []chan Batch
 	ScheduleInterval time.Duration
+	// If a queue does not receive any tasks for this duration, it is considered stale
+	// and must be scheduled.
+	StaleTimeout time.Duration
 }
 
 func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
@@ -52,6 +55,10 @@ func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
 
 	if opts.ScheduleInterval == 0 {
 		opts.ScheduleInterval = time.Second
+	}
+
+	if opts.StaleTimeout == 0 {
+		opts.StaleTimeout = 5 * time.Second
 	}
 
 	s := Scheduler{
@@ -205,9 +212,16 @@ func (s *Scheduler) schedule() {
 
 func (s *Scheduler) dispatchQueue(q *queueState) error {
 	f, path, err := s.readQueueChunk(q)
-	if err != nil || f == nil {
+	if err != nil {
 		return err
 	}
+	if f == nil {
+		f, path, err = s.checkIfStale(q)
+		if err != nil || f == nil {
+			return err
+		}
+	}
+
 	r := bufio.NewReader(f)
 
 	batches := make([][]*Task, len(s.Workers))
@@ -280,7 +294,7 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 		return f, q.readFiles[q.cursor], nil
 	}
 
-	q.readFiles = nil
+	q.readFiles = q.readFiles[:0]
 	q.cursor = 0
 
 	// read the directory
@@ -322,4 +336,24 @@ func (s *Scheduler) removeChunk(path string) {
 	}
 
 	s.Logger.WithField("file", path).Debug("chunk removed")
+}
+
+func (s *Scheduler) checkIfStale(q *queueState) (*os.File, string, error) {
+	lastPushed := q.q.lastPushed.Load()
+	if lastPushed == nil {
+		return nil, "", nil
+	}
+
+	if time.Since(*lastPushed) < s.StaleTimeout {
+		return nil, "", nil
+	}
+
+	s.Logger.WithField("id", q.q.ID).Debug("partial chunk is stale, scheduling")
+
+	err := q.q.enc.promoteChunk()
+	if err != nil {
+		return nil, "", err
+	}
+
+	return s.readQueueChunk(q)
 }
