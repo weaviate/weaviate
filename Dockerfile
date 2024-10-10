@@ -75,7 +75,7 @@ RUN mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
 
 ################################################################################
-# Weaviate experimental
+# Weaviate experimental (check ./cmd/weaviate/README.md)
 FROM alpine AS weaviate_experimental
 ENTRYPOINT ["/bin/weaviate"]
 COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
