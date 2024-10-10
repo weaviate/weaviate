@@ -15,15 +15,12 @@ function release() {
   git_branch=$(git branch)
 
   prefix="preview"
-  if [ "$git_branch" == "main" ] || [ "$git_branch" == "stable/v*" ]; then
-    prefix="$(echo $git_branch | sed 's/\//-/g')"
+  if [ "$GITHUB_REF_NAME" == "main" ] || [ "$GITHUB_REF_NAME" == "stable/v"* ]; then
+    prefix="$(echo $GITHUB_REF_NAME | sed 's/\//-/g')"
   fi
 
-
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
-  if [ "$GITHUB_REF_NAME" == "main" ]; then
-    tag_exact="${DOCKER_REPO}:${weaviate_version}-${git_hash}"
-  elif [  "$GITHUB_REF_TYPE" == "tag" ]; then
+  if [  "$GITHUB_REF_TYPE" == "tag" ]; then
         if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
             echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
             return 1
