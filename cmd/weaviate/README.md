@@ -251,4 +251,16 @@ with weaviate.connect_to_local(
 
 ```
 
-### BM25 search (TODO)
+## TODO(s)
+
+- [ ] Handle "empty write-ahead-log found" warnings on `querier`
+- [ ] Support BM25 search
+- [ ] Support other indexes other than flat index with Binary Quantization(BQ)
+- [ ] Integrate `query.Search` with core weaviate's http, grpc and graphql endpoints for frozen tenants.
+- [x] Instrument `grpc` server
+- [x] Instrument `http` server
+- [ ] Log query metadata (add it in `slow_queries.go`)
+- [ ] Grafana dashboards
+- [ ] Alerts
+- [ ] Playbook for each alerts.
+- [ ] Demo video of running core + querier to query offloaded tenants.
