@@ -12,42 +12,29 @@ function release() {
   tag_preview=
 
   git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
-
-  # NOTE: Getting git branch name needs some work.
-  # CI checkout the code to specific commit. So doing something like `git rev-parse --abbrev-ref HEAD`
-  # to get the branch name won't work.
-  # We use $GITHUB_REF_NAME if code is checked out from `main` or any `tagged` branch.
-  # or $GITHUB_HEAD_REF if code is checked out from any `pull_request`.
-  # More info about those variables can be found here
-  # https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/store-information-in-variables
-  git_branch=""
-
+  git_branch="$GITHUB_HEAD_REF"
   build_user="ci"
   build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-  prefix="preview"
-  if [ "$GITHUB_REF_NAME" == "main" ] || [ "$GITHUB_REF_NAME" == "stable/v"* ]; then
-    prefix="$(echo $GITHUB_REF_NAME | sed 's/\//-/g')"
-  fi
-
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
-  if [  "$GITHUB_REF_TYPE" == "tag" ]; then
-        if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
-            echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
-            return 1
-        fi
-        tag_exact="${DOCKER_REPO}:${weaviate_version}"
-        git_branch="$GITHUB_REF_NAME"
+  if [ "$GITHUB_REF_TYPE" == "tag" ]; then
+      if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
+          echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
+          return 1
+      fi
+      tag_exact="${DOCKER_REPO}:${weaviate_version}"
+      git_branch="$GITHUB_REF_NAME"
   else
     pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g')"
     if [ "$pr_title" == "" ]; then
-      tag_preview="${DOCKER_REPO}:${prefix}-${git_hash}"
-      weaviate_version="${prefix}-${git_hash}"
+      git_branch="$GITHUB_REF_NAME"
+      branch_name="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g')"
+      tag_preview="${DOCKER_REPO}:${branch_name}-${git_revision}"
+      weaviate_version="${branch_name}-${git_revision}"
       git_branch="$GITHUB_HEAD_REF"
     else
-      tag_preview="${DOCKER_REPO}:${prefix}-${pr_title}-${git_hash}"
-      weaviate_version="${prefix}-${pr_title}-${git_hash}"
-      git_branch="$GITHUB_REF_NAME"
+      tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}"
+      weaviate_version="preview-${pr_title}-${git_revision}"
     fi
   fi
 
