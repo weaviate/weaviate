@@ -179,6 +179,12 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	principal *models.Principal,
 ) middleware.Responder {
+	bucket := ""
+	path := ""
+	if params.Body.Config != nil {
+		bucket = params.Body.Config.S3Bucket
+		path = params.Body.Config.S3Path
+	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
 		ID:          params.ID,
 		Backend:     params.Backend,
@@ -186,6 +192,8 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Exclude:     params.Body.Exclude,
 		NodeMapping: params.Body.NodeMapping,
 		Compression: compressionFromRCfg(params.Body.Config),
+		S3Bucket:   bucket,
+		S3Path:     path,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

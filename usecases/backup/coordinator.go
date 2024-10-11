@@ -259,7 +259,7 @@ func (c *coordinator) Restore(
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, S3Bucket: req.S3Bucket, S3Path: req.S3Path}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, S3Bucket: bucketName, S3Path: bucketPath}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()

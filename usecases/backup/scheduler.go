@@ -160,6 +160,8 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		Backend:     req.Backend,
 		Compression: req.Compression,
 		Classes:     meta.Classes(),
+		S3Bucket:    req.S3Bucket,
+		S3Path:      req.S3Path,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
