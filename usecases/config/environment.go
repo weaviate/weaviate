@@ -43,6 +43,7 @@ func FromEnv(config *Config) error {
 		config.Monitoring.Enabled = true
 		config.Monitoring.Tool = "prometheus"
 		config.Monitoring.Port = 2112
+		config.Monitoring.MetricsNamespace = "" // to support backward compabitlity. Metric names won't have prefix by default.
 
 		if entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP_CLASSES")) ||
 			entcfg.Enabled(os.Getenv("PROMETHEUS_MONITORING_GROUP")) {
@@ -54,6 +55,10 @@ func FromEnv(config *Config) error {
 			// want to group. The new name reflects that it's just about grouping,
 			// not about classes or shards.
 			config.Monitoring.Group = true
+		}
+
+		if val := strings.TrimSpace(os.Getenv("PROMETHEUS_MONITORING_METRIC_NAMESPACE")); val != "" {
+			config.Monitoring.MetricsNamespace = val
 		}
 	}
 
