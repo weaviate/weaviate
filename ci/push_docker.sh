@@ -12,12 +12,6 @@ function release() {
   tag_preview=
 
   git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
-  git_branch=$(git branch)
-
-  prefix="preview"
-  if [ "$GITHUB_REF_NAME" == "main" ] || [ "$GITHUB_REF_NAME" == "stable/v"* ]; then
-    prefix="$(echo $GITHUB_REF_NAME | sed 's/\//-/g')"
-  fi
 
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
   if [  "$GITHUB_REF_TYPE" == "tag" ]; then
@@ -29,11 +23,12 @@ function release() {
   else
     pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g')"
     if [ "$pr_title" == "" ]; then
+      prefix="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g')"
       tag_preview="${DOCKER_REPO}:${prefix}-${git_hash}"
       weaviate_version="${prefix}-${git_hash}"
     else
-      tag_preview="${DOCKER_REPO}:${prefix}-${pr_title}-${git_hash}"
-      weaviate_version="${prefix}-${pr_title}-${git_hash}"
+      tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_hash}"
+      weaviate_version="preview-${pr_title}-${git_hash}"
     fi
   fi
 
