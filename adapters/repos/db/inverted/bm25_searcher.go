@@ -93,7 +93,7 @@ func (b *BM25Searcher) BM25F(ctx context.Context, filterDocIds helpers.AllowList
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
 	}
 
-	objs, scores, err := b.wand(ctx, filterDocIds, class, keywordRanking, limit, additional)
+	objs, scores, err := b.wandBlock(ctx, filterDocIds, class, keywordRanking, limit, additional)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "wand")
 	}
@@ -564,4 +564,8 @@ func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName strin
 		return false
 	}
 	return HasSearchableIndex(p)
+}
+
+func (b *BM25Searcher) GetBucket(propName string) *lsmkv.Bucket {
+	return b.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName))
 }

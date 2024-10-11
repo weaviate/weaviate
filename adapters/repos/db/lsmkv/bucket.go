@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -1344,4 +1346,113 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	}
 
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
+}
+
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, ctx context.Context) ([][]terms.TermInterface, error) {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	segmentsDisk := b.disk.segments
+	output := make([][]terms.TermInterface, len(segmentsDisk))
+	idfs := make([]float64, len(query))
+
+	for i, queryTerm := range query {
+		key := []byte(queryTerm)
+		n := uint64(0)
+		for _, segment := range segmentsDisk {
+			if segment.strategy == segmentindex.StrategyInverted && segment.hasKey(key) {
+				n += segment.getDocCount(key)
+			}
+		}
+		idfs[i] = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoosts[i])
+
+	}
+
+	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
+
+	for i, segment := range segmentsDisk {
+		tombstones, err := segment.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+
+		allTombstones[i] = tombstones
+	}
+
+	for j, segment := range segmentsDisk {
+		output[j] = make([]terms.TermInterface, len(query))
+		for i, key := range query {
+			output[j][i] = NewSegmentBlockMax(segment, []byte(key), i, idfs[i])
+		}
+	}
+	return output, nil
+
+	/*
+		output := make([]terms.TermInterface, 0, len(segmentsDisk)+2)
+
+		// check if there are any tombstones in the flushing memtable
+		if b.flushing != nil {
+			allTombstones[len(segmentsDisk)] = tombstones
+		}
+
+		// check if there are any tombstones in the active memtable
+		tombstones, err := b.active.GetTombstones()
+		if err != nil {
+			return nil, err
+		}
+		allTombstones[len(segmentsDisk)+1] = tombstones
+
+		if b.flushing != nil {
+			mem, err := b.flushing.getMap(key)
+			if err != nil && !errors.Is(err, lsmkv.NotFound) {
+				return nil, err
+			}
+			allTombstones[len(segmentsDisk)] = sroar.NewBitmap()
+			docPointers := make([]terms.DocPointerWithScore, len(mem))
+			for i, v := range mem {
+				if v.Tombstone {
+					id := binary.BigEndian.Uint64(v.Key)
+					allTombstones[len(segmentsDisk)].Set(id)
+					continue
+				}
+				if len(v.Value) < 8 {
+					b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
+					continue
+				}
+
+				if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
+					return nil, err
+				}
+
+			}
+			output = append(segments, docPointers)
+		}
+
+		mem, err := b.active.getMap(key)
+		if err != nil && !errors.Is(err, lsmkv.NotFound) {
+			return nil, err
+		}
+		docPointers := make([]terms.DocPointerWithScore, len(mem))
+		for i, v := range mem {
+			if len(v.Value) < 8 {
+				b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
+				continue
+			}
+			if err := docPointers[i].FromKeyVal(v.Key, v.Value, propBoost); err != nil {
+				return nil, err
+			}
+		}
+		segments = append(segments, docPointers)
+
+		if c.legacyRequireManualSorting {
+			// Sort to support segments which were stored in an unsorted fashion
+			for i := range segments {
+				sort.Slice(segments[i], func(a, b int) bool {
+					return segments[i][a].Id < segments[i][b].Id
+				})
+			}
+		}
+
+		return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
+	*/
 }

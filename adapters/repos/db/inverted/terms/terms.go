@@ -179,13 +179,11 @@ type TermInterface interface {
 	// is a boost for a queryTerm, simply apply it here once
 	Idf() float64
 	IdPointer() uint64
-	PosPointer() uint64
 	Exhausted() bool
-	QueryTerm() string
+	Count() int
 	QueryTermIndex() int
 	AdvanceAtLeast(minID uint64)
 	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, DocPointerWithScore)
-	Count() int
 }
 
 type Term struct {
