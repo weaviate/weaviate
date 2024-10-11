@@ -217,11 +217,11 @@ func TestMultipleMapLists(m *testing.T) {
 			}
 		}
 
-		blocksEncoded, _ := createAndEncodeBlocks(mapList, encodeSingleSeparate)
+		blocksEncoded, _ := createAndEncodeBlocksTest(mapList, encodeSingleSeparate)
 
 		compressedSize += uint64(len(blocksEncoded))
 
-		mapList2, _ := decodeAndConvertFromBlocks(blocksEncoded, encodeSingleSeparate)
+		mapList2, _ := decodeAndConvertFromBlocksTest(blocksEncoded, encodeSingleSeparate)
 
 		assert.Equal(m, mapList, mapList2)
 	}

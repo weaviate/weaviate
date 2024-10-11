@@ -100,7 +100,7 @@ func (s *segment) collectionStratParseDataInverted(in []byte) ([]value, error) {
 
 	values := make([]value, valuesLen)
 
-	nodes, _ := decodeAndConvertFromBlocks(in, 1)
+	nodes, _ := decodeAndConvertFromBlocks(in)
 
 	valueIndex := 0
 	for _, node := range nodes {

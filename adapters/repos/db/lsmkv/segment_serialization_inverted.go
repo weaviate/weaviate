@@ -128,12 +128,16 @@ func createAndEncodeSingleValue(mapPairs []MapPair) ([]byte, *sroar.Bitmap) {
 	return buffer[:offset], tombstones
 }
 
-func createAndEncodeBlocks(nodes []MapPair, encodeSingleSeparate int) ([]byte, *sroar.Bitmap) {
+func createAndEncodeBlocksTest(nodes []MapPair, encodeSingleSeparate int) ([]byte, *sroar.Bitmap) {
 	if len(nodes) <= encodeSingleSeparate {
 		return createAndEncodeSingleValue(nodes)
 	}
 	blockEntries, blockDatas, tombstones := createBlocks(nodes)
 	return encodeBlocks(blockEntries, blockDatas, uint64(len(nodes))), tombstones
+}
+
+func createAndEncodeBlocks(nodes []MapPair) ([]byte, *sroar.Bitmap) {
+	return createAndEncodeBlocksTest(nodes, terms.ENCODE_AS_FULL_BYTES)
 }
 
 func decodeBlocks(data []byte) ([]*terms.BlockEntry, []*terms.BlockData, int) {
@@ -160,7 +164,11 @@ func decodeBlocks(data []byte) ([]*terms.BlockEntry, []*terms.BlockData, int) {
 	return blockEntries, blockDatas, dataOffset
 }
 
-func decodeAndConvertFromBlocks(data []byte, encodeSingleSeparate int) ([]MapPair, int) {
+func decodeAndConvertFromBlocks(data []byte) ([]MapPair, int) {
+	return decodeAndConvertFromBlocksTest(data, terms.ENCODE_AS_FULL_BYTES)
+}
+
+func decodeAndConvertFromBlocksTest(data []byte, encodeSingleSeparate int) ([]MapPair, int) {
 	collectionSize := binary.LittleEndian.Uint64(data)
 
 	if collectionSize <= uint64(encodeSingleSeparate) {
@@ -217,6 +225,26 @@ func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.
 	return out
 }
 
+func convertFromBlock(encodedBlock *terms.BlockData, blockSize int) []*terms.DocPointerWithScore {
+	out := make([]*terms.DocPointerWithScore, blockSize)
+
+	docIds, tfs, propLengths := packedDecode(encodedBlock, blockSize)
+
+	for j := 0; j < blockSize; j++ {
+		docId := docIds[j]
+		tf := float32(tfs[j])
+		pl := float32(propLengths[j])
+
+		out[j] = &terms.DocPointerWithScore{
+			Id:         docId,
+			Frequency:  tf,
+			PropLength: pl,
+		}
+	}
+
+	return out
+}
+
 // a single node of strategy "inverted"
 type segmentInvertedNode struct {
 	values     []MapPair
@@ -231,7 +259,7 @@ func (s segmentInvertedNode) KeyIndexAndWriteTo(w io.Writer) (segmentindex.Key, 
 	written := 0
 	buf := make([]byte, 8) // uint64 size
 
-	blocksEncoded, _ := createAndEncodeBlocks(s.values, 1)
+	blocksEncoded, _ := createAndEncodeBlocks(s.values)
 	n, err := w.Write(blocksEncoded)
 	if err != nil {
 		return out, errors.Wrapf(err, "write values for node")
