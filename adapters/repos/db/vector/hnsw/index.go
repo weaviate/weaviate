@@ -286,7 +286,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
 	}
-	index.acornSearch.Store(uc.FilteredSearch.Enabled)
+	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	if uc.BQ.Enabled {
 		var err error
