@@ -96,7 +96,7 @@ func BenchmarkBits(m *testing.B) {
 		timePacked += int(stopTime.Sub(startTime))
 
 		sizeBaseline += len(encoded)
-		sizePacked += encoded2.size()
+		sizePacked += encoded2.Size()
 
 		for i := range docIds {
 			assert.Equal(m, docIds[i], decodedDocIds[i])

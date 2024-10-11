@@ -18,77 +18,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
-
-var BLOCK_SIZE = 128
-
-type blockEntry struct {
-	offset    uint64
-	maxId     uint64
-	maxImpact float32
-}
-
-func (b *blockEntry) size() int {
-	return 20
-}
-
-func (b *blockEntry) encode() []byte {
-	out := make([]byte, 20)
-	binary.LittleEndian.PutUint64(out, b.maxId)
-	binary.LittleEndian.PutUint64(out[8:], b.offset)
-	binary.LittleEndian.PutUint32(out[16:], math.Float32bits(b.maxImpact))
-	return out
-}
-
-func decodeBlockEntry(data []byte) *blockEntry {
-	return &blockEntry{
-		maxId:     binary.LittleEndian.Uint64(data),
-		offset:    binary.LittleEndian.Uint64(data[8:]),
-		maxImpact: math.Float32frombits(binary.LittleEndian.Uint32(data[12:])),
-	}
-}
-
-type blockData struct {
-	docIds      []byte
-	tfs         []byte
-	propLenghts []byte
-}
-
-func (b *blockData) size() int {
-	return 2*3 + len(b.docIds) + len(b.tfs) + len(b.propLenghts)
-}
-
-func (b *blockData) encode() []byte {
-	out := make([]byte, len(b.docIds)+len(b.tfs)+len(b.propLenghts)+6)
-	offset := 0
-	// write the lengths of the slices
-	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.docIds)))
-	offset += 2
-	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.tfs)))
-	offset += 2
-	binary.LittleEndian.PutUint16(out[offset:], uint16(len(b.propLenghts)))
-	offset += 2
-
-	offset += copy(out[offset:], b.docIds)
-	offset += copy(out[offset:], b.tfs)
-	offset += copy(out[offset:], b.propLenghts)
-	return out
-}
-
-func decodeBlockData(data []byte) *blockData {
-	docIdsLen := binary.LittleEndian.Uint16(data)
-	termFreqsLen := binary.LittleEndian.Uint16(data[2:])
-	propLengthsLen := binary.LittleEndian.Uint16(data[4:])
-	docIds := data[6 : 6+docIdsLen]
-	termFreqs := data[6+docIdsLen : 6+docIdsLen+termFreqsLen]
-	propLengths := data[6+docIdsLen+termFreqsLen : 6+docIdsLen+termFreqsLen+propLengthsLen]
-	return &blockData{
-		docIds:      docIds,
-		tfs:         termFreqs,
-		propLenghts: propLengths,
-	}
-}
 
 func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
 	out := sroar.NewBitmap()
@@ -106,7 +38,7 @@ func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
 	return out, values
 }
 
-func encodeBlock(nodes []MapPair) *blockData {
+func encodeBlock(nodes []MapPair) *terms.BlockData {
 	docIds := make([]uint64, len(nodes))
 	termFreqs := make([]uint64, len(nodes))
 	propLengths := make([]uint64, len(nodes))
@@ -122,19 +54,19 @@ func encodeBlock(nodes []MapPair) *blockData {
 	return packed
 }
 
-func createBlocks(nodes []MapPair) ([]*blockEntry, []*blockData, *sroar.Bitmap) {
+func createBlocks(nodes []MapPair) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap) {
 	tombstones, values := extractTombstones(nodes)
 
-	blockCount := (len(values) + (BLOCK_SIZE - 1)) / BLOCK_SIZE
+	blockCount := (len(values) + (terms.BLOCK_SIZE - 1)) / terms.BLOCK_SIZE
 
-	blockMetadata := make([]*blockEntry, blockCount)
-	blockDataEncoded := make([]*blockData, blockCount)
+	blockMetadata := make([]*terms.BlockEntry, blockCount)
+	blockDataEncoded := make([]*terms.BlockData, blockCount)
 
 	offset := uint64(0)
 
 	for i := 0; i < blockCount; i++ {
-		start := i * BLOCK_SIZE
-		end := start + BLOCK_SIZE
+		start := i * terms.BLOCK_SIZE
+		end := start + terms.BLOCK_SIZE
 		if end > len(values) {
 			end = len(values)
 		}
@@ -142,21 +74,21 @@ func createBlocks(nodes []MapPair) ([]*blockEntry, []*blockData, *sroar.Bitmap) 
 		maxId := binary.BigEndian.Uint64(nodes[end-1].Key)
 		blockDataEncoded[i] = encodeBlock(values[start:end])
 
-		blockMetadata[i] = &blockEntry{
-			maxId:  maxId,
-			offset: offset,
+		blockMetadata[i] = &terms.BlockEntry{
+			MaxId:  maxId,
+			Offset: offset,
 		}
 
-		offset += uint64(blockDataEncoded[i].size())
+		offset += uint64(blockDataEncoded[i].Size())
 	}
 
 	return blockMetadata, blockDataEncoded, tombstones
 }
 
-func encodeBlocks(blockEntries []*blockEntry, blockDatas []*blockData, docCount uint64) []byte {
+func encodeBlocks(blockEntries []*terms.BlockEntry, blockDatas []*terms.BlockData, docCount uint64) []byte {
 	length := 0
 	for i := range blockDatas {
-		length += blockDatas[i].size() + blockEntries[i].size()
+		length += blockDatas[i].Size() + blockEntries[i].Size()
 	}
 	out := make([]byte, length+8+8)
 	binary.LittleEndian.PutUint64(out, docCount)
@@ -166,13 +98,13 @@ func encodeBlocks(blockEntries []*blockEntry, blockDatas []*blockData, docCount 
 	offset += 8
 
 	for _, blockEntry := range blockEntries {
-		copy(out[offset:], blockEntry.encode())
-		offset += blockEntry.size()
+		copy(out[offset:], blockEntry.Encode())
+		offset += blockEntry.Size()
 	}
 	for _, blockData := range blockDatas {
 		// write the block data
-		copy(out[offset:], blockData.encode())
-		offset += blockData.size()
+		copy(out[offset:], blockData.Encode())
+		offset += blockData.Size()
 	}
 
 	return out
@@ -204,26 +136,26 @@ func createAndEncodeBlocks(nodes []MapPair, encodeSingleSeparate int) ([]byte, *
 	return encodeBlocks(blockEntries, blockDatas, uint64(len(nodes))), tombstones
 }
 
-func decodeBlocks(data []byte) ([]*blockEntry, []*blockData, int) {
+func decodeBlocks(data []byte) ([]*terms.BlockEntry, []*terms.BlockData, int) {
 	offset := 0
 	docCount := int(binary.LittleEndian.Uint64(data))
 	offset += 16
 
 	// calculate the number of blocks by dividing the number of documents by the block size and rounding up
-	blockCount := (docCount + (BLOCK_SIZE - 1)) / BLOCK_SIZE
+	blockCount := (docCount + (terms.BLOCK_SIZE - 1)) / terms.BLOCK_SIZE
 
-	blockEntries := make([]*blockEntry, blockCount)
-	blockDatas := make([]*blockData, blockCount)
+	blockEntries := make([]*terms.BlockEntry, blockCount)
+	blockDatas := make([]*terms.BlockData, blockCount)
 
 	blockDataInitialOffset := offset + blockCount*20
 
 	for i := 0; i < blockCount; i++ {
-		blockEntries[i] = decodeBlockEntry(data[offset:])
-		dataOffset := int(blockEntries[i].offset) + blockDataInitialOffset
-		blockDatas[i] = decodeBlockData(data[dataOffset:])
-		offset += blockEntries[i].size()
+		blockEntries[i] = terms.DecodeBlockEntry(data[offset:])
+		dataOffset := int(blockEntries[i].Offset) + blockDataInitialOffset
+		blockDatas[i] = terms.DecodeBlockData(data[dataOffset:])
+		offset += blockEntries[i].Size()
 	}
-	dataOffset := int(blockEntries[blockCount-1].offset) + blockDataInitialOffset + blockDatas[blockCount-1].size()
+	dataOffset := int(blockEntries[blockCount-1].Offset) + blockDataInitialOffset + blockDatas[blockCount-1].Size()
 
 	return blockEntries, blockDatas, dataOffset
 }
@@ -251,14 +183,14 @@ func decodeAndConvertFromBlocks(data []byte, encodeSingleSeparate int) ([]MapPai
 	return convertFromBlocks(blockEntries, blockDatas, collectionSize), offset
 }
 
-func convertFromBlocks(blockEntries []*blockEntry, encodedBlocks []*blockData, objectCount uint64) []MapPair {
+func convertFromBlocks(blockEntries []*terms.BlockEntry, encodedBlocks []*terms.BlockData, objectCount uint64) []MapPair {
 	out := make([]MapPair, 0, objectCount)
 
 	for i := range blockEntries {
 
-		blockSize := uint64(BLOCK_SIZE)
+		blockSize := uint64(terms.BLOCK_SIZE)
 		if i == len(blockEntries)-1 {
-			blockSize = objectCount - uint64(BLOCK_SIZE)*uint64(i)
+			blockSize = objectCount - uint64(terms.BLOCK_SIZE)*uint64(i)
 		}
 		blockSizeInt := int(blockSize)
 

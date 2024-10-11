@@ -174,46 +174,67 @@ func (s *SortedDocPointerWithScoreMerger) Do(ctx context.Context, segments [][]D
 	return s.output[:i], nil
 }
 
+type TermInterface interface {
+	// doubles as max impact (with tf=1, the max impact would be 1*Idf), if there
+	// is a boost for a queryTerm, simply apply it here once
+	Idf() float64
+	IdPointer() uint64
+	PosPointer() uint64
+	Exhausted() bool
+	QueryTerm() string
+	QueryTermIndex() int
+	AdvanceAtLeast(minID uint64)
+	ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, DocPointerWithScore)
+	Count() int
+}
+
 type Term struct {
 	// doubles as max impact (with tf=1, the max impact would be 1*Idf), if there
 	// is a boost for a queryTerm, simply apply it here once
-	Idf float64
+	idf float64
 
-	IdPointer      uint64
-	PosPointer     uint64
+	idPointer      uint64
+	posPointer     uint64
 	Data           []DocPointerWithScore
-	Exhausted      bool
-	QueryTerm      string
-	QueryTermIndex int
+	exhausted      bool
+	queryTerm      string
+	queryTermIndex int
+}
+
+func NewTerm(queryTerm string, queryTermIndex int) *Term {
+	return &Term{
+		queryTerm:      queryTerm,
+		queryTermIndex: queryTermIndex,
+	}
 }
 
 func (t *Term) ScoreAndAdvance(averagePropLength float64, config schema.BM25Config) (uint64, float64, DocPointerWithScore) {
-	id := t.IdPointer
-	pair := t.Data[t.PosPointer]
+	id := t.idPointer
+	pair := t.Data[t.posPointer]
 	freq := float64(pair.Frequency)
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength))
 
 	// advance
-	t.PosPointer++
-	if t.PosPointer >= uint64(len(t.Data)) {
-		t.Exhausted = true
-		t.IdPointer = math.MaxUint64 // force them to the end of the term list
+	t.posPointer++
+	if t.posPointer >= uint64(len(t.Data)) {
+		t.exhausted = true
+		t.idPointer = math.MaxUint64 // force them to the end of the term list
 	} else {
-		t.IdPointer = t.Data[t.PosPointer].Id
+		t.idPointer = t.Data[t.posPointer].Id
 	}
 
-	return id, tf * t.Idf, pair
+	return id, tf * t.idf, pair
 }
 
 func (t *Term) AdvanceAtLeast(minID uint64) {
-	for t.IdPointer < minID {
-		t.PosPointer++
-		if t.PosPointer >= uint64(len(t.Data)) {
-			t.Exhausted = true
-			t.IdPointer = math.MaxUint64 // force them to the end of the term list
+	for t.idPointer < minID {
+		t.posPointer++
+		if t.posPointer >= uint64(len(t.Data)) {
+			t.exhausted = true
+			t.idPointer = math.MaxUint64 // force them to the end of the term list
 			return
 		}
-		t.IdPointer = t.Data[t.PosPointer].Id
+		t.idPointer = t.Data[t.posPointer].Id
 	}
 }
 
@@ -221,14 +242,50 @@ func (t *Term) Count() int {
 	return len(t.Data)
 }
 
+func (t *Term) Idf() float64 {
+	return t.idf
+}
+
+func (t *Term) IdPointer() uint64 {
+	return t.idPointer
+}
+
+func (t *Term) PosPointer() uint64 {
+	return t.posPointer
+}
+
+func (t *Term) Exhausted() bool {
+	return t.exhausted
+}
+
+func (t *Term) QueryTerm() string {
+	return t.queryTerm
+}
+
+func (t *Term) QueryTermIndex() int {
+	return t.queryTermIndex
+}
+
+func (t *Term) SetIdf(idf float64) {
+	t.idf = idf
+}
+
+func (t *Term) SetPosPointer(posPointer uint64) {
+	t.posPointer = posPointer
+}
+
+func (t *Term) SetIdPointer(idPointer uint64) {
+	t.idPointer = idPointer
+}
+
 type Terms struct {
-	T     []*Term
+	T     []TermInterface
 	Count int
 }
 
 func (t *Terms) CompletelyExhausted() bool {
 	for i := range t.T {
-		if !t.T[i].Exhausted {
+		if !t.T[i].Exhausted() {
 			return false
 		}
 	}
@@ -261,12 +318,12 @@ func (t *Terms) FindMinID(minScore float64) (uint64, int, bool) {
 	cumScore := float64(0)
 
 	for i, term := range t.T {
-		if term.Exhausted {
+		if term.Exhausted() {
 			continue
 		}
-		cumScore += term.Idf
+		cumScore += term.Idf()
 		if cumScore >= minScore {
-			return term.IdPointer, i, false
+			return term.IdPointer(), i, false
 		}
 	}
 
@@ -275,7 +332,7 @@ func (t *Terms) FindMinID(minScore float64) (uint64, int, bool) {
 
 func (t *Terms) FindFirstNonExhausted() (int, bool) {
 	for i := range t.T {
-		if !t.T[i].Exhausted {
+		if !t.T[i].Exhausted() {
 			return i, true
 		}
 	}
@@ -300,16 +357,16 @@ func (t *Terms) ScoreNext(averagePropLength float64, config schema.BM25Config, a
 		docInfos = make([]*DocPointerWithScore, t.Count)
 	}
 
-	id := t.T[pos].IdPointer
+	id := t.T[pos].IdPointer()
 	var cumScore float64
 	for i := pos; i < len(t.T); i++ {
-		if t.T[i].IdPointer != id || t.T[i].Exhausted {
+		if t.T[i].IdPointer() != id || t.T[i].Exhausted() {
 			continue
 		}
 		term := t.T[i]
 		_, score, docInfo := term.ScoreAndAdvance(averagePropLength, config)
 		if additionalExplanations {
-			docInfos[term.QueryTermIndex] = &docInfo
+			docInfos[term.QueryTermIndex()] = &docInfo
 		}
 		cumScore += score
 	}
@@ -324,7 +381,7 @@ func (t *Terms) Len() int {
 }
 
 func (t *Terms) Less(i, j int) bool {
-	return t.T[i].IdPointer < t.T[j].IdPointer
+	return t.T[i].IdPointer() < t.T[j].IdPointer()
 }
 
 func (t *Terms) Swap(i, j int) {
@@ -339,8 +396,8 @@ func (t *Terms) PartialSort() {
 	min := uint64(0)
 	minIndex := -1
 	for i := 0; i < len(t.T); i++ {
-		if minIndex == -1 || (t.T[i].IdPointer < min && !t.T[i].Exhausted) {
-			min = t.T[i].IdPointer
+		if minIndex == -1 || (t.T[i].IdPointer() < min && !t.T[i].Exhausted()) {
+			min = t.T[i].IdPointer()
 			minIndex = i
 		}
 	}
