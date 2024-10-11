@@ -22,4 +22,7 @@ func init() {
 	} else if cpu.X86.HasAVX2 {
 		hammingImpl = asm.HammingAVX256
 	}
+	if cpu.X86.HasAVX2 {
+		hammingBitwiseImpl = asm.HammingBitwiseAVX256
+	}
 }
