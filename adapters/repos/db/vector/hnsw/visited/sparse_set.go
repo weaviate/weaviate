@@ -123,6 +123,9 @@ func (s *SparseSet) Reset() {
 }
 
 func (s *SparseSet) resetSegment(segmentId uint64) {
+	if segmentId >= uint64(len(s.segmentedBitSets.segments)) {
+		s.segmentedBitSets.grow(segmentId - uint64(len(s.segmentedBitSets.segments)) + 1)
+	}
 	s.segmentedBitSets.segments[segmentId] = s.segmentedBitSets.pool.Get().(*segment)
 	segment := s.segmentedBitSets.segments[segmentId]
 	for i := range segment.bitSet {
