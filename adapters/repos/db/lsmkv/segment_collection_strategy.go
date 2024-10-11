@@ -99,11 +99,19 @@ func (s *segment) collectionStratParseDataInverted(in []byte) ([]value, error) {
 	offset += 8
 
 	values := make([]value, valuesLen)
+
+	nodes, _ := decodeAndConvertFromBlocks(in, 1)
+
 	valueIndex := 0
-	for valueIndex < int(valuesLen) {
-		values[valueIndex].value = in[offset : offset+int(invPayloadLen)]
-		offset += int(invPayloadLen)
+	for _, node := range nodes {
+		buf := make([]byte, 16)
+		copy(buf, node.Key)
+		copy(buf[8:], node.Value)
+		values[valueIndex].tombstone = node.Tombstone
+		values[valueIndex].value = buf
+
 		valueIndex++
+
 	}
 
 	return values, nil
