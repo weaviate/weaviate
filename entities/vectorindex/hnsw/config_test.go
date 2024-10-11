@@ -62,6 +62,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 
@@ -97,6 +98,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 
@@ -143,6 +145,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 
@@ -189,6 +192,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 
@@ -206,6 +210,7 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfFactor":        json.Number("19"),
 				"skip":                   true,
 				"distance":               "hamming",
+				"filterStrategy":         "sweeping",
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: 11,
@@ -235,6 +240,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 
@@ -279,6 +285,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 
@@ -332,6 +339,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 
@@ -384,6 +392,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 
@@ -456,6 +465,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 		{
@@ -539,6 +549,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 		{
@@ -583,6 +594,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				FilterStrategy: DefaultFilterStrategy,
 			},
 		},
 		{
@@ -602,11 +614,17 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "invalid hnsw config: more than a single compression methods enabled",
 		},
 		{
-			name: "filteredSearch enabled, all defaults",
+			name: "with invalid filter strategy",
 			input: map[string]interface{}{
-				"filteredSearch": map[string]interface{}{
-					"enabled": true,
-				},
+				"filterStrategy": "chestnut",
+			},
+			expectErr:    true,
+			expectErrMsg: "invalid hnsw config: filterStrategy must be either 'sweeping' or 'acorn'",
+		},
+		{
+			name: "acorn enabled, all defaults",
+			input: map[string]interface{}{
+				"filterStrategy": "acorn",
 			},
 			expected: UserConfig{
 				CleanupIntervalSeconds: DefaultCleanupIntervalSeconds,
@@ -636,9 +654,7 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
-				FilteredSearch: FilteredSearchConfig{
-					Enabled: true,
-				},
+				FilterStrategy: FilterStrategyAcorn,
 			},
 		},
 	}

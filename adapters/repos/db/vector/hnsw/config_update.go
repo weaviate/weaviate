@@ -99,7 +99,8 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	atomic.StoreInt64(&h.efMax, int64(parsed.DynamicEFMax))
 	atomic.StoreInt64(&h.efFactor, int64(parsed.DynamicEFFactor))
 	atomic.StoreInt64(&h.flatSearchCutoff, int64(parsed.FlatSearchCutoff))
-	h.acornSearch.Store(parsed.FilteredSearch.Enabled)
+
+	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
 
 	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled {
 		callback()
