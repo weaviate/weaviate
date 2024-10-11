@@ -99,7 +99,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 		return err
 	}
 
-	nodes, _ := decodeAndConvertFromBlocks(allBytes, 1)
+	nodes, _ := decodeAndConvertFromBlocks(allBytes)
 
 	keyLen := binary.LittleEndian.Uint32(allBytes[len(allBytes)-4:])
 
