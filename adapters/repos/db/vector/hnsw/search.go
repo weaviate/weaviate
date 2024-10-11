@@ -721,7 +721,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 			i++
 		}
 		for _, entryPoint := range seeds {
-			entryPointDistance, _, _ := h.distToNode(compressorDistancer, entryPoint, searchVec)
+			entryPointDistance, _ := h.distToNode(compressorDistancer, entryPoint, searchVec)
 			eps.Insert(entryPoint, entryPointDistance)
 		}
 	}
