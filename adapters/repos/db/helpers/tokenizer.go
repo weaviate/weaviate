@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-ego/gse"
 	koDict "github.com/ikawaha/kagome-dict-ko"
+	"github.com/ikawaha/kagome-dict/ipa"
 	kagomeTokenizer "github.com/ikawaha/kagome/v2/tokenizer"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -30,6 +31,7 @@ var (
 	gseTokenizerLock = &sync.Mutex{}
 	UseGse           = false
 	KagomeKrEnabled  = false
+	KagomeJaEnabled  = false
 )
 
 // Optional tokenizers can be enabled with an environment variable like:
@@ -49,8 +51,12 @@ func init() {
 	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_KR")) {
 		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeKr)
 	}
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+		Tokenizations = append(Tokenizations, models.PropertyTokenizationKagomeJa)
+	}
 	init_gse()
 	_ = initializeKagomeTokenizerKr()
+	_ = initializeKagomeTokenizerJa()
 }
 
 func init_gse() {
@@ -86,6 +92,8 @@ func Tokenize(tokenization string, in string) []string {
 		return tokenizeGSE(in)
 	case models.PropertyTokenizationKagomeKr:
 		return tokenizeKagomeKr(in)
+	case models.PropertyTokenizationKagomeJa:
+		return tokenizeKagomeJa(in)
 	default:
 		return []string{}
 	}
@@ -107,6 +115,8 @@ func TokenizeWithWildcards(tokenization string, in string) []string {
 		return tokenizeGSE(in)
 	case models.PropertyTokenizationKagomeKr:
 		return tokenizeKagomeKr(in)
+	case models.PropertyTokenizationKagomeJa:
+		return tokenizeKagomeJa(in)
 	default:
 		return []string{}
 	}
@@ -184,7 +194,8 @@ func tokenizeGSE(in string) []string {
 }
 
 type KagomeTokenizers struct {
-	Korean *kagomeTokenizer.Tokenizer
+	Korean   *kagomeTokenizer.Tokenizer
+	Japanese *kagomeTokenizer.Tokenizer
 }
 
 var (
@@ -228,6 +239,48 @@ func tokenizeKagomeKr(in string) []string {
 	for _, token := range kagomeTokens {
 		if token.Surface != "EOS" && token.Surface != "BOS" {
 			terms = append(terms, token.Surface)
+		}
+	}
+
+	return removeEmptyStrings(terms)
+}
+
+func initializeKagomeTokenizerJa() error {
+	// Acquire lock to prevent initialization race
+	kagomeInitLock.Lock()
+	defer kagomeInitLock.Unlock()
+
+	if entcfg.Enabled(os.Getenv("ENABLE_TOKENIZER_KAGOME_JA")) {
+		if tokenizers.Japanese != nil {
+			return nil
+		}
+
+		dictInstance := ipa.Dict()
+		tokenizer, err := kagomeTokenizer.New(dictInstance)
+		if err != nil {
+			return err
+		}
+
+		tokenizers.Japanese = tokenizer
+		KagomeJaEnabled = true
+		return nil
+	}
+
+	return nil
+}
+
+func tokenizeKagomeJa(in string) []string {
+	tokenizer := tokenizers.Japanese
+	if tokenizer == nil || !KagomeJaEnabled {
+		return []string{}
+	}
+
+	kagomeTokens := tokenizer.Analyze(in, kagomeTokenizer.Search)
+	terms := make([]string, 0, len(kagomeTokens))
+
+	for _, token := range kagomeTokens {
+		if token.Surface != "EOS" && token.Surface != "BOS" {
+			terms = append(terms, strings.ToLower(token.Surface))
 		}
 	}
 
