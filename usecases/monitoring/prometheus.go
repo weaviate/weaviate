@@ -19,10 +19,14 @@ import (
 )
 
 type Config struct {
-	Enabled bool   `json:"enabled" yaml:"enabled"`
+	Enabled bool   `json:"enabled" yaml:"enabled" long:"enabled"`
 	Tool    string `json:"tool" yaml:"tool"`
-	Port    int    `json:"port" yaml:"port"`
+	Port    int    `json:"port" yaml:"port" long:"port" default:"8081"`
 	Group   bool   `json:"group_classes" yaml:"group_classes"`
+
+	// Metrics namespace group the metrics with common prefix.
+	// currently used only on ServerMetrics.
+	MetricsNamespace string `json:"metrics_namespace" yaml:"metrics_namespace" long:"metrics_namespace" default:""`
 }
 
 type PrometheusMetrics struct {
@@ -60,11 +64,6 @@ type PrometheusMetrics struct {
 	BackupStoreDataTransferred        *prometheus.CounterVec
 
 	// offload metric
-	TenantCloudOffloadDurations       *prometheus.SummaryVec
-	TenantCloudLoadDurations          *prometheus.SummaryVec
-	TenantCloudDeleteDurations        *prometheus.SummaryVec
-	TenantCloudOffloadDataTransferred *prometheus.CounterVec
-	TenantCloudLoadDataTransferred    *prometheus.CounterVec
 
 	IndexQueuePushDuration    *prometheus.SummaryVec
 	IndexQueueDeleteDuration  *prometheus.SummaryVec
@@ -130,6 +129,89 @@ type PrometheusMetrics struct {
 	T2VTokensInRequest    *prometheus.HistogramVec
 	T2VRateLimitStats     *prometheus.GaugeVec
 	T2VRequestsPerBatch   *prometheus.HistogramVec
+}
+
+func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
+	r := promauto.With(reg)
+	return &TenantOffloadMetrics{
+		FetchedBytes: r.NewCounter(prometheus.CounterOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tenant_offload_fetched_bytes_total",
+		}),
+		TransferredBytes: r.NewCounter(prometheus.CounterOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tenant_offload_transferred_bytes_total",
+		}),
+		OpsDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tenant_offload_operation_duration_seconds",
+			Buckets:   latencyBuckets,
+		}, []string{"operation", "status"}), // status can be "success" or "failure"
+	}
+}
+
+type TenantOffloadMetrics struct {
+	// NOTE: These ops are not GET or PUT requests to object storage.
+	// these are one of the `download`, `upload` or `delete`. Because we use s5cmd to talk
+	// to object storage currently. Which supports these operations at high level.
+	FetchedBytes     prometheus.Counter
+	TransferredBytes prometheus.Counter
+	OpsDuration      *prometheus.HistogramVec
+}
+
+func NewServerMetrics(cfg Config, reg prometheus.Registerer) *ServerMetrics {
+	r := promauto.With(reg)
+
+	return &ServerMetrics{
+		TCPActiveConnections: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "tcp_active_connections",
+			Help:      "Current number of accepted TCP connections.",
+		}, []string{"protocol"}),
+		RequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "request_duration_seconds",
+			Help:      "Time (in seconds) spent serving HTTP requests.",
+			Buckets:   latencyBuckets,
+		}, []string{"method", "route", "status_code"}),
+		PerTenantRequestDuration: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "per_tenant_request_duration_seconds",
+			Help:      "Time (in seconds) spent serving HTTP requests for a particular tenant.",
+			Buckets:   latencyBuckets,
+		}, []string{"method", "route", "status_code", "tenant", "collection"}),
+		RequestBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "request_message_bytes",
+			Help:      "Size (in bytes) of messages received in the request.",
+			Buckets:   sizeBuckets,
+		}, []string{"method", "route"}),
+		ResponseBodySize: r.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "response_message_bytes",
+			Help:      "Size (in bytes) of messages sent in response.",
+			Buckets:   sizeBuckets,
+		}, []string{"method", "route"}),
+		InflightRequests: r.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: cfg.MetricsNamespace,
+			Name:      "inflight_requests",
+			Help:      "Current number of inflight requests.",
+		}, []string{"method", "route"}),
+	}
+}
+
+// ServerMetrics exposes set of prometheus metrics for http and grpc servers.
+type ServerMetrics struct {
+	TCPActiveConnections *prometheus.GaugeVec
+	RequestDuration      *prometheus.HistogramVec
+
+	// NOTE: Adding it as experimental, since we have unbounded cardinality for number of tenant/shards
+	// we may remove it in future.
+	PerTenantRequestDuration *prometheus.HistogramVec
+
+	RequestBodySize  *prometheus.HistogramVec
+	ResponseBodySize *prometheus.HistogramVec
+	InflightRequests *prometheus.GaugeVec
 }
 
 // Delete Shard deletes existing label combinations that match both
@@ -211,20 +293,25 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	pm.BackupStoreDataTransferred.DeletePartialMatch(labels)
 	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
 
-	// delete offload metric
-	pm.TenantCloudOffloadDurations.DeletePartialMatch(labels)
-	pm.TenantCloudLoadDurations.DeletePartialMatch(labels)
-	pm.TenantCloudDeleteDurations.DeletePartialMatch(labels)
-	pm.TenantCloudOffloadDataTransferred.DeletePartialMatch(labels)
-	pm.TenantCloudLoadDataTransferred.DeletePartialMatch(labels)
-
 	return nil
 }
 
+const mb = 1024 * 1024
+
 var (
-	msBuckets                    = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
-	sBuckets                     = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
-	metrics   *PrometheusMetrics = nil
+	// msBuckets and sBuckets are deprecated. Use `latencyBuckets` and `sizeBuckets` instead.
+	msBuckets = []float64{10, 50, 100, 500, 1000, 5000, 10000, 60000, 300000}
+	sBuckets  = []float64{0.01, 0.1, 1, 10, 20, 30, 60, 120, 180, 500}
+
+	// latencyBuckets is default histogram bucket for response time (in seconds).
+	// It also includes request that served *very* fast and *very* slow
+	latencyBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 25, 50, 100}
+
+	// sizeBuckets defines buckets for request/response body sizes (in bytes).
+	// TODO(kavi): Check with real data once deployed on prod and tweak accordingly.
+	sizeBuckets = []float64{1 * mb, 2.5 * mb, 5 * mb, 10 * mb, 25 * mb, 50 * mb, 100 * mb, 250 * mb}
+
+	metrics *PrometheusMetrics = nil
 )
 
 func init() {
@@ -503,28 +590,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "backup_store_data_transferred",
 			Help: "Total number of bytes transferred during a backup store",
 		}, []string{"backend_name", "class_name"}),
-
-		// Offload metrics
-		TenantCloudOffloadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "tenant_offload_up_durations_ms",
-			Help: "tenant offload durations",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
-		TenantCloudLoadDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "tenant_offload_down_durations_ms",
-			Help: "tenant onload durations",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
-		TenantCloudDeleteDurations: prometheus.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "tenant_offload_delete_durations_ms",
-			Help: "tenant onload durations",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
-		TenantCloudOffloadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "tenant_offload_up_data_bytes",
-			Help: "Total number of bytes transferred during a tenant offload to cloud",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
-		TenantCloudLoadDataTransferred: promauto.NewCounterVec(prometheus.CounterOpts{
-			Name: "tenant_offload_down_data_bytes",
-			Help: "Total number of bytes transferred during a tenant load from cloud",
-		}, []string{"backend_name", "class_name", "tenant_name", "node_name"}),
 
 		// Shard metrics
 		ShardsLoaded: promauto.NewGaugeVec(prometheus.GaugeOpts{

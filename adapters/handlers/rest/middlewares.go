@@ -20,6 +20,7 @@ import (
 	"time"
 
 	sentryhttp "github.com/getsentry/sentry-go/http"
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
@@ -108,7 +109,7 @@ func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Ha
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
-func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Handler {
+func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
@@ -128,6 +129,16 @@ func makeSetupGlobalMiddleware(appState *state.State) func(http.Handler) http.Ha
 		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		handler = addInjectHeadersIntoContext(handler)
 		handler = makeCatchPanics(appState.Logger, newPanicsRequestsTotal(appState.Metrics, appState.Logger))(handler)
+		if appState.ServerConfig.Config.Monitoring.Enabled {
+			handler = monitoring.InstrumentHTTP(
+				handler,
+				context,
+				appState.ServerMetrics.InflightRequests,
+				appState.ServerMetrics.RequestDuration,
+				appState.ServerMetrics.RequestBodySize,
+				appState.ServerMetrics.ResponseBodySize,
+			)
+		}
 		// Must be the last middleware as it might skip the next handler
 		handler = addClusterHandlerMiddleware(handler, appState)
 		if appState.ServerConfig.Config.Sentry.Enabled {
