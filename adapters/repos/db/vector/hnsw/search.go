@@ -242,7 +242,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			slice = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
 			connectionsReusable = slice.Slice
 			slice2 = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
-			slice3 = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero * h.maximumConnectionsLayerZero * h.maximumConnectionsLayerZero)
+			slice3 = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero * h.maximumConnectionsLayerZero)
 			pendingNextRound := slice2.Slice
 			pendingThisRound := slice3.Slice
 
