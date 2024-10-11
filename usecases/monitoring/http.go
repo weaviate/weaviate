@@ -17,6 +17,7 @@ import (
 	"strconv"
 
 	"github.com/felixge/httpsnoop"
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -28,19 +29,27 @@ type InstrumentHandler struct {
 	requestSize  *prometheus.HistogramVec
 	responseSize *prometheus.HistogramVec
 
+	// next is original http handler we instrument
 	next http.Handler
+
+	// context is from openapi spec. Used for routing information.
+	// for e.g: to turn dynamic routing `/api/v1/schema/Question/tenant1` to static route `/api/v1/schema/{class}/{tenant}`
+	// This is useful to create bounded cardinality value for "route" label.
+	context *middleware.Context
 }
 
 func InstrumentHTTP(
 	next http.Handler,
+	context *middleware.Context,
 	inflight *prometheus.GaugeVec,
 	duration *prometheus.HistogramVec,
 	requestSize *prometheus.HistogramVec,
 	responseSize *prometheus.HistogramVec,
 ) *InstrumentHandler {
 	return &InstrumentHandler{
-		inflightRequests: inflight,
 		next:             next,
+		context:          context,
+		inflightRequests: inflight,
 		duration:         duration,
 		requestSize:      requestSize,
 		responseSize:     responseSize,
@@ -48,9 +57,14 @@ func InstrumentHTTP(
 }
 
 func (i *InstrumentHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// TODO(kavi): make it into right static route
-	// e.g: removing `/<class>/` from the path in `v1/schema`. Because that will make the label unbounded.
 	route := r.URL.String()
+	matchedRoute, rr, ok := i.context.RouteInfo(r)
+	if ok {
+		// convert dynamic route to static route.
+		// `/api/v1/schema/Question/tenant1` -> `/api/v1/schema/{class}/{tenant}`
+		route = matchedRoute.PathPattern
+		r = rr
+	}
 
 	method := r.Method
 
