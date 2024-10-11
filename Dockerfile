@@ -62,6 +62,18 @@ FROM golang:1.22-alpine AS grpc_health_probe_builder
 RUN go install github.com/grpc-ecosystem/grpc-health-probe@v0.4.29
 RUN GOBIN=/go/bin && chmod +x ${GOBIN}/grpc-health-probe && mv ${GOBIN}/grpc-health-probe /bin/grpc_health_probe
 
+################################################################################
+# Weaviate experimental (check ./cmd/weaviate/README.md)
+FROM alpine AS weaviate_experimental
+ENTRYPOINT ["/bin/weaviate-exp"]
+COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
+COPY --from=experimental_server_builder /weaviate /bin/weaviate-exp
+RUN mkdir -p /go/pkg/mod/github.com/go-ego
+COPY --from=experimental_server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
+RUN apk add --no-cache --upgrade bc ca-certificates openssl
+RUN mkdir ./modules
+CMD [ "--monitoring.metrics_namespace", "weaviate"]
+
 ###############################################################################
 # Weaviate (no differentiation between dev/test/prod - 12 factor!)
 FROM alpine AS weaviate
@@ -73,15 +85,3 @@ COPY --from=server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/
 RUN apk add --no-cache --upgrade bc ca-certificates openssl
 RUN mkdir ./modules
 CMD [ "--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
-
-################################################################################
-# Weaviate experimental (check ./cmd/weaviate/README.md)
-FROM alpine AS weaviate_experimental
-ENTRYPOINT ["/bin/weaviate"]
-COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
-COPY --from=experimental_server_builder /weaviate /bin/weaviate
-RUN mkdir -p /go/pkg/mod/github.com/go-ego
-COPY --from=experimental_server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
-RUN apk add --no-cache --upgrade bc ca-certificates openssl
-RUN mkdir ./modules
-CMD [ "--monitoring.metrics_namespace", "weaviate"]
