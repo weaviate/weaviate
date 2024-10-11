@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"encoding/binary"
 	"math/bits"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 )
 
 // Delta Encode: Compute the deltas of the input values
@@ -175,22 +177,22 @@ func unpackDeltas(packed []byte, deltasCount int) []uint64 {
 	return deltas
 }
 
-func packedEncode(docIds, termFreqs, propLengths []uint64) *blockData {
+func packedEncode(docIds, termFreqs, propLengths []uint64) *terms.BlockData {
 	docIdsDeltas := deltaEncode(docIds)
 	docIdsPacked := packDeltas(docIdsDeltas)
 	termFreqsPacked := packDeltas(termFreqs)
 	propLengthsPacked := packDeltas(propLengths)
 
-	return &blockData{
-		docIds:      docIdsPacked,
-		tfs:         termFreqsPacked,
-		propLenghts: propLengthsPacked,
+	return &terms.BlockData{
+		DocIds:      docIdsPacked,
+		Tfs:         termFreqsPacked,
+		PropLenghts: propLengthsPacked,
 	}
 }
 
-func packedDecode(values *blockData, numValues int) ([]uint64, []uint64, []uint64) {
-	docIds := deltaDecode(unpackDeltas(values.docIds, numValues))
-	termFreqs := unpackDeltas(values.tfs, numValues)
-	propLengths := unpackDeltas(values.propLenghts, numValues)
+func packedDecode(values *terms.BlockData, numValues int) ([]uint64, []uint64, []uint64) {
+	docIds := deltaDecode(unpackDeltas(values.DocIds, numValues))
+	termFreqs := unpackDeltas(values.Tfs, numValues)
+	propLengths := unpackDeltas(values.PropLenghts, numValues)
 	return docIds, termFreqs, propLengths
 }

@@ -253,7 +253,7 @@ func (b *BM25Searcher) wand(
 		}
 	}
 
-	resultsNonNil := make([]*terms.Term, 0, len(results))
+	resultsNonNil := make([]terms.TermInterface, 0, len(results))
 	for _, res := range results {
 		if res != nil {
 			resultsNonNil = append(resultsNonNil, res)
@@ -379,10 +379,7 @@ func (b *BM25Searcher) getTopKHeap(limit int, results *terms.Terms, averagePropL
 }
 
 func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, query string, queryTermIndex int, propertyNames []string, propertyBoosts map[string]float32, duplicateTextBoost int, ctx context.Context) (*terms.Term, error) {
-	termResult := &terms.Term{
-		QueryTerm:      query,
-		QueryTermIndex: queryTermIndex,
-	}
+	termResult := terms.NewTerm(query, queryTermIndex)
 
 	var filteredDocIDs *sroar.Bitmap
 	var filteredDocIDsThread []*sroar.Bitmap
@@ -468,9 +465,9 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		if filterDocIds != nil {
 			n += float64(filteredDocIDs.GetCardinality())
 		}
-		termResult.Idf = math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoost)
-		termResult.PosPointer = 0
-		termResult.IdPointer = termResult.Data[0].Id
+		termResult.SetIdf(math.Log(float64(1)+(N-float64(n)+0.5)/(float64(n)+0.5)) * float64(duplicateTextBoost))
+		termResult.SetPosPointer(0)
+		termResult.SetIdPointer(termResult.Data[0].Id)
 		return termResult, nil
 	}
 	indices := make([]int, len(allMsAndProps))
@@ -543,7 +540,7 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 	if filterDocIds != nil {
 		n += float64(filteredDocIDs.GetCardinality())
 	}
-	termResult.Idf = math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost)
+	termResult.SetIdf(math.Log(float64(1)+(N-n+0.5)/(n+0.5)) * float64(duplicateTextBoost))
 
 	// catch special case where there are no results and would panic termResult.data[0].id
 	// related to #4125
@@ -551,8 +548,8 @@ func (b *BM25Searcher) createTerm(N float64, filterDocIds helpers.AllowList, que
 		return nil, nil
 	}
 
-	termResult.PosPointer = 0
-	termResult.IdPointer = termResult.Data[0].Id
+	termResult.SetPosPointer(0)
+	termResult.SetIdPointer(termResult.Data[0].Id)
 	return termResult, nil
 }
 
