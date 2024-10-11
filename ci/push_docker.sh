@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# TODO(kavi): Remove before make PR ready to review
+set -x
+
 DOCKER_REPO="semitechnologies/weaviate"
 DOCKER_REPO_SERVERLESS="semitechnologies/weaviate-experimental"
 
@@ -61,12 +64,12 @@ function release() {
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
-    args+=("-t=$tag_exact")
-    args+=("-t=$tag_latest")
+    weaviate_args+=("-t=$tag_exact")
+    weaviate_args+=("-t=$tag_latest")
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds
-    args+=("-t=$tag_preview")
+    weaviate_args+=("-t=$tag_preview")
   fi
 
   # build weaviate image
