@@ -12,6 +12,7 @@
 package journey
 
 import (
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -49,6 +50,14 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	tenantNames []string, pqEnabled bool, nodeMapping map[string]string,
 	override bool,
 ) {
+	overrideBucket := ""
+	overridePath := ""
+
+	if override {
+		overrideBucket = "testbucketoverride"
+		overridePath = "testBucketPathOverride"
+	}
+
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
 			backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
@@ -68,10 +77,10 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			time.Sleep(3 * time.Second)
 		}
 		cfg := helper.DefaultBackupConfig()
-		if override {
-			cfg.S3Bucket = "testbucketoverride"
-			cfg.S3Path = "testBucketPathOverride"
-		}
+
+		cfg.S3Bucket = overrideBucket
+		cfg.S3Path = overridePath
+
 		resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
 
@@ -84,7 +93,9 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			case <-ticker.C:
 				break wait
 			default:
-				resp, err := helper.CreateBackupStatus(t, backend, backupID)
+
+				resp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+
 				helper.AssertRequestOk(t, resp, err, func() {
 					require.NotNil(t, resp)
 					require.NotNil(t, resp.Payload)
@@ -98,7 +109,8 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			}
 		}
 
-		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
+		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+
 		helper.AssertRequestOk(t, resp, err, func() {
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)
@@ -116,10 +128,11 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 
 	t.Run("restore backup", func(t *testing.T) {
 		cfg := helper.DefaultRestoreConfig()
-		if override {
-			cfg.S3Bucket = "testbucketoverride"
-			cfg.S3Path = "testBucketPathOverride"
-		}
+
+		cfg.S3Bucket = overrideBucket
+		cfg.S3Path = overridePath
+
+		fmt.Printf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
 		_, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
 		require.Nil(t, err, "expected nil, got: %v", err)
 
@@ -131,7 +144,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			case <-ticker.C:
 				break wait
 			default:
-				resp, err := helper.RestoreBackupStatus(t, backend, backupID)
+				resp, err := helper.RestoreBackupStatus(t, backend, backupID, overrideBucket,overridePath)
 				helper.AssertRequestOk(t, resp, err, func() {
 					require.NotNil(t, resp)
 					require.NotNil(t, resp.Payload)
@@ -145,7 +158,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			}
 		}
 
-		statusResp, err := helper.RestoreBackupStatus(t, backend, backupID)
+		statusResp, err := helper.RestoreBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 		helper.AssertRequestOk(t, statusResp, err, func() {
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)
@@ -212,7 +225,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, backupID st
 			case <-ticker.C:
 				break wait
 			default:
-				statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
+				statusResp, err := helper.CreateBackupStatus(t, backend, backupID, "", "") //FIXME add override
 				helper.AssertRequestOk(t, resp, err, func() {
 					require.NotNil(t, statusResp)
 					require.NotNil(t, statusResp.Payload)
@@ -226,7 +239,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, backupID st
 			}
 		}
 
-		statusResp, err := helper.CreateBackupStatus(t, backend, backupID)
+		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, "", "") //FIXME add override
 		helper.AssertRequestOk(t, resp, err, func() {
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)

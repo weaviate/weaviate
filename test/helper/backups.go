@@ -58,10 +58,12 @@ func CancelBackup(t *testing.T, className, backend, backupID string) error {
 	return err
 }
 
-func CreateBackupStatus(t *testing.T, backend, backupID string) (*backups.BackupsCreateStatusOK, error) {
+func CreateBackupStatus(t *testing.T, backend, backupID, overrideBucket, overridePath string) (*backups.BackupsCreateStatusOK, error) {
 	params := backups.NewBackupsCreateStatusParams().
 		WithBackend(backend).
-		WithID(backupID)
+		WithID(backupID).
+		WithS3bucket(&overrideBucket).
+		WithS3path(&overridePath)
 	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 
@@ -77,9 +79,11 @@ func RestoreBackup(t *testing.T, cfg *models.RestoreConfig, className, backend, 
 	return Client(t).Backups.BackupsRestore(params, nil)
 }
 
-func RestoreBackupStatus(t *testing.T, backend, backupID string) (*backups.BackupsRestoreStatusOK, error) {
+func RestoreBackupStatus(t *testing.T, backend, backupID, overrideBucket, overridePath string) (*backups.BackupsRestoreStatusOK, error) {
 	params := backups.NewBackupsRestoreStatusParams().
 		WithBackend(backend).
-		WithID(backupID)
+		WithID(backupID).
+		WithS3bucket(&overrideBucket).
+		WithS3path(&overridePath)
 	return Client(t).Backups.BackupsRestoreStatus(params, nil)
 }

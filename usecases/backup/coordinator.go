@@ -320,6 +320,8 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	if req.Method == OpRestore {
 		filename = GlobalRestoreFile
 	}
+
+	fmt.Printf("Checking backup for store: %+v\n", store)
 	// The backup might have been already created.
 	meta, err := store.Meta(ctx, filename, store.S3Bucket, store.S3Path)
 	if err != nil {
@@ -327,13 +329,15 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v", errMetaNotFound, path, err)
 	}
 
-	return &Status{
+	status := &Status{
 		Path:        store.HomeDir(store.S3Bucket, store.S3Path),
 		StartedAt:   meta.StartedAt,
 		CompletedAt: meta.CompletedAt,
 		Status:      meta.Status,
 		Err:         meta.Error,
-	}, nil
+	}
+	fmt.Printf("Status: %+v\n", status)
+	return status, nil
 }
 
 // canCommit asks candidates if they agree to participate in DBRO

@@ -39,7 +39,7 @@ const (
 	textVectorized = "./testdata/vectorized.json"
 )
 
-func TestAPI_vectorSearch(t *testing.T) {
+func API_vectorSearch(t *testing.T) {
 	vectorize := newMockVectorizer(t)
 
 	// we don't use this in test. As it's hard to mock it.

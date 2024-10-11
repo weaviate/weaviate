@@ -189,6 +189,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 	}
 
 	req := &StatusRequest{OpCreate, backupID, backend, store.S3Bucket, store.S3Path}
+	fmt.Printf("BackupStatus request: %+v\n", req)
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		return nil, backup.NewErrNotFound(err)
