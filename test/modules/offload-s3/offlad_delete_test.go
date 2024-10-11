@@ -31,7 +31,7 @@ import (
 
 func Test_DeleteClassS3Journey(t *testing.T) {
 	t.Run("delete class, deleting frozen tenants", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 
 		t.Log("pre-instance env setup")
@@ -39,7 +39,7 @@ func Test_DeleteClassS3Journey(t *testing.T) {
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("offloading").
+			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)
@@ -194,14 +194,14 @@ func Test_DeleteClassS3Journey(t *testing.T) {
 
 func Test_DeleteAndRecreateS3Journey(t *testing.T) {
 	t.Run("create tenant, freeze, delete, re-create", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		t.Log("pre-instance env setup")
 		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
 		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
 
 		compose, err := docker.New().
-			WithOffloadS3("offloading").
+			WithOffloadS3("offloading", "us-west-1").
 			WithText2VecContextionary().
 			With3NodeCluster().
 			Start(ctx)

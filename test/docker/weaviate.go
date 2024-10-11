@@ -36,6 +36,7 @@ func startWeaviate(ctx context.Context,
 	enableModules []string, defaultVectorizerModule string,
 	extraEnvSettings map[string]string, networkName string,
 	weaviateImage, hostname string, exposeGRPCPort bool,
+	wellKnownEndpoint string,
 ) (*DockerContainer, error) {
 	fromDockerFile := testcontainers.FromDockerfile{}
 	if len(weaviateImage) == 0 {
@@ -63,8 +64,8 @@ func startWeaviate(ctx context.Context,
 			Context:    contextPath,
 			Dockerfile: "Dockerfile",
 			BuildArgs: map[string]*string{
-				"TARGETARCH": &targetArch,
-				"GITHASH":    &gitHash,
+				"TARGETARCH":   &targetArch,
+				"GIT_REVISION": &gitHash,
 			},
 			PrintBuildLog: true,
 			KeepImage:     false,
@@ -80,6 +81,7 @@ func startWeaviate(ctx context.Context,
 		"QUERY_DEFAULTS_LIMIT":      "20",
 		"PERSISTENCE_DATA_PATH":     "./data",
 		"DEFAULT_VECTORIZER_MODULE": "none",
+		"FAST_FAILURE_DETECTION":    "true",
 	}
 	if len(enableModules) > 0 {
 		env["ENABLE_MODULES"] = strings.Join(enableModules, ",")
@@ -94,7 +96,7 @@ func startWeaviate(ctx context.Context,
 	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
 		wait.ForListeningPort(httpPort),
-		wait.ForHTTP("/v1/.well-known/ready").WithPort(httpPort),
+		wait.ForHTTP(wellKnownEndpoint).WithPort(httpPort),
 	}
 	grpcPort := nat.Port("50051/tcp")
 	if exposeGRPCPort {
@@ -105,6 +107,7 @@ func startWeaviate(ctx context.Context,
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
 		Hostname:       containerName,
+		Name:           containerName,
 		Networks:       []string{networkName},
 		NetworkAliases: map[string][]string{
 			networkName: {containerName},

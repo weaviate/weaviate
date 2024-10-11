@@ -24,6 +24,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -53,7 +54,7 @@ func startWorker(t testing.TB, n int, retryInterval ...time.Duration) chan job {
 		go func() {
 			logger := logrus.New()
 			logger.Level = logrus.ErrorLevel
-			asyncWorker(ch, logger, itv)
+			NewAsyncWorker(ch, logger, itv).Run()
 		}()
 	}
 
@@ -112,7 +113,7 @@ func TestIndexQueue(t *testing.T) {
 	}
 
 	getLastUpdate := func(q *IndexQueue) time.Time {
-		fi, err := os.Stat(q.checkpoints.Filename())
+		fi, err := os.Stat(q.Checkpoints.Filename())
 		require.NoError(t, err)
 		return fi.ModTime()
 	}
@@ -353,11 +354,20 @@ func TestIndexQueue(t *testing.T) {
 		var idx mockBatchIndexer
 		var count int32
 		indexingDone := make(chan struct{})
-		idx.addBatchFn = func(id []uint64, vector [][]float32) error {
-			if atomic.AddInt32(&count, 1) == 5 {
+		idx.addBatchFn = func(ids []uint64, vector [][]float32) error {
+			if atomic.AddInt32(&count, int32(len(ids))) == 17 {
 				close(indexingDone)
 			}
 
+			return nil
+		}
+
+		var deletedCount int32
+		deletedDone := make(chan struct{})
+		idx.deleteFn = func(ids ...uint64) error {
+			if atomic.AddInt32(&deletedCount, int32(len(ids))) == 3 {
+				close(deletedDone)
+			}
 			return nil
 		}
 
@@ -375,27 +385,25 @@ func TestIndexQueue(t *testing.T) {
 		err = q.Delete(5, 10, 15)
 		require.NoError(t, err)
 
-		wait := waitForUpdate(q)
 		<-indexingDone
-
-		// wait for the checkpoint file to be written to disk
-		wait()
 
 		// check what has been indexed
 		require.Equal(t, []uint64{0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 12, 13, 14, 16, 17, 18, 19}, idx.IDs())
 
 		// the "deleted" mask should be empty
 		q.queue.deleted.Lock()
-		require.Empty(t, q.queue.deleted.m)
+		assert.Empty(t, q.queue.deleted.m)
 		q.queue.deleted.Unlock()
 
 		// now delete something that's already indexed
 		err = q.Delete(0, 4, 8)
 		require.NoError(t, err)
 
-		// the "deleted" mask should still be empty
+		<-deletedDone
+
+		// the "deleted" mask should now be empty again
 		q.queue.deleted.Lock()
-		require.Empty(t, q.queue.deleted.m)
+		assert.Empty(t, q.queue.deleted.m)
 		q.queue.deleted.Unlock()
 
 		// check what's in the index
@@ -454,14 +462,14 @@ func TestIndexQueue(t *testing.T) {
 		writeIDs(q, 9, 13) // [5, 6, 9, 10, 11], [12]
 		writeIDs(q, 0, 5)  // [5, 6, 9, 10, 11], [12, 0, 1, 2, 3], [4]
 		time.Sleep(100 * time.Millisecond)
-		_, exists, err := q.checkpoints.Get("1", "")
+		_, exists, err := q.Checkpoints.Get("1", "")
 		require.NoError(t, err)
 		require.False(t, exists)
 		q.pushToWorkers(-1, false)
 		// the checkpoint should be: 0, then 1
 		// the cursor should not be updated
 		wait(100 * time.Millisecond)
-		after, exists, err := q.checkpoints.Get("1", "")
+		after, exists, err := q.Checkpoints.Get("1", "")
 		require.NoError(t, err)
 		require.True(t, exists)
 		require.EqualValues(t, 1, after)
@@ -475,7 +483,7 @@ func TestIndexQueue(t *testing.T) {
 		wait()
 		wait()
 		wait()
-		v, exists, err := q.checkpoints.Get("1", "")
+		v, exists, err := q.Checkpoints.Get("1", "")
 		require.NoError(t, err)
 		require.True(t, exists)
 		require.Equal(t, 4, int(v))
@@ -633,7 +641,7 @@ func TestIndexQueue(t *testing.T) {
 		<-called
 
 		// pause indexing: this will block until the batch is indexed
-		q.pauseIndexing()
+		q.PauseIndexing()
 
 		// add more vectors
 		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
@@ -649,7 +657,7 @@ func TestIndexQueue(t *testing.T) {
 		}
 
 		// resume indexing
-		q.resumeIndexing()
+		q.ResumeIndexing()
 
 		// wait for the indexing to be done
 		<-called
@@ -882,11 +890,67 @@ func TestIndexQueue(t *testing.T) {
 
 		select {
 		case <-indexed:
-		case <-time.After(time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("should have been called")
 		}
 
 		close(release)
+	})
+
+	t.Run("reset queue", func(t *testing.T) {
+		var idx1, idx2 mockBatchIndexer
+		indexed1 := make(chan []uint64)
+		indexed2 := make(chan []uint64)
+		idx1.addBatchFn = func(id []uint64, vector [][]float32) error {
+			indexed1 <- id
+			return nil
+		}
+		idx2.addBatchFn = func(id []uint64, vector [][]float32) error {
+			indexed2 <- id
+			return nil
+		}
+
+		q, err := NewIndexQueue("foo", "1", "", new(mockShard), &idx1, startWorker(t, 2), newCheckpointManager(t), IndexQueueOptions{
+			BatchSize:     4,
+			IndexInterval: 200 * time.Millisecond,
+		}, nil)
+		require.NoError(t, err)
+		defer q.Close()
+
+		// insert some data
+		pushVector(t, ctx, q, 1, []float32{1, 2, 3})
+		pushVector(t, ctx, q, 2, []float32{4, 5, 6})
+
+		// reset the queue
+		err = q.ResetWith(&idx2)
+		require.NoError(t, err)
+
+		checkpoint, exists, err := q.Checkpoints.Get("1", "")
+		require.NoError(t, err)
+		require.True(t, exists)
+		require.EqualValues(t, 0, checkpoint)
+		require.Nil(t, q.lastPushed.Load())
+		require.Zero(t, q.dims.Load())
+
+		// insert some data
+		pushVector(t, ctx, q, 3, []float32{7, 8, 9})
+		pushVector(t, ctx, q, 4, []float32{10, 11, 12})
+		pushVector(t, ctx, q, 5, []float32{13, 14, 15})
+		pushVector(t, ctx, q, 6, []float32{16, 17, 18})
+
+		require.EqualValues(t, 4, q.Size())
+
+		// resume the queue
+		q.ResumeIndexing()
+
+		select {
+		case <-indexed1:
+			t.Fatal("should not have been called")
+		case ids := <-indexed2:
+			require.Equal(t, []uint64{3, 4, 5, 6}, ids)
+		case <-time.After(5 * time.Second):
+			t.Fatal("should have been called")
+		}
 	})
 }
 
@@ -997,7 +1061,7 @@ func (m *mockBatchIndexer) SearchByVector(vector []float32, k int, allowList hel
 			v = distancer.Normalize(v)
 		}
 
-		dist, _, err := m.DistanceBetweenVectors(vector, v)
+		dist, err := m.DistanceBetweenVectors(vector, v)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1044,7 +1108,7 @@ func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance 
 			v = distancer.Normalize(v)
 		}
 
-		dist, _, err := m.DistanceBetweenVectors(vector, v)
+		dist, err := m.DistanceBetweenVectors(vector, v)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1075,13 +1139,13 @@ func (m *mockBatchIndexer) SearchByVectorDistance(vector []float32, maxDistance 
 	return ids, distances, nil
 }
 
-func (m *mockBatchIndexer) DistanceBetweenVectors(x, y []float32) (float32, bool, error) {
+func (m *mockBatchIndexer) DistanceBetweenVectors(x, y []float32) (float32, error) {
 	res := float32(0)
 	for i := range x {
 		diff := x[i] - y[i]
 		res += diff * diff
 	}
-	return res, true, nil
+	return res, nil
 }
 
 func (m *mockBatchIndexer) ContainsNode(id uint64) bool {
@@ -1095,18 +1159,18 @@ func (m *mockBatchIndexer) ContainsNode(id uint64) bool {
 	return ok
 }
 
-func (m *mockBatchIndexer) Delete(ids ...uint64) error {
+func (m *mockBatchIndexer) Delete(ids ...uint64) (err error) {
 	m.Lock()
 	defer m.Unlock()
 	if m.deleteFn != nil {
-		return m.deleteFn(ids...)
+		err = m.deleteFn(ids...)
 	}
 
 	for _, id := range ids {
 		delete(m.vectors, id)
 	}
 
-	return nil
+	return err
 }
 
 func (m *mockBatchIndexer) IDs() []uint64 {

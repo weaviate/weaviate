@@ -70,12 +70,12 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 10"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
-		}, skip: []bool{false, false, false}, wantErrors: map[int]error{1: fmt.Errorf("text too long for vectorization")}},
+		}, skip: []bool{false, false, false}, wantErrors: map[int]error{1: fmt.Errorf("text too long for vectorization. Tokens for text: 43, max tokens per batch: 100, ApiKey absolute token limit: 20")}},
 		{name: "token too long, last item in batch", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 10"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
-		}, skip: []bool{false, false, false}, wantErrors: map[int]error{2: fmt.Errorf("text too long for vectorization")}},
+		}, skip: []bool{false, false, false}, wantErrors: map[int]error{2: fmt.Errorf("text too long for vectorization. Tokens for text: 43, max tokens per batch: 100, ApiKey absolute token limit: 20")}},
 		{name: "skip last item", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "fir test object"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "first object first batch"}},
@@ -95,7 +95,7 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			v := NewBatchVectorizer(client, 1*time.Second, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, 1*time.Second, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
 				deadline = time.Now().Add(tt.deadline)
@@ -128,7 +128,7 @@ func TestBatchMultiple(t *testing.T) {
 	cfg := &fakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 
-	v := NewBatchVectorizer(client, 40*time.Second, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
+	v := NewBatchVectorizer(client, 40*time.Second, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
 	res := make(chan int, 3)
 	wg := sync.WaitGroup{}
 	wg.Add(3)
@@ -183,7 +183,7 @@ func TestBatchTimeouts(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("BatchTimeouts", tt.batchTime), func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
 
 			texts, tokenCounts := generateTokens(objs)
 
@@ -216,7 +216,7 @@ func TestBatchRequestLimit(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("Test request limit with", tt.batchTime), func(t *testing.T) {
-			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, tt.batchTime, 2000, maxTokensPerBatch, 2000.0, logger, "test") // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
 			require.Len(t, errs, tt.expectedErrors)
@@ -246,7 +246,7 @@ func TestBatchMaxTokens(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(fmt.Sprint("Max tokens", tt.name), func(t *testing.T) {
-			v := NewBatchVectorizer(client, time.Second, 2000, tt.maxTokens, 2000.0, logger) // avoid waiting for rate limit
+			v := NewBatchVectorizer(client, time.Second, 2000, tt.maxTokens, 2000.0, logger, "test") // avoid waiting for rate limit
 
 			_, errs := v.SubmitBatchAndWait(context.Background(), cfg, skip, tokenCounts, texts)
 			require.Len(t, errs, tt.expectedErrors)

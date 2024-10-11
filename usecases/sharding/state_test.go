@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
@@ -29,8 +30,8 @@ func TestState(t *testing.T) {
 	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
-	nodes := fakeNodes{[]string{"node1", "node2"}}
-	state, err := InitState("my-index", cfg, nodes, 1, false)
+	nodes := mocks.NewMockNodeSelector("node1", "node2")
+	state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
 	require.Nil(t, err)
 
 	physicalCount := map[string]int{}
@@ -74,18 +75,6 @@ func TestState(t *testing.T) {
 	}
 
 	assert.Equal(t, physicalCount, physicalCountReloaded)
-}
-
-type fakeNodes struct {
-	nodes []string
-}
-
-func (f fakeNodes) Candidates() []string {
-	return f.nodes
-}
-
-func (f fakeNodes) LocalName() string {
-	return f.nodes[0]
 }
 
 func TestInitState(t *testing.T) {
@@ -153,14 +142,14 @@ func TestInitState(t *testing.T) {
 	for _, test := range tests {
 		t.Run(fmt.Sprintf("Shards=%d_RF=%d", test.shards, test.replicationFactor),
 			func(t *testing.T) {
-				nodes := fakeNodes{test.nodes}
+				nodes := mocks.NewMockNodeSelector(test.nodes...)
 				cfg, err := config.ParseConfig(map[string]interface{}{
 					"desiredCount": float64(test.shards),
 					"replicas":     float64(test.replicationFactor),
 				}, 3)
 				require.Nil(t, err)
 
-				state, err := InitState("my-index", cfg, nodes, int64(test.replicationFactor), false)
+				state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), int64(test.replicationFactor), false)
 				if !test.ok {
 					require.NotNil(t, err)
 					return
@@ -193,46 +182,46 @@ func TestInitState(t *testing.T) {
 
 func TestAdjustReplicas(t *testing.T) {
 	t.Run("1->3", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
 		shard := Physical{BelongsToNodes: []string{"N1"}}
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
 		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
 	t.Run("2->3", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
 		shard := Physical{BelongsToNodes: []string{"N2", "N3"}}
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
 		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
 	t.Run("3->3", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
 		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
 		require.Nil(t, shard.AdjustReplicas(3, nodes))
 		assert.ElementsMatch(t, []string{"N1", "N2", "N3"}, shard.BelongsToNodes)
 	})
 
 	t.Run("3->2", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
 		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
 		require.Nil(t, shard.AdjustReplicas(2, nodes))
 		assert.ElementsMatch(t, []string{"N1", "N2"}, shard.BelongsToNodes)
 	})
 
 	t.Run("Min", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
 		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
 		require.NotNil(t, shard.AdjustReplicas(-1, nodes))
 	})
 	t.Run("Max", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
 		shard := Physical{BelongsToNodes: []string{"N1", "N2", "N3"}}
 		require.NotNil(t, shard.AdjustReplicas(4, nodes))
 	})
 	t.Run("Bug", func(t *testing.T) {
 		names := []string{"N1", "N2", "N3", "N4"}
-		nodes := fakeNodes{nodes: names} // bug
+		nodes := mocks.NewMockNodeSelector(names...) // bug
 		shard := Physical{BelongsToNodes: []string{"N1", "N1", "N1", "N2", "N2"}}
 		require.Nil(t, shard.AdjustReplicas(4, nodes)) // correct
 		require.ElementsMatch(t, names, shard.BelongsToNodes)
@@ -241,25 +230,24 @@ func TestAdjustReplicas(t *testing.T) {
 
 func TestGetPartitions(t *testing.T) {
 	t.Run("EmptyCandidatesList", func(t *testing.T) {
-		// nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5"}}
 		shards := []string{"H1"}
 		state := State{}
-		partitions, err := state.GetPartitions(fakeNodes{}.Candidates(), shards, 1)
+		partitions, err := state.GetPartitions(mocks.NewMockNodeSelector().StorageCandidates(), shards, 1)
 		require.Nil(t, partitions)
 		require.ErrorContains(t, err, "empty")
 	})
 	t.Run("NotEnoughReplicas", func(t *testing.T) {
 		shards := []string{"H1"}
 		state := State{}
-		partitions, err := state.GetPartitions(fakeNodes{nodes: []string{"N1"}}.Candidates(), shards, 2)
+		partitions, err := state.GetPartitions(mocks.NewMockNodeSelector("N1").StorageCandidates(), shards, 2)
 		require.Nil(t, partitions)
 		require.ErrorContains(t, err, "not enough replicas")
 	})
 	t.Run("Success/RF3", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3"}}
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
 		shards := []string{"H1", "H2", "H3", "H4", "H5"}
 		state := State{}
-		got, err := state.GetPartitions(nodes.Candidates(), shards, 3)
+		got, err := state.GetPartitions(nodes.StorageCandidates(), shards, 3)
 		require.Nil(t, err)
 		want := map[string][]string{
 			"H1": {"N1", "N2", "N3"},
@@ -272,10 +260,10 @@ func TestGetPartitions(t *testing.T) {
 	})
 
 	t.Run("Success/RF2", func(t *testing.T) {
-		nodes := fakeNodes{nodes: []string{"N1", "N2", "N3", "N4", "N5", "N6", "N7"}}
+		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5", "N6", "N7")
 		shards := []string{"H1", "H2", "H3", "H4", "H5"}
 		state := State{}
-		got, err := state.GetPartitions(nodes.Candidates(), shards, 2)
+		got, err := state.GetPartitions(nodes.StorageCandidates(), shards, 2)
 		require.Nil(t, err)
 		want := map[string][]string{
 			"H1": {"N1", "N2"},
@@ -296,8 +284,8 @@ func TestAddPartition(t *testing.T) {
 	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(4)}, 14)
 	require.Nil(t, err)
 
-	nodes := fakeNodes{[]string{"node1", "node2"}}
-	s, err := InitState("my-index", cfg, nodes, 1, true)
+	nodes := mocks.NewMockNodeSelector("node1", "node2")
+	s, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, true)
 	require.Nil(t, err)
 
 	s.AddPartition("A", nodes1, models.TenantActivityStatusHOT)

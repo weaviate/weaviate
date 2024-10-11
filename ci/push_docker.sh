@@ -11,23 +11,35 @@ function release() {
   tag_exact=
   tag_preview=
 
-  git_hash=$(echo "$GITHUB_SHA" | cut -c1-7)
+  git_revision=$(echo "$GITHUB_SHA" | cut -c1-7)
+  git_branch="$GITHUB_HEAD_REF"
+  build_user="ci"
+  build_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
   weaviate_version="$(jq -r '.info.version' < openapi-specs/schema.json)"
-  if [ "$GITHUB_REF_NAME" = "main" ]; then
-    tag_exact="${DOCKER_REPO}:${weaviate_version}-${git_hash}"
-  elif [  "$GITHUB_REF_TYPE" == "tag" ]; then
-        if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
-            echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
-            return 1
-        fi
-        tag_exact="${DOCKER_REPO}:${weaviate_version}"
+  if [ "$GITHUB_REF_TYPE" == "tag" ]; then
+      if [ "$GITHUB_REF_NAME" != "v$weaviate_version" ]; then
+          echo "The release tag ($GITHUB_REF_NAME) and Weaviate version (v$weaviate_version) are not equal! Can't release."
+          return 1
+      fi
+      tag_exact="${DOCKER_REPO}:${weaviate_version}"
+      git_branch="$GITHUB_REF_NAME"
   else
     pr_title="$(echo -n "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -c -s '[:alnum:]' '-' | sed 's/-$//g')"
-    tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_hash}"
+    if [ "$pr_title" == "" ]; then
+      git_branch="$GITHUB_REF_NAME"
+      branch_name="$(echo -n $GITHUB_REF_NAME | sed 's/\//-/g')"
+      tag_preview="${DOCKER_REPO}:${branch_name}-${git_revision}"
+      weaviate_version="${branch_name}-${git_revision}"
+      git_branch="$GITHUB_HEAD_REF"
+    else
+      tag_preview="${DOCKER_REPO}:preview-${pr_title}-${git_revision}"
+      weaviate_version="preview-${pr_title}-${git_revision}"
+    fi
   fi
 
-  args=("--build-arg=GITHASH=$git_hash" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
+  args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
+
   if [ -n "$tag_exact" ]; then
     # exact tag on main
     args+=("-t=$tag_exact")

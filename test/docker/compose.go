@@ -15,7 +15,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -28,23 +30,26 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
+	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
-	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
-	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
+	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modsloads3 "github.com/weaviate/weaviate/modules/offload-s3"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
+	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
-	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
+	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -81,7 +86,9 @@ type Compose struct {
 	withAzurite                bool
 	withBackendFilesystem      bool
 	withBackendS3              bool
-	withBackendS3Bucket        string
+	withBackendS3Buckets       map[string]string
+	withBackupS3Bucket         string
+	withOffloadS3Bucket        string
 	withBackendGCS             bool
 	withBackendGCSBucket       string
 	withBackendAzure           bool
@@ -101,7 +108,7 @@ type Compose struct {
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
-	withPaLMApiKey                string
+	withGoogleApiKey              string
 	withBind                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
@@ -111,16 +118,11 @@ type Compose struct {
 	withOctoAIGenerative          bool
 	withOctoAIApiKey              string
 	weaviateEnvs                  map[string]string
+	removeEnvs                    map[string]struct{}
 }
 
 func New() *Compose {
-	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string)}
-}
-
-func (d *Compose) WithMinIO() *Compose {
-	d.withMinIO = true
-	d.enableModules = append(d.enableModules, modstgs3.Name, modsloads3.Name)
-	return d
+	return &Compose{enableModules: []string{}, weaviateEnvs: make(map[string]string), removeEnvs: make(map[string]struct{}), withBackendS3Buckets: make(map[string]string)}
 }
 
 func (d *Compose) WithGCS() *Compose {
@@ -174,17 +176,21 @@ func (d *Compose) WithBackendFilesystem() *Compose {
 	return d
 }
 
-func (d *Compose) WithBackendS3(bucket string) *Compose {
+// WithBackendS3 will prepare MinIO
+func (d *Compose) WithBackendS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withBackupS3Bucket = bucket
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modstgs3.Name)
 	return d
 }
 
-func (d *Compose) WithOffloadS3(bucket string) *Compose {
+// WithOffloadS3 will prepare MinIO
+func (d *Compose) WithOffloadS3(bucket, region string) *Compose {
 	d.withBackendS3 = true
-	d.withBackendS3Bucket = bucket
+	d.withOffloadS3Bucket = bucket
+	d.withBackendS3Buckets[bucket] = region
 	d.withMinIO = true
 	d.enableModules = append(d.enableModules, modsloads3.Name)
 	return d
@@ -218,9 +224,9 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 	return d
 }
 
-func (d *Compose) WithMulti2VecPaLM(apiKey string) *Compose {
-	d.withPaLMApiKey = apiKey
-	d.enableModules = append(d.enableModules, modmulti2vecpalm.Name)
+func (d *Compose) WithMulti2VecGoogle(apiKey string) *Compose {
+	d.withGoogleApiKey = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecgoogle.Name)
 	return d
 }
 
@@ -261,9 +267,9 @@ func (d *Compose) WithText2VecVoyageAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecPaLM(apiKey string) *Compose {
-	d.withPaLMApiKey = apiKey
-	d.enableModules = append(d.enableModules, modpalm.Name)
+func (d *Compose) WithText2VecGoogle(apiKey string) *Compose {
+	d.withGoogleApiKey = apiKey
+	d.enableModules = append(d.enableModules, modgoogle.Name)
 	return d
 }
 
@@ -280,11 +286,22 @@ func (d *Compose) WithText2VecHuggingFace() *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecWeaviate() *Compose {
+	d.enableModules = append(d.enableModules, modweaviateembed.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeOpenAI(openAIApiKey, openAIOrganization, azureApiKey string) *Compose {
 	d.weaviateEnvs["OPENAI_APIKEY"] = openAIApiKey
 	d.weaviateEnvs["OPENAI_ORGANIZATION"] = openAIOrganization
 	d.weaviateEnvs["AZURE_APIKEY"] = azureApiKey
 	d.enableModules = append(d.enableModules, modgenerativeopenai.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modjinaai.Name)
 	return d
 }
 
@@ -302,9 +319,15 @@ func (d *Compose) WithGenerativeCohere(apiKey string) *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativePaLM(apiKey string) *Compose {
-	d.withPaLMApiKey = apiKey
-	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
+func (d *Compose) WithGenerativeFriendliAI(apiKey string) *Compose {
+	d.weaviateEnvs["FRIENDLI_TOKEN"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativefriendliai.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeGoogle(apiKey string) *Compose {
+	d.withGoogleApiKey = apiKey
+	d.enableModules = append(d.enableModules, modgenerativegoogle.Name)
 	return d
 }
 
@@ -373,24 +396,17 @@ func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	return d
 }
 
-func (d *Compose) WithSecondWeaviate() *Compose {
-	d.With1NodeCluster()
-	d.withSecondWeaviate = true // TODO: create a second 1 node cluster
-	return d
-}
-
 func (d *Compose) WithWeaviateCluster(size int) *Compose {
+	if size%2 == 0 {
+		panic("it's essential for the cluster size to be an odd number to ensure a majority can be achieved for quorum decisions, even if some nodes become unavailable")
+	}
 	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = size
 	return d
 }
 
 func (d *Compose) WithWeaviateClusterWithGRPC() *Compose {
-	d.With2NodeCluster()
-	return d
-}
-
-func (d *Compose) WithWeaviateGRPC() *Compose {
+	d.With3NodeCluster()
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }
@@ -412,11 +428,18 @@ func (d *Compose) WithWeaviateEnv(name, value string) *Compose {
 	return d
 }
 
+func (d *Compose) WithoutWeaviateEnvs(names ...string) *Compose {
+	for _, name := range names {
+		d.removeEnvs[name] = struct{}{}
+	}
+
+	return d
+}
+
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	d.weaviateEnvs["DISABLE_TELEMETRY"] = "true"
 	network, err := tescontainersnetwork.New(
 		ctx,
-		tescontainersnetwork.WithCheckDuplicate(),
 		tescontainersnetwork.WithAttachable(),
 	)
 	if err != nil {
@@ -430,17 +453,25 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	envSettings["DISABLE_TELEMETRY"] = "true"
 	containers := []*DockerContainer{}
 	if d.withMinIO {
-		container, err := startMinIO(ctx, networkName)
+		container, err := startMinIO(ctx, networkName, d.withBackendS3Buckets)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MinIO)
 		}
 		containers = append(containers, container)
+
 		if d.withBackendS3 {
+			if d.withBackupS3Bucket != "" {
+				envSettings["BACKUP_S3_BUCKET"] = d.withBackupS3Bucket
+			}
+
+			if d.withOffloadS3Bucket != "" {
+				envSettings["OFFLOAD_S3_BUCKET"] = d.withOffloadS3Bucket
+				envSettings["OFFLOAD_S3_BUCKET_AUTO_CREATE"] = "true"
+			}
+
 			for k, v := range container.envSettings {
 				envSettings[k] = v
 			}
-			envSettings["BACKUP_S3_BUCKET"] = d.withBackendS3Bucket
-			envSettings["OFFLOAD_S3_BUCKET"] = d.withBackendS3Bucket
 		}
 	}
 	if d.withGCS {
@@ -547,8 +578,8 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
-	if d.withPaLMApiKey != "" {
-		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
+	if d.withGoogleApiKey != "" {
+		envSettings["GOOGLE_APIKEY"] = d.withGoogleApiKey
 	}
 	if d.withOctoAIApiKey != "" {
 		envSettings["OCTOAI_APIKEY"] = d.withOctoAIApiKey
@@ -612,11 +643,14 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort)
+		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, "/v1/.well-known/ready")
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
 		containers = append(containers, container)
+		if err != nil {
+			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
+		}
 	}
 
 	return &DockerCompose{network, containers}, nil
@@ -625,12 +659,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 func (d *Compose) With1NodeCluster() *Compose {
 	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = 1
-	return d
-}
-
-func (d *Compose) With2NodeCluster() *Compose {
-	d.withWeaviateCluster = true
-	d.withWeaviateClusterSize = 2
 	return d
 }
 
@@ -646,6 +674,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 	for k, v := range d.weaviateEnvs {
 		settings[k] = v
+	}
+
+	for k := range d.removeEnvs {
+		delete(settings, k)
 	}
 
 	raft_join := "node1,node2,node3"
@@ -666,7 +698,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	if d.withWeaviateAuth {
 		settings["AUTHENTICATION_OIDC_ENABLED"] = "true"
 		settings["AUTHENTICATION_OIDC_CLIENT_ID"] = "wcs"
-		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.semi.technology/auth/realms/SeMI"
+		settings["AUTHENTICATION_OIDC_ISSUER"] = "https://auth.wcs.api.weaviate.io/auth/realms/SeMI"
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
@@ -684,9 +716,15 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	config1["CLUSTER_GOSSIP_BIND_PORT"] = "7100"
 	config1["CLUSTER_DATA_BIND_PORT"] = "7101"
 	eg := errgroup.Group{}
+	wellKnownEndpointFunc := func(hostname string) string {
+		if slices.Contains(strings.Split(settings["MAINTENANCE_NODES"], ","), hostname) {
+			return "/v1/.well-known/live"
+		}
+		return "/v1/.well-known/ready"
+	}
 	eg.Go(func() (err error) {
 		cs[0], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort)
+			config1, networkName, image, Weaviate1, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node1"))
 		if err != nil {
 			return errors.Wrapf(err, "start %s", Weaviate1)
 		}
@@ -702,7 +740,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort)
+				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate2)
 			}
@@ -719,7 +757,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		eg.Go(func() (err error) {
 			time.Sleep(time.Second * 3)
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
-				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort)
+				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
 			}

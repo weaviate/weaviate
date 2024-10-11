@@ -262,6 +262,30 @@ func (s *schema) updateClass(name string, f func(*metaClass) error) error {
 	return meta.LockGuard(f)
 }
 
+// replaceStatesNodeName it update the node name inside sharding states.
+// WARNING: this shall be used in one node cluster environments only.
+// because it will replace the shard node name if the node name got updated
+// only if the replication factor is 1, otherwise it's no-op
+func (s *schema) replaceStatesNodeName(new string) {
+	s.Lock()
+	defer s.Unlock()
+
+	for _, meta := range s.Classes {
+		meta.LockGuard(func(mc *metaClass) error {
+			if meta.Class.ReplicationConfig.Factor > 1 {
+				return nil
+			}
+
+			for idx := range meta.Sharding.Physical {
+				cp := meta.Sharding.Physical[idx].DeepCopy()
+				cp.BelongsToNodes = []string{new}
+				meta.Sharding.Physical[idx] = cp
+			}
+			return nil
+		})
+	}
+}
+
 func (s *schema) deleteClass(name string) {
 	s.Lock()
 	defer s.Unlock()
@@ -297,9 +321,9 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	}
 }
 
-func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) (n int, err error) {
+func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) error {
 	if ok, meta, _, err := s.multiTenancyEnabled(class); !ok {
-		return 0, err
+		return err
 	} else {
 		return meta.UpdateTenants(s.nodeID, req, v)
 	}

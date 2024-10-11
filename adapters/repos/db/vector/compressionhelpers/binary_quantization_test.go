@@ -31,7 +31,7 @@ var logger, _ = test.NewNullLogger()
 func TestBinaryQuantizerRecall(t *testing.T) {
 	k := 10
 	distanceProvider := distancer.NewCosineDistanceProvider()
-	vectors, queryVecs := testinghelpers.RandomVecs(10_000, 100, 1536)
+	vectors, queryVecs := testinghelpers.RandomVecsFixedSeed(10_000, 100, 1536)
 	compressionhelpers.Concurrently(logger, uint64(len(vectors)), func(i uint64) {
 		vectors[i] = distancer.Normalize(vectors[i])
 	})
@@ -47,7 +47,7 @@ func TestBinaryQuantizerRecall(t *testing.T) {
 	neighbors := make([][]uint64, len(queryVecs))
 	compressionhelpers.Concurrently(logger, uint64(len(queryVecs)), func(i uint64) {
 		neighbors[i], _ = testinghelpers.BruteForce(logger, vectors, queryVecs[i], k, func(f1, f2 []float32) float32 {
-			d, _, _ := distanceProvider.SingleDist(f1, f2)
+			d, _ := distanceProvider.SingleDist(f1, f2)
 			return d
 		})
 	})

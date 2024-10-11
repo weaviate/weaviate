@@ -17,74 +17,87 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/getsentry/sentry-go"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/resolver"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	entSentry "github.com/weaviate/weaviate/entities/sentry"
+	"golang.org/x/exp/slices"
 )
 
-type joiner interface {
+// PeerJoiner is the interface we expect to be able to talk to the other peers to either Join or Notify them
+type PeerJoiner interface {
 	Join(_ context.Context, leaderAddr string, _ *cmd.JoinPeerRequest) (*cmd.JoinPeerResponse, error)
 	Notify(_ context.Context, leaderAddr string, _ *cmd.NotifyPeerRequest) (*cmd.NotifyPeerResponse, error)
 }
 
 // Bootstrapper is used to bootstrap this node by attempting to join it to a RAFT cluster.
 type Bootstrapper struct {
-	joiner       joiner
+	peerJoiner   PeerJoiner
 	addrResolver resolver.NodeToAddress
 	isStoreReady func() bool
 
 	localRaftAddr string
 	localNodeID   string
+	voter         bool
 
 	retryPeriod time.Duration
 	jitter      time.Duration
 }
 
 // NewBootstrapper constructs a new bootsrapper
-func NewBootstrapper(joiner joiner, raftID, raftAddr string, r resolver.NodeToAddress, isStoreReady func() bool) *Bootstrapper {
+func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.NodeToAddress, isStoreReady func() bool) *Bootstrapper {
 	return &Bootstrapper{
-		joiner:        joiner,
+		peerJoiner:    peerJoiner,
 		addrResolver:  r,
 		retryPeriod:   time.Second,
 		jitter:        time.Second,
 		localNodeID:   raftID,
 		localRaftAddr: raftAddr,
 		isStoreReady:  isStoreReady,
+		voter:         voter,
 	}
 }
 
 // Do iterates over a list of servers in an attempt to join this node to a cluster.
-func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, voter bool, close chan struct{}) error {
+func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg *logrus.Logger, stop chan struct{}) error {
+	if entSentry.Enabled() {
+		transaction := sentry.StartTransaction(ctx, "raft.bootstrap",
+			sentry.WithOpName("init"),
+			sentry.WithDescription("Attempt to bootstrap a raft cluster"),
+		)
+		ctx = transaction.Context()
+		defer transaction.Finish()
+	}
 	ticker := time.NewTicker(jitter(b.retryPeriod, b.jitter))
-	servers := make([]string, 0, len(serverPortMap))
 	defer ticker.Stop()
 	for {
-		servers = b.servers(servers, serverPortMap)
 		select {
-		case <-close:
+		case <-stop:
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-ticker.C:
 			if b.isStoreReady() {
-				lg.WithField("action", "bootstrap").Info("node reporting ready, node has probably recovered cluster from raft config. Exiting bootstrap process")
+				lg.WithField("action", "bootstrap").Info("node reporting ready, exiting bootstrap process")
 				return nil
 			}
 
-			// If we have found no other server, there is nobody to contact
-			if len(servers) == 0 {
+			remoteNodes := ResolveRemoteNodes(b.addrResolver, serverPortMap)
+			// We were not able to resolve any nodes to an address
+			if len(remoteNodes) == 0 {
+				lg.WithField("action", "bootstrap").WithField("join_list", serverPortMap).Warn("unable to resolve any node address to join")
 				continue
 			}
 
-			// try to join an existing cluster
-			if leader, err := b.join(ctx, servers, voter); err != nil {
+			// Always try to join an existing cluster first
+			joiner := NewJoiner(b.peerJoiner, b.localNodeID, b.localRaftAddr, b.voter)
+			if leader, err := joiner.Do(ctx, lg, remoteNodes); err != nil {
 				lg.WithFields(logrus.Fields{
-					"servers": servers,
 					"action":  "bootstrap",
-					"voter":   voter,
-				}).WithError(err).Warning("failed to join cluster, will notify next if voter")
+					"servers": remoteNodes,
+					"voter":   b.voter,
+				}).WithError(err).Warning("failed to join cluster")
 			} else {
 				lg.WithFields(logrus.Fields{
 					"action": "bootstrap",
@@ -93,54 +106,42 @@ func (b *Bootstrapper) Do(ctx context.Context, serverPortMap map[string]int, lg 
 				return nil
 			}
 
-			if voter {
+			// We are a voter, we resolve other peers but we're unable to join them. We're in the situation where we are
+			// bootstrapping a new cluster and now we want to notify the other nodes.
+			// Each node on notify will build a list of notified node. Once bootstrap expect is reached the nodes will
+			// bootstrap together.
+			if b.voter {
 				// notify other servers about readiness of this node to be joined
-				if err := b.notify(ctx, servers); err != nil {
+				if err := b.notify(ctx, remoteNodes); err != nil {
 					lg.WithFields(logrus.Fields{
 						"action":  "bootstrap",
-						"servers": servers,
-					}).WithError(err).Error("notify all peers")
+						"servers": remoteNodes,
+					}).WithError(err).Error("failed to notify peers")
 					continue
 				}
 				lg.WithFields(logrus.Fields{
 					"action":  "bootstrap",
-					"servers": servers,
+					"servers": remoteNodes,
 				}).Info("notified peers this node is ready to join as voter")
 			}
 		}
 	}
 }
 
-// join attempts to join an existing leader
-func (b *Bootstrapper) join(ctx context.Context, servers []string, voter bool) (leader string, err error) {
-	var resp *cmd.JoinPeerResponse
-	req := &cmd.JoinPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr, Voter: voter}
-	// For each server, try to join.
-	// If we have no error then we have a leader
-	// If we have an error check for err == NOT_FOUND and leader != "" -> we contacted a non-leader node part of the
-	// cluster, let's join the leader.
-	// If no server allows us to join a cluster, return an error
-	for _, addr := range servers {
-		resp, err = b.joiner.Join(ctx, addr, req)
-		if err == nil {
-			return addr, nil
-		}
-		st := status.Convert(err)
-		if leader = resp.GetLeader(); st.Code() == codes.NotFound && leader != "" {
-			_, err = b.joiner.Join(ctx, leader, req)
-			if err == nil {
-				return leader, nil
-			}
-		}
+// notify attempts to notify all nodes in remoteNodes that this server is ready to bootstrap
+func (b *Bootstrapper) notify(ctx context.Context, remoteNodes []string) (err error) {
+	if entSentry.Enabled() {
+		span := sentry.StartSpan(ctx, "raft.bootstrap.notify",
+			sentry.WithOpName("notify"),
+			sentry.WithDescription("Attempt to notify existing node(s) to join a cluster"),
+		)
+		ctx = span.Context()
+		span.SetData("servers", remoteNodes)
+		defer span.Finish()
 	}
-	return "", fmt.Errorf("could not join a cluster from %v", servers)
-}
-
-// notify notifies another server of my presence
-func (b *Bootstrapper) notify(ctx context.Context, servers []string) (err error) {
-	for _, addr := range servers {
+	for _, addr := range remoteNodes {
 		req := &cmd.NotifyPeerRequest{Id: b.localNodeID, Address: b.localRaftAddr}
-		_, err = b.joiner.Notify(ctx, addr, req)
+		_, err = b.peerJoiner.Notify(ctx, addr, req)
 		if err != nil {
 			return err
 		}
@@ -148,14 +149,16 @@ func (b *Bootstrapper) notify(ctx context.Context, servers []string) (err error)
 	return
 }
 
-// servers retrieves a list of server addresses based on their names and ports.
-func (b *Bootstrapper) servers(candidates []string, serverPortMap map[string]int) []string {
-	candidates = candidates[:0]
+// ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
+// taken from serverPortMap keys and ports from the values
+func ResolveRemoteNodes(addrResolver resolver.NodeToAddress, serverPortMap map[string]int) []string {
+	candidates := make([]string, 0, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
-		if addr := b.addrResolver.NodeAddress(name); addr != "" {
+		if addr := addrResolver.NodeAddress(name); addr != "" {
 			candidates = append(candidates, fmt.Sprintf("%s:%d", addr, raftPort))
 		}
 	}
+	slices.Sort(candidates)
 	return candidates
 }
 

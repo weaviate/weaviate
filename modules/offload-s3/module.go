@@ -19,15 +19,17 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
-	"github.com/peak/s5cmd/v2/command"
-	"github.com/peak/s5cmd/v2/log"
-	"github.com/peak/s5cmd/v2/log/stat"
-	"github.com/peak/s5cmd/v2/parallel"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
+	"github.com/weaviate/s5cmd/v2/command"
+	"github.com/weaviate/s5cmd/v2/log"
+	"github.com/weaviate/s5cmd/v2/log/stat"
+	"github.com/weaviate/s5cmd/v2/parallel"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -35,26 +37,30 @@ import (
 )
 
 const (
-	Name        = "offload-s3"
-	s3Endpoint  = "OFFLOAD_S3_ENDPOINT"
-	s3Bucket    = "OFFLOAD_S3_BUCKET"
-	concurrency = "OFFLOAD_S3_CONCURRENCY"
-	timeout     = "OFFLOAD_TIMEOUT"
+	Name               = "offload-s3"
+	s3Endpoint         = "OFFLOAD_S3_ENDPOINT"
+	s3BucketAutoCreate = "OFFLOAD_S3_BUCKET_AUTO_CREATE"
+	s3Bucket           = "OFFLOAD_S3_BUCKET"
+	concurrency        = "OFFLOAD_S3_CONCURRENCY"
+	timeout            = "OFFLOAD_TIMEOUT"
 )
 
 // verify we implement the modules.Module interface
 var (
-	_ = modulecapabilities.Module(New())
+	_ = modulecapabilities.Module(&Module{})
 )
 
 type Module struct {
-	Endpoint    string
-	Bucket      string
-	Concurrency int
-	DataPath    string
-	logger      logrus.FieldLogger
-	timeout     time.Duration
-	app         *cli.App
+	Endpoint     string
+	Bucket       string
+	BucketExists atomic.Bool
+	Concurrency  int
+	DataPath     string
+	logger       logrus.FieldLogger
+	timeout      time.Duration
+	app          *cli.App
+
+	metrics *monitoring.TenantOffloadMetrics
 }
 
 func New() *Module {
@@ -63,9 +69,12 @@ func New() *Module {
 		Bucket:      "weaviate-offload",
 		Concurrency: 25,
 		DataPath:    config.DefaultPersistenceDataPath,
-		timeout:     10 * time.Second,
+		timeout:     120 * time.Second,
 		// we use custom cli app to avoid some bugs in underlying dependencies
 		// specially with .After implementation.
+		metrics: monitoring.NewTenantOffloadMetrics(monitoring.Config{
+			MetricsNamespace: "weaviate",
+		}, prometheus.DefaultRegisterer),
 		app: &cli.App{
 			Name:                 "weaviate-s5cmd",
 			Usage:                "weaviate fast S3 and local filesystem execution tool",
@@ -96,12 +105,10 @@ func New() *Module {
 			Before: func(c *cli.Context) error {
 				retryCount := c.Int("retry-count")
 				workerCount := c.Int("numworkers")
-				printJSON := c.Bool("json")
-				logLevel := c.String("log")
 				isStat := c.Bool("stat")
 				endpointURL := c.String("endpoint-url")
 
-				log.Init(logLevel, printJSON)
+				log.Init("error", false) // print level error only
 				parallel.Init(workerCount)
 
 				if retryCount < 0 {
@@ -169,18 +176,15 @@ func (m *Module) Init(ctx context.Context,
 		m.DataPath = path
 	}
 
-	bucket := os.Getenv(s3Bucket)
-	if bucket != "" {
+	if bucket := os.Getenv(s3Bucket); bucket != "" {
 		m.Bucket = bucket
 	}
 
-	endpoint := os.Getenv(s3Endpoint)
-	if endpoint != "" {
+	if endpoint := os.Getenv(s3Endpoint); endpoint != "" {
 		m.Endpoint = endpoint
 	}
 
-	eTimeout := os.Getenv(timeout)
-	if eTimeout != "" {
+	if eTimeout := os.Getenv(timeout); eTimeout != "" {
 		timeoutN, err := time.ParseDuration(fmt.Sprintf("%ss", eTimeout))
 		if err != nil {
 			return err
@@ -188,8 +192,7 @@ func (m *Module) Init(ctx context.Context,
 		m.timeout = time.Duration(timeoutN.Seconds()) * time.Second
 	}
 
-	concc := os.Getenv(concurrency)
-	if concc != "" {
+	if concc := os.Getenv(concurrency); concc != "" {
 		conccN, err := strconv.Atoi(concc)
 		if err != nil {
 			return err
@@ -197,23 +200,42 @@ func (m *Module) Init(ctx context.Context,
 		m.Concurrency = conccN
 	}
 
-	// create offloading bucket
-	err := m.create(ctx)
-	if err != nil && !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
-		return fmt.Errorf("can't create offload bucket %s %w", m.Endpoint, err)
+	if entcfg.Enabled(os.Getenv(s3BucketAutoCreate)) {
+		if err := m.create(ctx); err != nil && !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
+			return fmt.Errorf("can't create offload bucket: %s at endpoint %s %w", m.Bucket, m.Endpoint, err)
+		}
 	}
 
 	m.logger.WithFields(logrus.Fields{
 		concurrency:             m.Concurrency,
 		timeout:                 m.timeout,
-		endpoint:                m.Endpoint,
-		bucket:                  m.Bucket,
+		s3Endpoint:              m.Endpoint,
+		s3Bucket:                m.Bucket,
 		"PERSISTENCE_DATA_PATH": m.DataPath,
 	}).Info("offload module loaded")
 	return nil
 }
 
 func (m *Module) RootHandler() http.Handler {
+	return nil
+}
+
+func (m *Module) VerifyBucket(ctx context.Context) error {
+	if m.BucketExists.Load() {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, m.timeout)
+	defer cancel()
+	cmd := []string{
+		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
+		"ls",
+		fmt.Sprintf("s3://%s", m.Bucket),
+	}
+	if err := m.app.RunContext(ctx, cmd); err != nil {
+		return err
+	}
+	m.BucketExists.Store(true)
 	return nil
 }
 
@@ -233,6 +255,8 @@ func (m *Module) create(ctx context.Context) error {
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
 // {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Upload(ctx context.Context, className, shardName, nodeName string) error {
+	start := time.Now()
+
 	if err := validate(className, shardName, nodeName); err != nil {
 		return err
 	}
@@ -249,24 +273,28 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
 	}
 
-	dmetric, err := monitoring.GetMetrics().TenantCloudOffloadDataTransferred.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
-	if err == nil {
+	var err error
+	defer func() {
+		// Update few useful metrics
 		size, _ := dirSize(localPath)
-		dmetric.Add(float64(size))
-	}
-	metric, err := monitoring.GetMetrics().TenantCloudOffloadDurations.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
-	if err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
+		m.metrics.FetchedBytes.Add(float64(size))
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		m.metrics.OpsDuration.WithLabelValues("upload", status).Observe(time.Since(start).Seconds())
+	}()
 
-	return m.app.RunContext(ctx, cmd)
+	err = m.app.RunContext(ctx, cmd)
+	return err
 }
 
 // Download downloads the content of a shard to desired node from
 // cloud provider (S3, Azure Blob storage, Google cloud storage)
 // {dataPath}/{className}/{shardName}/{content}
 func (m *Module) Download(ctx context.Context, className, shardName, nodeName string) error {
+	start := time.Now()
+
 	if err := validate(className, shardName, nodeName); err != nil {
 		return err
 	}
@@ -283,21 +311,22 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 		fmt.Sprintf("%s/", localPath),
 	}
 
+	var err error
+
 	defer func() {
-		// data will exists after download
-		dmetric, err := monitoring.GetMetrics().TenantCloudOffloadDataTransferred.GetMetricWithLabelValues(m.Name(), className, shardName, nodeName)
-		if err == nil {
-			size, _ := dirSize(localPath)
-			dmetric.Add(float64(size))
+		// Update few useful metrics
+		size, _ := dirSize(localPath)
+		m.metrics.FetchedBytes.Add(float64(size))
+		status := "success"
+		if err != nil {
+			status = "failed"
 		}
+		m.metrics.OpsDuration.WithLabelValues("download", status).Observe(time.Since(start).Seconds())
 	}()
 
-	metric, err := monitoring.GetMetrics().TenantCloudLoadDurations.GetMetricWithLabelValues("s3", className, shardName, nodeName)
-	if err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
-	return m.app.RunContext(ctx, cmd)
+	err = m.app.RunContext(ctx, cmd)
+
+	return err
 }
 
 // Delete deletes content of a shard assigned to specific node in
@@ -305,6 +334,8 @@ func (m *Module) Download(ctx context.Context, className, shardName, nodeName st
 // Careful: if shardName and nodeName is passed empty it will delete all class frozen shards in cloud storage
 // {cloud_provider}://{configured_bucket}/{className}/{shardName}/{nodeName}/{shard content}
 func (m *Module) Delete(ctx context.Context, className, shardName, nodeName string) error {
+	start := time.Now()
+
 	if className == "" {
 		return fmt.Errorf("can't pass empty class name")
 	}
@@ -333,11 +364,15 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 		cloudPath,
 	}
 
-	metric, err := monitoring.GetMetrics().TenantCloudDeleteDurations.GetMetricWithLabelValues("s3", className, shardName, nodeName)
-	if err == nil {
-		timer := prometheus.NewTimer(metric)
-		defer timer.ObserveDuration()
-	}
+	var err error
+	defer func() {
+		// Update few useful metrics
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		m.metrics.OpsDuration.WithLabelValues("delete", status).Observe(time.Since(start).Seconds())
+	}()
 
 	err = m.app.RunContext(ctx, cmd)
 	if err != nil && !strings.Contains(err.Error(), "no object found") {

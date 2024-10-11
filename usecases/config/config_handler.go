@@ -26,21 +26,20 @@ import (
 	"github.com/weaviate/weaviate/deprecations"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"gopkg.in/yaml.v2"
 )
 
+// ServerVersion is deprecated. Use `build.Version`. It's there for backward compatiblility.
 // ServerVersion is set when the misc handlers are setup.
 // When misc handlers are setup, the entire swagger spec
 // is already being parsed for the server version. This is
 // a good time for us to set ServerVersion, so that the
 // spec only needs to be parsed once.
 var ServerVersion string
-
-// GitHash keeps the current git hash commit information
-var GitHash = "unknown"
 
 // DefaultConfigFile is the default file when no config file is provided
 const DefaultConfigFile string = "./weaviate.conf.json"
@@ -90,6 +89,7 @@ type Config struct {
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
+	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
 	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
 	Authentication                      Authentication           `json:"authentication" yaml:"authentication"`
 	Authorization                       Authorization            `json:"authorization" yaml:"authorization"`
@@ -122,6 +122,7 @@ type Config struct {
 	CORS                                CORS                     `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
+	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -289,7 +290,7 @@ type CORS struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key "
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-OctoAI-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {
@@ -318,6 +319,12 @@ type Raft struct {
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
+
+	EnableOneNodeRecovery bool
+	ForceOneNodeRecovery  bool
+
+	EnableFQDNResolver bool
+	FQDNResolverTLD    string
 }
 
 func (r *Raft) Validate() error {
@@ -377,6 +384,7 @@ func (r *Raft) Validate() error {
 	if r.ConsistencyWaitTimeout <= 0 {
 		return fmt.Errorf("raft.bootstrap.consistency_wait_timeout must be more than 0")
 	}
+
 	return nil
 }
 

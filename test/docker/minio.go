@@ -23,7 +23,7 @@ import (
 
 const MinIO = "test-minio"
 
-func startMinIO(ctx context.Context, networkName string) (*DockerContainer, error) {
+func startMinIO(ctx context.Context, networkName string, buckets map[string]string) (*DockerContainer, error) {
 	port := nat.Port("9000/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
@@ -51,6 +51,22 @@ func startMinIO(ctx context.Context, networkName string) (*DockerContainer, erro
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if len(buckets) > 0 {
+		for bName, region := range buckets {
+			if bName == "" {
+				continue
+			}
+			_, _, err = container.Exec(ctx, []string{"mc", "mb", "--region", region, fmt.Sprintf("data/%s", bName)})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create bucket %s: %s", bName, err.Error())
+			}
+			_, _, err = container.Exec(ctx, []string{"mc", "mb", "--region", region, fmt.Sprintf("data/%s", bName)})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create bucket %s: %s", bName, err.Error())
+			}
+		}
 	}
 	uri, err := container.PortEndpoint(ctx, port, "")
 	if err != nil {

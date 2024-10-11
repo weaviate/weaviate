@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
@@ -60,14 +61,10 @@ type Classifier struct {
 	repo                  Repo
 	vectorRepo            vectorRepo
 	vectorClassSearchRepo modulecapabilities.VectorClassSearchRepo
-	authorizer            authorizer
+	authorizer            authorization.Authorizer
 	distancer             distancer
 	modulesProvider       ModulesProvider
 	logger                logrus.FieldLogger
-}
-
-type authorizer interface {
-	Authorize(principal *models.Principal, verb, resource string) error
 }
 
 type ModulesProvider interface {
@@ -77,7 +74,7 @@ type ModulesProvider interface {
 		params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error)
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorizer,
+func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorization.Authorizer,
 	logger logrus.FieldLogger, modulesProvider ModulesProvider,
 ) *Classifier {
 	return &Classifier{
@@ -101,7 +98,7 @@ type Repo interface {
 
 type VectorRepo interface {
 	GetUnclassified(ctx context.Context, class string,
-		properties []string, filter *libfilters.LocalFilter) ([]search.Result, error)
+		properties []string, propertiesToReturn []string, filter *libfilters.LocalFilter) ([]search.Result, error)
 	AggregateNeighbors(ctx context.Context, vector []float32,
 		class string, properties []string, k int,
 		filter *libfilters.LocalFilter) ([]NeighborRef, error)
@@ -134,7 +131,7 @@ type NeighborRef struct {
 }
 
 func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
-	err := c.authorizer.Authorize(principal, "create", "classifications/*")
+	err := c.authorizer.Authorize(principal, authorization.CREATE, authorization.ALL_CLASSIFICATIONS)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +243,7 @@ func (c *Classifier) assignNewID(params *models.Classification) error {
 }
 
 func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id strfmt.UUID) (*models.Classification, error) {
-	err := c.authorizer.Authorize(principal, "get", "classifications/*")
+	err := c.authorizer.Authorize(principal, authorization.GET, authorization.ALL_CLASSIFICATIONS)
 	if err != nil {
 		return nil, err
 	}

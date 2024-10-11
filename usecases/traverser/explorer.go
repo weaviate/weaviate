@@ -17,6 +17,8 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/schema/configvalidation"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/go-openapi/strfmt"
@@ -30,12 +32,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	uc "github.com/weaviate/weaviate/usecases/schema"
@@ -234,7 +234,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 	return res, []float32{}, nil
 }
 
-func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams []*searchparams.NearVector) ([]search.Result, [][]float32, error) {
+func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, targetVectors []string, searchVectorParams *searchparams.NearVector) ([]search.Result, [][]float32, error) {
 	var err error
 	searchVectors := make([][]float32, len(targetVectors))
 	eg := enterrors.NewErrorGroupWrapper(e.logger)
@@ -246,13 +246,14 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 			if params.NearVector != nil {
 				searchVectorParam = params.NearVector
 			} else if searchVectorParams != nil {
-				searchVectorParam = searchVectorParams[i]
+				searchVectorParam = searchVectorParams
 			}
 
-			searchVectors[i], err = e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i])
+			vec, err := e.vectorFromParamsForTarget(ctx, searchVectorParam, params.NearObject, params.ModuleParams, params.ClassName, params.Tenant, targetVectors[i], i)
 			if err != nil {
 				return errors.Errorf("explorer: get class: vectorize search vector: %v", err)
 			}
+			searchVectors[i] = vec
 			return nil
 		})
 	}
@@ -462,9 +463,12 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			}
 
 			if params.AdditionalProperties.Certainty {
-				if err := e.checkCertaintyCompatibility(params); err != nil {
-					return nil, errors.Errorf("additional: %s", err)
+				targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
+				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+				if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+					return nil, errors.Errorf("additional: %s for class: %v", err, params.ClassName)
 				}
+
 				additionalProperties["certainty"] = additional.DistToCertainty(float64(res.Dist))
 			}
 
@@ -680,9 +684,9 @@ func (e *Explorer) targetFromParams(ctx context.Context,
 }
 
 func (e *Explorer) vectorFromParamsForTarget(ctx context.Context,
-	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string,
+	nv *searchparams.NearVector, no *searchparams.NearObject, moduleParams map[string]interface{}, className, tenant, target string, index int,
 ) ([]float32, error) {
-	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target)
+	return e.nearParamsVector.vectorFromParams(ctx, nv, no, moduleParams, className, tenant, target, index)
 }
 
 func (e *Explorer) vectorFromExploreParams(ctx context.Context,
@@ -704,7 +708,7 @@ func (e *Explorer) vectorFromExploreParams(ctx context.Context,
 		if len(params.NearVector.TargetVectors) == 1 {
 			targetVector = params.NearVector.TargetVectors[0]
 		}
-		return params.NearVector.VectorPerTarget[targetVector], targetVector, nil
+		return params.NearVector.Vectors[0], targetVector, nil
 	}
 
 	if params.NearObject != nil {
@@ -744,24 +748,7 @@ func (e *Explorer) GetSchema() schema.Schema {
 
 func (e *Explorer) GetClassByName(className string) *models.Class {
 	s := e.GetSchema()
-	return s.GetClass(string(schema.ClassName(className)))
-}
-
-func (e *Explorer) checkCertaintyCompatibility(params dto.GetParams) error {
-	class := e.schemaGetter.ReadOnlyClass(params.ClassName)
-	if class == nil {
-		return errors.Errorf("failed to get class: %s", params.ClassName)
-	}
-	targetVectors := e.targetParamHelper.GetTargetVectorsFromParams(params)
-	vectorConfigs, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
-	if err != nil {
-		return err
-	}
-	if dn := vectorConfigs[0].DistanceName(); dn != common.DistanceCosine {
-		return certaintyUnsupportedError(dn)
-	}
-
-	return nil
+	return s.GetClass(className)
 }
 
 func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {

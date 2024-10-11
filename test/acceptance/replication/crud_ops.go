@@ -135,13 +135,13 @@ func deleteObject(t *testing.T, host, class string, id strfmt.UUID, cl replica.C
 	t.Helper()
 	helper.SetupClient(host)
 
-	toDelete, err := helper.GetObject(t, class, id)
+	_, err := helper.GetObject(t, class, id)
 	require.Nil(t, err)
 
-	helper.DeleteObjectCL(t, toDelete, cl)
+	helper.DeleteObjectCL(t, class, id, cl)
 
 	_, err = helper.GetObject(t, class, id)
-	assert.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
+	require.Equal(t, &objects.ObjectsClassGetNotFound{}, err)
 }
 
 func deleteTenantObject(t *testing.T, host, class string, id strfmt.UUID, tenant string, cl replica.ConsistencyLevel) {
@@ -246,7 +246,7 @@ func gqlTenantGet(t *testing.T, host, class string, cl replica.ConsistencyLevel,
 		cl = replica.Quorum
 	}
 
-	q := fmt.Sprintf("{Get {%s (tenant: %q, consistencyLevel: %s)", class, tenant, cl) + " {%s}}}"
+	q := fmt.Sprintf("{Get {%s (tenant: %q, consistencyLevel: %s, limit: 1000)", class, tenant, cl) + " {%s}}}"
 	if len(fields) == 0 {
 		fields = []string{"_additional{id isConsistent}"}
 	}

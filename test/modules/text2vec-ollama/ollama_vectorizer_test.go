@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/companies"
@@ -29,49 +28,28 @@ func testText2VecOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// companiesList data
-		companiesList := companies.Companies()
-		// Define class
 		className := "OllamaVectorizerTest"
-		class := &models.Class{
-			Class: className,
-			Properties: []*models.Property{
-				{
-					Name: "name", DataType: []string{schema.DataTypeText.String()},
-				},
-				{
-					Name: "description", DataType: []string{schema.DataTypeText.String()},
-				},
-			},
-			VectorConfig: map[string]models.VectorConfig{
-				"description": {
-					Vectorizer: map[string]interface{}{
-						"text2vec-ollama": map[string]interface{}{
-							"properties":         []interface{}{"description"},
-							"vectorizeClassName": false,
-							"apiEndpoint":        ollamaApiEndpoint,
-							"model":              "nomic-embed-text",
-						},
+		companiesList := companies.Companies
+		class := companies.BaseClass(className)
+		// Define class
+		class.VectorConfig = map[string]models.VectorConfig{
+			"description": {
+				Vectorizer: map[string]interface{}{
+					"text2vec-ollama": map[string]interface{}{
+						"properties":         []interface{}{"description"},
+						"vectorizeClassName": false,
+						"apiEndpoint":        ollamaApiEndpoint,
+						"model":              "nomic-embed-text",
 					},
-					VectorIndexType: "flat",
 				},
+				VectorIndexType: "flat",
 			},
 		}
 		// create schema
 		helper.CreateClass(t, class)
 		defer helper.DeleteClass(t, class.Class)
 		t.Run("create objects", func(t *testing.T) {
-			for _, company := range companiesList {
-				obj := &models.Object{
-					Class: class.Class,
-					ID:    company.ID,
-					Properties: map[string]interface{}{
-						"name":        company.Name,
-						"description": company.Description,
-					},
-				}
-				helper.CreateObject(t, obj)
-				helper.AssertGetObjectEventually(t, obj.Class, obj.ID)
-			}
+			companies.InsertObjects(t, host, class.Class)
 		})
 		t.Run("check objects existence", func(t *testing.T) {
 			for _, company := range companiesList {
@@ -84,7 +62,10 @@ func testText2VecOllama(host, ollamaApiEndpoint string) func(t *testing.T) {
 				})
 			}
 		})
-		t.Run("create a tweet", func(t *testing.T) {
+		t.Run("perform vector search", func(t *testing.T) {
+			companies.PerformVectorSearchTest(t, host, class.Class)
+		})
+		t.Run("perform second vector search", func(t *testing.T) {
 			query := fmt.Sprintf(`
 				{
 					Get {
