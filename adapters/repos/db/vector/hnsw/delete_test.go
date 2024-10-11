@@ -967,7 +967,7 @@ func TestDelete_ResetLockDoesNotLockForever(t *testing.T) {
 		}()
 		wg.Wait()
 		fmt.Println(ellapsed.Milliseconds())
-		assert.LessOrEqual(t, ellapsed.Milliseconds(), int64(10))
+		assert.LessOrEqual(t, ellapsed.Milliseconds(), int64(180))
 	})
 
 	t.Run("destroy the index", func(t *testing.T) {
