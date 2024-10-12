@@ -59,8 +59,8 @@ function release() {
 
   base_args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--push")
 
-  weaviate_args="$base_args --target=weaviate"
-  serverless_args="$base_args --target=weaviate_experimental"
+  weaviate_args="${base_args[@]} --target=weaviate"
+  serverless_args="${base_args[@]} --target=weaviate_experimental"
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
