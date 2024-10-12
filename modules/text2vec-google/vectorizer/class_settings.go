@@ -76,7 +76,7 @@ func (ic *classSettings) Validate(class *models.Class) error {
 	model := ic.ModelID()
 	if apiEndpoint == DefaulGenerativeAIApiEndpoint {
 		if model != "" && !ic.validateGoogleSetting(model, availableGenerativeAIModels) {
-			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available AI Studio model names are: %v", modelIDProperty, availableGenerativeAIModels))
+			errorMessages = append(errorMessages, fmt.Sprintf("wrong %s available Generative AI model names are: %v", modelIDProperty, availableGenerativeAIModels))
 		}
 	} else {
 		projectID := ic.ProjectID()

@@ -24,7 +24,7 @@ import (
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
 
-func testGenerativeGoogle(host, gcpProject string) func(t *testing.T) {
+func testGenerativeGoogle(host, gcpProject, generativeGoogle string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Data

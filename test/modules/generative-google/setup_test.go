@@ -37,7 +37,8 @@ func TestGenerativeGoogle_VertexAI_SingleNode(t *testing.T) {
 	}()
 	endpoint := compose.GetWeaviate().URI()
 
-	t.Run("tests", testGenerativeGoogle(endpoint, gcpProject))
+	t.Run("generative-google", testGenerativeGoogle(endpoint, gcpProject, "generative-google"))
+	t.Run("generative-palm", testGenerativeGoogle(endpoint, gcpProject, "generative-palm"))
 }
 
 func createSingleNodeEnvironment(ctx context.Context, googleApiKey string,
