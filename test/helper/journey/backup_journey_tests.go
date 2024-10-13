@@ -16,13 +16,13 @@ import (
 )
 
 // BackupJourneyTests_SingleNode this method gathers all backup related e2e tests
-func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, className, backupID string, tenantNames []string, overrideLocation bool) {
+func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, className, backupID string, tenantNames []string, override bool) {
 	if len(tenantNames) > 0 {
 		t.Run("multi-tenant single node backup", func(t *testing.T) {
-			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, tenantNames, overrideLocation)
+			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, tenantNames, false, override)
 		})
 		t.Run("multi-tenant single node backup with empty class", func(t *testing.T) {
-			singleNodeBackupEmptyClassJourneyTest(t, weaviateEndpoint, backend, className, backupID+"_empty", tenantNames)
+			singleNodeBackupEmptyClassJourneyTest(t, weaviateEndpoint, backend, className, backupID+"_empty", tenantNames, override)
 		})
 	} else {
 		// This is a simple test which covers almost the same scenario as singleNodeBackupJourneyTest
@@ -38,11 +38,11 @@ func BackupJourneyTests_SingleNode(t *testing.T, weaviateEndpoint, backend, clas
 		})
 
 		t.Run("single-tenant single node backup", func(t *testing.T) {
-			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, nil, false)
+			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID, nil, false, override)
 		})
 
 		t.Run("single-tenant single node backup with PQ", func(t *testing.T) {
-			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID+"_pq", nil, true)
+			singleNodeBackupJourneyTest(t, weaviateEndpoint, backend, className, backupID+"_pq", nil, true, override)
 		})
 	}
 }

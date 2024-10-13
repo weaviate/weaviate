@@ -20,7 +20,7 @@ import (
 
 func singleNodeBackupJourneyTest(t *testing.T,
 	weaviateEndpoint, backend, className, backupID string,
-	tenantNames []string, pqEnabled bool,
+	tenantNames []string, pqEnabled bool, overrideLocation bool,
 ) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
@@ -54,7 +54,7 @@ func singleNodeBackupJourneyTest(t *testing.T,
 
 	t.Run("single node backup", func(t *testing.T) {
 		backupJourney(t, className, backend, backupID, singleNodeJourney,
-			checkClassAndDataPresence, tenantNames, pqEnabled, map[string]string{}, true)
+			checkClassAndDataPresence, tenantNames, pqEnabled, map[string]string{},  overrideLocation)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -64,7 +64,7 @@ func singleNodeBackupJourneyTest(t *testing.T,
 
 func singleNodeBackupEmptyClassJourneyTest(t *testing.T,
 	weaviateEndpoint, backend, className, backupID string,
-	tenantNames []string,
+	tenantNames []string, overrideLocation bool,
 ) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
@@ -85,7 +85,7 @@ func singleNodeBackupEmptyClassJourneyTest(t *testing.T,
 
 	t.Run("single node backup", func(t *testing.T) {
 		backupJourney(t, className, backend, backupID,
-			singleNodeJourney, checkClassPresenceOnly, tenantNames, false, map[string]string{}, true)
+			singleNodeJourney, checkClassPresenceOnly, tenantNames, false, map[string]string{}, overrideLocation)
 	})
 
 	t.Run("cleanup", func(t *testing.T) {

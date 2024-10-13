@@ -58,6 +58,9 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames, false)
 		})
+
+		t.Setenv(envAzureContainer, "testbucketoverride")
+		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, "testbucketoverride")
 		t.Run("backup-azure", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"azure", azureBackupJourneyClassName, azureBackupJourneyBackupIDSingleNode, tenantNames, true)

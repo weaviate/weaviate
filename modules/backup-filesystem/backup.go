@@ -27,13 +27,14 @@ import (
 func (m *Module) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
 	var metaPath string
 	var err error
-	if bucketName != "" {
+	if bucketPath != "" {
 		metaPath, err = m.getObjectPath(ctx, bucketPath, backupID, key)
 	} else {
 		metaPath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
-		if err != nil {
-			return nil, err
-		}
+	}
+
+	if err != nil {
+		return nil, err
 	}
 
 	contents, err := os.ReadFile(metaPath)
@@ -98,7 +99,7 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 
 func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
 	if bucket != "" {
-		return fmt.Errorf("bucket parameter not supported for filesystem backup module")
+		m.logger.Info("bucket parameter not supported for filesystem backup module!")
 	}
 
 	backupPath := path.Join(m.makeBackupDirPath(m.backupsPath, backupID), key)
@@ -108,10 +109,12 @@ func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPat
 
 	dir := path.Dir(backupPath)
 
+	fmt.Printf("Making dir %s\n", dir)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "make dir '%s'", dir)
 	}
 
+	fmt.Printf("Writing file %s\n", backupPath)
 	if err := os.WriteFile(backupPath, byes, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "write file '%s'", backupPath)
 	}
@@ -132,7 +135,7 @@ func (m *Module) Initialize(ctx context.Context, backupID, bucketName, bucketPat
 func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
 	var objectPath string
 	var err error
-	if bucketName != "" {
+	if bucketPath != "" {
 		objectPath = filepath.Join(bucketPath, backupID, key)
 	} else {
 		objectPath = filepath.Join(m.backupsPath, backupID, key)
@@ -158,7 +161,7 @@ func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPat
 
 	var backupPath string
 	var err error
-	if bucketName != "" {
+	if bucketPath != "" {
 		backupPath = filepath.Join(bucketPath, backupID, key)
 	} else {
 		backupPath = filepath.Join(m.backupsPath, backupID, key)

@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"testing"
 	"time"
@@ -229,11 +228,7 @@ func moduleLevelCopyFiles(t *testing.T) {
 		})
 
 		t.Run("copy file to backend", func(t *testing.T) {
-			srcPath := fpath
-			fmt.Printf("Reading file from %s\n", srcPath)
-			content, err := ioutil.ReadFile(srcPath)
-			require.Nil(t, err)
-			err = s3.PutObject(testCtx, backupID, key, override[0], override[1], content)
+			err := s3.PutObject(testCtx, backupID, key, override[0], override[1], expectedContents)
 			require.Nil(t, err)
 
 			contents, err := s3.GetObject(testCtx, backupID, key, override[0], override[1])
