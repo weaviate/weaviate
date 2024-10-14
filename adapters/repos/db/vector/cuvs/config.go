@@ -13,16 +13,19 @@ package cuvs_index
 
 import (
 	cuvs "github.com/rapidsai/cuvs/go"
+	"github.com/rapidsai/cuvs/go/cagra"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 type Config struct {
-	ID             string
-	TargetVector   string
-	Logger         logrus.FieldLogger
-	DistanceMetric cuvs.Distance
+	ID               string
+	TargetVector     string
+	Logger           logrus.FieldLogger
+	DistanceMetric   cuvs.Distance
+	CuvsIndexParams  *cagra.IndexParams
+	CuvsSearchParams *cagra.SearchParams
 }
 
 func (c Config) Validate() error {

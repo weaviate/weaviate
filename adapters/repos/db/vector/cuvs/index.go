@@ -61,20 +61,21 @@ type VectorIndex interface {
 
 type cuvs_index struct {
 	sync.Mutex
-	id              string
-	targetVector    string
-	dims            int32
-	store           *lsmkv.Store
-	logger          logrus.FieldLogger
-	distanceMetric  cuvs.Distance
-	cuvsIndex       *cagra.CagraIndex
-	cuvsIndexParams *cagra.IndexParams
-	dlpackTensor    *cuvs.Tensor[float32]
-	idCuvsIdMap     map[uint32]uint64
-	cuvsResource    *cuvs.Resource
-	cuvsExtendCount uint64
-	cuvsNumExtends  uint64
-	searchBatcher   *SearchBatcher
+	id               string
+	targetVector     string
+	dims             int32
+	store            *lsmkv.Store
+	logger           logrus.FieldLogger
+	distanceMetric   cuvs.Distance
+	cuvsIndex        *cagra.CagraIndex
+	cuvsIndexParams  *cagra.IndexParams
+	cuvsSearchParams *cagra.SearchParams
+	dlpackTensor     *cuvs.Tensor[float32]
+	idCuvsIdMap      map[uint32]uint64
+	cuvsResource     *cuvs.Resource
+	cuvsExtendCount  uint64
+	cuvsNumExtends   uint64
+	searchBatcher    *SearchBatcher
 
 	// rescore             int64
 	// bq                  compressionhelpers.BinaryQuantizer
@@ -105,11 +106,36 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 		return nil, err
 	}
 
-	cuvsIndexParams, err := cagra.CreateIndexParams()
+	if cfg.CuvsIndexParams == nil {
+		cuvsIndexParams, err := cagra.CreateIndexParams()
 
-	cuvsIndexParams.SetGraphDegree(32)
-	cuvsIndexParams.SetIntermediateGraphDegree(32)
-	cuvsIndexParams.SetBuildAlgo(cagra.NnDescent)
+		cuvsIndexParams.SetGraphDegree(32)
+		cuvsIndexParams.SetIntermediateGraphDegree(32)
+		cuvsIndexParams.SetBuildAlgo(cagra.NnDescent)
+
+		if err != nil {
+			return nil, err
+		}
+
+		cfg.CuvsIndexParams = cuvsIndexParams
+
+	}
+
+	if cfg.CuvsSearchParams == nil {
+
+		cuvsSearchParams, err := cagra.CreateSearchParams()
+
+		if err != nil {
+			return nil, err
+		}
+
+		cuvsSearchParams.SetAlgo(cagra.SearchAlgoMultiCta)
+		cuvsSearchParams.SetItopkSize(256)
+		cuvsSearchParams.SetSearchWidth(1)
+
+		cfg.CuvsSearchParams = cuvsSearchParams
+
+	}
 
 	if err != nil {
 		return nil, err
@@ -122,15 +148,16 @@ func New(cfg Config, uc cuvsEnt.UserConfig, store *lsmkv.Store) (*cuvs_index, er
 	}
 
 	index := &cuvs_index{
-		id:              cfg.ID,
-		targetVector:    cfg.TargetVector,
-		logger:          logger,
-		distanceMetric:  cuvs.DistanceL2, //TODO: make configurable
-		cuvsIndex:       cuvsIndex,
-		cuvsIndexParams: cuvsIndexParams,
-		cuvsResource:    &res,
-		dlpackTensor:    nil,
-		idCuvsIdMap:     make(map[uint32]uint64),
+		id:               cfg.ID,
+		targetVector:     cfg.TargetVector,
+		logger:           logger,
+		distanceMetric:   cuvs.DistanceL2, //TODO: make configurable
+		cuvsIndex:        cuvsIndex,
+		cuvsIndexParams:  cfg.CuvsIndexParams,
+		cuvsSearchParams: cfg.CuvsSearchParams,
+		cuvsResource:     &res,
+		dlpackTensor:     nil,
+		idCuvsIdMap:      make(map[uint32]uint64),
 	}
 
 	// index.searchBatcher = NewSearchBatcher(index, 512, 40000*time.Microsecond)
@@ -271,7 +298,7 @@ func AddWithRebuild(index *cuvs_index, id []uint64, vector [][]float32) error {
 
 	// index.dlpackTensor.Expand(index.cuvsResource, vector)
 	if index.dlpackTensor == nil {
-		tensor, err := cuvs.NewTensor(false, vector, true)
+		tensor, err := cuvs.NewTensor(false, vector)
 		if err != nil {
 			return err
 		}
@@ -309,7 +336,7 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 	// id = id[:64]
 	// vector = vector[:64]
 
-	tensor, err := cuvs.NewTensor(true, vector, false)
+	tensor, err := cuvs.NewTensor(true, vector)
 	if err != nil {
 		return err
 	}
@@ -330,7 +357,7 @@ func AddWithExtend(index *cuvs_index, id []uint64, vector [][]float32) error {
 		ReturnDataset[i] = make([]float32, len(vector[0]))
 	}
 
-	returnTensor, err := cuvs.NewTensor(true, ReturnDataset, false)
+	returnTensor, err := cuvs.NewTensor(true, ReturnDataset)
 	if err != nil {
 		return err
 	}
@@ -405,7 +432,7 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	// fmt.Printf("ToDevice duration: %v\n", toDeviceDuration)
 
 	// queriesStart := time.Now()
-	queries, err := cuvs.NewTensor(true, [][]float32{vector}, false)
+	queries, err := cuvs.NewTensor(true, [][]float32{vector})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -418,11 +445,11 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	// if err != nil {
 	// 	return nil, nil, err
 	// }
-	neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(1), int64(k)}, false)
+	neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(1), int64(k)})
 	if err != nil {
 		return nil, nil, err
 	}
-	distances, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(1), int64(k)}, false)
+	distances, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(1), int64(k)})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -468,9 +495,6 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	// dummyTensor, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(1), int64(1)}, true)
 
 	// paramsStart := time.Now()
-	params, err := cagra.CreateSearchParams()
-	params.SetAlgo(cagra.SearchAlgoMultiCta)
-	params.SetItopkSize(256)
 
 	// params.SetHashmapMode(cagra.HashmapModeSmall)
 	// params.SetMaxQueries(1)
@@ -481,7 +505,7 @@ func (index *cuvs_index) SearchByVector(vector []float32, k int, allow helpers.A
 	// dummyTensor.ToHost(index.cuvsResource)
 	// searchStart := time.Now()
 	// index.cuvsResource.Sync()
-	cagra.SearchIndex(*index.cuvsResource, params, index.cuvsIndex, &queries, &neighbors, &distances)
+	cagra.SearchIndex(*index.cuvsResource, index.cuvsSearchParams, index.cuvsIndex, &queries, &neighbors, &distances)
 
 	// index.cuvsResource.Sync()
 	// searchDuration := time.Since(searchStart)
@@ -550,17 +574,17 @@ func (index *cuvs_index) SearchByVectorBatch(vector [][]float32, k int, allow he
 		vector[v] = Normalize_Temp(vector[v])
 	}
 
-	queries, err := cuvs.NewTensor(true, vector, false)
+	queries, err := cuvs.NewTensor(true, vector)
 
 	if err != nil {
 		return nil, nil, err
 	}
 
-	neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(len(vector)), int64(k)}, false)
+	neighbors, err := cuvs.NewTensorOnDevice[uint32](index.cuvsResource, []int64{int64(len(vector)), int64(k)})
 	if err != nil {
 		return nil, nil, err
 	}
-	distances, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(len(vector)), int64(k)}, false)
+	distances, err := cuvs.NewTensorOnDevice[float32](index.cuvsResource, []int64{int64(len(vector)), int64(k)})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -646,7 +670,7 @@ func (index *cuvs_index) PostStartup() {
 		panic(err)
 	}
 
-	err = cuvs.EnablePoolMemoryResource(80, 100, false)
+	err = cuvs.EnablePoolMemoryResource(30, 100, false)
 
 	if err != nil {
 		panic(err)
