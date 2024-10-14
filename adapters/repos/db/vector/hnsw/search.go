@@ -209,8 +209,6 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		floatDistancer = h.distancerProvider.New(queryVector)
 	}
 
-	entryPointElem := entrypoints.Pop()
-	entrypoints.Insert(entryPointElem.ID, entryPointElem.Dist)
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
 
