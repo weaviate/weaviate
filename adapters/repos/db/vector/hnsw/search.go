@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 )
 
+const defaultAcornMaxFilterPercentage = 0.4
+
 func (h *hnsw) searchTimeEF(k int) int {
 	// load atomically, so we can get away with concurrent updates of the
 	// userconfig without having to set a lock each time we try to read - which
@@ -157,6 +159,16 @@ func (h *hnsw) shouldRescore() bool {
 	return h.compressed.Load() && !h.doNotRescore
 }
 
+func (h *hnsw) cacheSize() int64 {
+	var size int64
+	if h.compressed.Load() {
+		size = h.compressor.CountVectors()
+	} else {
+		size = h.cache.CountVectors()
+	}
+	return size
+}
+
 func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
@@ -166,11 +178,17 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	visitedExp := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
 
+	useAcorn := h.acornSearch.Load()
 	var M int
-	if allowList != nil {
-		h.RLock()
-		M = len(h.nodes) / allowList.Len()
-		h.RUnlock()
+
+	if allowList != nil && useAcorn {
+		cacheSize := h.cacheSize()
+		allowListSize := allowList.Len()
+		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > defaultAcornMaxFilterPercentage {
+			useAcorn = false
+		}
+		M = int(cacheSize / int64(max(1, allowListSize)))
+		M = min(M, 8)
 	}
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
@@ -235,7 +253,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		var sliceConnectionsReusable *common.VectorUint64Slice
 		var slicePendingNextRound *common.VectorUint64Slice
 		var slicePendingThisRound *common.VectorUint64Slice
-		if allowList == nil || !h.acornSearch.Load() {
+		if allowList == nil || !useAcorn {
 			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 			copy(connectionsReusable, candidateNode.connections[level])
 		} else {
@@ -373,7 +391,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if !h.acornSearch.Load() && level == 0 && allowList != nil && !allowList.Contains(neighborID) {
+				if !useAcorn && level == 0 && allowList != nil && !allowList.Contains(neighborID) {
 					continue
 				}
 
@@ -399,7 +417,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 				}
 			}
 		}
-		if allowList != nil && h.acornSearch.Load() {
+		if allowList != nil && useAcorn {
 			h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
 			h.pools.tempVectorsUint64.Put(slicePendingNextRound)
 			h.pools.tempVectorsUint64.Put(slicePendingThisRound)
@@ -575,9 +593,11 @@ func (s *FastSet) DeepCopy() helpers.AllowList {
 func (s *FastSet) Insert(ids ...uint64) {
 	panic("DeepCopy")
 }
+
 func (s *FastSet) WrapOnWrite() helpers.AllowList {
 	panic("DeepCopy")
 }
+
 func (s *FastSet) Slice() []uint64 {
 	panic("DeepCopy")
 }
@@ -585,18 +605,23 @@ func (s *FastSet) Slice() []uint64 {
 func (s *FastSet) IsEmpty() bool {
 	panic("DeepCopy")
 }
+
 func (s *FastSet) Len() int {
 	return s.size
 }
+
 func (s *FastSet) Min() uint64 {
 	panic("DeepCopy")
 }
+
 func (s *FastSet) Max() uint64 {
 	panic("DeepCopy")
 }
+
 func (s *FastSet) Size() uint64 {
 	panic("DeepCopy")
 }
+
 func (s *FastSet) Truncate(uint64) helpers.AllowList {
 	panic("DeepCopy")
 }
@@ -607,6 +632,7 @@ func (s *FastSet) Iterator() helpers.AllowListIterator {
 		current: 0,
 	}
 }
+
 func (s *FastSet) LimitedIterator(limit int) helpers.AllowListIterator {
 	panic("DeepCopy")
 }
