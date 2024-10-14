@@ -197,8 +197,8 @@ func FromEnv(config *Config) error {
 
 	if err := parsePositiveInt(
 		"PERSISTENCE_LSM_SEGMENTS_CLEANUP_INTERVAL_HOURS",
-		func(val int) { config.Persistence.LSMSegmentsCleanupIntervalHours = int64(val) },
-		DefaultPersistenceLSMSegmentsCleanupIntervalHours,
+		func(hours int) { config.Persistence.LSMSegmentsCleanupIntervalSeconds = hours * 3600 },
+		DefaultPersistenceLSMSegmentsCleanupIntervalSeconds,
 	); err != nil {
 		return err
 	}

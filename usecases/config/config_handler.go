@@ -225,7 +225,7 @@ type Persistence struct {
 	MemtablesMinActiveDurationSeconds int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
 	MemtablesMaxActiveDurationSeconds int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
 	LSMMaxSegmentSize                 int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
-	LSMSegmentsCleanupIntervalHours   int64  `json:"lsmSegmentsCleanupIntervalHours" yaml:"lsmSegmentsCleanupIntervalHours"`
+	LSMSegmentsCleanupIntervalSeconds int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
 	HNSWMaxLogSize                    int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 }
 
@@ -237,9 +237,9 @@ const DefaultPersistenceDataPath string = "./data"
 // some noise about it. This is technically a breaking change.
 const DefaultPersistenceLSMMaxSegmentSize = math.MaxInt64
 
-// DefaultPersistenceLSMSegmentsCleanupIntervalHours = 0 for backward compatibility.
+// DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0 for backward compatibility.
 // value = 0 means cleanup is turned off.
-const DefaultPersistenceLSMSegmentsCleanupIntervalHours = 0
+const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
