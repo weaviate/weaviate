@@ -297,13 +297,6 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 			continue
 		}
 
-		if job.tokens[objCounter] > rateLimit.LimitTokens || job.tokens[objCounter] > maxTokensPerBatch {
-			b.logger.Debugf("text too long for vectorization. Tokens for text: %v, max tokens per batch: %v, ApiKey absolute token limit: %v", job.tokens[objCounter], maxTokensPerBatch, rateLimit.LimitTokens)
-			job.errs[objCounter] = fmt.Errorf("text too long for vectorization. Tokens for text: %v, max tokens per batch: %v, ApiKey absolute token limit: %v", job.tokens[objCounter], maxTokensPerBatch, rateLimit.LimitTokens)
-			objCounter++
-			continue
-		}
-
 		// add objects to the current vectorizer-batch until the remaining tokens are used up or other limits are reached
 		text := job.texts[objCounter]
 		if float32(tokensInCurrentBatch+job.tokens[objCounter]) <= 0.95*float32(rateLimit.RemainingTokens) &&
@@ -320,19 +313,24 @@ func (b *Batch) sendBatch(job BatchJob, objCounter int, rateLimit *modulecompone
 		}
 
 		// if a single object is larger than the current token limit we need to wait until the token limit refreshes
-		// enough to be able to handle the object. This assumes that the tokenLimit refreshes linearly which is true
-		// for openAI, but needs to be checked for other providers
+		// enough to be able to handle the object.
+		// This assumes that the tokenLimit refreshes linearly which is true for openAI, but needs to be checked for
+		// other providers
 		if len(texts) == 0 && time.Until(rateLimit.ResetTokens) > 0 {
-			fractionOfTotalLimit := float32(job.tokens[objCounter]) / float32(rateLimit.LimitTokens)
-			sleepTime := time.Until(rateLimit.ResetTokens) * time.Duration(fractionOfTotalLimit)
-			if time.Since(job.startTime)+sleepTime < b.maxBatchTime {
+			fractionOfTotalLimit := float64(job.tokens[objCounter]) / float64(rateLimit.LimitTokens)
+			sleepTime := time.Duration(fractionOfTotalLimit * float64(time.Until(rateLimit.ResetTokens)))
+			if time.Since(job.startTime)+sleepTime < b.maxBatchTime && !concurrentBatch {
 				time.Sleep(sleepTime)
-				rateLimit.RemainingTokens += int(float32(rateLimit.LimitTokens) * fractionOfTotalLimit)
+				rateLimit.RemainingTokens += int(float64(rateLimit.LimitTokens) * fractionOfTotalLimit)
+				continue // try again after tokens have hopefully refreshed
 			} else {
-				job.errs[objCounter] = fmt.Errorf("text too long for vectorization. Cannot wait for token refresh due to time limit")
+				// send the item in an individual request even if it is larger than the absolute token limit. It needs
+				// to fail to propagate the proper error to the user - also our tokenCounts are approximations so even if
+				// an objects seems to be too big it might as well work
+				texts = append(texts, text)
+				origIndex = append(origIndex, objCounter)
 				objCounter++
 			}
-			continue // try again or next item
 		}
 
 		start := time.Now()
