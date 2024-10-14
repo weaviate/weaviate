@@ -168,9 +168,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 	var M int
 	if allowList != nil {
-		h.Lock()
+		h.RLock()
 		M = len(h.nodes) / allowList.Len()
-		h.Unlock()
+		h.RUnlock()
 	}
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
@@ -232,19 +232,19 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			continue
 		}
 
-		var slice *common.VectorUint64Slice
-		var slice2 *common.VectorUint64Slice
-		var slice3 *common.VectorUint64Slice
+		var sliceConnectionsReusable *common.VectorUint64Slice
+		var slicePendingNextRound *common.VectorUint64Slice
+		var slicePendingThisRound *common.VectorUint64Slice
 		if allowList == nil || !h.acornSearch.Load() {
 			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 			copy(connectionsReusable, candidateNode.connections[level])
 		} else {
-			slice = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
-			connectionsReusable = slice.Slice
-			slice2 = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
-			slice3 = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero * h.maximumConnectionsLayerZero)
-			pendingNextRound := slice2.Slice
-			pendingThisRound := slice3.Slice
+			sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
+			connectionsReusable = sliceConnectionsReusable.Slice
+			slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+			slicePendingThisRound = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero * h.maximumConnectionsLayerZero)
+			pendingNextRound := slicePendingNextRound.Slice
+			pendingThisRound := slicePendingThisRound.Slice
 
 			realLen := 0
 			index := 0
@@ -256,7 +256,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
 				} else {
 					pendingThisRound = make([]uint64, len(pendingNextRound))
-					slice3.Slice = pendingThisRound
+					slicePendingThisRound.Slice = pendingThisRound
 				}
 				copy(pendingThisRound, pendingNextRound)
 				pendingNextRound = pendingNextRound[:0]
@@ -279,7 +279,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					}
 					visitedExp.Visit(nodeId)
 
+					h.RLock()
+					h.shardedNodeLocks.RLock(nodeId)
 					node := h.nodes[nodeId]
+					h.shardedNodeLocks.RUnlock(nodeId)
+					h.RUnlock()
 					if node == nil {
 						continue
 					}
@@ -306,18 +310,22 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 					}
 				}
 			}
-			if realLen == 0 && results.Len() < 10 {
+			if realLen == 0 && results.Len() < ef {
 				now := []uint64{pendingThisRound[0]}
 				var next []uint64
 				pass := false
 				hops := 0
-				for !pass {
+				for !pass && hops <= 2 {
 					hops++
 					for _, x := range now {
 						if pass {
 							break
 						}
+						h.RLock()
+						h.shardedNodeLocks.RLock(x)
 						node := h.nodes[x]
+						h.shardedNodeLocks.RUnlock(x)
+						h.RUnlock()
 						for _, y := range node.connections[level] {
 							if allowList.Contains(y) {
 								pass = true
@@ -365,7 +373,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if !h.acornSearch.Load() && allowList != nil && !allowList.Contains(neighborID) {
+				if !h.acornSearch.Load() && level == 0 && allowList != nil && !allowList.Contains(neighborID) {
 					continue
 				}
 
@@ -392,9 +400,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			}
 		}
 		if allowList != nil && h.acornSearch.Load() {
-			h.pools.tempVectorsUint64.Put(slice)
-			h.pools.tempVectorsUint64.Put(slice2)
-			h.pools.tempVectorsUint64.Put(slice3)
+			h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
+			h.pools.tempVectorsUint64.Put(slicePendingNextRound)
+			h.pools.tempVectorsUint64.Put(slicePendingThisRound)
 		}
 	}
 
