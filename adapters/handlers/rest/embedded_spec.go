@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.19"
+    "version": "1.25.20"
   },
   "basePath": "/v1",
   "paths": {
@@ -4847,18 +4847,18 @@ func init() {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
-        "factor": {
-          "description": "Number of times a class is replicated",
-          "type": "integer"
-        },
-        "objectDeletionConflictResolution": {
+        "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "PermanentDeletion"
+            "DeleteOnConflict"
           ],
           "x-omitempty": true
+        },
+        "factor": {
+          "description": "Number of times a class is replicated",
+          "type": "integer"
         }
       }
     },
@@ -5446,7 +5446,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.25.19"
+    "version": "1.25.20"
   },
   "basePath": "/v1",
   "paths": {
@@ -10547,18 +10547,18 @@ func init() {
       "description": "Configure how replication is executed in a cluster",
       "type": "object",
       "properties": {
-        "factor": {
-          "description": "Number of times a class is replicated",
-          "type": "integer"
-        },
-        "objectDeletionConflictResolution": {
+        "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "PermanentDeletion"
+            "DeleteOnConflict"
           ],
           "x-omitempty": true
+        },
+        "factor": {
+          "description": "Number of times a class is replicated",
+          "type": "integer"
         }
       }
     },
