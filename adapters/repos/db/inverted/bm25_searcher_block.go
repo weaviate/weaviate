@@ -156,14 +156,22 @@ func (b *BM25Searcher) wandBlock(
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
-	for _, result := range allResults {
+	allObjects := make([][]*storobj.Object, len(allResults))
+	allScores := make([][]float32, len(allResults))
+
+	for i, result := range allResults {
+
+		i := i
 		eg.Go(func() (err error) {
 			combinedTerms := &terms.Terms{
 				T: result,
 			}
 
 			topKHeap := b.getTopKHeap(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
-			_, _, err = b.getTopKObjects(topKHeap, params.AdditionalExplanations, nil, additional)
+			objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, nil, additional)
+
+			allObjects[i] = objects
+			allScores[i] = scores
 			if err != nil {
 				return err
 			}
