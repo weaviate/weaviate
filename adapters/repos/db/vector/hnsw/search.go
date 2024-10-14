@@ -169,15 +169,7 @@ func (h *hnsw) cacheSize() int64 {
 	return size
 }
 
-func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
-	entrypoints *priorityqueue.Queue[any], ef int, level int,
-	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
-) {
-	h.pools.visitedListsLock.RLock()
-	visited := h.pools.visitedLists.Borrow()
-	visitedExp := h.pools.visitedLists.Borrow()
-	h.pools.visitedListsLock.RUnlock()
-
+func (h *hnsw) useAcorn(allowList helpers.AllowList) (bool, int) {
 	useAcorn := h.acornSearch.Load()
 	var M int
 
@@ -190,6 +182,19 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		M = int(cacheSize / int64(max(1, allowListSize)))
 		M = min(M, 8)
 	}
+	return useAcorn, M
+}
+
+func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
+	entrypoints *priorityqueue.Queue[any], ef int, level int,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer) (*priorityqueue.Queue[any], error,
+) {
+	h.pools.visitedListsLock.RLock()
+	visited := h.pools.visitedLists.Borrow()
+	visitedExp := h.pools.visitedLists.Borrow()
+	h.pools.visitedListsLock.RUnlock()
+
+	useAcorn, M := h.useAcorn(allowList)
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -225,7 +230,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	var slicePendingNextRound *common.VectorUint64Slice
 	var slicePendingThisRound *common.VectorUint64Slice
 
-	if allowList != nil && h.acornSearch.Load() {
+	if allowList != nil && useAcorn {
 		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
@@ -668,8 +673,9 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		return nil, nil, nil
 	}
 
+	useAcorn, _ := h.useAcorn(allowOld)
 	var allowList helpers.AllowList = nil
-	if allowOld != nil && h.acornSearch.Load() {
+	if useAcorn {
 		allowList = NewFastSet(allowOld)
 	}
 
@@ -747,7 +753,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
-	if h.acornSearch.Load() && allowList != nil {
+	if useAcorn && allowList != nil {
 		size := h.maximumConnectionsLayerZero
 		if size >= ef {
 			size = ef - 1
