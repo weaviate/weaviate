@@ -52,6 +52,16 @@ func TestScheduler(t *testing.T) {
 		return nil
 	}))
 	require.NoError(t, err)
+	q.BeforeScheduleFn = func() {
+		if atomic.LoadInt32(&count) == 5000 {
+			s.PauseQueue(q.ID())
+			go func() {
+				time.AfterFunc(100*time.Millisecond, func() {
+					s.ResumeQueue(q.ID())
+				})
+			}()
+		}
+	}
 	s.RegisterQueue(q)
 
 	for i := 0; i < 10; i++ {
