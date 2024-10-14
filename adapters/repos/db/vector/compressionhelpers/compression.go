@@ -48,6 +48,7 @@ type VectorCompressor interface {
 	Delete(ctx context.Context, id uint64)
 	Preload(id uint64, vector []float32)
 	Prefetch(id uint64)
+	CountVectors() int64
 	PrefillCache()
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
@@ -78,6 +79,10 @@ func (compressor *quantizedVectorsCompressor[T]) GrowCache(size uint64) {
 
 func (compressor *quantizedVectorsCompressor[T]) SetCacheMaxSize(size int64) {
 	compressor.cache.UpdateMaxSize(size)
+}
+
+func (compressor *quantizedVectorsCompressor[T]) CountVectors() int64 {
+	return compressor.cache.CountVectors()
 }
 
 func (compressor *quantizedVectorsCompressor[T]) GetCacheMaxSize() int64 {
