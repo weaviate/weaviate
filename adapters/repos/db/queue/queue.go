@@ -62,6 +62,10 @@ func (q *Queue) Close() error {
 	return nil
 }
 
+func (q *Queue) ID() string {
+	return q.id
+}
+
 func (q *Queue) Push(op uint8, keys ...uint64) error {
 	if q.closed.Load() {
 		return errors.New("queue closed")

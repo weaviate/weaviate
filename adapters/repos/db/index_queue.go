@@ -14,8 +14,10 @@ package db
 import (
 	"container/list"
 	"context"
+	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
@@ -31,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -1053,4 +1056,78 @@ type chunk struct {
 	cursor    int
 	data      []vectorDescriptor
 	createdAt *time.Time
+}
+
+type IndexQueue2 struct {
+	q *queue.Queue
+
+	index     batchIndexer
+	scheduler *queue.Scheduler
+}
+
+func NewIndexQueue2(
+	s *queue.Scheduler,
+	shardID string,
+	targetVector string,
+	shard *Shard,
+	index VectorIndex,
+) (*IndexQueue2, error) {
+	var qID string
+	if targetVector == "" {
+		qID = fmt.Sprintf("index_queue_%s", shardID)
+	} else {
+		qID = fmt.Sprintf("index_queue_%s_%s", shardID, targetVector)
+	}
+
+	var dir string
+	if targetVector == "" {
+		dir = filepath.Join(shard.path(), "index_queue_default")
+	} else {
+		dir = filepath.Join(shard.path(), "index_queue", targetVector)
+	}
+
+	var iq IndexQueue2
+
+	q, err := queue.New(s, qID, dir, &iq)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create vector index queue")
+	}
+	q.BeforeScheduleFn = iq.BeforeSchedule
+
+	q.Logger = q.Logger.
+		WithField("component", "index_queue").
+		WithField("shard_id", shardID)
+
+	iq.q = q
+
+	return &iq, nil
+}
+
+func (iq *IndexQueue2) Execute(ctx context.Context, op uint8, ids ...uint64) error {
+	return iq.index.AddBatch(ctx, ids, nil)
+}
+
+func (iq *IndexQueue2) BeforeSchedule() {
+	ci, ok := iq.index.(upgradableIndexer)
+	if !ok {
+		return
+	}
+
+	shouldUpgrade, shouldUpgradeAt := ci.ShouldUpgrade()
+	if !shouldUpgrade || ci.Upgraded() {
+		return
+	}
+
+	if iq.index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+		iq.scheduler.PauseQueue(iq.q.ID())
+
+		err := ci.Upgrade(func() {
+			iq.scheduler.ResumeQueue(iq.q.ID())
+		})
+		if err != nil {
+			iq.q.Logger.WithError(err).Error("failed to upgrade vector index")
+		}
+
+		return
+	}
 }
