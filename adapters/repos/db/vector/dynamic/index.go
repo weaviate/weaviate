@@ -74,6 +74,7 @@ type VectorIndex interface {
 	// If the callback returns false, the iteration will stop.
 	Iterate(fn func(id uint64) bool)
 	Stats() (common.IndexStats, error)
+	PreloadCache(id uint64, vec []float32)
 }
 
 type upgradableIndexer interface {
@@ -372,6 +373,15 @@ func (dynamic *dynamic) Upgraded() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 	return dynamic.upgraded.Load() && dynamic.index.(upgradableIndexer).Upgraded()
+}
+
+func (dynamic *dynamic) PreloadCache(id uint64, vec []float32) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+
+	if dynamic.upgraded.Load() {
+		dynamic.index.PreloadCache(id, vec)
+	}
 }
 
 func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {

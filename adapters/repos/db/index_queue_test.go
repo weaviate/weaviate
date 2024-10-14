@@ -1217,6 +1217,9 @@ func (m *mockBatchIndexer) Upgrade(callback func()) error {
 	return nil
 }
 
+func (m *mockBatchIndexer) PreloadCache(id uint64, vec []float32) {
+}
+
 func (m *mockBatchIndexer) ValidateBeforeInsert(vector []float32) error {
 	if m.validateBeforeInsertFn != nil {
 		return m.validateBeforeInsertFn(vector)

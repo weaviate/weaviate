@@ -149,3 +149,6 @@ type NoopStats struct{}
 func (s *NoopStats) IndexType() common.IndexType {
 	return common.IndexTypeNoop
 }
+
+func (i *Index) PreloadCache(id uint64, vec []float32) {
+}
