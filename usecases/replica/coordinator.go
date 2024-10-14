@@ -50,7 +50,7 @@ type (
 		// wait twice this duration for the first Pull backoff for each host
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
-		objectDeletionResolution      string
+		deletionStrategy              string
 	}
 )
 
@@ -73,7 +73,7 @@ func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.Fiel
 func newReadCoordinator[T any](f *Finder, shard string,
 	pullBackOffInitivalInterval time.Duration,
 	pullBackOffMaxElapsedTime time.Duration,
-	objectDeletionResolution string,
+	deletionStrategy string,
 ) *coordinator[T] {
 	return &coordinator[T]{
 		Resolver:                      f.resolver,
@@ -81,7 +81,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 		Shard:                         shard,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
 		pullBackOffMaxElapsedTime:     pullBackOffMaxElapsedTime,
-		objectDeletionResolution:      objectDeletionResolution,
+		deletionStrategy:              deletionStrategy,
 	}
 }
 
