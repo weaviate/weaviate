@@ -1,6 +1,7 @@
 #!/bin/bash
 
 DOCKER_REPO="semitechnologies/weaviate"
+DOCKER_REPO_SERVERLESS="semitechnologies/weaviate-experimental"
 
 function release() {
   # for multi-platform build
@@ -8,6 +9,8 @@ function release() {
   docker buildx create --use
 
   tag_latest="${DOCKER_REPO}:latest"
+  tag_serverless_latest="${DOCKER_REPO}:latest" # serverless is experimental so just `latest` tag for now.
+
   tag_exact=
   tag_preview=
 
@@ -38,19 +41,27 @@ function release() {
     fi
   fi
 
-  args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--target=weaviate" "--push")
+  base_args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--push")
+
+  weaviate_args="${base_args[@]} --target=weaviate"
+  serverless_args="${base_args[@]} --target=weaviate_experimental"
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
-    args+=("-t=$tag_exact")
-    args+=("-t=$tag_latest")
+    weaviate_args+=("-t=$tag_exact")
+    weaviate_args+=("-t=$tag_latest")
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds
-    args+=("-t=$tag_preview")
+    weaviate_args+=("-t=$tag_preview")
   fi
 
-  docker buildx build "${args[@]}" .
+  # build weaviate image
+  docker buildx build "${weaviate_args[@]}" .
+
+  # build weaviate experimental image
+  serverless_args+=("-t=$tag_serverless_latest")
+  docker buildx build "${serverless_args[@]}" .
 
   if [ -n "$tag_preview" ]; then
     echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"
