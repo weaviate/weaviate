@@ -30,6 +30,15 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
+	MultiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		MultiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	}
+
+}
+
+func MultiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
@@ -94,7 +103,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDSingleNode, tenantNames, true, "testbucketoverride", "testBucketPathOverride")
+				gcsBackupJourneyBackupIDSingleNode, tenantNames, override, overrideBucket, overridePath)
 		})
 	})
 
@@ -124,12 +133,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDCluster, tenantNames, false, "", "",
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
-		})
-		t.Run("backup-gcs", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDCluster, tenantNames, true, "testbucketoverride", "testBucketPathOverride",
+				gcsBackupJourneyBackupIDCluster, tenantNames, override, overrideBucket, overridePath,
 				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
