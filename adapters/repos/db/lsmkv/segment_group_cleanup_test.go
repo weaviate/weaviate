@@ -33,14 +33,14 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		require.Equal(t, expectedStartIdx, startIdx)
 	}
 	requireCandidateNotFound := func(t *testing.T, idx, startIdx int) {
-		require.Equal(t, noIdx, idx)
-		require.Equal(t, noIdx, startIdx)
+		require.Equal(t, emptyIdx, idx)
+		require.Equal(t, emptyIdx, startIdx)
 	}
 	assertBoltDbKeys := func(t *testing.T, db *bolt.DB, expectedIds []int64) {
 		ids := make([]int64, 0, len(expectedIds))
 
 		db.View(func(tx *bolt.Tx) error {
-			b := tx.Bucket(cleanupSegmentsBucket)
+			b := tx.Bucket(cleanupDbBucketSegments)
 			c := b.Cursor()
 
 			for ck, _ := c.First(); ck != nil; ck, _ = c.Next() {
@@ -57,7 +57,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		sg := &SegmentGroup{
 			dir:             dir,
 			segments:        []*segment{},
-			cleanupInterval: time.Millisecond * 250,
+			cleanupInterval: time.Millisecond * 100,
 		}
 		sc := &segmentCleanerCommon{sg: sg}
 		require.NoError(t, sc.init())
@@ -80,7 +80,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 					size: 10001,
 				},
 			},
-			cleanupInterval: time.Millisecond * 250,
+			cleanupInterval: time.Millisecond * 100,
 		}
 		sc := &segmentCleanerCommon{sg: sg}
 		require.NoError(t, sc.init())
@@ -115,7 +115,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 					size: 10004,
 				},
 			},
-			cleanupInterval: time.Millisecond * 250,
+			cleanupInterval: time.Millisecond * 100,
 		}
 		sc := &segmentCleanerCommon{sg: sg}
 		sc.init()
@@ -175,7 +175,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 					size: 10004,
 				},
 			},
-			cleanupInterval: time.Millisecond * 250,
+			cleanupInterval: time.Millisecond * 100,
 		}
 		sc := &segmentCleanerCommon{sg: sg}
 		require.NoError(t, sc.init())
@@ -255,7 +255,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 					size: 10004,
 				},
 			},
-			cleanupInterval: time.Millisecond * 250,
+			cleanupInterval: time.Millisecond * 100,
 		}
 		sc := &segmentCleanerCommon{sg: sg}
 		require.NoError(t, sc.init())
@@ -399,7 +399,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 					size: 10004,
 				},
 			},
-			cleanupInterval: time.Millisecond * 250,
+			cleanupInterval: time.Millisecond * 100,
 		}
 		sc := &segmentCleanerCommon{sg: sg}
 		require.NoError(t, sc.init())
@@ -611,7 +611,7 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 					size: 10005,
 				},
 			},
-			cleanupInterval: time.Millisecond * 250,
+			cleanupInterval: time.Millisecond * 100,
 		}
 		sc := &segmentCleanerCommon{sg: sg}
 		require.NoError(t, sc.init())

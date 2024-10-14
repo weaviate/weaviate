@@ -25,14 +25,15 @@ import (
 )
 
 const (
-	cleanupDbFileName = "cleanup.db.bolt"
-	noIdx             = -1
+	cleanupDbFileName     = "cleanup.db.bolt"
+	emptyIdx              = -1
+	minCleanupSizePercent = 10
 )
 
 var (
-	cleanupSegmentsBucket       = []byte("segments")
-	cleanupMetaBucket           = []byte("meta")
-	cleanupMetaKeyNextAllowedTs = []byte("nextAllowedTs")
+	cleanupDbBucketSegments       = []byte("segments")
+	cleanupDbBucketMeta           = []byte("meta")
+	cleanupDbKeyMetaNextAllowedTs = []byte("nextAllowedTs")
 )
 
 type segmentCleaner interface {
@@ -76,6 +77,30 @@ func (c *segmentCleanerNoop) cleanupOnce(shouldAbort cyclemanager.ShouldAbortCal
 
 // ================================================================
 
+// segmentCleanerCommon uses bolt db to persist data relevant to cleanup
+// progress.
+// db is stored in file named [cleanupDbFileName] in bucket directory, next to
+// segment files.
+//
+// db uses 2 buckets:
+// - [cleanupDbBucketMeta] to store global cleanup data
+// - [cleanupDbBucketSegments] to store each segments cleanup data
+//
+// [cleanupDbBucketMeta] holds single key [cleanupDbKeyMetaNextAllowedTs] with value of
+// timestamp of earliest of last segments' cleanups or last execution timestamp of findCandidate
+// if no eligible cleanup candidate was found.
+// [cleanupDbBucketSegments] holds multiple keys (being segment ids) with values being combined:
+// - timestamp of current segment's cleanup
+// - segmentId of last segment used in current segment's cleanup
+// - size of current segment after cleanup
+// Entries of segmentIds of segments that were removed (left segments after compaction)
+// are regularly removed from cleanup db while next cleanup candidate is searched.
+//
+// cleanupInterval indicates minimal interval that have to pass for segment to be cleaned again.
+// Each segment has stored its last cleanup timestamp in cleanup bolt db.
+// Additionally "global" earliest cleanup timestamp is stored ([cleanupDbKeyMetaNextAllowedTs])
+// or last execution timestamp of findCandiate method. This timeout is used to quickly exit
+// findCandidate method without necessity to verify if interval passed for each segment.
 type segmentCleanerCommon struct {
 	sg *SegmentGroup
 	db *bolt.DB
@@ -91,10 +116,10 @@ func (c *segmentCleanerCommon) init() error {
 	}
 
 	if err = db.Update(func(tx *bolt.Tx) error {
-		if _, err := tx.CreateBucketIfNotExists(cleanupSegmentsBucket); err != nil {
+		if _, err := tx.CreateBucketIfNotExists(cleanupDbBucketSegments); err != nil {
 			return err
 		}
-		if _, err := tx.CreateBucketIfNotExists(cleanupMetaBucket); err != nil {
+		if _, err := tx.CreateBucketIfNotExists(cleanupDbBucketMeta); err != nil {
 			return err
 		}
 		return nil
@@ -113,6 +138,9 @@ func (c *segmentCleanerCommon) close() error {
 	return nil
 }
 
+// findCandidate returns index of segment that should be cleaned as next one,
+// index of first newer segment to start cleanup from, callback to be executed after cleanup
+// is successfully completed and error in case of issues occurred while finding candidate
 func (c *segmentCleanerCommon) findCandidate() (int, int, onCompletedFunc, error) {
 	nowTs := time.Now().UnixNano()
 	nextAllowedTs := nowTs - int64(c.sg.cleanupInterval)
@@ -120,31 +148,31 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, onCompletedFunc, error
 
 	if nextAllowedStoredTs > nextAllowedTs {
 		// too soon for next cleanup
-		return noIdx, noIdx, nil, nil
+		return emptyIdx, emptyIdx, nil, nil
 	}
 
 	ids, sizes, err := c.getSegmentIdsAndSizes()
 	if err != nil {
-		return noIdx, noIdx, nil, err
+		return emptyIdx, emptyIdx, nil, err
 	}
 	if count := len(ids); count <= 1 {
 		// too few segments for cleanup, update next allowed timestamp for cleanup to now
 		if err := c.storeNextAllowed(nowTs); err != nil {
-			return noIdx, noIdx, nil, err
+			return emptyIdx, emptyIdx, nil, err
 		}
-		return noIdx, noIdx, nil, nil
+		return emptyIdx, emptyIdx, nil, nil
 	}
 
 	// get idx and cleanup timestamp of earliest cleaned segment,
-	// take the opportunity to find obsolete segment keys to be deleted later
+	// take the opportunity to find obsolete segment keys to be deleted later from cleanup db
 	candidateIdx, startIdx, earliestCleanedTs, nonExistentSegmentKeys := c.readEarliestCleaned(ids, sizes, nowTs)
 
 	if err := c.deleteSegmentMetas(nonExistentSegmentKeys); err != nil {
-		return noIdx, noIdx, nil, err
+		return emptyIdx, emptyIdx, nil, err
 	}
 
-	if candidateIdx != noIdx && earliestCleanedTs <= nextAllowedTs {
-		// candidate found
+	if candidateIdx != emptyIdx && earliestCleanedTs <= nextAllowedTs {
+		// candidate found and ready for cleanup
 		id := ids[candidateIdx]
 		lastProcessedId := ids[len(ids)-1]
 		onCompleted := func(size int64) error {
@@ -153,12 +181,13 @@ func (c *segmentCleanerCommon) findCandidate() (int, int, onCompletedFunc, error
 		return candidateIdx, startIdx, onCompleted, nil
 	}
 
-	// candidate not found, update next allowed timestamp for cleanup to earliest cleaned segment (or now)
+	// candidate not found or not ready for cleanup, update next allowed timestamp to earliest cleaned segment
+	// (which is "now" if candidate was not found)
 	if err := c.storeNextAllowed(earliestCleanedTs); err != nil {
-		return noIdx, noIdx, nil, err
+		return emptyIdx, emptyIdx, nil, err
 	}
 
-	return noIdx, noIdx, nil, nil
+	return emptyIdx, emptyIdx, nil, nil
 }
 
 func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error) {
@@ -188,8 +217,8 @@ func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error)
 func (c *segmentCleanerCommon) readNextAllowed() int64 {
 	ts := int64(0)
 	c.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(cleanupMetaBucket)
-		v := b.Get(cleanupMetaKeyNextAllowedTs)
+		b := tx.Bucket(cleanupDbBucketMeta)
+		v := b.Get(cleanupDbKeyMetaNextAllowedTs)
 		if v != nil {
 			ts = int64(binary.BigEndian.Uint64(v))
 		}
@@ -200,11 +229,11 @@ func (c *segmentCleanerCommon) readNextAllowed() int64 {
 
 func (c *segmentCleanerCommon) storeNextAllowed(ts int64) error {
 	if err := c.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(cleanupMetaBucket)
+		b := tx.Bucket(cleanupDbBucketMeta)
 		bufV := make([]byte, 8)
 
 		binary.BigEndian.PutUint64(bufV, uint64(ts))
-		return b.Put(cleanupMetaKeyNextAllowedTs, bufV)
+		return b.Put(cleanupDbKeyMetaNextAllowedTs, bufV)
 	}); err != nil {
 		return fmt.Errorf("updating cleanup bolt db %q: %w", c.db.Path(), err)
 	}
@@ -214,7 +243,7 @@ func (c *segmentCleanerCommon) storeNextAllowed(ts int64) error {
 func (c *segmentCleanerCommon) deleteSegmentMetas(segIds [][]byte) error {
 	if len(segIds) > 0 {
 		if err := c.db.Update(func(tx *bolt.Tx) error {
-			b := tx.Bucket(cleanupSegmentsBucket)
+			b := tx.Bucket(cleanupDbBucketSegments)
 			for _, k := range segIds {
 				if err := b.Delete(k); err != nil {
 					return err
@@ -228,98 +257,128 @@ func (c *segmentCleanerCommon) deleteSegmentMetas(segIds [][]byte) error {
 	return nil
 }
 
+// based of data stored in cleanup bolt db and existing segments in filesystem
+// method returns:
+// - index of candidate segment best suitable for cleanup,
+// - index of segment, cleanup of candidate should be started from,
+// - time of previous candidate's cleanup,
+// - list of segmentIds stored in cleanup bolt db that no longer exist in filesystem
+// - error (if occurred).
+//
+// First candidate to be returned is segment that was not cleaned before (if multiple
+// uncleaned segments exist - the oldest one is returned).
+// If there is no unclean segment, segment that was cleaned as the earliest is returned.
+// For segment already cleaned before to be returned, new segments must have been created
+// after previous cleanup and sum of their sizes should be greater than [minCleanupSizePercent]
+// percent of size of cleaned segment, to increase the chance of segment being actually cleaned,
+// not just copied.
 func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int64,
 ) (int, int, int64, [][]byte) {
 	earliestCleanedTs := nowTs
-	candidateIdx := noIdx
-	startIdx := noIdx
+	candidateIdx := emptyIdx
+	startIdx := emptyIdx
 
 	count := len(ids)
 	nonExistentSegmentKeys := [][]byte{}
+	emptyId := int64(-1)
 
 	c.db.View(func(tx *bolt.Tx) error {
-		b := tx.Bucket(cleanupSegmentsBucket)
-		c := b.Cursor()
+		b := tx.Bucket(cleanupDbBucketSegments)
+		cur := b.Cursor()
 
+		// Loop through all segmentIds, the ones stored in cleanup db (cur)
+		// and ones currently existing in filesystem (ids).
+		// Note: both sets of segmentIds may have unique elements:
+		// - cursor can contain segmentIds of segments already removed (by compaction)
+		// - ids can contain segmentIds of newly created segments
+		// Note: both sets are ordered, therefore in case of one element is missing
+		// in set, only this set advances to next element
 		idx := 0
-		ck, cv := c.First()
+		key, val := cur.First()
+		for idx < count-1 || key != nil {
+			id := emptyId
+			storedId := emptyId
 
-		// last segment does not need to be cleaned, therefore "count-1"
-		for ck != nil && idx < count-1 {
-			cid := int64(binary.BigEndian.Uint64(ck))
-			id := ids[idx]
+			if idx < count-1 {
+				id = ids[idx]
+			}
+			if key != nil {
+				storedId = int64(binary.BigEndian.Uint64(key))
+			}
 
-			if id > cid {
-				// id no longer exists, to be removed from bolt db
-				nonExistentSegmentKeys = append(nonExistentSegmentKeys, ck)
-				ck, cv = c.Next()
-			} else if id < cid {
-				// id not yet present in bolt
+			// segment with segmentId stored in cleanup db (storedId) no longer exists,
+			if id == emptyId || (storedId != emptyId && id > storedId) {
+				// entry to be deleted
+				nonExistentSegmentKeys = append(nonExistentSegmentKeys, key)
+				// advance cursor
+				key, val = cur.Next()
+				continue
+			}
+
+			// segment with segmentId in filesystem (id) has no entry in cleanup db,
+			if storedId == emptyId || (id != emptyId && id < storedId) {
+				// as segment was not cleaned before (timestamp == 0), it becomes best
+				// candidate for next cleanup.
+				// (if there are more segments not yet cleaned, 1st one is selected)
 				if earliestCleanedTs > 0 {
 					earliestCleanedTs = 0
 					candidateIdx = idx
 					startIdx = idx + 1
 				}
+				// advance index
 				idx++
-			} else {
-				// id present in bolt db
-				cts := int64(binary.BigEndian.Uint64(cv[0:8]))
-				// cleaned before current cleanup candidate
-				// check if worth cleaning again
-				if earliestCleanedTs > cts {
-					lastId := ids[count-1]
-					clastProcessedId := int64(binary.BigEndian.Uint64(cv[8:16]))
-					if clastProcessedId < lastId {
-						// current last segment's id is bigger than last processed one
-						// (new segments must have been created since last cleanup)
-						csize := int64(binary.BigEndian.Uint64(cv[16:24]))
-						size := sizes[idx]
+				continue
+			}
 
-						// if size changed (compacted), start cleanup from next segment in case
-						// left segment was not cleaned considering the same segments as right segment was
-						// (could happen when new segments were added between left and right cleanup)
-						tmpStartIdx := idx + 1
-						if size == csize {
-							// size not changed (not compacted), clean using only newly created segments,
-							// skipping segments already processed in previous cleanup
-							for i := idx + 1; i < count; i++ {
-								tmpStartIdx = i
-								if ids[i] > clastProcessedId {
-									break
-								}
+			// segmentId present in both sets, had to be cleaned before
+			// id == cid
+
+			storedCleanedTs := int64(binary.BigEndian.Uint64(val[0:8]))
+			// check if cleaned before current candidate
+			if earliestCleanedTs > storedCleanedTs {
+				lastId := ids[count-1]
+				storedLastId := int64(binary.BigEndian.Uint64(val[8:16]))
+				// check if new segments created after last cleanup
+				if storedLastId < lastId {
+					// last segment's id in filesystem is higher than last id used for cleanup
+					size := sizes[idx]
+					storedSize := int64(binary.BigEndian.Uint64(val[16:24]))
+
+					// In general segment could be cleaned considering only segments created
+					// after its last cleanup. One exception is when segment was compacted
+					// (previous and current sizes differ).
+					// As after compaction cleanup db will contain only entry of right segment,
+					// not the left one, it is unknown what was last segment used for cleanup of removed
+					// left segment, therefore compacted segment will be cleaned again using all newer segments.
+					possibleStartIdx := idx + 1
+					if size == storedSize {
+						// size not changed (not compacted), clean using only newly created segments,
+						// skipping segments already processed in previous cleanup
+						for i := idx + 1; i < count; i++ {
+							possibleStartIdx = i
+							if ids[i] > storedLastId {
+								break
 							}
 						}
+					}
 
-						sumSize := int64(0)
-						for i := tmpStartIdx; i < count; i++ {
-							sumSize += sizes[i]
-						}
-
-						if sumSize*10 > size {
-							// relevant segments bigger than 10% of cleaned segment,
-							// clean again
-							earliestCleanedTs = cts
-							candidateIdx = idx
-							startIdx = tmpStartIdx
-						}
+					// segment should be cleaned only if sum of sizes of segments to be cleaned
+					// with exceeds [minCleanupSizePercent] of its current size, to increase
+					// probability of redunand keys.
+					sumSize := int64(0)
+					for i := possibleStartIdx; i < count; i++ {
+						sumSize += sizes[i]
+					}
+					if size*minCleanupSizePercent/100 <= sumSize {
+						earliestCleanedTs = storedCleanedTs
+						candidateIdx = idx
+						startIdx = possibleStartIdx
 					}
 				}
-				ck, cv = c.Next()
-				idx++
 			}
-		}
-		// in case main loop finished due to idx reached count first
-		for ; ck != nil; ck, _ = c.Next() {
-			cid := int64(binary.BigEndian.Uint64(ck))
-			if cid != ids[count-1] {
-				nonExistentSegmentKeys = append(nonExistentSegmentKeys, ck)
-			}
-		}
-		// in case main loop finished due to cursor reached end first
-		for ; idx < count-1 && earliestCleanedTs > 0; idx++ {
-			earliestCleanedTs = 0
-			candidateIdx = idx
-			startIdx = idx + 1
+			// advance cursor and index
+			key, val = cur.Next()
+			idx++
 		}
 		return nil
 	})
@@ -327,15 +386,16 @@ func (c *segmentCleanerCommon) readEarliestCleaned(ids, sizes []int64, nowTs int
 }
 
 func (c *segmentCleanerCommon) storeSegmentMeta(id, lastProcessedId, size, cleanedTs int64) error {
-	if err := c.db.Update(func(tx *bolt.Tx) error {
-		b := tx.Bucket(cleanupSegmentsBucket)
-		bufK := make([]byte, 8)
-		bufV := make([]byte, 24)
+	bufK := make([]byte, 8)
+	binary.BigEndian.PutUint64(bufK, uint64(id))
 
-		binary.BigEndian.PutUint64(bufK, uint64(id))
-		binary.BigEndian.PutUint64(bufV[0:8], uint64(cleanedTs))
-		binary.BigEndian.PutUint64(bufV[8:16], uint64(lastProcessedId))
-		binary.BigEndian.PutUint64(bufV[16:24], uint64(size))
+	bufV := make([]byte, 24)
+	binary.BigEndian.PutUint64(bufV[0:8], uint64(cleanedTs))
+	binary.BigEndian.PutUint64(bufV[8:16], uint64(lastProcessedId))
+	binary.BigEndian.PutUint64(bufV[16:24], uint64(size))
+
+	if err := c.db.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket(cleanupDbBucketSegments)
 		return b.Put(bufK, bufV)
 	}); err != nil {
 		return fmt.Errorf("updating cleanup bolt db %q: %w", c.db.Path(), err)
@@ -353,7 +413,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	if err != nil {
 		return false, err
 	}
-	if candidateIdx == noIdx {
+	if candidateIdx == emptyIdx {
 		return false, nil
 	}
 
