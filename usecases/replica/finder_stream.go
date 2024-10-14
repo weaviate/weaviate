@@ -58,7 +58,6 @@ func (f *finderStream) readOne(ctx context.Context,
 		defer close(resultCh)
 		var (
 			votes      = make([]objTuple, 0, st.Level)
-			maxCount   = 0
 			contentIdx = -1
 		)
 
@@ -75,14 +74,26 @@ func (f *finderStream) readOne(ctx context.Context,
 				contentIdx = len(votes)
 			}
 			votes = append(votes, objTuple{resp.sender, resp.UpdateTime, resp.Data, 0, nil})
-			for i := range votes { // count number of votes
-				if votes[i].UTime == resp.UpdateTime {
-					votes[i].ack++
+
+			for i := range votes {
+				if votes[i].UTime != resp.UpdateTime {
+					// incomming response does not match current vote
+					continue
 				}
-				if maxCount < votes[i].ack {
-					maxCount = votes[i].ack
+
+				votes[i].ack++
+
+				if votes[i].ack < st.Level {
+					// current vote does not have enough acks
+					continue
 				}
-				if maxCount >= st.Level && contentIdx >= 0 {
+
+				if votes[i].o.Deleted {
+					resultCh <- objResult{nil, nil}
+					return
+				}
+				if i == contentIdx {
+					// prefetched payload matches agreed vote
 					resultCh <- objResult{votes[contentIdx].o.Object, nil}
 					return
 				}
@@ -134,10 +145,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 	resultCh := make(chan _Result[bool], 1)
 	g := func() {
 		defer close(resultCh)
-		var (
-			votes    = make([]boolTuple, 0, st.Level) // number of votes per replica
-			maxCount = 0
-		)
+		votes := make([]boolTuple, 0, st.Level) // number of votes per replica
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
@@ -150,18 +158,23 @@ func (f *finderStream) readExistence(ctx context.Context,
 			}
 
 			votes = append(votes, boolTuple{resp.Sender, resp.UpdateTime, resp.RepairResponse, 0, nil})
+
 			for i := range votes { // count number of votes
-				if votes[i].UTime == resp.UpdateTime {
-					votes[i].ack++
+				if votes[i].UTime != resp.UpdateTime {
+					// incomming response does not match current vote
+					continue
 				}
-				if maxCount < votes[i].ack {
-					maxCount = votes[i].ack
+
+				votes[i].ack++
+
+				if votes[i].ack < st.Level {
+					// current vote does not have enough acks
+					continue
 				}
-				if maxCount >= st.Level {
-					exists := !votes[i].o.Deleted && votes[i].o.UpdateTime != 0
-					resultCh <- _Result[bool]{exists, nil}
-					return
-				}
+
+				exists := !votes[i].o.Deleted && votes[i].o.UpdateTime != 0
+				resultCh <- _Result[bool]{exists, nil}
+				return
 			}
 		}
 
