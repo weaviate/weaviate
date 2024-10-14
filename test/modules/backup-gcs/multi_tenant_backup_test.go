@@ -33,12 +33,13 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 	MultiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
 		MultiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
-	}
+	})
 
 }
 
 func MultiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
 
+	gcsBackupJourneyBucketName := containerName
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)

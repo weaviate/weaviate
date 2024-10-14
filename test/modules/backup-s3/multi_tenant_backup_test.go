@@ -26,6 +26,19 @@ import (
 const numTenants = 50
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	MultiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		MultiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+func MultiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	s3BackupJourneyBucketName := containerName
+
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
@@ -58,39 +71,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, tenantNames, false)
-		})
-	})
-
-
-	t.Run("single node", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-
-		t.Log("pre-instance env setup")
-		t.Setenv(envS3AccessKey, s3BackupJourneyAccessKey)
-		t.Setenv(envS3SecretKey, s3BackupJourneySecretKey)
-		t.Setenv(envS3Bucket, s3BackupJourneyBucketName)
-
-		compose, err := docker.New().
-			WithBackendS3(s3BackupJourneyBucketName, s3BackupJourneyRegion).
-			WithText2VecContextionary().
-			WithWeaviate().
-			Start(ctx)
-		require.Nil(t, err)
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %s", err.Error())
-			}
-		}()
-
-		t.Run("post-instance env setup", func(t *testing.T) {
-			helper.SetupClient(compose.GetWeaviate().URI())
-		})
-
-		t.Run("backup-s3", func(t *testing.T) {
-			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, tenantNames, true)
+				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, tenantNames, override, overrideBucket, overridePath)
 		})
 	})
 
@@ -122,7 +103,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 		t.Run("backup-s3", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "s3", s3BackupJourneyClassName,
-				s3BackupJourneyBackupIDCluster, tenantNames,
+				s3BackupJourneyBackupIDCluster, tenantNames, override, overrideBucket, overridePath,
 				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})
