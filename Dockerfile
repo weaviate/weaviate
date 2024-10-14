@@ -65,9 +65,9 @@ RUN GOBIN=/go/bin && chmod +x ${GOBIN}/grpc-health-probe && mv ${GOBIN}/grpc-hea
 ################################################################################
 # Weaviate experimental (check ./cmd/weaviate/README.md)
 FROM alpine AS weaviate_experimental
-ENTRYPOINT ["/bin/weaviate-exp"]
+ENTRYPOINT ["/bin/weaviate"]
 COPY --from=grpc_health_probe_builder /bin/grpc_health_probe /bin/
-COPY --from=experimental_server_builder /weaviate /bin/weaviate-exp
+COPY --from=experimental_server_builder /weaviate /bin/weaviate
 RUN mkdir -p /go/pkg/mod/github.com/go-ego
 COPY --from=experimental_server_builder /go/pkg/mod/github.com/go-ego /go/pkg/mod/github.com/go-ego
 RUN apk add --no-cache --upgrade bc ca-certificates openssl
