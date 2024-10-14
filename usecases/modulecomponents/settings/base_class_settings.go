@@ -36,6 +36,15 @@ func NewBaseClassSettings(cfg moduletools.ClassConfig) *BaseClassSettings {
 	return &BaseClassSettings{cfg: cfg, propertyHelper: &classPropertyValuesHelper{}}
 }
 
+func NewBaseClassSettingsWithAltNames(cfg moduletools.ClassConfig,
+	moduleName string, altNames []string,
+) *BaseClassSettings {
+	return &BaseClassSettings{
+		cfg:            cfg,
+		propertyHelper: &classPropertyValuesHelper{moduleName: moduleName, altNames: altNames},
+	}
+}
+
 func (s *BaseClassSettings) PropertyIndexed(propName string) bool {
 	if s.cfg == nil {
 		return DefaultPropertyIndexed
@@ -81,7 +90,7 @@ func (s *BaseClassSettings) VectorizeClassName() bool {
 		return DefaultVectorizeClassName
 	}
 
-	vcn, ok := s.cfg.Class()["vectorizeClassName"]
+	vcn, ok := s.GetSettings()["vectorizeClassName"]
 	if !ok {
 		return DefaultVectorizeClassName
 	}
@@ -99,7 +108,7 @@ func (s *BaseClassSettings) Properties() []string {
 		return nil
 	}
 
-	field, ok := s.cfg.Class()["properties"]
+	field, ok := s.GetSettings()["properties"]
 	if !ok {
 		return nil
 	}
@@ -123,7 +132,7 @@ func (s *BaseClassSettings) Properties() []string {
 
 func (s *BaseClassSettings) ValidateClassSettings() error {
 	if s.cfg != nil && len(s.cfg.Class()) > 0 {
-		if field, ok := s.cfg.Class()["properties"]; ok {
+		if field, ok := s.GetSettings()["properties"]; ok {
 			fieldsArray, fieldsArrayOk := field.([]interface{})
 			if fieldsArrayOk {
 				if len(fieldsArray) == 0 {
@@ -207,6 +216,10 @@ func (s *BaseClassSettings) ValidateIndexState(class *models.Class) error {
 		"to true if the class name is contextionary-valid. Alternatively add at least " +
 		"contextionary-valid text/string property which is not excluded from " +
 		"indexing")
+}
+
+func (s *BaseClassSettings) GetSettings() map[string]interface{} {
+	return s.propertyHelper.GetSettings(s.cfg)
 }
 
 func (s *BaseClassSettings) Validate(class *models.Class) error {

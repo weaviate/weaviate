@@ -29,22 +29,22 @@ import (
 	modgenerativeanyscale "github.com/weaviate/weaviate/modules/generative-anyscale"
 	modgenerativeaws "github.com/weaviate/weaviate/modules/generative-aws"
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
+	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
-	modgenerativepalm "github.com/weaviate/weaviate/modules/generative-palm"
-	modmulti2vecpalm "github.com/weaviate/weaviate/modules/multi2vec-palm"
+	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modqnaopenai "github.com/weaviate/weaviate/modules/qna-openai"
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
+	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
-	modpalm "github.com/weaviate/weaviate/modules/text2vec-palm"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	"golang.org/x/sync/errgroup"
 )
@@ -102,7 +102,7 @@ type Compose struct {
 	withSUMTransformers           bool
 	withCentroid                  bool
 	withCLIP                      bool
-	withPaLMApiKey                string
+	withGoogleApiKey              string
 	withBind                      bool
 	withImg2Vec                   bool
 	withRerankerTransformers      bool
@@ -211,9 +211,9 @@ func (d *Compose) WithMulti2VecCLIP() *Compose {
 	return d
 }
 
-func (d *Compose) WithMulti2VecPaLM(apiKey string) *Compose {
-	d.withPaLMApiKey = apiKey
-	d.enableModules = append(d.enableModules, modmulti2vecpalm.Name)
+func (d *Compose) WithMulti2VecGoogle(apiKey string) *Compose {
+	d.withGoogleApiKey = apiKey
+	d.enableModules = append(d.enableModules, modmulti2vecgoogle.Name)
 	return d
 }
 
@@ -250,9 +250,9 @@ func (d *Compose) WithText2VecVoyageAI() *Compose {
 	return d
 }
 
-func (d *Compose) WithText2VecPaLM(apiKey string) *Compose {
-	d.withPaLMApiKey = apiKey
-	d.enableModules = append(d.enableModules, modpalm.Name)
+func (d *Compose) WithText2VecGoogle(apiKey string) *Compose {
+	d.withGoogleApiKey = apiKey
+	d.enableModules = append(d.enableModules, modgoogle.Name)
 	return d
 }
 
@@ -293,9 +293,9 @@ func (d *Compose) WithGenerativeCohere() *Compose {
 	return d
 }
 
-func (d *Compose) WithGenerativePaLM(apiKey string) *Compose {
-	d.withPaLMApiKey = apiKey
-	d.enableModules = append(d.enableModules, modgenerativepalm.Name)
+func (d *Compose) WithGenerativeGoogle(apiKey string) *Compose {
+	d.withGoogleApiKey = apiKey
+	d.enableModules = append(d.enableModules, modgenerativegoogle.Name)
 	return d
 }
 
@@ -516,8 +516,8 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
-	if d.withPaLMApiKey != "" {
-		envSettings["PALM_APIKEY"] = d.withPaLMApiKey
+	if d.withGoogleApiKey != "" {
+		envSettings["GOOGLE_APIKEY"] = d.withGoogleApiKey
 	}
 	if d.withOctoAIApiKey != "" {
 		envSettings["OCTOAI_APIKEY"] = d.withOctoAIApiKey
