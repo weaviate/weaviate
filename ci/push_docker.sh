@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# TODO(kavi): comment just to trigger the builds. Remove it.
+
 DOCKER_REPO="semitechnologies/weaviate"
 
 function release() {
