@@ -402,11 +402,11 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 	require.Nil(t, err)
 	defer bucket.Shutdown(context.Background())
 
-	secondary1 := func(primaryKey string) string {
-		return "secondary1-" + primaryKey
+	secondaryKey0 := func(primaryKey string) string {
+		return "secondary0-" + primaryKey
 	}
-	secondary2 := func(primaryKey string) string {
-		return "secondary2-" + primaryKey
+	secondaryKey1 := func(primaryKey string) string {
+		return "secondary1-" + primaryKey
 	}
 
 	type kvt struct {
@@ -462,134 +462,134 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 											c501
 		*/
 
-		putWithSecondaries := func(t *testing.T, pkey, value string) {
+		putWithSecondaryKeys := func(t *testing.T, pkey, value string) {
 			err := bucket.Put(
 				[]byte(pkey),
 				[]byte(value),
-				WithSecondaryKey(0, []byte(secondary1(pkey))),
-				WithSecondaryKey(1, []byte(secondary2(pkey))),
+				WithSecondaryKey(0, []byte(secondaryKey0(pkey))),
+				WithSecondaryKey(1, []byte(secondaryKey1(pkey))),
 			)
 			require.NoError(t, err)
 		}
-		deleteWithSecondary := func(t *testing.T, pkey string) {
+		deleteWithSecondaryKeys := func(t *testing.T, pkey string) {
 			err := bucket.Delete(
 				[]byte(pkey),
-				WithSecondaryKey(0, []byte(secondary1(pkey))),
-				WithSecondaryKey(1, []byte(secondary2(pkey))),
+				WithSecondaryKey(0, []byte(secondaryKey0(pkey))),
+				WithSecondaryKey(1, []byte(secondaryKey1(pkey))),
 			)
 			require.NoError(t, err)
 		}
 
 		t.Run("segment 1", func(t *testing.T) {
-			putWithSecondaries(t, "key101_created1", "created")
-			putWithSecondaries(t, "key102_updated2", "created")
-			putWithSecondaries(t, "key103_updated3", "created")
-			putWithSecondaries(t, "key104_updated4", "created")
-			putWithSecondaries(t, "key105_updated5", "created")
-			putWithSecondaries(t, "key106_deleted2", "created")
-			putWithSecondaries(t, "key107_deleted3", "created")
-			putWithSecondaries(t, "key108_deleted4", "created")
-			putWithSecondaries(t, "key109_deleted5", "created")
-			putWithSecondaries(t, "key110_updated2_deleted3", "created")
-			putWithSecondaries(t, "key111_updated3_deleted4", "created")
-			putWithSecondaries(t, "key112_updated4_deleted5", "created")
-			putWithSecondaries(t, "key113_deleted2_updated3", "created")
-			putWithSecondaries(t, "key114_deleted3_updated4", "created")
-			putWithSecondaries(t, "key115_deleted4_updated5", "created")
+			putWithSecondaryKeys(t, "key101_created1", "created")
+			putWithSecondaryKeys(t, "key102_updated2", "created")
+			putWithSecondaryKeys(t, "key103_updated3", "created")
+			putWithSecondaryKeys(t, "key104_updated4", "created")
+			putWithSecondaryKeys(t, "key105_updated5", "created")
+			putWithSecondaryKeys(t, "key106_deleted2", "created")
+			putWithSecondaryKeys(t, "key107_deleted3", "created")
+			putWithSecondaryKeys(t, "key108_deleted4", "created")
+			putWithSecondaryKeys(t, "key109_deleted5", "created")
+			putWithSecondaryKeys(t, "key110_updated2_deleted3", "created")
+			putWithSecondaryKeys(t, "key111_updated3_deleted4", "created")
+			putWithSecondaryKeys(t, "key112_updated4_deleted5", "created")
+			putWithSecondaryKeys(t, "key113_deleted2_updated3", "created")
+			putWithSecondaryKeys(t, "key114_deleted3_updated4", "created")
+			putWithSecondaryKeys(t, "key115_deleted4_updated5", "created")
 
 			require.NoError(t, bucket.FlushAndSwitch())
 		})
 
 		t.Run("segment 2", func(t *testing.T) {
-			putWithSecondaries(t, "key201_created2", "created")
-			putWithSecondaries(t, "key202_updated3", "created")
-			putWithSecondaries(t, "key203_updated4", "created")
-			putWithSecondaries(t, "key204_updated5", "created")
-			putWithSecondaries(t, "key205_deleted3", "created")
-			putWithSecondaries(t, "key206_deleted4", "created")
-			putWithSecondaries(t, "key207_deleted5", "created")
-			putWithSecondaries(t, "key208_updated3_deleted4", "created")
-			putWithSecondaries(t, "key209_updated4_deleted5", "created")
-			putWithSecondaries(t, "key210_deleted3_updated4", "created")
-			putWithSecondaries(t, "key211_deleted4_updated5", "created")
+			putWithSecondaryKeys(t, "key201_created2", "created")
+			putWithSecondaryKeys(t, "key202_updated3", "created")
+			putWithSecondaryKeys(t, "key203_updated4", "created")
+			putWithSecondaryKeys(t, "key204_updated5", "created")
+			putWithSecondaryKeys(t, "key205_deleted3", "created")
+			putWithSecondaryKeys(t, "key206_deleted4", "created")
+			putWithSecondaryKeys(t, "key207_deleted5", "created")
+			putWithSecondaryKeys(t, "key208_updated3_deleted4", "created")
+			putWithSecondaryKeys(t, "key209_updated4_deleted5", "created")
+			putWithSecondaryKeys(t, "key210_deleted3_updated4", "created")
+			putWithSecondaryKeys(t, "key211_deleted4_updated5", "created")
 
-			putWithSecondaries(t, "key102_updated2", "updated")
-			putWithSecondaries(t, "key110_updated2_deleted3", "updated")
+			putWithSecondaryKeys(t, "key102_updated2", "updated")
+			putWithSecondaryKeys(t, "key110_updated2_deleted3", "updated")
 
-			deleteWithSecondary(t, "key106_deleted2")
-			deleteWithSecondary(t, "key113_deleted2_updated3")
+			deleteWithSecondaryKeys(t, "key106_deleted2")
+			deleteWithSecondaryKeys(t, "key113_deleted2_updated3")
 
 			require.NoError(t, bucket.FlushAndSwitch())
 		})
 
 		t.Run("segment 3", func(t *testing.T) {
-			putWithSecondaries(t, "key301_created3", "created")
-			putWithSecondaries(t, "key302_updated4", "created")
-			putWithSecondaries(t, "key303_updated5", "created")
-			putWithSecondaries(t, "key304_deleted4", "created")
-			putWithSecondaries(t, "key305_deleted5", "created")
-			putWithSecondaries(t, "key306_updated4_deleted5", "created")
-			putWithSecondaries(t, "key307_deleted4_updated5", "created")
+			putWithSecondaryKeys(t, "key301_created3", "created")
+			putWithSecondaryKeys(t, "key302_updated4", "created")
+			putWithSecondaryKeys(t, "key303_updated5", "created")
+			putWithSecondaryKeys(t, "key304_deleted4", "created")
+			putWithSecondaryKeys(t, "key305_deleted5", "created")
+			putWithSecondaryKeys(t, "key306_updated4_deleted5", "created")
+			putWithSecondaryKeys(t, "key307_deleted4_updated5", "created")
 
-			putWithSecondaries(t, "key103_updated3", "updated")
-			putWithSecondaries(t, "key111_updated3_deleted4", "updated")
-			putWithSecondaries(t, "key113_deleted2_updated3", "updated")
-			putWithSecondaries(t, "key202_updated3", "updated")
-			putWithSecondaries(t, "key208_updated3_deleted4", "updated")
+			putWithSecondaryKeys(t, "key103_updated3", "updated")
+			putWithSecondaryKeys(t, "key111_updated3_deleted4", "updated")
+			putWithSecondaryKeys(t, "key113_deleted2_updated3", "updated")
+			putWithSecondaryKeys(t, "key202_updated3", "updated")
+			putWithSecondaryKeys(t, "key208_updated3_deleted4", "updated")
 
-			deleteWithSecondary(t, "key107_deleted3")
-			deleteWithSecondary(t, "key110_updated2_deleted3")
-			deleteWithSecondary(t, "key114_deleted3_updated4")
-			deleteWithSecondary(t, "key205_deleted3")
-			deleteWithSecondary(t, "key210_deleted3_updated4")
+			deleteWithSecondaryKeys(t, "key107_deleted3")
+			deleteWithSecondaryKeys(t, "key110_updated2_deleted3")
+			deleteWithSecondaryKeys(t, "key114_deleted3_updated4")
+			deleteWithSecondaryKeys(t, "key205_deleted3")
+			deleteWithSecondaryKeys(t, "key210_deleted3_updated4")
 
 			require.NoError(t, bucket.FlushAndSwitch())
 		})
 
 		t.Run("segment 4", func(t *testing.T) {
-			putWithSecondaries(t, "key401_created4", "created")
-			putWithSecondaries(t, "key402_updated5", "created")
-			putWithSecondaries(t, "key403_deleted5", "created")
+			putWithSecondaryKeys(t, "key401_created4", "created")
+			putWithSecondaryKeys(t, "key402_updated5", "created")
+			putWithSecondaryKeys(t, "key403_deleted5", "created")
 
-			putWithSecondaries(t, "key104_updated4", "updated")
-			putWithSecondaries(t, "key112_updated4_deleted5", "updated")
-			putWithSecondaries(t, "key114_deleted3_updated4", "updated")
-			putWithSecondaries(t, "key203_updated4", "updated")
-			putWithSecondaries(t, "key209_updated4_deleted5", "updated")
-			putWithSecondaries(t, "key210_deleted3_updated4", "updated")
-			putWithSecondaries(t, "key302_updated4", "updated")
-			putWithSecondaries(t, "key306_updated4_deleted5", "updated")
+			putWithSecondaryKeys(t, "key104_updated4", "updated")
+			putWithSecondaryKeys(t, "key112_updated4_deleted5", "updated")
+			putWithSecondaryKeys(t, "key114_deleted3_updated4", "updated")
+			putWithSecondaryKeys(t, "key203_updated4", "updated")
+			putWithSecondaryKeys(t, "key209_updated4_deleted5", "updated")
+			putWithSecondaryKeys(t, "key210_deleted3_updated4", "updated")
+			putWithSecondaryKeys(t, "key302_updated4", "updated")
+			putWithSecondaryKeys(t, "key306_updated4_deleted5", "updated")
 
-			deleteWithSecondary(t, "key108_deleted4")
-			deleteWithSecondary(t, "key111_updated3_deleted4")
-			deleteWithSecondary(t, "key115_deleted4_updated5")
-			deleteWithSecondary(t, "key206_deleted4")
-			deleteWithSecondary(t, "key208_updated3_deleted4")
-			deleteWithSecondary(t, "key211_deleted4_updated5")
-			deleteWithSecondary(t, "key304_deleted4")
-			deleteWithSecondary(t, "key307_deleted4_updated5")
+			deleteWithSecondaryKeys(t, "key108_deleted4")
+			deleteWithSecondaryKeys(t, "key111_updated3_deleted4")
+			deleteWithSecondaryKeys(t, "key115_deleted4_updated5")
+			deleteWithSecondaryKeys(t, "key206_deleted4")
+			deleteWithSecondaryKeys(t, "key208_updated3_deleted4")
+			deleteWithSecondaryKeys(t, "key211_deleted4_updated5")
+			deleteWithSecondaryKeys(t, "key304_deleted4")
+			deleteWithSecondaryKeys(t, "key307_deleted4_updated5")
 
 			require.NoError(t, bucket.FlushAndSwitch())
 		})
 
 		t.Run("segment 5", func(t *testing.T) {
-			putWithSecondaries(t, "key501_created5", "created")
+			putWithSecondaryKeys(t, "key501_created5", "created")
 
-			putWithSecondaries(t, "key105_updated5", "updated")
-			putWithSecondaries(t, "key115_deleted4_updated5", "updated")
-			putWithSecondaries(t, "key204_updated5", "updated")
-			putWithSecondaries(t, "key211_deleted4_updated5", "updated")
-			putWithSecondaries(t, "key303_updated5", "updated")
-			putWithSecondaries(t, "key307_deleted4_updated5", "updated")
-			putWithSecondaries(t, "key402_updated5", "updated")
+			putWithSecondaryKeys(t, "key105_updated5", "updated")
+			putWithSecondaryKeys(t, "key115_deleted4_updated5", "updated")
+			putWithSecondaryKeys(t, "key204_updated5", "updated")
+			putWithSecondaryKeys(t, "key211_deleted4_updated5", "updated")
+			putWithSecondaryKeys(t, "key303_updated5", "updated")
+			putWithSecondaryKeys(t, "key307_deleted4_updated5", "updated")
+			putWithSecondaryKeys(t, "key402_updated5", "updated")
 
-			deleteWithSecondary(t, "key109_deleted5")
-			deleteWithSecondary(t, "key112_updated4_deleted5")
-			deleteWithSecondary(t, "key207_deleted5")
-			deleteWithSecondary(t, "key209_updated4_deleted5")
-			deleteWithSecondary(t, "key305_deleted5")
-			deleteWithSecondary(t, "key306_updated4_deleted5")
-			deleteWithSecondary(t, "key403_deleted5")
+			deleteWithSecondaryKeys(t, "key109_deleted5")
+			deleteWithSecondaryKeys(t, "key112_updated4_deleted5")
+			deleteWithSecondaryKeys(t, "key207_deleted5")
+			deleteWithSecondaryKeys(t, "key209_updated4_deleted5")
+			deleteWithSecondaryKeys(t, "key305_deleted5")
+			deleteWithSecondaryKeys(t, "key306_updated4_deleted5")
+			deleteWithSecondaryKeys(t, "key403_deleted5")
 
 			require.NoError(t, bucket.FlushAndSwitch())
 		})
@@ -624,8 +624,8 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 			for n, err = cur.firstWithAllKeys(); !errors.Is(err, lsmkv.NotFound) && i < len(expected); n, err = cur.nextWithAllKeys() {
 				assert.Equal(t, uint16(2), n.secondaryIndexCount)
 				assert.Equal(t, []byte(expected[i].pkey), n.primaryKey)
-				assert.Equal(t, []byte(secondary1(expected[i].pkey)), []byte(n.secondaryKeys[0]))
-				assert.Equal(t, []byte(secondary2(expected[i].pkey)), []byte(n.secondaryKeys[1]))
+				assert.Equal(t, []byte(secondaryKey0(expected[i].pkey)), []byte(n.secondaryKeys[0]))
+				assert.Equal(t, []byte(secondaryKey1(expected[i].pkey)), []byte(n.secondaryKeys[1]))
 
 				if expected[i].tomb {
 					assert.ErrorIs(t, err, lsmkv.Deleted)
@@ -782,7 +782,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 
 		t.Run("get by secondary 1", func(t *testing.T) {
 			for i := range expected {
-				val, err := bucket.GetBySecondary(0, []byte(secondary1(expected[i].pkey)))
+				val, err := bucket.GetBySecondary(0, []byte(secondaryKey0(expected[i].pkey)))
 
 				assert.NoError(t, err)
 				if expected[i].tomb {
@@ -795,7 +795,7 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 
 		t.Run("get by secondary 2", func(t *testing.T) {
 			for i := range expected {
-				val, err := bucket.GetBySecondary(1, []byte(secondary2(expected[i].pkey)))
+				val, err := bucket.GetBySecondary(1, []byte(secondaryKey1(expected[i].pkey)))
 
 				assert.NoError(t, err)
 				if expected[i].tomb {
