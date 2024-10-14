@@ -123,10 +123,13 @@ func (m *Parser) moduleConfig(moduleConfig map[string]any) (map[string]any, erro
 			return nil, fmt.Errorf("module config for %s is not a map, got %v", module, config)
 		}
 		parsedC := map[string]any{}
+		// raft interprets all `json.Number` types as float64 when unmarshalling
+		// we parse them explicitly here so that UpdateClass can compare the new class
+		// with the old one read from the raft schema manager
 		for key, value := range mapC {
 			if number, ok := value.(json.Number); ok {
 				if integer, err := number.Int64(); err == nil {
-					parsedC[key] = integer
+					parsedC[key] = float64(integer)
 				} else if float, err := number.Float64(); err == nil {
 					parsedC[key] = float
 				} else {
