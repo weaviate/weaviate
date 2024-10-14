@@ -39,25 +39,27 @@ func TestBatch(t *testing.T) {
 		{name: "first object errors", objects: []*models.Object{{Class: "Car", Properties: map[string]interface{}{"test": "error something"}}, {Class: "Car", Properties: map[string]interface{}{"test": "test"}}}, skip: []bool{false, false}, wantErrors: map[int]error{0: fmt.Errorf("something")}},
 		{name: "vectorize all", objects: []*models.Object{{Class: "Car", Properties: map[string]interface{}{"test": "test"}}, {Class: "Car", Properties: map[string]interface{}{"test": "something"}}}, skip: []bool{false, false}},
 		{name: "multiple vectorizer batches", objects: []*models.Object{
-			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 25"}}, // set limit so next 3 objects are one batch
+			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 50"}}, // set limit so next 3 objects are one batch
 			{Class: "Car", Properties: map[string]interface{}{"test": "first object first batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "second object first batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "third object first batch"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "first object second batch"}}, // rate is 100 again
+			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 100"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "first object second batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "second object second batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "third object second batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "fourth object second batch"}},
-		}, skip: []bool{false, false, false, false, false, false, false, false}},
+		}, skip: []bool{false, false, false, false, false, false, false, false, false}},
 		{name: "multiple vectorizer batches with skips and errors", objects: []*models.Object{
-			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 25"}}, // set limit so next 3 objects are one batch
+			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 50"}}, // set limit so next 3 objects are one batch
 			{Class: "Car", Properties: map[string]interface{}{"test": "first object first batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "second object first batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "error something"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 100"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "first object second batch"}}, // rate is 100 again
 			{Class: "Car", Properties: map[string]interface{}{"test": "second object second batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "third object second batch"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "fourth object second batch"}},
-		}, skip: []bool{false, true, false, false, false, true, false, false}, wantErrors: map[int]error{3: fmt.Errorf("something")}},
+		}, skip: []bool{false, true, false, false, false, false, true, false, false}, wantErrors: map[int]error{3: fmt.Errorf("something")}},
 		{name: "token too long", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 5"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
