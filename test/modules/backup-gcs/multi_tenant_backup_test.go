@@ -62,7 +62,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDSingleNode, tenantNames, false)
+				gcsBackupJourneyBackupIDSingleNode, tenantNames, false,"","")
 		})
 	})
 
@@ -94,7 +94,7 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDSingleNode, tenantNames, true)
+				gcsBackupJourneyBackupIDSingleNode, tenantNames, true, "testbucketoverride", "testBucketPathOverride")
 		})
 	})
 
@@ -124,7 +124,12 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDCluster, tenantNames,
+				gcsBackupJourneyBackupIDCluster, tenantNames, false, "", "",
+				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
+		})
+		t.Run("backup-gcs", func(t *testing.T) {
+			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
+				gcsBackupJourneyBackupIDCluster, tenantNames, true, "testbucketoverride", "testBucketPathOverride",
 				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})

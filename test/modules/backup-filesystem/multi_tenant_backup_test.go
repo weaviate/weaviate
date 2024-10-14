@@ -50,7 +50,7 @@ func Test_MultiTenantBackup(t *testing.T) {
 
 			journey.BackupJourneyTests_SingleNode(t,
 				compose.GetWeaviate().URI(), "filesystem", fsBackupJourneyClassName,
-				fsBackupJourneyBackupIDSingleNode, tenantNames, false)
+				fsBackupJourneyBackupIDSingleNode, tenantNames, false,"","")
 		})
 	})
 
@@ -77,7 +77,7 @@ func Test_MultiTenantBackup(t *testing.T) {
 
 			journey.BackupJourneyTests_SingleNode(t,
 				compose.GetWeaviate().URI(), "filesystem", fsBackupJourneyClassName,
-				fsBackupJourneyBackupIDSingleNode, tenantNames, true)
+				fsBackupJourneyBackupIDSingleNode, tenantNames, true, "testbucketoverride", "testBucketPathOverride")
 		})
 	})
 }

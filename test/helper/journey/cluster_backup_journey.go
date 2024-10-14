@@ -21,7 +21,7 @@ import (
 )
 
 func clusterBackupJourneyTest(t *testing.T, backend, className,
-	backupID, coordinatorEndpoint string, tenantNames []string, pqEnabled bool,
+	backupID, coordinatorEndpoint string, tenantNames []string, pqEnabled bool,  override bool, overrideBucket, overrideLocation string,
 	nodeEndpoints ...string,
 ) {
 	uploaderEndpoint := nodeEndpoints[rand.Intn(len(nodeEndpoints))]
@@ -62,7 +62,7 @@ func clusterBackupJourneyTest(t *testing.T, backend, className,
 	// send backup requests to the chosen coordinator
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
 		backupJourney(t, className, backend, backupID, clusterJourney,
-			checkClassAndDataPresence, tenantNames, pqEnabled, map[string]string{}, false)
+			checkClassAndDataPresence, tenantNames, pqEnabled, map[string]string{}, override, overrideBucket, overrideLocation)
 	})
 
 	t.Run(fmt.Sprintf("cancelling with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
@@ -104,7 +104,7 @@ func clusterBackupEmptyClassJourneyTest(t *testing.T, backend, className, backup
 	// send backup requests to the chosen coordinator
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
 		backupJourney(t, className, backend, backupID, clusterJourney,
-			checkClassPresenceOnly, tenantNames, false, map[string]string{}, false)
+			checkClassPresenceOnly, tenantNames, false, map[string]string{}, false,"", "") //FIXME
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -125,7 +125,7 @@ func clusterNodeMappingBackupJourneyTest(t *testing.T, backend, className, backu
 	// for nodeMapping we simply reverse the node(s) around, where node1 is now node2 and node2 is now node1.
 	t.Run(fmt.Sprintf("with coordinator endpoint: %s", coordinatorEndpoint), func(t *testing.T) {
 		backupJourney(t, className, backend, backupID, clusterJourney, checkClassPresenceOnly, nil, false,
-			map[string]string{"node1": "node2", "node2": "node1"}, false)
+			map[string]string{"node1": "node2", "node2": "node1"}, false, "", "") //FIXME
 	})
 
 	t.Run("cleanup", func(t *testing.T) {

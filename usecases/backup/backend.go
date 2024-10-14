@@ -102,12 +102,12 @@ func (s *ObjectStore) Initialize(ctx context.Context, bucketName, bucketPath str
 func (s *ObjectStore) putMeta(ctx context.Context, key, bucketName, bucketPath string, desc interface{}) error {
 	bytes, err := json.Marshal(desc)
 	if err != nil {
-		return fmt.Errorf("marshal meta file %q: %w", key, err)
+		return fmt.Errorf("(putMeta)marshal meta file %q: %w", key, err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
 	if err := s.Backend.PutObject(ctx, s.BackupId, key, bucketName, bucketPath, bytes); err != nil {
-		return fmt.Errorf("putMeta: upload meta file %q: %w", key, err)
+		return fmt.Errorf("(putMeta) upload meta file %q into bucket %v, path %v: %w", key, bucketName, bucketPath, err)
 	}
 	return nil
 }

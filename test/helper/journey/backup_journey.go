@@ -48,20 +48,17 @@ const (
 func backupJourney(t *testing.T, className, backend, backupID string,
 	journeyType journeyType, dataIntegrityCheck dataIntegrityCheck,
 	tenantNames []string, pqEnabled bool, nodeMapping map[string]string,
-	override bool,
+	override bool, overrideBucket, overridePath string,
 ) {
-	overrideBucket := ""
-	overridePath := ""
+
 	overrideString := ""
 
 	if override {
-		overrideBucket = "testbucketoverride"
-		overridePath = "testBucketPathOverride"
-		overrideString = fmt.Sprintf("with override bucket: %s, path: %s", overrideBucket, overridePath)
+		overrideString = fmt.Sprintf(" with override bucket: %s, path: %s", overrideBucket, overridePath)
 	}
 
 	if journeyType == clusterJourney && backend == "filesystem" {
-		t.Run("should fail backup/restore with local filesystem backend" + overrideString, func(t *testing.T) {
+		t.Run("should fail backup/restore with local filesystem backend"+overrideString, func(t *testing.T) {
 			backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
 			assert.Nil(t, backupResp)
 			assert.Error(t, err)
@@ -73,15 +70,17 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 		return
 	}
 
-	t.Run("create backup" + overrideString, func(t *testing.T) {
+	t.Run("create backup"+overrideString, func(t *testing.T) {
 		// Ensure cluster is in sync
 		if journeyType == clusterJourney {
 			time.Sleep(3 * time.Second)
 		}
 		cfg := helper.DefaultBackupConfig()
 
-		cfg.S3Bucket = overrideBucket
-		cfg.S3Path = overridePath
+		if override {
+			cfg.S3Bucket = overrideBucket
+			cfg.S3Path = overridePath
+		}
 
 		resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
@@ -123,16 +122,18 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			string(backup.Success), statusResp.Payload.Error)
 	})
 
-	t.Run("delete class for restoration" + overrideString, func(t *testing.T) {
+	t.Run("delete class for restoration"+overrideString, func(t *testing.T) {
 		helper.DeleteClass(t, className)
 		time.Sleep(time.Second)
 	})
 
-	t.Run("restore backup" + overrideString, func(t *testing.T) {
+	t.Run("restore backup"+overrideString, func(t *testing.T) {
 		cfg := helper.DefaultRestoreConfig()
 
+		if override {
 		cfg.S3Bucket = overrideBucket
 		cfg.S3Path = overridePath
+		}
 
 		fmt.Printf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)
 		_, err := helper.RestoreBackup(t, cfg, className, backend, backupID, nodeMapping)
@@ -146,7 +147,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 			case <-ticker.C:
 				break wait
 			default:
-				resp, err := helper.RestoreBackupStatus(t, backend, backupID, overrideBucket,overridePath)
+				resp, err := helper.RestoreBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 				helper.AssertRequestOk(t, resp, err, func() {
 					require.NotNil(t, resp)
 					require.NotNil(t, resp.Payload)

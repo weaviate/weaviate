@@ -281,7 +281,7 @@ func (m *Handler) OnStatus(ctx context.Context, req *StatusRequest) *StatusRespo
 
 func validateID(backupID string) error {
 	if !regExpID.MatchString(backupID) {
-		return fmt.Errorf("invalid backup id: allowed characters are lowercase, 0-9, _, -")
+		return fmt.Errorf("invalid backup id: '%v' allowed characters are lowercase, 0-9, _, -", backupID)
 	}
 	return nil
 }

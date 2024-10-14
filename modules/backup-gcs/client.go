@@ -207,7 +207,7 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, bucketName, bucket
 func (g *gcsClient) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) (err error) {
 	bucket, err := g.findBucket(ctx, bucketName)
 	if err != nil {
-		return fmt.Errorf("1 find bucket: '%w'", err)
+		return fmt.Errorf("(WriteToFile) find bucket: '%w'", err)
 	}
 
 	// validate destination path
@@ -263,7 +263,7 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, bucketName, bucket
 
 	bucket, err := g.findBucket(ctx, bucketName)
 	if err != nil {
-		return 0, fmt.Errorf("2 find bucket: '%w'", err)
+		return 0, fmt.Errorf("(Write) find bucket: '%w'", err)
 	}
 
 	// create a new writer
@@ -295,7 +295,7 @@ func (g *gcsClient) Read(ctx context.Context, backupID, key, bucketName, bucketP
 
 	bucket, err := g.findBucket(ctx, bucketName)
 	if err != nil {
-		err = fmt.Errorf("3 find bucket: '%w'", err)
+		err = fmt.Errorf("(read) find bucket: '%w'", err)
 		if errors.Is(err, storage.ErrObjectNotExist) {
 			err = backup.NewErrNotFound(err)
 		}

@@ -193,7 +193,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	bucketPath := req.S3Path
 	if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, bucketName, bucketPath); err != nil {
 		c.lastOp.reset()
-		return fmt.Errorf("cannot init meta file: %w", err)
+		return fmt.Errorf("coordinator: cannot init meta file: %w", err)
 	}
 
 	statusReq := StatusRequest{
