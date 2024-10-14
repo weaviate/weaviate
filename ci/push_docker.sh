@@ -1,16 +1,31 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-DOCKER_REPO="semitechnologies/weaviate"
+set -euo pipefail
+
+DOCKER_REPO_WEAVIATE="semitechnologies/weaviate"
 DOCKER_REPO_SERVERLESS="semitechnologies/weaviate-experimental"
+target_weaviate="weaviate"
+target_weaviate_experimental="weaviate_experimental"
 
 function release() {
+  # default target is weaviate
+  DOCKER_REPO=$DOCKER_REPO_WEAVIATE
+  target=$target_weaviate
+  if [ $# -eq 1 ] && [ -n "$1" ]; then
+    if [ "$1" == "$target_weaviate_experimental" ]; then
+      DOCKER_REPO=$DOCKER_REPO_SERVERLESS
+      target=$target_weaviate_experimental
+    elif [ "$1" != "$target_weaviate" ]; then
+      echo "release script wrong parameter: $1, possible values are: $target_weaviate, $target_weaviate_experimental."
+      return 1
+    fi
+  fi
+
   # for multi-platform build
   docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
   docker buildx create --use
 
   tag_latest="${DOCKER_REPO}:latest"
-  tag_serverless_latest="${DOCKER_REPO}:latest" # serverless is experimental so just `latest` tag for now.
-
   tag_exact=
   tag_preview=
 
@@ -41,27 +56,23 @@ function release() {
     fi
   fi
 
-  base_args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--push")
+  args=("--build-arg=GIT_REVISION=$git_revision" "--build-arg=GIT_BRANCH=$git_branch" "--build-arg=BUILD_USER=$build_user" "--build-arg=BUILD_DATE=$build_date" "--platform=linux/amd64,linux/arm64" "--push")
 
-  weaviate_args="${base_args[@]} --target=weaviate"
-  serverless_args="${base_args[@]} --target=weaviate_experimental"
+  # build weaviate or experimental image
+  args+=("--target=$target")
 
   if [ -n "$tag_exact" ]; then
     # exact tag on main
-    weaviate_args+=("-t=$tag_exact")
-    weaviate_args+=("-t=$tag_latest")
+    args+=("-t=$tag_exact")
+    args+=("-t=$tag_latest")
   fi
   if [ -n "$tag_preview" ]; then
     # preview tag on PR builds
-    weaviate_args+=("-t=$tag_preview")
+    args+=("-t=$tag_preview")
   fi
 
   # build weaviate image
-  docker buildx build "${weaviate_args[@]}" .
-
-  # build weaviate experimental image
-  serverless_args+=("-t=$tag_serverless_latest")
-  docker buildx build "${serverless_args[@]}" .
+  docker buildx build "${args[@]}" .
 
   if [ -n "$tag_preview" ]; then
     echo "PREVIEW_TAG=$tag_preview" >> "$GITHUB_OUTPUT"
@@ -70,4 +81,4 @@ function release() {
   fi
 }
 
-release
+release "$@"
