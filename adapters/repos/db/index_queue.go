@@ -128,6 +128,7 @@ type batchIndexer interface {
 	DistancerProvider() distancer.Provider
 	AlreadyIndexed() uint64
 	ValidateBeforeInsert(vector []float32) error
+	PreloadCache(id uint64, vec []float32)
 }
 
 type upgradableIndexer interface {
@@ -1111,6 +1112,7 @@ func NewVectorIndexQueue(
 func (iq *VectorIndexQueue) Insert(vectors ...vectorDescriptor) error {
 	ids := make([]uint64, len(vectors))
 	for i, v := range vectors {
+		iq.index.PreloadCache(v.id, v.vector)
 		ids[i] = v.id
 	}
 

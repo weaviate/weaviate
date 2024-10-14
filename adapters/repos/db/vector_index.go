@@ -51,4 +51,8 @@ type VectorIndex interface {
 	Iterate(fn func(id uint64) bool)
 	DistancerProvider() distancer.Provider
 	Stats() (common.IndexStats, error)
+	// PreloadCache is used to preload the cache of the index with the given id and vector.
+	// This is used by async indexing to avoid the need to load the vector from the storage
+	// layer when the vector is already in memory.
+	PreloadCache(id uint64, vec []float32)
 }
