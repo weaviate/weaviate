@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -99,7 +98,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsCleanupInterval(time.Duration(s.index.Config.SegmentsCleanupIntervalHours) * time.Hour),
+		s.segmentCleanupConfig(),
 	}
 
 	if inverted.HasFilterableIndex(prop) {
@@ -173,7 +172,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsCleanupInterval(time.Duration(s.index.Config.SegmentsCleanupIntervalHours)*time.Hour),
+		s.segmentCleanupConfig(),
 	)
 }
 
@@ -188,7 +187,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsCleanupInterval(time.Duration(s.index.Config.SegmentsCleanupIntervalHours)*time.Hour),
+		s.segmentCleanupConfig(),
 	)
 }
 
@@ -204,7 +203,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsCleanupInterval(time.Duration(s.index.Config.SegmentsCleanupIntervalHours)*time.Hour),
+		s.segmentCleanupConfig(),
 	)
 	if err != nil {
 		return fmt.Errorf("create id property: %w", err)
@@ -225,7 +224,7 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsCleanupInterval(time.Duration(s.index.Config.SegmentsCleanupIntervalHours)*time.Hour),
+		s.segmentCleanupConfig(),
 	)
 	if err != nil {
 		return fmt.Errorf("create dimensions tracking property: %w", err)
@@ -258,7 +257,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsCleanupInterval(time.Duration(s.index.Config.SegmentsCleanupIntervalHours)*time.Hour),
+		s.segmentCleanupConfig(),
 	)
 }
 
@@ -270,6 +269,6 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
-		lsmkv.WithSegmentsCleanupInterval(time.Duration(s.index.Config.SegmentsCleanupIntervalHours)*time.Hour),
+		s.segmentCleanupConfig(),
 	)
 }
