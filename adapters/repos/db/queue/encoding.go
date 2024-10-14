@@ -114,6 +114,48 @@ func (e *Encoder) Flush() error {
 	return e.f.Sync()
 }
 
+// Close the encoder and flush the current chunk.
+func (e *Encoder) Close() error {
+	err := e.Flush()
+	if err != nil {
+		return err
+	}
+
+	e.m.Lock()
+	defer e.m.Unlock()
+
+	if e.f != nil {
+		err := e.f.Close()
+		if err != nil {
+			return errors.Wrap(err, "failed to close chunk")
+		}
+
+		e.f = nil
+	}
+
+	return nil
+}
+
+func (e *Encoder) Drop() error {
+	e.m.Lock()
+	defer e.m.Unlock()
+
+	if e.f != nil {
+		err := e.f.Close()
+		if err != nil {
+			e.logger.WithError(err).Error("failed to close chunk")
+		}
+	}
+
+	// remove the directory
+	err := os.RemoveAll(e.dir)
+	if err != nil {
+		return errors.Wrap(err, "failed to remove directory")
+	}
+
+	return nil
+}
+
 func (e *Encoder) ensureChunk() error {
 	if e.f != nil && e.partialChunkSize+9 /* size of op + key */ > e.chunkSize {
 		err := e.promoteChunkNoLock()
