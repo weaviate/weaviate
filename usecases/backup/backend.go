@@ -107,7 +107,7 @@ func (s *ObjectStore) putMeta(ctx context.Context, key, bucketName, bucketPath s
 	ctx, cancel := context.WithTimeout(ctx, metaTimeout)
 	defer cancel()
 	if err := s.Backend.PutObject(ctx, s.BackupId, key, bucketName, bucketPath, bytes); err != nil {
-		return fmt.Errorf("upload meta file %q: %w", key, err)
+		return fmt.Errorf("putMeta: upload meta file %q: %w", key, err)
 	}
 	return nil
 }

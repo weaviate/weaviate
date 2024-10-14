@@ -75,6 +75,9 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 	className := "BackupClass"
 	backupID := "backup_id"
 	bucketName := "bucket"
+	if override[0] != "" {
+		bucketName = override[0]
+	}
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	metadataFilename := "backup.json"
@@ -128,8 +131,13 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 			require.Nil(t, err)
 
 			dest := gcs.HomeDir(backupID, override[0], override[1])
+			if override[1] == "" {
 			expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
 			assert.Equal(t, expected, dest)
+			} else {
+			expected := fmt.Sprintf("gs://%s/%s/%s", bucketName, override[1], backupID)
+			assert.Equal(t, expected, dest)
+			}
 		})
 
 		t.Run("assert backup meta contents", func(t *testing.T) {
@@ -159,6 +167,9 @@ func moduleLevelCopyObjects(t *testing.T) {
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
 	bucketName := "bucket"
+	if override[0] != "" {
+		bucketName = override[0]
+	}
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	gcsUseAuth := "false"
@@ -199,6 +210,9 @@ func moduleLevelCopyFiles(t *testing.T) {
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
 	bucketName := "bucket"
+	if override[0] != "" {
+		bucketName = override[0]
+	}
 	projectID := "project-id"
 	endpoint := os.Getenv(envGCSEndpoint)
 	gcsUseAuth := "false"
