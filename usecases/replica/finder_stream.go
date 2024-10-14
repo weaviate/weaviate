@@ -234,6 +234,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 			M := 0
 			for i := 0; i < N; i++ {
 				max := 0
+				maxAt := -1
 				lastTime := resp.UpdateTimeAt(i)
 
 				for j := range votes { // count votes
@@ -242,9 +243,10 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 					}
 					if max < votes[j].Count[i] {
 						max = votes[j].Count[i]
+						maxAt = j
 					}
 				}
-				if max >= st.Level {
+				if max >= st.Level && maxAt == contentIdx {
 					M++
 				}
 			}
