@@ -325,8 +325,8 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 	// The backup might have been already created.
 	meta, err := store.Meta(ctx, filename, store.S3Bucket, store.S3Path)
 	if err != nil {
-		path := fmt.Sprintf("%s/%s", req.ID, filename)
-		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v", errMetaNotFound, path, err)
+		path := st.Path
+		return nil, fmt.Errorf("coordinator cannot get status: %w: %q: %v store: %v", errMetaNotFound, path, err, st)
 	}
 
 	status := &Status{

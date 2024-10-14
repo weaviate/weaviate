@@ -213,7 +213,11 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, backupID st
 		if journeyType == clusterJourney {
 			time.Sleep(3 * time.Second)
 		}
-		resp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
+		cfg := helper.DefaultBackupConfig()
+		cfg.S3Bucket = overrideBucket
+		cfg.S3Path = overridePath
+
+		resp, err := helper.CreateBackup(t, cfg, className, backend, backupID)
 		helper.AssertRequestOk(t, resp, err, nil)
 
 		t.Run("cancel backup", func(t *testing.T) {
