@@ -44,7 +44,7 @@ func TestScheduler(t *testing.T) {
 
 	var count int32
 	indexingDone := make(chan struct{})
-	q, err := NewQueue(s, logger, "test", t.TempDir(), TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
+	q, err := NewQueue(logger, "test", t.TempDir(), TaskExecutorFunc(func(ctx context.Context, op uint8, keys ...uint64) error {
 		if atomic.AddInt32(&count, int32(len(keys))) == 10000 {
 			close(indexingDone)
 		}
@@ -52,6 +52,7 @@ func TestScheduler(t *testing.T) {
 		return nil
 	}))
 	require.NoError(t, err)
+	s.RegisterQueue(q)
 
 	for i := 0; i < 10; i++ {
 		inserts := make([]uint64, 1000)
