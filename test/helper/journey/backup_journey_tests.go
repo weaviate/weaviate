@@ -63,7 +63,7 @@ func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID strin
 		})
 		t.Run("multi-tenant cluster backup with empty class", func(t *testing.T) {
 			clusterBackupEmptyClassJourneyTest(t, backend, className, backupID+"_empty",
-				coordinator, tenantNames, weaviateEndpoints[1:]...) //FIXME
+				coordinator, tenantNames, override, overrideBucket, overrideLocation, weaviateEndpoints[1:]...) //FIXME
 		})
 	} else {
 		t.Run("single-tenant cluster backup", func(t *testing.T) {
@@ -72,6 +72,6 @@ func BackupJourneyTests_Cluster(t *testing.T, backend, className, backupID strin
 	}
 
 	t.Run("node mapping cluster backup", func(t *testing.T) {
-		clusterNodeMappingBackupJourneyTest(t, backend, className, backupID+"_with_node_mapping", coordinator, weaviateEndpoints[1:]...) //FIXME
+		clusterNodeMappingBackupJourneyTest(t, backend, className, backupID+"_with_node_mapping", coordinator, override, overrideBucket, overrideLocation, weaviateEndpoints[1:]...) //FIXME
 	})
 }
