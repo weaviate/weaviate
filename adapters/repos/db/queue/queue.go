@@ -10,32 +10,38 @@ import (
 )
 
 type Queue struct {
+	// Logger for the queue. Wrappers of this queue should use this logger.
+	Logger logrus.FieldLogger
+	// BeforeScheduleFn is a hook that is called before the queue is scheduled.
+	BeforeScheduleFn func()
+
+	scheduler  *Scheduler
 	id         string
 	path       string
-	logger     logrus.FieldLogger
 	enc        *Encoder
 	exec       TaskExecutor
 	lastPushed atomic.Pointer[time.Time]
 	closed     atomic.Bool
-
-	// BeforeScheduleFn is a hook that is called before the queue is scheduled.
-	BeforeScheduleFn func()
 }
 
-func NewQueue(logger logrus.FieldLogger, id, path string, exec TaskExecutor) (*Queue, error) {
-	logger = logger.WithField("queue", id)
+func New(s *Scheduler, id, path string, exec TaskExecutor) (*Queue, error) {
+	logger := logrus.New().WithField("queue", id)
+
 	enc, err := NewEncoder(path, logger)
 	if err != nil {
 		return nil, err
 	}
 
 	q := Queue{
-		logger: logger,
-		id:     id,
-		path:   path,
-		enc:    enc,
-		exec:   exec,
+		Logger:    logger,
+		scheduler: s,
+		id:        id,
+		path:      path,
+		enc:       enc,
+		exec:      exec,
 	}
+
+	s.RegisterQueue(&q)
 
 	return &q, nil
 }
@@ -45,6 +51,8 @@ func (q *Queue) Close() error {
 	if q.closed.Swap(true) {
 		return errors.New("queue already closed")
 	}
+
+	q.scheduler.UnregisterQueue(q.id)
 
 	err := q.enc.Close()
 	if err != nil {
@@ -71,27 +79,6 @@ func (q *Queue) Push(op uint8, keys ...uint64) error {
 	}
 
 	return q.enc.Flush()
-}
-
-func (q *Queue) ID() string {
-	return q.id
-}
-
-func (q *Queue) Path() string {
-	return q.path
-}
-
-func (q *Queue) Encoder() *Encoder {
-	return q.enc
-}
-
-func (q *Queue) LastPushed() time.Time {
-	t := q.lastPushed.Load()
-	if t == nil {
-		return time.Time{}
-	}
-
-	return *t
 }
 
 func (q *Queue) DecodeTask(r *bufio.Reader) (*Task, error) {
