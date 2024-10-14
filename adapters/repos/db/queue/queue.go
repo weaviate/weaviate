@@ -10,18 +10,16 @@ import (
 )
 
 type Queue struct {
-	ID   string
-	Path string
-
+	id         string
+	path       string
 	logger     logrus.FieldLogger
-	s          *Scheduler
 	enc        *Encoder
 	exec       TaskExecutor
 	lastPushed atomic.Pointer[time.Time]
 	closed     atomic.Bool
 }
 
-func NewQueue(s *Scheduler, logger logrus.FieldLogger, id, path string, exec TaskExecutor) (*Queue, error) {
+func NewQueue(logger logrus.FieldLogger, id, path string, exec TaskExecutor) (*Queue, error) {
 	logger = logger.WithField("queue", id)
 	enc, err := NewEncoder(path, logger)
 	if err != nil {
@@ -30,14 +28,11 @@ func NewQueue(s *Scheduler, logger logrus.FieldLogger, id, path string, exec Tas
 
 	q := Queue{
 		logger: logger,
-		ID:     id,
-		Path:   path,
-		s:      s,
+		id:     id,
+		path:   path,
 		enc:    enc,
 		exec:   exec,
 	}
-
-	s.RegisterQueue(&q)
 
 	return &q, nil
 }
@@ -52,8 +47,6 @@ func (q *Queue) Close() error {
 	if err != nil {
 		return errors.Wrap(err, "failed to flush encoder")
 	}
-
-	q.s.UnregisterQueue(q.ID)
 
 	return nil
 }
@@ -75,6 +68,27 @@ func (q *Queue) Push(op uint8, keys ...uint64) error {
 	}
 
 	return q.enc.Flush()
+}
+
+func (q *Queue) ID() string {
+	return q.id
+}
+
+func (q *Queue) Path() string {
+	return q.path
+}
+
+func (q *Queue) Encoder() *Encoder {
+	return q.enc
+}
+
+func (q *Queue) LastPushed() time.Time {
+	t := q.lastPushed.Load()
+	if t == nil {
+		return time.Time{}
+	}
+
+	return *t
 }
 
 func (q *Queue) DecodeTask(r *bufio.Reader) (*Task, error) {
