@@ -2,7 +2,6 @@ package queue
 
 import (
 	"bufio"
-	"context"
 	"sync/atomic"
 	"time"
 
@@ -22,9 +21,7 @@ type Queue struct {
 	closed     atomic.Bool
 }
 
-type TaskExecutor func(ctx context.Context, op uint8, keys ...uint64) error
-
-func NewQueue(s *Scheduler, logger logrus.FieldLogger, id, path string, execFn TaskExecutor) (*Queue, error) {
+func NewQueue(s *Scheduler, logger logrus.FieldLogger, id, path string, exec TaskExecutor) (*Queue, error) {
 	logger = logger.WithField("queue", id)
 	enc, err := NewEncoder(path, logger)
 	if err != nil {
@@ -37,7 +34,7 @@ func NewQueue(s *Scheduler, logger logrus.FieldLogger, id, path string, execFn T
 		Path:   path,
 		s:      s,
 		enc:    enc,
-		exec:   execFn,
+		exec:   exec,
 	}
 
 	s.RegisterQueue(&q)
@@ -51,7 +48,7 @@ func (q *Queue) Close() error {
 		return errors.New("queue already closed")
 	}
 
-	err := q.enc.Flush()
+	err := q.enc.Close()
 	if err != nil {
 		return errors.Wrap(err, "failed to flush encoder")
 	}
@@ -87,12 +84,18 @@ func (q *Queue) DecodeTask(r *bufio.Reader) (*Task, error) {
 	}
 
 	return &Task{
-		Op:     op,
-		DocIDs: []uint64{key},
-		exec:   q.exec,
+		Op:       op,
+		DocIDs:   []uint64{key},
+		executor: q.exec,
 	}, nil
 }
 
 func (q *Queue) Size() int {
 	return q.enc.RecordCount()
+}
+
+func (q *Queue) Drop() error {
+	_ = q.Close()
+
+	return q.enc.Drop()
 }
