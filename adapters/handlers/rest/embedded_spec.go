@@ -4861,10 +4861,6 @@ func init() {
           "type": "boolean",
           "x-omitempty": false
         },
-        "factor": {
-          "description": "Number of times a class is replicated",
-          "type": "integer"
-        },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
@@ -10584,10 +10580,6 @@ func init() {
           "description": "Enable asynchronous replication",
           "type": "boolean",
           "x-omitempty": false
-        },
-        "factor": {
-          "description": "Number of times a class is replicated",
-          "type": "integer"
         },
         "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
