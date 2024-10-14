@@ -17,6 +17,9 @@ type Queue struct {
 	exec       TaskExecutor
 	lastPushed atomic.Pointer[time.Time]
 	closed     atomic.Bool
+
+	// BeforeScheduleFn is a hook that is called before the queue is scheduled.
+	BeforeScheduleFn func()
 }
 
 func NewQueue(logger logrus.FieldLogger, id, path string, exec TaskExecutor) (*Queue, error) {
@@ -112,4 +115,10 @@ func (q *Queue) Drop() error {
 	_ = q.Close()
 
 	return q.enc.Drop()
+}
+
+func (q *Queue) BeforeSchedule() {
+	if q.BeforeScheduleFn != nil {
+		q.BeforeScheduleFn()
+	}
 }
