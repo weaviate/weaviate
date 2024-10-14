@@ -707,7 +707,7 @@ func (f fakeFactory) newReplicator() *Replicator {
 		f.CLS,
 		shardingState,
 		nodeResolver,
-		models.ReplicationConfigObjectDeletionConflictResolutionNoAutomatedResolution,
+		models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
 		struct {
 			rClient
 			wClient
@@ -723,7 +723,7 @@ func (f fakeFactory) newFinder(thisNode string) *Finder {
 		NodeName:     thisNode,
 	}
 	return NewFinder(f.CLS, resolver, f.RClient, f.log,
-		time.Microsecond*1, time.Millisecond*128, models.ReplicationConfigObjectDeletionConflictResolutionNoAutomatedResolution)
+		time.Microsecond*1, time.Millisecond*128, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 }
 
 func (f fakeFactory) assertLogContains(t *testing.T, key string, xs ...string) {
