@@ -203,6 +203,16 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	}
 	var connectionsReusable []uint64
 
+	var sliceConnectionsReusable *common.VectorUint64Slice
+	var slicePendingNextRound *common.VectorUint64Slice
+	var slicePendingThisRound *common.VectorUint64Slice
+
+	if allowList != nil && h.acornSearch.Load() {
+		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
+		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+	}
+
 	for candidates.Len() > 0 {
 		var dist float32
 		candidate := candidates.Pop()
@@ -232,17 +242,11 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			continue
 		}
 
-		var sliceConnectionsReusable *common.VectorUint64Slice
-		var slicePendingNextRound *common.VectorUint64Slice
-		var slicePendingThisRound *common.VectorUint64Slice
 		if allowList == nil || !h.acornSearch.Load() {
 			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
 			copy(connectionsReusable, candidateNode.connections[level])
 		} else {
-			sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
 			connectionsReusable = sliceConnectionsReusable.Slice
-			slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
-			slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 			pendingNextRound := slicePendingNextRound.Slice
 			pendingThisRound := slicePendingThisRound.Slice
 
@@ -399,11 +403,12 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 				}
 			}
 		}
-		if allowList != nil && h.acornSearch.Load() {
-			h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
-			h.pools.tempVectorsUint64.Put(slicePendingNextRound)
-			h.pools.tempVectorsUint64.Put(slicePendingThisRound)
-		}
+	}
+
+	if allowList != nil && h.acornSearch.Load() {
+		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
+		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
+		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
 	}
 
 	h.pools.pqCandidates.Put(candidates)
