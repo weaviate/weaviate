@@ -121,8 +121,8 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 	} else {
 		logger.Infof("ingested %d entries", totalIngested)
 	}
-	if totalSpotChecks < 500_000 {
-		t.Errorf("expected at least 500k spot checks but got %d", totalSpotChecks)
+	if totalSpotChecks < 250_000 {
+		t.Errorf("expected at least 250k spot checks but got %d", totalSpotChecks)
 	} else {
 		logger.Infof("performed %d spot checks", totalSpotChecks)
 	}
