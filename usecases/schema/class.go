@@ -266,14 +266,14 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 
 	if class.ReplicationConfig == nil {
 		class.ReplicationConfig = &models.ReplicationConfig{
-			Factor:                           int64(m.config.Replication.MinimumFactor),
-			ObjectDeletionConflictResolution: models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion,
+			Factor:           int64(m.config.Replication.MinimumFactor),
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyDeleteOnConflict,
 		}
 		return nil
 	}
 
-	if class.ReplicationConfig.ObjectDeletionConflictResolution == "" {
-		class.ReplicationConfig.ObjectDeletionConflictResolution = models.ReplicationConfigObjectDeletionConflictResolutionPermanentDeletion
+	if class.ReplicationConfig.DeletionStrategy == "" {
+		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyDeleteOnConflict
 	}
 	return nil
 }
