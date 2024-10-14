@@ -76,18 +76,26 @@ func (s *Scheduler) RegisterQueue(q *Queue) {
 	s.queues.Lock()
 	defer s.queues.Unlock()
 
-	s.queues.m[q.id] = &queueState{
-		q: q,
-	}
+	s.queues.m[q.id] = newQueueState(q)
 
 	s.Logger.WithField("id", q.id).Debug("queue registered")
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
-	s.queues.Lock()
-	defer s.queues.Unlock()
+	s.PauseQueue(id)
 
+	q := s.getQueue(id)
+	if q == nil {
+		return
+	}
+
+	// wait for the workers to finish processing the queue's tasks
+	q.activeTasks.Wait()
+
+	// the queue is paused, so it's safe to remove it
+	s.queues.Lock()
 	delete(s.queues.m, id)
+	s.queues.Unlock()
 
 	s.Logger.WithField("id", id).Debug("queue unregistered")
 }
@@ -156,11 +164,11 @@ func (s *Scheduler) ResumeQueue(id string) {
 	s.Logger.WithField("id", id).Debug("queue resumed")
 }
 
-type queueState struct {
-	q         *Queue
-	paused    bool
-	readFiles []string
-	cursor    int
+func (s *Scheduler) getQueue(id string) *queueState {
+	s.queues.Lock()
+	defer s.queues.Unlock()
+
+	return s.queues.m[id]
 }
 
 func (s *Scheduler) runScheduler() {
@@ -187,16 +195,7 @@ func (s *Scheduler) schedule() {
 	}
 	s.queues.Unlock()
 
-	// look for any pre-schedule hooks
-	for _, id := range ids {
-		q := s.getQueue(id)
-		if q == nil {
-			continue
-		}
-
-		// run the before-schedule hook if it is implemented
-		q.q.BeforeSchedule()
-	}
+	s.runPreScheduleHooks(ids)
 
 	for _, id := range ids {
 		q := s.getQueue(id)
@@ -204,7 +203,7 @@ func (s *Scheduler) schedule() {
 			continue
 		}
 
-		if q.paused {
+		if q.Paused() {
 			continue
 		}
 
@@ -216,11 +215,16 @@ func (s *Scheduler) schedule() {
 	}
 }
 
-func (s *Scheduler) getQueue(id string) *queueState {
-	s.queues.Lock()
-	defer s.queues.Unlock()
+func (s *Scheduler) runPreScheduleHooks(ids []string) {
+	for _, id := range ids {
+		q := s.getQueue(id)
+		if q == nil {
+			continue
+		}
 
-	return s.queues.m[id]
+		// run the before-schedule hook if it is implemented
+		q.q.BeforeSchedule()
+	}
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) error {
@@ -280,7 +284,10 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 			continue
 		}
 
+		// increment the global active tasks counter
 		s.activeTasks.Incr()
+		// increment the queue's active tasks counter
+		q.activeTasks.Incr()
 
 		select {
 		case <-s.ctx.Done():
@@ -291,9 +298,12 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 			Ctx:   s.ctx,
 			Done: func() {
 				defer s.activeTasks.Decr()
+				defer q.activeTasks.Decr()
 
 				if counter.Add(-1) == 0 {
+					q.m.Lock()
 					q.q.enc.removeChunk(path)
+					q.m.Unlock()
 				}
 			},
 		}:
@@ -367,4 +377,27 @@ func (s *Scheduler) checkIfStale(q *queueState) (*os.File, string, error) {
 	}
 
 	return s.readQueueChunk(q)
+}
+
+type queueState struct {
+	m           sync.RWMutex
+	q           *Queue
+	paused      bool
+	readFiles   []string
+	cursor      int
+	activeTasks *common.SharedGauge
+}
+
+func newQueueState(q *Queue) *queueState {
+	return &queueState{
+		q:           q,
+		activeTasks: common.NewSharedGauge(),
+	}
+}
+
+func (qs *queueState) Paused() bool {
+	qs.m.RLock()
+	defer qs.m.RUnlock()
+
+	return qs.paused
 }
