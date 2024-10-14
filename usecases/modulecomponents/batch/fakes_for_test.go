@@ -68,17 +68,12 @@ func (c *fakeBatchClient) Vectorize(ctx context.Context,
 		} else {
 			// refresh the remaining token
 			secondsSinceLastRefresh := time.Since(c.rateLimit.LastOverwrite)
-			fraction := secondsSinceLastRefresh.Seconds() / c.rateLimit.ResetTokens.Sub(time.Now()).Seconds()
-			fmt.Println("secondsSinceLastRefresh", secondsSinceLastRefresh)
-			fmt.Println("c.rateLimit.RemainingTokens", c.rateLimit.RemainingTokens)
-			fmt.Println("fraction", fraction)
+			fraction := secondsSinceLastRefresh.Seconds() / time.Until(c.rateLimit.ResetTokens).Seconds()
 			if fraction > 1 {
 				c.rateLimit.RemainingTokens = c.rateLimit.LimitTokens
 			} else {
 				c.rateLimit.RemainingTokens += int(float64(c.rateLimit.LimitTokens) * fraction / float64(c.defaultResetRate))
 			}
-			fmt.Println("c.rateLimit.RemainingTokens", c.rateLimit.RemainingTokens)
-			fmt.Println("len(text[i])", len(text[i]))
 			if len(text[i]) > c.rateLimit.LimitTokens || len(text[i]) > c.rateLimit.RemainingTokens {
 				errors[i] = fmt.Errorf("text too long for vectorization from provider: got %v, total limit: %v, remaining: %v", len(text[i]), c.rateLimit.LimitTokens, c.rateLimit.RemainingTokens)
 			}
