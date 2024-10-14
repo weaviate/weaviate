@@ -403,7 +403,7 @@ func FromEnv(config *Config) error {
 	}
 
 	if v := os.Getenv("REPLICATION_FORCE_OBJECT_DELETION_CONFLICT_RESOLUTION"); v != "" {
-		config.Replication.ForceObjectDeletionConflictResolution = v
+		config.Replication.DeletionStrategy = v
 	}
 
 	config.DisableTelemetry = false
