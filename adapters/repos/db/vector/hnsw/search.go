@@ -421,20 +421,12 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 				}
 			}
 		}
-<<<<<<< HEAD
-		if allowList != nil && useAcorn {
-			h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
-			h.pools.tempVectorsUint64.Put(slicePendingNextRound)
-			h.pools.tempVectorsUint64.Put(slicePendingThisRound)
-		}
-=======
 	}
 
-	if allowList != nil && h.acornSearch.Load() {
+	if allowList != nil && useAcorn {
 		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
 		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
 		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
->>>>>>> 310987d38 (allocating memory outside the loop to free the memory pool a bit)
 	}
 
 	h.pools.pqCandidates.Put(candidates)
