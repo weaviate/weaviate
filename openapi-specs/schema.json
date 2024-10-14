@@ -388,12 +388,12 @@
           "type": "boolean",
           "x-omitempty": false
         },
-        "objectDeletionConflictResolution": {
+        "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "PermanentDeletion"
+            "DeleteOnConflict"
           ],
           "x-omitempty": true
         }
