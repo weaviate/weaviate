@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func TestCoordinatedBackup(t *testing.T) {
+func Test_CoordinatedBackup(t *testing.T) {
 	t.Parallel()
 	var (
 		backendName = "s3"

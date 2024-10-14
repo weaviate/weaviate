@@ -194,7 +194,7 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	}, 5*time.Second, 500*time.Microsecond, "class doesn't exists in follower nodes")
 }
 
-func backupJourneyWithCancellation(t *testing.T, className, backend, backupID string, journeyType journeyType) {
+func backupJourneyWithCancellation(t *testing.T, className, backend, backupID string, journeyType journeyType, overrideBucket, overridePath string) {
 	if journeyType == clusterJourney && backend == "filesystem" {
 		t.Run("should fail backup/restore with local filesystem backend", func(t *testing.T) {
 			backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backend, backupID)
@@ -228,7 +228,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, backupID st
 			case <-ticker.C:
 				break wait
 			default:
-				statusResp, err := helper.CreateBackupStatus(t, backend, backupID, "", "") //FIXME add override
+				statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 				helper.AssertRequestOk(t, resp, err, func() {
 					require.NotNil(t, statusResp)
 					require.NotNil(t, statusResp.Payload)
@@ -242,7 +242,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, backupID st
 			}
 		}
 
-		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, "", "") //FIXME add override
+		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
 		helper.AssertRequestOk(t, resp, err, func() {
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)
