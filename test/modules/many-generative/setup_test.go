@@ -94,7 +94,7 @@ func composeModules(accessKey, secretKey, sessionToken string,
 		WithText2VecTransformers().
 		WithGenerativeOllama().
 		WithGenerativeAWS(accessKey, secretKey, sessionToken).
-		WithGenerativePaLM(googleApiKey).
+		WithGenerativeGoogle(googleApiKey).
 		WithGenerativeOpenAI(openAIApiKey, openAIOrganization, "").
 		WithGenerativeCohere(cohereApiKey)
 	return
