@@ -1143,7 +1143,6 @@ func registerModules(appState *state.State) error {
 			WithField("action", "startup").
 			WithField("module", modgenerativeanthropic.Name).
 			Debug("enabled module")
-
 	}
 
 	_, enabledText2vecGoogle := enabledModules[modtext2vecgoogle.Name]
