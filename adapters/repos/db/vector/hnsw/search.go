@@ -276,7 +276,9 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
 			copy(pendingNextRound, candidateNode.connections[level])
-			for realLen < M*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
+			hop := 1
+			maxHops := 2
+			for hop <= maxHops && realLen < M*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
 				if cap(pendingThisRound) >= len(pendingNextRound) {
 					pendingThisRound = pendingThisRound[:len(pendingNextRound)]
 				} else {
@@ -328,41 +330,15 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 							visitedExp.Visit(expId)
 							connectionsReusable[realLen] = expId
 							realLen++
-						} else {
+						} else if hop < maxHops {
 							visitedExp.Visit(expId)
 							pendingNextRound = append(pendingNextRound, expId)
 						}
 					}
 				}
+				hop++
 			}
-			if realLen == 0 && results.Len() < ef {
-				now := []uint64{pendingThisRound[0]}
-				var next []uint64
-				pass := false
-				hops := 0
-				for !pass && hops <= 2 {
-					hops++
-					for _, x := range now {
-						if pass {
-							break
-						}
-						h.RLock()
-						h.shardedNodeLocks.RLock(x)
-						node := h.nodes[x]
-						h.shardedNodeLocks.RUnlock(x)
-						h.RUnlock()
-						for _, y := range node.connections[level] {
-							if allowList.Contains(y) {
-								pass = true
-								break
-							}
-						}
-						next = append(next, node.connections[level]...)
-					}
-					now = next
-					next = next[:0]
-				}
-			}
+			slicePendingNextRound.Slice = pendingNextRound
 			connectionsReusable = connectionsReusable[:realLen]
 		}
 		candidateNode.Unlock()
