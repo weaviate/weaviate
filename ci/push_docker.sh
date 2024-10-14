@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# TODO(kavi): Remove before make PR ready to review
-set -x
-
 DOCKER_REPO="semitechnologies/weaviate"
 DOCKER_REPO_SERVERLESS="semitechnologies/weaviate-experimental"
 
