@@ -25,7 +25,7 @@ type Queue struct {
 }
 
 func New(s *Scheduler, id, path string, exec TaskExecutor) (*Queue, error) {
-	logger := logrus.New().WithField("queue", id)
+	logger := logrus.New().WithField("queue_id", id)
 
 	enc, err := NewEncoder(path, logger)
 	if err != nil {

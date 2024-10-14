@@ -1058,56 +1058,82 @@ type chunk struct {
 	createdAt *time.Time
 }
 
-type IndexQueue2 struct {
+const (
+	vectorIndexQueueInsertOp uint8 = iota + 1
+	vectorIndexQueueDeleteOp
+)
+
+type VectorIndexQueue struct {
 	q *queue.Queue
 
 	index     batchIndexer
 	scheduler *queue.Scheduler
 }
 
-func NewIndexQueue2(
+func NewVectorIndexQueue(
 	s *queue.Scheduler,
 	shardID string,
 	targetVector string,
 	shard *Shard,
 	index VectorIndex,
-) (*IndexQueue2, error) {
+) (*VectorIndexQueue, error) {
 	var qID string
 	if targetVector == "" {
-		qID = fmt.Sprintf("index_queue_%s", shardID)
+		qID = fmt.Sprintf("vector_index_queue_%s", shardID)
 	} else {
-		qID = fmt.Sprintf("index_queue_%s_%s", shardID, targetVector)
+		qID = fmt.Sprintf("vector_index_queue_%s_%s", shardID, targetVector)
 	}
 
 	var dir string
 	if targetVector == "" {
-		dir = filepath.Join(shard.path(), "index_queue_default")
+		dir = filepath.Join(shard.path(), "vector_index_queue_default")
 	} else {
-		dir = filepath.Join(shard.path(), "index_queue", targetVector)
+		dir = filepath.Join(shard.path(), "vector_index_queue", targetVector)
 	}
 
-	var iq IndexQueue2
+	var viq VectorIndexQueue
 
-	q, err := queue.New(s, qID, dir, &iq)
+	q, err := queue.New(s, qID, dir, &viq)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create vector index queue")
 	}
-	q.BeforeScheduleFn = iq.BeforeSchedule
+	q.BeforeScheduleFn = viq.BeforeSchedule
 
 	q.Logger = q.Logger.
-		WithField("component", "index_queue").
+		WithField("component", "vector_index_queue").
 		WithField("shard_id", shardID)
 
-	iq.q = q
+	viq.q = q
 
-	return &iq, nil
+	return &viq, nil
 }
 
-func (iq *IndexQueue2) Execute(ctx context.Context, op uint8, ids ...uint64) error {
-	return iq.index.AddBatch(ctx, ids, nil)
+func (iq *VectorIndexQueue) Insert(vectors ...vectorDescriptor) error {
+	ids := make([]uint64, len(vectors))
+	for i, v := range vectors {
+		ids[i] = v.id
+	}
+
+	return iq.q.Push(vectorIndexQueueInsertOp, ids...)
 }
 
-func (iq *IndexQueue2) BeforeSchedule() {
+func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
+	return iq.q.Push(vectorIndexQueueDeleteOp, ids...)
+}
+
+func (iq *VectorIndexQueue) Execute(ctx context.Context, op uint8, ids ...uint64) error {
+	switch op {
+	case vectorIndexQueueInsertOp:
+		return iq.index.AddBatch(ctx, ids, nil)
+	case vectorIndexQueueDeleteOp:
+		return iq.index.Delete(ids...)
+	}
+
+	// TODO: deal with errors
+	return errors.Errorf("unknown operation: %d", op)
+}
+
+func (iq *VectorIndexQueue) BeforeSchedule() {
 	ci, ok := iq.index.(upgradableIndexer)
 	if !ok {
 		return
