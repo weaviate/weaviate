@@ -23,7 +23,6 @@ import (
 )
 
 func TestBatch(t *testing.T) {
-	client := &fakeBatchClient{}
 	cfg := &FakeClassConfig{vectorizePropertyName: false, classConfig: map[string]interface{}{"vectorizeClassName": false}}
 	logger, _ := test.NewNullLogger()
 	cases := []struct {
@@ -64,12 +63,12 @@ func TestBatch(t *testing.T) {
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 5"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
-		}, skip: []bool{false, false, false}, wantErrors: map[int]error{1: fmt.Errorf("text too long for vectorization. Tokens for text: 15, max tokens per batch: 500000, ApiKey absolute token limit: 10")}},
+		}, skip: []bool{false, false, false}, wantErrors: map[int]error{1: fmt.Errorf("text too long for vectorization from provider: got 43, total limit: 10, remaining: 5")}},
 		{name: "token too long, last item in batch", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 5"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "short"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long, long, long, long, long"}},
-		}, skip: []bool{false, false, false}, wantErrors: map[int]error{2: fmt.Errorf("text too long for vectorization. Tokens for text: 15, max tokens per batch: 500000, ApiKey absolute token limit: 10")}},
+		}, skip: []bool{false, false, false}, wantErrors: map[int]error{2: fmt.Errorf("text too long for vectorization from provider: got 43, total limit: 10, remaining: 5")}},
 		{name: "skip last item", objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "fir test object"}}, // set limit
 			{Class: "Car", Properties: map[string]interface{}{"test": "first object first batch"}},
@@ -78,7 +77,7 @@ func TestBatch(t *testing.T) {
 		{name: "deadline", deadline: 200 * time.Millisecond, objects: []*models.Object{
 			{Class: "Car", Properties: map[string]interface{}{"test": "tokens 15"}}, // set limit so next two items are in a batch
 			{Class: "Car", Properties: map[string]interface{}{"test": "wait 400"}},
-			{Class: "Car", Properties: map[string]interface{}{"test": "long long long long"}},
+			{Class: "Car", Properties: map[string]interface{}{"test": "long long long"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "next batch, will be aborted due to context deadline"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "skipped"}},
 			{Class: "Car", Properties: map[string]interface{}{"test": "has error again"}},
@@ -94,6 +93,8 @@ func TestBatch(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
+			client := &fakeBatchClient{}
+
 			v := New(client, logger) // avoid waiting for rate limit
 			deadline := time.Now().Add(10 * time.Second)
 			if tt.deadline != 0 {
