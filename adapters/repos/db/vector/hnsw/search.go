@@ -674,7 +674,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	useAcorn, _ := h.useAcorn(allowOld)
-	var allowList helpers.AllowList = nil
+	var allowList helpers.AllowList = allowOld
 	if useAcorn {
 		allowList = NewFastSet(allowOld)
 	}
