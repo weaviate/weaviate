@@ -240,7 +240,7 @@ func (v *client) getError(statusCode int, requestID string, resBodyError *openAI
 
 func (v *client) getEmbeddingsRequest(input []string, model string, isAzure bool, dimensions *int64) embeddingsRequest {
 	if isAzure {
-		return embeddingsRequest{Input: input}
+		return embeddingsRequest{Input: input, Dimensions: dimensions}
 	}
 	return embeddingsRequest{Input: input, Model: model, Dimensions: dimensions}
 }
