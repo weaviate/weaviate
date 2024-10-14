@@ -242,7 +242,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 			sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
 			connectionsReusable = sliceConnectionsReusable.Slice
 			slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
-			slicePendingThisRound = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero * h.maximumConnectionsLayerZero)
+			slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 			pendingNextRound := slicePendingNextRound.Slice
 			pendingThisRound := slicePendingThisRound.Slice
 
@@ -638,7 +638,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 	}
 
 	var allowList helpers.AllowList = nil
-	if allowOld != nil {
+	if allowOld != nil && h.acornSearch.Load() {
 		allowList = NewFastSet(allowOld)
 	}
 
