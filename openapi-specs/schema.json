@@ -383,12 +383,12 @@
           "description": "Number of times a class is replicated",
           "type": "integer"
         },
-        "objectDeletionConflictResolution": {
+        "deletionStrategy": {
           "description": "Conflict resolution strategy for deleted objects",
           "type": "string",
           "enum": [
             "NoAutomatedResolution",
-            "PermanentDeletion"
+            "DeleteOnConflict"
           ],
           "x-omitempty": true
         }
@@ -2164,7 +2164,7 @@
     },
     "description": "Cloud-native, modular vector database",
     "title": "Weaviate",
-    "version": "1.25.19"
+    "version": "1.25.20"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
