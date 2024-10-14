@@ -72,15 +72,15 @@ func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
 	return &s, nil
 }
 
-func (s *Scheduler) RegisterQueue(q Producer) {
+func (s *Scheduler) RegisterQueue(q *Queue) {
 	s.queues.Lock()
 	defer s.queues.Unlock()
 
-	s.queues.m[q.ID()] = &queueState{
+	s.queues.m[q.id] = &queueState{
 		q: q,
 	}
 
-	s.Logger.WithField("id", q.ID()).Debug("queue registered")
+	s.Logger.WithField("id", q.id).Debug("queue registered")
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
@@ -156,20 +156,8 @@ func (s *Scheduler) ResumeQueue(id string) {
 	s.Logger.WithField("id", id).Debug("queue resumed")
 }
 
-type Producer interface {
-	ID() string
-	Path() string
-	DecodeTask(r *bufio.Reader) (*Task, error)
-	Encoder() *Encoder
-	LastPushed() time.Time
-}
-
-type BeforeScheduleHook interface {
-	BeforeSchedule()
-}
-
 type queueState struct {
-	q         Producer
+	q         *Queue
 	paused    bool
 	readFiles []string
 	cursor    int
@@ -207,10 +195,7 @@ func (s *Scheduler) schedule() {
 		}
 
 		// run the before-schedule hook if it is implemented
-		if hook, ok := q.q.(BeforeScheduleHook); ok {
-			s.Logger.WithField("id", id).Debug("running pre-schedule hook")
-			hook.BeforeSchedule()
-		}
+		q.q.BeforeSchedule()
 	}
 
 	for _, id := range ids {
@@ -279,7 +264,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 
 	if len(partitions) == 0 {
 		s.Logger.WithField("file", path).Warn("read chunk is empty. removing file")
-		q.q.Encoder().removeChunk(path)
+		q.q.enc.removeChunk(path)
 		return nil
 	}
 
@@ -308,7 +293,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 				defer s.activeTasks.Decr()
 
 				if counter.Add(-1) == 0 {
-					q.q.Encoder().removeChunk(path)
+					q.q.enc.removeChunk(path)
 				}
 			},
 		}:
@@ -334,7 +319,7 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 	q.cursor = 0
 
 	// read the directory
-	entries, err := os.ReadDir(q.q.Path())
+	entries, err := os.ReadDir(q.q.path)
 	if err != nil {
 		return nil, "", err
 	}
@@ -349,7 +334,7 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 			continue
 		}
 
-		q.readFiles = append(q.readFiles, filepath.Join(q.q.Path(), entry.Name()))
+		q.readFiles = append(q.readFiles, filepath.Join(q.q.path, entry.Name()))
 	}
 
 	if len(q.readFiles) == 0 {
@@ -365,18 +350,18 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 }
 
 func (s *Scheduler) checkIfStale(q *queueState) (*os.File, string, error) {
-	lastPushed := q.q.LastPushed()
-	if lastPushed.IsZero() {
+	lastPushed := q.q.lastPushed.Load()
+	if lastPushed == nil {
 		return nil, "", nil
 	}
 
-	if time.Since(lastPushed) < s.StaleTimeout {
+	if time.Since(*lastPushed) < s.StaleTimeout {
 		return nil, "", nil
 	}
 
-	s.Logger.WithField("id", q.q.ID()).Debug("partial chunk is stale, scheduling")
+	s.Logger.WithField("id", q.q.id).Debug("partial chunk is stale, scheduling")
 
-	err := q.q.Encoder().promoteChunk()
+	err := q.q.enc.promoteChunk()
 	if err != nil {
 		return nil, "", err
 	}
