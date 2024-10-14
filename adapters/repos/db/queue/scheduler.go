@@ -80,7 +80,7 @@ func (s *Scheduler) RegisterQueue(q Producer) {
 		q: q,
 	}
 
-	s.Logger.WithField("id", q.ID).Debug("queue registered")
+	s.Logger.WithField("id", q.ID()).Debug("queue registered")
 }
 
 func (s *Scheduler) UnregisterQueue(id string) {
@@ -164,8 +164,8 @@ type Producer interface {
 	LastPushed() time.Time
 }
 
-type PreScheduleHook interface {
-	Pre()
+type BeforeScheduleHook interface {
+	BeforeSchedule()
 }
 
 type queueState struct {
@@ -199,21 +199,29 @@ func (s *Scheduler) schedule() {
 	}
 	s.queues.Unlock()
 
+	// look for any pre-schedule hooks
 	for _, id := range ids {
-		s.queues.Lock()
-		q, ok := s.queues.m[id]
-		if !ok {
-			// queue was unregistered
-			s.queues.Unlock()
+		q := s.getQueue(id)
+		if q == nil {
+			continue
+		}
+
+		// run the before-schedule hook if it is implemented
+		if hook, ok := q.q.(BeforeScheduleHook); ok {
+			s.Logger.WithField("id", id).Debug("running pre-schedule hook")
+			hook.BeforeSchedule()
+		}
+	}
+
+	for _, id := range ids {
+		q := s.getQueue(id)
+		if q == nil {
 			continue
 		}
 
 		if q.paused {
-			s.queues.Unlock()
 			continue
 		}
-
-		s.queues.Unlock()
 
 		s.Logger.WithField("id", id).Debug("scheduling queue")
 		err := s.dispatchQueue(q)
@@ -221,6 +229,13 @@ func (s *Scheduler) schedule() {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
 	}
+}
+
+func (s *Scheduler) getQueue(id string) *queueState {
+	s.queues.Lock()
+	defer s.queues.Unlock()
+
+	return s.queues.m[id]
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) error {
@@ -359,7 +374,7 @@ func (s *Scheduler) checkIfStale(q *queueState) (*os.File, string, error) {
 		return nil, "", nil
 	}
 
-	s.Logger.WithField("id", q.q.ID).Debug("partial chunk is stale, scheduling")
+	s.Logger.WithField("id", q.q.ID()).Debug("partial chunk is stale, scheduling")
 
 	err := q.q.Encoder().promoteChunk()
 	if err != nil {
