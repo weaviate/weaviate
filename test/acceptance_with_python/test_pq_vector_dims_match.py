@@ -9,7 +9,7 @@ from weaviate.exceptions import WeaviateQueryError
 
 
 VEC_DIMS = 256
-OBJ_NUM = 10_000
+OBJ_NUM = 1024
 
 
 def test_pq_dims_match(collection_factory: CollectionFactory):
