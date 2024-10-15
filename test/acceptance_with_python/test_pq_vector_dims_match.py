@@ -34,8 +34,9 @@ def test_pq_dims_match(collection_factory: CollectionFactory):
     )
 
     # time to quantize
-    print('sleeping for 5 seconds to compress vectors...')
-    time.sleep(3)
+    time2sleep = 3
+    print(f'sleeping for {time2sleep} seconds to compress vectors...')
+    time.sleep(time2sleep)
 
     with pytest.raises(WeaviateQueryError) as exc:
         col.query.near_vector(
@@ -43,7 +44,7 @@ def test_pq_dims_match(collection_factory: CollectionFactory):
             limit=2,
             return_metadata=MetadataQuery(distance=True)
         )
-    assert "ProductQuantizer.DistanceBetweenCompressedAndUncompressedVectors: mismatched dimensions:" in str(exc.value)
+    assert 'ProductQuantizer.DistanceBetweenCompressedAndUncompressedVectors: mismatched dimensions:' in str(exc.value)
 
 
 def generate_vec(dims):
