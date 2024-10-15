@@ -17,6 +17,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -37,20 +38,22 @@ type job struct {
 type AsyncWorker struct {
 	logger        logrus.FieldLogger
 	retryInterval time.Duration
-	ch            chan job
+	ch            chan queue.Batch
 }
 
-func NewAsyncWorker(ch chan job, logger logrus.FieldLogger, retryInterval time.Duration) *AsyncWorker {
+func NewAsyncWorker(logger logrus.FieldLogger, retryInterval time.Duration) (*AsyncWorker, chan queue.Batch) {
+	ch := make(chan queue.Batch)
+
 	return &AsyncWorker{
 		logger:        logger,
 		retryInterval: retryInterval,
 		ch:            ch,
-	}
+	}, ch
 }
 
 func (a *AsyncWorker) Run() {
-	for job := range a.ch {
-		stop := a.do(job)
+	for batch := range a.ch {
+		stop := a.do(&batch)
 
 		if stop {
 			return
@@ -58,11 +61,21 @@ func (a *AsyncWorker) Run() {
 	}
 }
 
-func (a *AsyncWorker) do(job job) (stop bool) {
-	defer job.done()
+func (a *AsyncWorker) do(batch *queue.Batch) (stop bool) {
+	defer batch.Done()
 
+	for _, t := range batch.Tasks {
+		if a.processTask(batch.Ctx, t) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (a *AsyncWorker) processTask(ctx context.Context, task *queue.Task) (stop bool) {
 	for {
-		err := job.indexer.AddBatch(job.ctx, job.ids, job.vectors)
+		err := task.Execute(ctx)
 		if err == nil {
 			return false
 		}
@@ -76,7 +89,7 @@ func (a *AsyncWorker) do(job job) (stop bool) {
 
 		t := time.NewTimer(a.retryInterval)
 		select {
-		case <-job.ctx.Done():
+		case <-ctx.Done():
 			// drain the timer
 			if !t.Stop() {
 				<-t.C
