@@ -1067,7 +1067,7 @@ const (
 type VectorIndexQueue struct {
 	q *queue.Queue
 
-	index     batchIndexer
+	index     VectorIndex
 	scheduler *queue.Scheduler
 }
 
@@ -1126,7 +1126,7 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 func (iq *VectorIndexQueue) Execute(ctx context.Context, op uint8, ids ...uint64) error {
 	switch op {
 	case vectorIndexQueueInsertOp:
-		return iq.index.AddBatch(ctx, ids, nil)
+		return iq.index.AddBatchFromDisk(ctx, ids)
 	case vectorIndexQueueDeleteOp:
 		return iq.index.Delete(ids...)
 	}
