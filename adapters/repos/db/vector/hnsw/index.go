@@ -159,6 +159,7 @@ type hnsw struct {
 
 	compressed   atomic.Bool
 	doNotRescore bool
+	acornSearch  atomic.Bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -172,8 +173,7 @@ type hnsw struct {
 	shardedNodeLocks   *common.ShardedRWLocks
 	store              *lsmkv.Store
 
-	allocChecker memwatch.AllocChecker
-
+	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
 }
 
@@ -287,6 +287,7 @@ func New(cfg Config, uc ent.UserConfig, tombstoneCallbacks, shardCompactionCallb
 		store:                    store,
 		allocChecker:             cfg.AllocChecker,
 	}
+	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	if uc.BQ.Enabled {
 		var err error
