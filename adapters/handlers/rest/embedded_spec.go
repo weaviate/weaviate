@@ -3281,7 +3281,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3422,7 +3423,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -3455,7 +3457,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8821,7 +8824,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8965,7 +8969,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
@@ -8998,7 +9003,8 @@ func init() {
             "TRANSFERRING",
             "TRANSFERRED",
             "SUCCESS",
-            "FAILED"
+            "FAILED",
+            "CANCELED"
           ]
         }
       }
