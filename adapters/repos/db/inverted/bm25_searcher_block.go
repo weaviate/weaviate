@@ -14,6 +14,8 @@ package inverted
 import (
 	"context"
 	"fmt"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -119,7 +121,7 @@ func (b *BM25Searcher) wandBlock(
 	averagePropLength = averagePropLength / float64(len(params.Properties))
 
 	// 100 is a reasonable expected capacity for the total number of terms to query.
-	allResults := make([][]terms.TermInterface, 0, 100)
+	allResults := make([][][]terms.TermInterface, len(params.Properties))
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
@@ -131,12 +133,12 @@ func (b *BM25Searcher) wandBlock(
 				queryTerms, duplicateBoosts = b.removeStopwordsFromQueryTerms(
 					queryTerms, duplicateBoosts, stopWordDetector)
 			}
-			for _, propName := range propNames {
+			for i, propName := range propNames {
 				results, err := b.createBlockTerm(N, filterDocIds, queryTerms, propName, propertyBoosts[propName], duplicateBoosts, ctx)
 				if err != nil {
 					return nil, nil, err
 				}
-				allResults = append(allResults, results...)
+				allResults[i] = append(allResults[i], results...)
 			}
 
 		}
@@ -145,9 +147,11 @@ func (b *BM25Searcher) wandBlock(
 	// all results. Sum up the length of the results from all terms to get an upper bound of how many results there are
 	if limit == 0 {
 		for _, res := range allResults {
-			for _, res3 := range res {
-				if res3 != nil {
-					limit += res3.Count()
+			for _, res2 := range res {
+				for _, res3 := range res2 {
+					if res3 != nil {
+						limit += res3.Count()
+					}
 				}
 			}
 		}
@@ -156,32 +160,118 @@ func (b *BM25Searcher) wandBlock(
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.SetLimit(_NUMCPU)
 
-	allObjects := make([][]*storobj.Object, len(allResults))
-	allScores := make([][]float32, len(allResults))
+	allObjects := make([][][]*storobj.Object, len(allResults))
+	allScores := make([][][]float32, len(allResults))
 
-	for i, result := range allResults {
+	for i, result1 := range allResults {
+		allObjects[i] = make([][]*storobj.Object, len(result1))
+		allScores[i] = make([][]float32, len(result1))
+		for j, result2 := range result1 {
+			i := i
+			j := j
+			eg.Go(func() (err error) {
+				combinedTerms := &terms.Terms{
+					T: result2,
+				}
 
-		i := i
-		eg.Go(func() (err error) {
-			combinedTerms := &terms.Terms{
-				T: result,
-			}
+				topKHeap := b.getTopKHeap(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
+				objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, nil, additional)
 
-			topKHeap := b.getTopKHeap(limit, combinedTerms, averagePropLength, params.AdditionalExplanations)
-			objects, scores, err := b.getTopKObjects(topKHeap, params.AdditionalExplanations, nil, additional)
-
-			allObjects[i] = objects
-			allScores[i] = scores
-			if err != nil {
-				return err
-			}
-			return nil
-		})
+				allObjects[i][j] = objects
+				allScores[i][j] = scores
+				if err != nil {
+					return err
+				}
+				return nil
+			})
+		}
 	}
 
 	if err := eg.Wait(); err != nil {
 		return nil, nil, err
 	}
 
-	return nil, nil, nil
+	objects, scores := b.combineResults(allObjects, allScores, limit)
+
+	return objects, scores, nil
+}
+
+func (b *BM25Searcher) combineResults(allObjects [][][]*storobj.Object, allScores [][][]float32, limit int) ([]*storobj.Object, []float32) {
+	// combine all results
+	combinedObjects := make([]*storobj.Object, 0, limit*len(allObjects))
+	combinedScores := make([]float32, 0, limit*len(allObjects))
+
+	// combine all results
+	for i := range allObjects {
+		singlePropObjects := slices.Concat(allObjects[i]...)
+		singlePropScores := slices.Concat(allScores[i]...)
+		combinedObjectsProp, combinedScoresProp := b.combineResultsForMultiProp(singlePropObjects, singlePropScores, func(a, b float32) float32 { return b })
+		combinedObjects = append(combinedObjects, combinedObjectsProp...)
+		combinedScores = append(combinedScores, combinedScoresProp...)
+	}
+
+	combinedObjects, combinedScores = b.combineResultsForMultiProp(combinedObjects, combinedScores, func(a, b float32) float32 { return a + b })
+
+	combinedObjects, combinedScores = b.sortResultsByScore(combinedObjects, combinedScores)
+
+	return combinedObjects[len(combinedObjects)-limit:], combinedScores[len(combinedObjects)-limit:]
+}
+
+type aggregate func(float32, float32) float32
+
+func (b *BM25Searcher) combineResultsForMultiProp(allObjects []*storobj.Object, allScores []float32, aggregateFn aggregate) ([]*storobj.Object, []float32) {
+	// if ids are the same, sum the scores
+	combinedObjects := make(map[string]*storobj.Object)
+	combinedScores := make(map[string]float32)
+
+	for i, obj := range allObjects {
+		id := string(obj.ID())
+		if _, ok := combinedObjects[id]; !ok {
+			combinedObjects[id] = obj
+			combinedScores[id] = allScores[i]
+		} else {
+			combinedScores[id] = aggregateFn(combinedScores[id], allScores[i])
+		}
+	}
+
+	// sort the combined results
+	combinedObjectsSlice := make([]*storobj.Object, 0, len(combinedObjects))
+	combinedScoresSlice := make([]float32, 0, len(combinedObjects))
+
+	for id, obj := range combinedObjects {
+		combinedObjectsSlice = append(combinedObjectsSlice, obj)
+		combinedScoresSlice = append(combinedScoresSlice, combinedScores[id])
+	}
+
+	return combinedObjectsSlice, combinedScoresSlice
+}
+
+func (b *BM25Searcher) sortResultsByScore(objects []*storobj.Object, scores []float32) ([]*storobj.Object, []float32) {
+	sorter := &scoreSorter{
+		objects: objects,
+		scores:  scores,
+	}
+	sort.Sort(sorter)
+	return sorter.objects, sorter.scores
+}
+
+type scoreSorter struct {
+	objects []*storobj.Object
+	scores  []float32
+}
+
+func (s *scoreSorter) Len() int {
+	return len(s.objects)
+}
+
+func (s *scoreSorter) Less(i, j int) bool {
+	if s.scores[i] == s.scores[j] {
+		return s.objects[i].ID() < s.objects[j].ID()
+	}
+	return s.scores[i] < s.scores[j]
+}
+
+func (s *scoreSorter) Swap(i, j int) {
+	s.objects[i], s.objects[j] = s.objects[j], s.objects[i]
+	s.scores[i], s.scores[j] = s.scores[j], s.scores[i]
 }
