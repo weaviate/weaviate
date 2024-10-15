@@ -670,7 +670,9 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 		return nil, nil, nil
 	}
 
-	if allowList != nil && h.acornSearch.Load() {
+	useAcorn, _ := h.acornParams(allowList)
+
+	if allowList != nil && useAcorn {
 		allowList = NewFastSet(allowList)
 	}
 
@@ -748,7 +750,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
-	if allowList != nil && h.acornSearch.Load() {
+	if allowList != nil && useAcorn {
 		size := h.maximumConnectionsLayerZero
 		if size >= ef {
 			size = ef - 1
