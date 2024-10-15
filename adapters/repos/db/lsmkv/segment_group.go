@@ -67,9 +67,10 @@ type SegmentGroup struct {
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
 
-	isFlushing      *atomic.Bool
-	segmentCleaner  segmentCleaner
-	cleanupInterval time.Duration
+	isFlushing              *atomic.Bool
+	segmentCleaner          segmentCleaner
+	cleanupInterval         time.Duration
+	cleanupCompactionSwitch bool
 }
 
 type sgConfig struct {
@@ -575,29 +576,38 @@ func fileExists(path string) (bool, error) {
 func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bool {
 	sg.monitorSegments()
 
-	if compacted, err := sg.compactOnce(); err != nil {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			WithError(err).
-			Errorf("compaction failed")
-	} else if !compacted {
-		sg.logger.WithField("action", "lsm_compaction").
-			WithField("path", sg.dir).
-			Trace("no segments eligible for compaction")
-	} else {
-		return true
+	compact := func() bool {
+		compacted, err := sg.compactOnce()
+		if err != nil {
+			sg.logger.WithField("action", "lsm_compaction").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("compaction failed")
+		} else if !compacted {
+			sg.logger.WithField("action", "lsm_compaction").
+				WithField("path", sg.dir).
+				Trace("no segments eligible for compaction")
+		}
+		return compacted
+	}
+	cleanup := func() bool {
+		cleaned, err := sg.segmentCleaner.cleanupOnce(shouldAbort)
+		if err != nil {
+			sg.logger.WithField("action", "lsm_cleanup").
+				WithField("path", sg.dir).
+				WithError(err).
+				Errorf("cleanup failed")
+		}
+		return cleaned
 	}
 
-	if cleaned, err := sg.segmentCleaner.cleanupOnce(shouldAbort); err != nil {
-		sg.logger.WithField("action", "lsm_cleanup").
-			WithField("path", sg.dir).
-			WithError(err).
-			Errorf("cleanup failed")
-	} else if cleaned {
-		return true
+	// alternatively run compaction or cleanup first
+	// if 1st one called succeeds, 2nd one is skipped, otherwise 2nd one is called as well
+	sg.cleanupCompactionSwitch = !sg.cleanupCompactionSwitch
+	if sg.cleanupCompactionSwitch {
+		return compact() || cleanup()
 	}
-
-	return false
+	return cleanup() || compact()
 }
 
 func (sg *SegmentGroup) Len() int {
