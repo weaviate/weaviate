@@ -35,7 +35,7 @@ def test_pq_dims_match(collection_factory: CollectionFactory):
 
     # time to quantize
     print('sleeping for 5 seconds to compress vectors...')
-    time.sleep(5)
+    time.sleep(3)
 
     with pytest.raises(WeaviateQueryError) as exc:
         col.query.near_vector(
