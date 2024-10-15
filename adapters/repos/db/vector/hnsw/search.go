@@ -169,7 +169,7 @@ func (h *hnsw) cacheSize() int64 {
 	return size
 }
 
-func (h *hnsw) useAcorn(allowList helpers.AllowList) (bool, int) {
+func (h *hnsw) acornParams(allowList helpers.AllowList) (bool, int) {
 	useAcorn := h.acornSearch.Load()
 	var M int
 
@@ -194,7 +194,7 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 	visitedExp := h.pools.visitedLists.Borrow()
 	h.pools.visitedListsLock.RUnlock()
 
-	useAcorn, M := h.useAcorn(allowList)
+	useAcorn, M := h.acornParams(allowList)
 
 	candidates := h.pools.pqCandidates.GetMin(ef)
 	results := h.pools.pqResults.GetMax(ef)
@@ -232,6 +232,8 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(M * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+	} else {
+		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
 	}
 
 	for candidates.Len() > 0 {
@@ -264,7 +266,22 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 		}
 
 		if allowList == nil || !useAcorn {
-			connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
+			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+				// How is it possible that we could ever have more connections than the
+				// allowed maximum? It is not anymore, but there was a bug that allowed
+				// this to happen in versions prior to v1.12.0:
+				// https://github.com/weaviate/weaviate/issues/1868
+				//
+				// As a result the length of this slice is entirely unpredictable and we
+				// can no longer retrieve it from the pool. Instead we need to fallback
+				// to allocating a new slice.
+				//
+				// This was discovered as part of
+				// https://github.com/weaviate/weaviate/issues/1897
+				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
+			} else {
+				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
+			}
 			copy(connectionsReusable, candidateNode.connections[level])
 		} else {
 			connectionsReusable = sliceConnectionsReusable.Slice
@@ -374,8 +391,14 @@ func (h *hnsw) searchLayerByVectorWithDistancer(queryVector []float32,
 
 			if distance < worstResultDistance || results.Len() < ef {
 				candidates.Insert(neighborID, distance)
-				if !useAcorn && level == 0 && allowList != nil && !allowList.Contains(neighborID) {
-					continue
+				if !useAcorn && level == 0 && allowList != nil {
+					// we are on the lowest level containing the actual candidates and we
+					// have an allow list (i.e. the user has probably set some sort of a
+					// filter restricting this search further. As a result we have to
+					// ignore items not on the list
+					if !allowList.Contains(neighborID) {
+						continue
+					}
 				}
 
 				if h.hasTombstone(neighborID) {
@@ -641,16 +664,16 @@ func (s *fastIterator) Next() (uint64, bool) {
 }
 
 func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
-	ef int, allowOld helpers.AllowList,
+	ef int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
 	if h.isEmpty() {
 		return nil, nil, nil
 	}
 
-	useAcorn, _ := h.useAcorn(allowOld)
-	var allowList helpers.AllowList = allowOld
-	if useAcorn {
-		allowList = NewFastSet(allowOld)
+	useAcorn, _ := h.acornParams(allowList)
+
+	if allowList != nil && useAcorn {
+		allowList = NewFastSet(allowList)
 	}
 
 	if k < 0 {
@@ -727,7 +750,7 @@ func (h *hnsw) knnSearchByVector(searchVec []float32, k int,
 
 	eps := priorityqueue.NewMin[any](10)
 	eps.Insert(entryPointID, entryPointDistance)
-	if useAcorn && allowList != nil {
+	if allowList != nil && useAcorn {
 		size := h.maximumConnectionsLayerZero
 		if size >= ef {
 			size = ef - 1
