@@ -64,8 +64,8 @@ func CreateBackupStatus(t *testing.T, backend, backupID, overrideBucket, overrid
 	params := backups.NewBackupsCreateStatusParams().
 		WithBackend(backend).
 		WithID(backupID).
-		WithS3bucket(&overrideBucket).
-		WithS3path(&overridePath)
+		WithBucket(&overrideBucket).
+		WithPath(&overridePath)
 	return Client(t).Backups.BackupsCreateStatus(params, nil)
 }
 

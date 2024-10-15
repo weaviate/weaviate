@@ -131,8 +131,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		params := backups.NewBackupsCreateStatusParams().
 			WithBackend(backend).
 			WithID(backupID).
-			WithS3bucket(&overrideName).
-			WithS3path(&overridePath)
+			WithBucket(&overrideName).
+			WithPath(&overridePath)
 		for {
 			resp, err := helper.Client(t).Backups.BackupsCreateStatus(params, nil)
 			require.Nil(t, err)
