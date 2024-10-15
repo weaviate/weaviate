@@ -347,7 +347,15 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		m := make(map[string]int, len(ids)/2) //
 		for j, x := range lastTimes {
 			if result[j] == nil {
-				if x.Deleted {
+				alreadyDeleted := false
+
+				if rid == contentIdx {
+					alreadyDeleted = vote.batchReply.FullData[j].Deleted
+				} else {
+					alreadyDeleted = vote.batchReply.DigestData[j].Deleted
+				}
+
+				if alreadyDeleted {
 					continue
 				}
 
