@@ -232,13 +232,13 @@ func (m *Manager) setNewClassDefaults(class *models.Class) {
 	if class.ReplicationConfig == nil {
 		class.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           int64(m.config.Replication.MinimumFactor),
-			DeletionStrategy: models.ReplicationConfigDeletionStrategyDeleteOnConflict,
+			DeletionStrategy: models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
 		}
 		return
 	}
 
 	if class.ReplicationConfig.DeletionStrategy == "" {
-		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyDeleteOnConflict
+		class.ReplicationConfig.DeletionStrategy = models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 }
 
