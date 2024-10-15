@@ -35,17 +35,19 @@ type Scheduler struct {
 }
 
 type SchedulerOptions struct {
-	Logger           logrus.FieldLogger
-	Workers          []chan Batch
+	Logger logrus.FieldLogger
+	// Channels to send tasks to the workers. At least one worker is required.
+	Workers []chan Batch
+	// The interval at which the scheduler checks the queues for tasks. Defaults to 1 second.
 	ScheduleInterval time.Duration
 	// If a queue does not receive any tasks for this duration, it is considered stale
-	// and must be scheduled.
+	// and must be scheduled. Defaults to 5 seconds.
 	StaleTimeout time.Duration
 }
 
-func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
-	if len(opts.Workers) == 0 {
-		return nil, errors.New("at least one worker is required")
+func NewScheduler(opts SchedulerOptions) *Scheduler {
+	if len(opts.Workers) <= 0 {
+		panic("at least one worker is required")
 	}
 
 	if opts.Logger == nil {
@@ -69,7 +71,7 @@ func NewScheduler(opts SchedulerOptions) (*Scheduler, error) {
 
 	s.ctx, s.cancelFn = context.WithCancel(context.Background())
 
-	return &s, nil
+	return &s
 }
 
 func (s *Scheduler) RegisterQueue(q *Queue) {

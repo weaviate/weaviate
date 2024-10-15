@@ -26,6 +26,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -78,6 +79,7 @@ type DB struct {
 	indexLock sync.RWMutex
 
 	jobQueueCh              chan job
+	scheduler               *queue.Scheduler
 	asyncIndexRetryInterval time.Duration
 	shutDownWg              sync.WaitGroup
 	maxNumberGoroutines     int
@@ -160,14 +162,25 @@ func New(logger logrus.FieldLogger, config Config,
 		logger.Info("async indexing enabled")
 		w := runtime.GOMAXPROCS(0) - 1
 		db.shutDownWg.Add(w)
-		db.jobQueueCh = make(chan job)
+
+		chans := make([]chan queue.Batch, w)
+
 		for i := 0; i < w; i++ {
+			worker, ch := NewAsyncWorker(db.logger, db.asyncIndexRetryInterval)
+			chans[i] = ch
+
 			f := func() {
 				defer db.shutDownWg.Done()
-				NewAsyncWorker(db.jobQueueCh, db.logger, db.asyncIndexRetryInterval).Run()
+
+				worker.Run()
 			}
 			enterrors.GoWrapper(f, db.logger)
 		}
+
+		db.scheduler = queue.NewScheduler(queue.SchedulerOptions{
+			Logger:  logger,
+			Workers: chans,
+		})
 	}
 
 	return db, nil

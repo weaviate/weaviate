@@ -32,13 +32,12 @@ func TestScheduler(t *testing.T) {
 		}(i)
 	}
 
-	s, err := NewScheduler(SchedulerOptions{
+	s := NewScheduler(SchedulerOptions{
 		Logger:           logger,
 		Workers:          chans,
 		ScheduleInterval: 100 * time.Millisecond,
 		StaleTimeout:     500 * time.Millisecond,
 	})
-	require.NoError(t, err)
 
 	s.Start()
 
