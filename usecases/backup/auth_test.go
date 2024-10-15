@@ -45,7 +45,13 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "BackupStatus",
-			additionalArgs:   []interface{}{"s3", "123", "", ""}, // FIXME
+			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			expectedVerb:     "get",
+			expectedResource: "backups/s3/123",
+		},
+		{
+			methodName:       "BackupStatusOverride",
+			additionalArgs:   []interface{}{"s3", "123", "overrideBucket", "overridepath"},
 			expectedVerb:     "get",
 			expectedResource: "backups/s3/123",
 		},
@@ -57,13 +63,25 @@ func Test_Authorization(t *testing.T) {
 		},
 		{
 			methodName:       "RestorationStatus",
-			additionalArgs:   []interface{}{"s3", "123", "", ""}, // FIXME
+			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			expectedVerb:     "get",
+			expectedResource: "backups/s3/123/restore",
+		},
+		{
+			methodName:       "RestorationStatus",
+			additionalArgs:   []interface{}{"s3", "123", "overrideBucket", "overridepath"},
 			expectedVerb:     "get",
 			expectedResource: "backups/s3/123/restore",
 		},
 		{
 			methodName:       "Cancel",
-			additionalArgs:   []interface{}{"s3", "123", "", ""}, // FIXME
+			additionalArgs:   []interface{}{"s3", "123", "", ""},
+			expectedVerb:     "delete",
+			expectedResource: "backups/s3/123",
+		},
+		{
+			methodName:       "Cancel",
+			additionalArgs:   []interface{}{"s3", "123", "overrideBucket", "overridepath"},
 			expectedVerb:     "delete",
 			expectedResource: "backups/s3/123",
 		},
