@@ -221,12 +221,12 @@ func (s *backupHandlers) restoreBackupStatus(params backups.BackupsRestoreStatus
 	principal *models.Principal,
 ) middleware.Responder {
 	var overrideBucket string
-	if params.S3bucket != nil {
-		overrideBucket = *params.S3bucket
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
 	}
 	var overridePath string
-	if params.S3path != nil {
-		overridePath = *params.S3path
+	if params.Path != nil {
+		overridePath = *params.Path
 	}
 	status, err := s.manager.RestorationStatus(
 		params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
@@ -263,12 +263,12 @@ func (s *backupHandlers) cancel(params backups.BackupsCancelParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	overrideBucket := ""
-	if params.S3bucket != nil {
-		overrideBucket = *params.S3bucket
+	if params.Bucket != nil {
+		overrideBucket = *params.Bucket
 	}
 	overridePath := ""
-	if params.S3path != nil {
-		overridePath = *params.S3path
+	if params.Path != nil {
+		overridePath = *params.Path
 	}
 	err := s.manager.Cancel(params.HTTPRequest.Context(), principal, params.Backend, params.ID, overrideBucket, overridePath)
 	if err != nil {
