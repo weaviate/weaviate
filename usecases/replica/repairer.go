@@ -296,6 +296,9 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			result[i] = p.Object
 		}
 	}
+
+	r.logger.WithField("op", "repairBatchPart").WithField("uuids", ids).Debugf("nDeletions: %d, result: %v", nDeletions, result)
+
 	if len(ms) > 0 { // fetch most recent objects
 		// partition by hostname
 		sort.SliceStable(ms, func(i, j int) bool { return ms[i].S < ms[j].S })
@@ -393,6 +396,8 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 		receiver := vote.Sender
 		rid := rid
 		gr.Go(func() error {
+			r.logger.WithField("op", "repairBatchPart").WithField("uuids", ids).Debugf("Overwrite query: %v", query)
+
 			rs, err := cl.Overwrite(ctx, receiver, r.class, shard, query)
 			if err != nil {
 				for _, idx := range m {
@@ -410,6 +415,8 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			return nil
 		})
 	}
+
+	r.logger.WithField("op", "repairBatchPart").WithField("uuids", ids).Debugf("nDeletions: %d, final result: %v", nDeletions, result)
 
 	return result, gr.Wait()
 }

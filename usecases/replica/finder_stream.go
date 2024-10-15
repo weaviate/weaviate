@@ -252,6 +252,10 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 			}
 
 			if M == N { // all objects are consistent
+
+				f.log.WithField("op", "repair_batch").WithField("class", f.class).
+					WithField("shard", batch.Shard).WithField("uuids", ids).Debugf("all objects are consistent - no need of repair")
+
 				for _, idx := range batch.Index {
 					batch.Data[idx].IsConsistent = true
 				}

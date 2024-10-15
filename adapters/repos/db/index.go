@@ -1259,6 +1259,10 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if replProps == nil {
 			replProps = defaultConsistency(replica.One)
 		}
+
+		i.logger.WithField("action", "object_search").
+			Debugf("check consistency of search results with consistency level %q, outObjects: %v", replProps.ConsistencyLevel, outObjects)
+
 		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
