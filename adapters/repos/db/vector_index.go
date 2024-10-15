@@ -25,7 +25,9 @@ import (
 type VectorIndex interface {
 	Dump(labels ...string)
 	Add(ctx context.Context, id uint64, vector []float32) error
-	AddBatch(ctx context.Context, id []uint64, vector [][]float32) error
+	AddBatch(ctx context.Context, ids []uint64, vector [][]float32) error
+	// AddBatchFromDisk is used to index vectors by loading them from disk or cache.
+	AddBatchFromDisk(ctx context.Context, ids []uint64) error
 	Delete(id ...uint64) error
 	SearchByVector(ctx context.Context, vector []float32, k int, allow helpers.AllowList) ([]uint64, []float32, error)
 	SearchByVectorDistance(ctx context.Context, vector []float32, dist float32,
@@ -53,7 +55,7 @@ type VectorIndex interface {
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	Stats() (common.IndexStats, error)
 	// PreloadCache is used to preload the cache of the index with the given id and vector.
-	// This is used by async indexing to avoid the need to load the vector from the storage
-	// layer when the vector is already in memory.
+	// This is used by async indexing to avoid the need to load the vector from disk
+	// when the vector is already in memory.
 	PreloadCache(id uint64, vec []float32)
 }
