@@ -223,6 +223,18 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	// ideally, these calls would be encapsulated in ParseClass but ParseClass is
+	// used in many different areas of the codebase that may cause BC issues with the
+	// new validation logic. Issue ref: gh-5860
+	// As our testing becomes more comprehensive, we can move these calls into ParseClass
+	if err := h.parser.parseModuleConfig(updated); err != nil {
+		return fmt.Errorf("parse module config: %w", err)
+	}
+
+	if err := h.parser.parseVectorConfig(updated); err != nil {
+		return fmt.Errorf("parse vector config: %w", err)
+	}
+
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
 	}
