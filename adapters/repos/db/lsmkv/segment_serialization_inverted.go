@@ -245,6 +245,21 @@ func convertFromBlock(encodedBlock *terms.BlockData, blockSize int) []*terms.Doc
 	return out
 }
 
+func convertFixedLengthFromMemory(data []byte, blockSize int) []*terms.DocPointerWithScore {
+	values := make([]*terms.DocPointerWithScore, blockSize)
+	offset := 8
+	i := 0
+	for offset < len(data) {
+		values[i] = &terms.DocPointerWithScore{
+			Id:         binary.BigEndian.Uint64(data[offset : offset+8]),
+			Frequency:  math.Float32frombits(binary.LittleEndian.Uint32(data[offset+8 : offset+12])),
+			PropLength: math.Float32frombits(binary.LittleEndian.Uint32(data[offset+12 : offset+16])),
+		}
+		offset += 16
+	}
+	return values
+}
+
 // a single node of strategy "inverted"
 type segmentInvertedNode struct {
 	values     []MapPair

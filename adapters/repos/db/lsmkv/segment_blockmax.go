@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"math"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
@@ -59,23 +60,31 @@ func (s *segment) getDocCount(key []byte) uint64 {
 	return binary.LittleEndian.Uint64(buffer)
 }
 
-func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, error) {
+func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, []*terms.DocPointerWithScore, error) {
 	// read first 8 bytes to get
-	buf := make([]byte, 16)
-	r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + 16})
+	buf := make([]byte, 8+16*terms.ENCODE_AS_FULL_BYTES)
+	r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+16*terms.ENCODE_AS_FULL_BYTES)})
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	_, err = r.Read(buf)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	docCount := binary.LittleEndian.Uint64(buf)
 
 	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
-		return nil, docCount, nil
+		data := convertFixedLengthFromMemory(buf, int(docCount))
+		entries := make([]*terms.BlockEntry, 1)
+		entries[0] = &terms.BlockEntry{
+			Offset:    0,
+			MaxId:     data[len(data)-1].Id,
+			MaxImpact: 0,
+		}
+
+		return entries, docCount, data, nil
 	}
 
 	blockCount := (docCount + uint64(terms.BLOCK_SIZE-1)) / uint64(terms.BLOCK_SIZE)
@@ -83,23 +92,23 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	entries := make([]*terms.BlockEntry, blockCount)
 	r, err = s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)})
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	buf = make([]byte, blockCount*20)
 	_, err = r.Read(buf)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, nil, err
 	}
 
 	for i := 0; i < int(blockCount); i++ {
 		entries[i] = terms.DecodeBlockEntry(buf[i*20 : (i+1)*20])
 	}
 
-	return entries, docCount, nil
+	return entries, docCount, nil, nil
 }
 
-func (s *segment) loadBlockData(blockEntry *terms.BlockEntry, blockSize int, offsetStart, offsetEnd uint64) ([]*terms.DocPointerWithScore, error) {
+func (s *segment) loadBlockData(blockSize int, offsetStart, offsetEnd uint64) ([]*terms.DocPointerWithScore, error) {
 	// read first 8 bytes to get
 	buf := make([]byte, offsetEnd-offsetStart)
 	r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
@@ -157,20 +166,17 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64)
 
 func (s *SegmentBlockMax) reset() error {
 	var err error
-	s.blockEntries, s.docCount, err = s.segment.loadBlockEntries(s.node)
+	s.blockData = nil
+
+	s.blockEntries, s.docCount, s.blockData, err = s.segment.loadBlockEntries(s.node)
 	if err != nil {
 		return err
 	}
 
 	s.blockEntryIdx = 0
-	s.blockData = nil
 	s.blockDataIdx = 0
 	s.blockDataStartOffset = s.node.Start + 16 + uint64(len(s.blockEntries)*20)
 	s.blockDataEndOffset = s.node.End - uint64(len(s.node.Key)+4)
-
-	if s.docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
-		s.exhausted = true
-	}
 
 	return nil
 }
@@ -187,6 +193,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 	}
 
 	if s.docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
+		s.idPointer = s.blockData[0].Id
 		return nil
 	}
 
@@ -199,7 +206,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		blockSize = int(s.docCount) - terms.BLOCK_SIZE*s.blockEntryIdx
 	}
 
-	s.blockData, err = s.segment.loadBlockData(s.blockEntries[s.blockEntryIdx], blockSize, startOffset, endOffset)
+	s.blockData, err = s.segment.loadBlockData(blockSize, startOffset, endOffset)
 	if err != nil {
 		return err
 	}
@@ -280,6 +287,11 @@ func (s *SegmentBlockMax) ScoreAndAdvance(averagePropLength float64, config sche
 		s.blockDataIdx = 0
 		s.blockEntryIdx++
 		s.decodeBlock()
+	}
+	if s.exhausted {
+		s.idPointer = math.MaxUint64
+	} else {
+		s.idPointer = s.blockData[s.blockDataIdx].Id
 	}
 
 	return id, tf * s.idf, terms.DocPointerWithScore{Id: pair.Id, Frequency: pair.Frequency, PropLength: pair.PropLength}
