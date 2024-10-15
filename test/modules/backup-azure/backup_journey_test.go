@@ -31,7 +31,7 @@ const (
 	envAzureStorageConnectionString = "AZURE_STORAGE_CONNECTION_STRING"
 	connectionString                = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 
-	azureBackupJourneyClassName          = "AzureBackup"
+	azureBackupJourneyClassName = "AzureBackup"
 )
 
 func Test_BackupJourney(t *testing.T) {
@@ -42,11 +42,9 @@ func Test_BackupJourney(t *testing.T) {
 	t.Run("with override bucket and path", func(t *testing.T) {
 		BackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 	})
-
 }
 
 func BackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-
 	azureBackupJourneyContainerName := containerName
 	azureBackupJourneyBackupIDCluster := "azure-backup-cluster"
 	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node"
@@ -108,5 +106,4 @@ func BackupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 
 		require.Nil(t, compose.Terminate(ctx))
 	})
-
 }

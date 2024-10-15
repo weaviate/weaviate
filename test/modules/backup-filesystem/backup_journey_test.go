@@ -47,7 +47,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-filesystem", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, false,"","")
+				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, false, "", "")
 		})
 	})
 
@@ -67,7 +67,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-filesystem", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, true  , "testbucketoverride", "testBucketPathOverride")
+				"filesystem", fsBackupJourneyClassName, fsBackupJourneyBackupIDSingleNode, nil, true, "testbucketoverride", "testBucketPathOverride")
 		})
 	})
 
@@ -87,7 +87,7 @@ func Test_BackupJourney(t *testing.T) {
 
 		t.Run("backup-filesystem", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "filesystem",
-				fsBackupJourneyClassName, fsBackupJourneyBackupIDCluster, nil,true  , "testbucketoverride", "testBucketPathOverride",
+				fsBackupJourneyClassName, fsBackupJourneyBackupIDCluster, nil, true, "testbucketoverride", "testBucketPathOverride",
 				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 		})
 	})

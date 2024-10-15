@@ -34,11 +34,9 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 	t.Run("with override bucket and path", func(t *testing.T) {
 		MultiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 	})
-
 }
 
 func MultiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-
 	gcsBackupJourneyBucketName := containerName
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
@@ -72,10 +70,9 @@ func MultiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDSingleNode, tenantNames, false,"","")
+				gcsBackupJourneyBackupIDSingleNode, tenantNames, false, "", "")
 		})
 	})
-
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")

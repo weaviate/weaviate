@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 )
 
-func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,  namedVectors , override bool, overrideName, overridePath string) {
+func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string, namedVectors, override bool, overrideName, overridePath string) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -114,8 +114,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 					CPUPercentage:    80,
 					ChunkSize:        512,
 					CompressionLevel: models.BackupConfigCompressionLevelDefaultCompression,
-					S3Bucket: overrideName,
-					S3Path: overridePath,
+					S3Bucket:         overrideName,
+					S3Path:           overridePath,
 				},
 			})
 		resp, err := helper.Client(t).Backups.BackupsCreate(params, nil)
@@ -181,8 +181,8 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 	t.Run("invalid restore request", func(t *testing.T) {
 		resp, err := helper.RestoreBackup(t, &models.RestoreConfig{
 			CPUPercentage: 180,
-			S3Bucket: 	overrideName,
-			S3Path: 	overridePath,
+			S3Bucket:      overrideName,
+			S3Path:        overridePath,
 		}, booksClass.Class, backend, backupID, map[string]string{})
 
 		helper.AssertRequestFail(t, resp, err, func() {

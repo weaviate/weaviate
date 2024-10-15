@@ -50,10 +50,9 @@ func Test_MultiTenantBackup(t *testing.T) {
 
 			journey.BackupJourneyTests_SingleNode(t,
 				compose.GetWeaviate().URI(), "filesystem", fsBackupJourneyClassName,
-				fsBackupJourneyBackupIDSingleNode, tenantNames, false,"","")
+				fsBackupJourneyBackupIDSingleNode, tenantNames, false, "", "")
 		})
 	})
-
 
 	t.Run("single node", func(t *testing.T) {
 		compose, err := docker.New().

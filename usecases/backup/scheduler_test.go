@@ -335,7 +335,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 			Classes: req1.Include,
 			ID:      backupID,
 			Status:  &status1,
-			Path:  path,
+			Path:    path,
 		}
 		assert.Equal(t, resp1, want1)
 		resp2, err := m.Backup(ctx, nil, &req1)
@@ -406,7 +406,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 			Classes: req.Include,
 			ID:      backupID,
 			Status:  &status1,
-			Path:  path,
+			Path:    path,
 		}
 		assert.Equal(t, resp, want1)
 

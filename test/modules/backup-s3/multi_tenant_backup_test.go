@@ -26,7 +26,6 @@ import (
 const numTenants = 50
 
 func Test_MultiTenantBackupJourney(t *testing.T) {
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 
@@ -74,7 +73,6 @@ func MultiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 				"s3", s3BackupJourneyClassName, s3BackupJourneyBackupIDSingleNode, tenantNames, override, overrideBucket, overridePath)
 		})
 	})
-
 
 	t.Run("multiple node", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)

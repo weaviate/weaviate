@@ -47,19 +47,19 @@ type BackupsCreateStatusParams struct {
 	  In: path
 	*/
 	Backend string
+	/*The name of the S3 bucket
+	  In: query
+	*/
+	Bucket *string
 	/*The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	  Required: true
 	  In: path
 	*/
 	ID string
-	/*The name of the S3 bucket
-	  In: query
-	*/
-	S3bucket *string
 	/*The path within the S3 bucket
 	  In: query
 	*/
-	S3path *string
+	Path *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -78,18 +78,18 @@ func (o *BackupsCreateStatusParams) BindRequest(r *http.Request, route *middlewa
 		res = append(res, err)
 	}
 
+	qBucket, qhkBucket, _ := qs.GetOK("bucket")
+	if err := o.bindBucket(qBucket, qhkBucket, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
-	qS3bucket, qhkS3bucket, _ := qs.GetOK("s3bucket")
-	if err := o.bindS3bucket(qS3bucket, qhkS3bucket, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	qS3path, qhkS3path, _ := qs.GetOK("s3path")
-	if err := o.bindS3path(qS3path, qhkS3path, route.Formats); err != nil {
+	qPath, qhkPath, _ := qs.GetOK("path")
+	if err := o.bindPath(qPath, qhkPath, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -112,6 +112,24 @@ func (o *BackupsCreateStatusParams) bindBackend(rawData []string, hasKey bool, f
 	return nil
 }
 
+// bindBucket binds and validates parameter Bucket from query.
+func (o *BackupsCreateStatusParams) bindBucket(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.Bucket = &raw
+
+	return nil
+}
+
 // bindID binds and validates parameter ID from path.
 func (o *BackupsCreateStatusParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
@@ -126,8 +144,8 @@ func (o *BackupsCreateStatusParams) bindID(rawData []string, hasKey bool, format
 	return nil
 }
 
-// bindS3bucket binds and validates parameter S3bucket from query.
-func (o *BackupsCreateStatusParams) bindS3bucket(rawData []string, hasKey bool, formats strfmt.Registry) error {
+// bindPath binds and validates parameter Path from query.
+func (o *BackupsCreateStatusParams) bindPath(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -139,25 +157,7 @@ func (o *BackupsCreateStatusParams) bindS3bucket(rawData []string, hasKey bool, 
 	if raw == "" { // empty values pass all other validations
 		return nil
 	}
-	o.S3bucket = &raw
-
-	return nil
-}
-
-// bindS3path binds and validates parameter S3path from query.
-func (o *BackupsCreateStatusParams) bindS3path(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: false
-	// AllowEmptyValue: false
-
-	if raw == "" { // empty values pass all other validations
-		return nil
-	}
-	o.S3path = &raw
+	o.Path = &raw
 
 	return nil
 }

@@ -132,11 +132,11 @@ func moduleLevelStoreBackupMeta(t *testing.T) {
 
 			dest := gcs.HomeDir(backupID, override[0], override[1])
 			if override[1] == "" {
-			expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
-			assert.Equal(t, expected, dest)
+				expected := fmt.Sprintf("gs://%s/%s", bucketName, backupID)
+				assert.Equal(t, expected, dest)
 			} else {
-			expected := fmt.Sprintf("gs://%s/%s/%s", bucketName, override[1], backupID)
-			assert.Equal(t, expected, dest)
+				expected := fmt.Sprintf("gs://%s/%s/%s", bucketName, override[1], backupID)
+				assert.Equal(t, expected, dest)
 			}
 		})
 

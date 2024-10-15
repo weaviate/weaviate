@@ -233,7 +233,6 @@ func moduleLevelCopyFiles(t *testing.T) {
 			assert.Equal(t, dataDir, azure.SourceDataPath())
 		})
 
-
 		t.Run("copy file to backend", func(t *testing.T) {
 			err = azure.PutObject(testCtx, backupID, key, override[0], override[1], expectedContents)
 			require.Nil(t, err)

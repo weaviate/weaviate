@@ -50,7 +50,6 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 	tenantNames []string, pqEnabled bool, nodeMapping map[string]string,
 	override bool, overrideBucket, overridePath string,
 ) {
-
 	overrideString := ""
 
 	if override {
@@ -131,8 +130,8 @@ func backupJourney(t *testing.T, className, backend, backupID string,
 		cfg := helper.DefaultRestoreConfig()
 
 		if override {
-		cfg.S3Bucket = overrideBucket
-		cfg.S3Path = overridePath
+			cfg.S3Bucket = overrideBucket
+			cfg.S3Path = overridePath
 		}
 
 		fmt.Printf("cfg: %+v, className: %s, backend: %s, backupID: %s, nodeMapping: %+v\n", cfg, className, backend, backupID, nodeMapping)

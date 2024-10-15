@@ -33,16 +33,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-
 func Test_S3Backend_Start(t *testing.T) {
-
 	S3Backend_Backup(t, false, "backups", "", "")
 
 	S3Backend_Backup(t, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 }
 
 func S3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket, overridePath string) {
-
 	bucketName := containerName
 
 	ctx := context.Background()
@@ -71,9 +68,8 @@ func S3Backend_Backup(t *testing.T, override bool, containerName, overrideBucket
 		moduleLevelCopyObjects(t, override, containerName, overrideBucket, overridePath)
 	})
 	t.Run("copy files", func(t *testing.T) {
-			 moduleLevelCopyFiles(t, override, containerName, overrideBucket, overridePath)
+		moduleLevelCopyFiles(t, override, containerName, overrideBucket, overridePath)
 	})
-
 
 	if err := compose.Terminate(ctx); err != nil {
 		t.Fatal(errors.Wrapf(err, "failed to terminate test containers"))
@@ -85,7 +81,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 	defer cancel()
 
 	bucketName := containerName
-	
+
 	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
@@ -136,7 +132,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 
 			dest := s3.HomeDir(backupID, overrideBucket, overridePath)
 			if overridePath != "" {
-				expected := fmt.Sprintf("s3://%s/%s/%s",overrideBucket, overridePath, backupID)
+				expected := fmt.Sprintf("s3://%s/%s/%s", overrideBucket, overridePath, backupID)
 				assert.Equal(t, expected, dest)
 			} else {
 				expected := fmt.Sprintf("s3://%s/%s", bucketName, backupID)
@@ -185,7 +181,7 @@ func moduleLevelCopyObjects(t *testing.T, override bool, containerName, override
 
 		t.Run("put object to bucket", func(t *testing.T) {
 			t.Logf("put object with override: %v", override)
-			err := s3.PutObject(testCtx, backupID, key, overrideBucket, overridePath,[]byte("hello"))
+			err := s3.PutObject(testCtx, backupID, key, overrideBucket, overridePath, []byte("hello"))
 			assert.Nil(t, err, "expected nil, got: %v", err)
 		})
 
@@ -226,7 +222,7 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 		})
 
 		t.Run("copy file to backend", func(t *testing.T) {
-			err := s3.PutObject(testCtx, backupID, key,overrideBucket,overridePath, expectedContents)
+			err := s3.PutObject(testCtx, backupID, key, overrideBucket, overridePath, expectedContents)
 			require.Nil(t, err)
 
 			contents, err := s3.GetObject(testCtx, backupID, key, overrideBucket, overridePath)

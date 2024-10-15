@@ -187,7 +187,7 @@ func (a *azureClient) Initialize(ctx context.Context, backupID, bucketName, buck
 
 	objectName := a.makeObjectName(bucketPath, []string{backupID, key})
 	if _, err := a.client.DeleteBlob(ctx, containerName, objectName, nil); err != nil {
-		return errors.Wrap(err, "failed to remove access-check Azure backup module at" + objectName)
+		return errors.Wrap(err, "failed to remove access-check Azure backup module at"+objectName)
 	}
 
 	return nil

@@ -34,13 +34,11 @@ func Test_MultiTenantBackupJourney(t *testing.T) {
 
 	MultiTenantBackupJourneyStart(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
-	MultiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+		MultiTenantBackupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 	})
-
 }
 
 func MultiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-
 	azureBackupJourneyContainerName := containerName
 	azureBackupJourneyBackupIDCluster := "azure-backup-cluster-multi-tenant"
 	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node-multi-tenant"
@@ -48,7 +46,6 @@ func MultiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		azureBackupJourneyBackupIDCluster = "azure-backup-cluster-multi-tenant-override"
 		azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node-multi-tenant-override"
 	}
-
 
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {

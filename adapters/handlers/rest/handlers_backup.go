@@ -172,7 +172,7 @@ func (s *backupHandlers) createBackupStatus(params backups.BackupsCreateStatusPa
 	}
 	s.metricRequestsTotal.logOk("")
 	str := fmt.Sprintf("%+v", payload)
-	fmt.Println(str) //FIXME s
+	fmt.Println(str) // FIXME s
 	return backups.NewBackupsCreateStatusOK().WithPayload(&payload)
 }
 
@@ -192,8 +192,8 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 		Exclude:     params.Body.Exclude,
 		NodeMapping: params.Body.NodeMapping,
 		Compression: compressionFromRCfg(params.Body.Config),
-		S3Bucket:   bucket,
-		S3Path:     path,
+		S3Bucket:    bucket,
+		S3Path:      path,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

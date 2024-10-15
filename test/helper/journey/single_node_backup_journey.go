@@ -59,7 +59,7 @@ func singleNodeBackupOverrideJourneyTest(t *testing.T,
 
 	t.Run("single node backup", func(t *testing.T) {
 		backupJourney(t, className, backend, backupID, singleNodeJourney,
-			checkClassAndDataPresence, tenantNames, pqEnabled, map[string]string{}, true  , "testbucketoverride", "testBucketPathOverride")
+			checkClassAndDataPresence, tenantNames, pqEnabled, map[string]string{}, true, "testbucketoverride", "testBucketPathOverride")
 	})
 
 	t.Run("cleanup", func(t *testing.T) {
@@ -90,15 +90,13 @@ func singleNodeBackupEmptyClassOverrideJourneyTest(t *testing.T,
 
 	t.Run("single node backup", func(t *testing.T) {
 		backupJourney(t, className, backend, backupID,
-			singleNodeJourney, checkClassPresenceOnly, tenantNames, false, map[string]string{}, false,"", "")
+			singleNodeJourney, checkClassPresenceOnly, tenantNames, false, map[string]string{}, false, "", "")
 	})
 
 	t.Run("single node backup", func(t *testing.T) {
 		backupJourney(t, className, backend, backupID,
-			singleNodeJourney, checkClassPresenceOnly, tenantNames, false, map[string]string{}, true  , "testbucketoverride", "testBucketPathOverride")
+			singleNodeJourney, checkClassPresenceOnly, tenantNames, false, map[string]string{}, true, "testbucketoverride", "testBucketPathOverride")
 	})
-
-
 
 	t.Run("cleanup", func(t *testing.T) {
 		helper.DeleteClass(t, className)

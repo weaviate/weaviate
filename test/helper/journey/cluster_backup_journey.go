@@ -21,7 +21,7 @@ import (
 )
 
 func clusterBackupJourneyTest(t *testing.T, backend, className,
-	backupID, coordinatorEndpoint string, tenantNames []string, pqEnabled bool,  override bool, overrideBucket, overrideLocation string,
+	backupID, coordinatorEndpoint string, tenantNames []string, pqEnabled bool, override bool, overrideBucket, overrideLocation string,
 	nodeEndpoints ...string,
 ) {
 	uploaderEndpoint := nodeEndpoints[rand.Intn(len(nodeEndpoints))]
@@ -75,7 +75,7 @@ func clusterBackupJourneyTest(t *testing.T, backend, className,
 }
 
 func clusterBackupEmptyClassJourneyTest(t *testing.T, backend, className, backupID,
-	coordinatorEndpoint string, tenantNames []string, override bool, overrideBucket, overridePath string,nodeEndpoints ...string,
+	coordinatorEndpoint string, tenantNames []string, override bool, overrideBucket, overridePath string, nodeEndpoints ...string,
 ) {
 	uploaderEndpoint := nodeEndpoints[rand.Intn(len(nodeEndpoints))]
 	helper.SetupClient(uploaderEndpoint)
@@ -112,7 +112,7 @@ func clusterBackupEmptyClassJourneyTest(t *testing.T, backend, className, backup
 	})
 }
 
-func clusterNodeMappingBackupJourneyTest(t *testing.T, backend, className, backupID, coordinatorEndpoint string, override bool, overrideBucket, overridePath string,nodeEndpoints ...string) {
+func clusterNodeMappingBackupJourneyTest(t *testing.T, backend, className, backupID, coordinatorEndpoint string, override bool, overrideBucket, overridePath string, nodeEndpoints ...string) {
 	uploaderEndpoint := nodeEndpoints[rand.Intn(len(nodeEndpoints))]
 	helper.SetupClient(uploaderEndpoint)
 

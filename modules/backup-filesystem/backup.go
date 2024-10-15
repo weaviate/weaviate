@@ -141,7 +141,6 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucke
 		objectPath = filepath.Join(m.backupsPath, backupID, key)
 	}
 
-
 	fmt.Printf("WriteToFile: Copying file from %s to %s\n", objectPath, destPath)
 	bytesWritten, err := m.copyFile(objectPath, destPath)
 	if err != nil {
