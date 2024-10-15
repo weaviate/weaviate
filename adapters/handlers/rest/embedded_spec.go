@@ -366,13 +366,13 @@ func init() {
           {
             "type": "string",
             "description": "The name of the bucket",
-            "name": "s3bucket",
+            "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
             "description": "The path within the bucket",
-            "name": "s3path",
+            "name": "path",
             "in": "query"
           }
         ],
@@ -432,13 +432,13 @@ func init() {
           {
             "type": "string",
             "description": "The name of the bucket",
-            "name": "s3bucket",
+            "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
             "description": "The path within the bucket",
-            "name": "s3path",
+            "name": "path",
             "in": "query"
           }
         ],
@@ -5863,13 +5863,13 @@ func init() {
           {
             "type": "string",
             "description": "The name of the bucket",
-            "name": "s3bucket",
+            "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
             "description": "The path within the bucket",
-            "name": "s3path",
+            "name": "path",
             "in": "query"
           }
         ],
@@ -5929,13 +5929,13 @@ func init() {
           {
             "type": "string",
             "description": "The name of the bucket",
-            "name": "s3bucket",
+            "name": "bucket",
             "in": "query"
           },
           {
             "type": "string",
             "description": "The path within the bucket",
-            "name": "s3path",
+            "name": "path",
             "in": "query"
           }
         ],
