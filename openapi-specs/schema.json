@@ -947,11 +947,11 @@
           "type": "string",
           "description": "S3 endpoint, e.g. s3.amazonaws.com"
         },
-        "S3Bucket": {
+        "Bucket": {
           "type": "string",
           "description": "Name of the S3 bucket"
         },
-        "S3Path": {
+        "Path": {
           "type": "string",
           "description": "Path within the bucket"
         },
@@ -992,11 +992,11 @@
           "type": "string",
           "description": "S3 endpoint, e.g. s3.amazonaws.com"
         },
-        "S3Bucket": {
+        "Bucket": {
           "type": "string",
           "description": "Name of the S3 bucket"
         },
-        "S3Path": {
+        "Path": {
           "type": "string",
           "description": "Path within the bucket"
         },
