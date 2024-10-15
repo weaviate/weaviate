@@ -1,6 +1,6 @@
 import pytest
 import time
-import torch
+import numpy as np
 
 from .conftest import CollectionFactory
 from weaviate.classes.config import Configure, Reconfigure
@@ -47,4 +47,4 @@ def test_pq_dims_match(collection_factory: CollectionFactory):
 
 
 def generate_vec(dims):
-    return torch.rand(1, dims).tolist()[0]
+    return np.random.random(dims).tolist()
