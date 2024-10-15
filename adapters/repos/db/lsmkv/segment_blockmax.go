@@ -127,13 +127,32 @@ func (s *segment) loadBlockData(blockSize int, offsetStart, offsetEnd uint64) ([
 	return results, nil
 }
 
+func (s *segment) loadBlockDataReusable(blockSize int, offsetStart, offsetEnd uint64, buf []byte, documents []*terms.DocPointerWithScore) error {
+	r, err := s.newNodeReader(nodeOffset{offsetStart, offsetEnd})
+	if err != nil {
+		return err
+	}
+
+	_, err = r.Read(buf)
+	if err != nil {
+		return err
+	}
+
+	blockData := terms.DecodeBlockData(buf[:offsetEnd-offsetStart])
+	convertFromBlockReusable(blockData, blockSize, documents)
+
+	return nil
+}
+
 type SegmentBlockMax struct {
 	segment              *segment
 	node                 segmentindex.Node
 	docCount             uint64
 	blockEntries         []*terms.BlockEntry
 	blockEntryIdx        int
+	blockDataBuffer      []byte
 	blockData            []*terms.DocPointerWithScore
+	blockDataSize        int
 	blockDataIdx         int
 	blockDataStartOffset uint64
 	blockDataEndOffset   uint64
@@ -166,11 +185,19 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64)
 
 func (s *SegmentBlockMax) reset() error {
 	var err error
-	s.blockData = nil
 
 	s.blockEntries, s.docCount, s.blockData, err = s.segment.loadBlockEntries(s.node)
 	if err != nil {
 		return err
+	}
+
+	if s.blockData == nil {
+		s.blockData = make([]*terms.DocPointerWithScore, terms.BLOCK_SIZE)
+		for i := range s.blockData {
+			s.blockData[i] = &terms.DocPointerWithScore{}
+		}
+		s.blockDataBuffer = make([]byte, terms.BLOCK_SIZE*8+terms.BLOCK_SIZE*4+terms.BLOCK_SIZE*4)
+	} else {
 	}
 
 	s.blockEntryIdx = 0
@@ -194,19 +221,20 @@ func (s *SegmentBlockMax) decodeBlock() error {
 
 	if s.docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
 		s.idPointer = s.blockData[0].Id
+		s.blockDataSize = int(s.docCount)
 		return nil
 	}
 
 	startOffset := s.blockEntries[s.blockEntryIdx].Offset + s.blockDataStartOffset
 	endOffset := s.blockDataEndOffset
-	blockSize := terms.BLOCK_SIZE
+	s.blockDataSize = terms.BLOCK_SIZE
 	if s.blockEntryIdx < len(s.blockEntries)-1 {
 		endOffset = s.blockEntries[s.blockEntryIdx+1].Offset + s.blockDataStartOffset
 	} else {
-		blockSize = int(s.docCount) - terms.BLOCK_SIZE*s.blockEntryIdx
+		s.blockDataSize = int(s.docCount) - terms.BLOCK_SIZE*s.blockEntryIdx
 	}
 
-	s.blockData, err = s.segment.loadBlockData(blockSize, startOffset, endOffset)
+	err = s.segment.loadBlockDataReusable(s.blockDataSize, startOffset, endOffset, s.blockDataBuffer, s.blockData)
 	if err != nil {
 		return err
 	}
@@ -241,7 +269,7 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.decodeBlock()
 	}
 
-	for docId > s.idPointer && s.blockDataIdx < len(s.blockData)-1 {
+	for docId > s.idPointer && s.blockDataIdx < s.blockDataSize-1 {
 		s.blockDataIdx++
 		s.idPointer = s.blockData[s.blockDataIdx].Id
 	}
@@ -283,7 +311,7 @@ func (s *SegmentBlockMax) ScoreAndAdvance(averagePropLength float64, config sche
 	tf := freq / (freq + config.K1*(1-config.B+config.B*float64(pair.PropLength)/averagePropLength))
 
 	s.blockDataIdx++
-	if s.blockDataIdx >= len(s.blockData) {
+	if s.blockDataIdx >= s.blockDataSize {
 		s.blockDataIdx = 0
 		s.blockEntryIdx++
 		s.decodeBlock()

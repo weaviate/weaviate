@@ -245,6 +245,16 @@ func convertFromBlock(encodedBlock *terms.BlockData, blockSize int) []*terms.Doc
 	return out
 }
 
+func convertFromBlockReusable(encodedBlock *terms.BlockData, blockSize int, out []*terms.DocPointerWithScore) {
+	docIds, tfs, propLengths := packedDecode(encodedBlock, blockSize)
+
+	for j := 0; j < blockSize; j++ {
+		out[j].Id = docIds[j]
+		out[j].Frequency = float32(tfs[j])
+		out[j].PropLength = float32(propLengths[j])
+	}
+}
+
 func convertFixedLengthFromMemory(data []byte, blockSize int) []*terms.DocPointerWithScore {
 	values := make([]*terms.DocPointerWithScore, blockSize)
 	offset := 8
