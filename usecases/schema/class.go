@@ -220,6 +220,22 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	if err := h.parser.ParseClass(updated); err != nil {
+		return err
+	}
+
+	// ideally, these calls would be encapsulated in ParseClass but ParseClass is
+	// used in many different areas of the codebase that may cause BC issues with the
+	// new validation logic. Issue ref: gh-5860
+	// As our testing becomes more comprehensive, we can move these calls into ParseClass
+	if err := h.parser.parseModuleConfig(updated); err != nil {
+		return fmt.Errorf("parse module config: %w", err)
+	}
+
+	if err := h.parser.parseVectorConfig(updated); err != nil {
+		return fmt.Errorf("parse vector config: %w", err)
+	}
+
 	if err := h.validateVectorSettings(updated); err != nil {
 		return err
 	}
@@ -806,7 +822,16 @@ func validateImmutableFields(initial, updated *models.Class) error {
 	}
 
 	if !reflect.DeepEqual(initial.ModuleConfig, updated.ModuleConfig) {
-		return errors.Errorf("module config is immutable")
+		return fmt.Errorf("module config is immutable")
+	}
+
+	for k, v := range updated.VectorConfig {
+		if _, ok := initial.VectorConfig[k]; !ok {
+			return fmt.Errorf("vector config is immutable")
+		}
+		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
+		}
 	}
 
 	return nil
