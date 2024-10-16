@@ -1067,6 +1067,7 @@ const (
 type VectorIndexQueue struct {
 	*queue.Queue
 
+	shard     *Shard
 	scheduler *queue.Scheduler
 	metrics   *IndexQueueMetrics
 	// tracks the dimensions of the vectors in the queue
@@ -1089,6 +1090,7 @@ func NewVectorIndexQueue(
 ) (*VectorIndexQueue, error) {
 	viq := VectorIndexQueue{
 		scheduler: s,
+		shard:     shard,
 	}
 	viq.index.i = index
 
@@ -1101,7 +1103,7 @@ func NewVectorIndexQueue(
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to create vector index queue")
 	}
-	q.BeforeScheduleFn = viq.BeforeSchedule
+	q.BeforeScheduleFn = viq.beforeScheduleHook
 
 	q.Logger = q.Logger.
 		WithField("component", "vector_index_queue").
@@ -1170,7 +1172,39 @@ func (iq *VectorIndexQueue) Execute(ctx context.Context, op uint8, ids ...uint64
 	return errors.Errorf("unknown operation: %d", op)
 }
 
-func (iq *VectorIndexQueue) BeforeSchedule() {
+func (iq *VectorIndexQueue) beforeScheduleHook() (skip bool) {
+	skip = iq.updateShardStatus()
+	if skip {
+		return true
+	}
+
+	iq.checkCompressionSettings()
+
+	return false
+}
+
+// updates the shard status to 'indexing' if the queue is not empty
+// and the status is 'ready' otherwise.
+func (iq *VectorIndexQueue) updateShardStatus() bool {
+	iq.index.RLock()
+	defer iq.index.RUnlock()
+
+	if iq.Size() == 0 {
+		_, _ = iq.shard.compareAndSwapStatus(storagestate.StatusIndexing.String(), storagestate.StatusReady.String())
+		return false /* do not skip, let the scheduler decide what to do */
+	}
+
+	status, err := iq.shard.compareAndSwapStatus(storagestate.StatusReady.String(), storagestate.StatusIndexing.String())
+	if status != storagestate.StatusIndexing || err != nil {
+		iq.Logger.WithField("status", status).WithError(err).Warn("failed to set shard status to 'indexing', trying again in ", iq.scheduler.ScheduleInterval)
+		return true
+	}
+
+	return false
+}
+
+// triggers compression if the index is ready to be upgraded
+func (iq *VectorIndexQueue) checkCompressionSettings() {
 	iq.index.RLock()
 	defer iq.index.RUnlock()
 
