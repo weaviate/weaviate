@@ -239,12 +239,14 @@ func (s *Scheduler) schedule() {
 			continue
 		}
 
-		s.Logger.WithField("id", id).Debug("scheduling queue")
+		if q.q.Size() == 0 {
+			continue
+		}
+
 		err := s.dispatchQueue(q)
 		if err != nil {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
-
 	}
 }
 
@@ -256,7 +258,6 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 	// if there are no more chunks to read,
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
 	if f == nil && q.q.Size() > 0 {
-		s.Logger.Debug("no chunks to read, checking if partial chunk is stale")
 		f, path, err = s.checkIfStale(q)
 		if err != nil || f == nil {
 			return err
@@ -299,7 +300,11 @@ func (s *Scheduler) dispatchQueue(q *queueState) error {
 		return nil
 	}
 
-	// TODO: compress the tasks before sending them to the workers
+	// compress the tasks before sending them to the workers
+	// i.e. group consecutive tasks with the same operation as a single task
+	for i := range partitions {
+		partitions[i] = s.compressTasks(partitions[i])
+	}
 
 	// keep track of the number of active tasks
 	// for this chunk to remove it when all tasks are done
@@ -351,8 +356,6 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 			return nil, "", err
 		}
 
-		s.Logger.WithField("file", q.readFiles[q.cursor]).Debug("reading chunk file")
-
 		return f, q.readFiles[q.cursor], nil
 	}
 
@@ -387,8 +390,6 @@ func (s *Scheduler) readQueueChunk(q *queueState) (*os.File, string, error) {
 		return nil, "", err
 	}
 
-	s.Logger.WithField("file", q.readFiles[q.cursor]).Debug("reading chunk file")
-
 	return f, q.readFiles[q.cursor], nil
 }
 
@@ -420,6 +421,48 @@ func (s *Scheduler) logQueueStats(q *Queue, vectorsSent int64) {
 		WithField("queue_size", q.Size()).
 		WithField("vectors_sent", vectorsSent).
 		Debug("queue stats")
+}
+
+func (s *Scheduler) compressTasks(tasks []*Task) []*Task {
+	var cur uint8
+	var keys []uint64
+	var compressed []*Task
+
+	if len(tasks) == 0 {
+		return tasks
+	}
+
+	for i, t := range tasks {
+		if i == 0 {
+			cur = t.Op
+			keys = append(keys, t.DocIDs...)
+			continue
+		}
+
+		if t.Op == cur {
+			keys = append(keys, t.DocIDs...)
+			continue
+		}
+
+		compressed = append(compressed, &Task{
+			Op:       cur,
+			DocIDs:   keys,
+			executor: t.executor,
+		})
+
+		cur = t.Op
+		keys = append([]uint64{}, t.DocIDs...)
+	}
+
+	compressed = append(compressed, &Task{
+		Op:       cur,
+		DocIDs:   keys,
+		executor: tasks[0].executor,
+	})
+
+	s.Logger.WithField("original", len(tasks)).WithField("compressed", len(compressed)).Debug("tasks compressed")
+
+	return compressed
 }
 
 type queueState struct {
