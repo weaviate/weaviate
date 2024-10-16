@@ -24,15 +24,22 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func (m *Module) GetObject(ctx context.Context, backupID, key string) ([]byte, error) {
-	metaPath, err := m.getObjectPath(ctx, backupID, key)
+func (m *Module) GetObject(ctx context.Context, backupID, key, bucketName, bucketPath string) ([]byte, error) {
+	var metaPath string
+	var err error
+	if bucketPath != "" {
+		metaPath, err = m.getObjectPath(ctx, bucketPath, backupID, key)
+	} else {
+		metaPath, err = m.getObjectPath(ctx, m.backupsPath, backupID, key)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
 	contents, err := os.ReadFile(metaPath)
 	if err != nil {
-		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", metaPath))
+		return nil, backup.NewErrInternal(errors.Wrapf(err, "1 get object '%s'", metaPath))
 	}
 
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
@@ -43,37 +50,20 @@ func (m *Module) GetObject(ctx context.Context, backupID, key string) ([]byte, e
 	return contents, nil
 }
 
-func (m *Module) getObjectPath(ctx context.Context, backupID, key string) (string, error) {
-	metaPath := filepath.Join(m.backupsPath, backupID, key)
+func (m *Module) getObjectPath(ctx context.Context, path, backupID, key string) (string, error) {
+	metaPath := filepath.Join(path, backupID, key)
 
 	if err := ctx.Err(); err != nil {
-		return "", backup.NewErrContextExpired(errors.Wrapf(err, "get object '%s'", metaPath))
+		return "", backup.NewErrContextExpired(errors.Wrapf(err, "2 get object '%s'", metaPath))
 	}
 
 	if _, err := os.Stat(metaPath); errors.Is(err, os.ErrNotExist) {
-		return "", backup.NewErrNotFound(errors.Wrapf(err, "get object '%s'", metaPath))
+		return "", backup.NewErrNotFound(errors.Wrapf(err, "3 get object '%s'", metaPath))
 	} else if err != nil {
-		return "", backup.NewErrInternal(errors.Wrapf(err, "get object '%s'", metaPath))
+		return "", backup.NewErrInternal(errors.Wrapf(err, "4 get object '%s'", metaPath))
 	}
 
 	return metaPath, nil
-}
-
-func (m *Module) PutFile(ctx context.Context, backupID, key, srcPath string) error {
-	sourcePath := path.Join(m.dataPath, srcPath)
-	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
-
-	bytesWritten, err := m.copyFile(sourcePath, backupPath)
-	if err != nil {
-		return err
-	}
-
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(m.Name(), "class")
-	if err == nil {
-		metric.Add(float64(bytesWritten))
-	}
-
-	return nil
 }
 
 func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
@@ -107,15 +97,24 @@ func (m *Module) copyFile(sourcePath, destinationPath string) (int64, error) {
 	return written, nil
 }
 
-func (m *Module) PutObject(ctx context.Context, backupID, key string, byes []byte) error {
-	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
+func (m *Module) PutObject(ctx context.Context, backupID, key, bucket, bucketPath string, byes []byte) error {
+	if bucket != "" {
+		m.logger.Info("bucket parameter not supported for filesystem backup module!")
+	}
+
+	backupPath := path.Join(m.makeBackupDirPath(m.backupsPath, backupID), key)
+	if bucketPath != "" {
+		backupPath = path.Join(bucketPath, backupID, key)
+	}
 
 	dir := path.Dir(backupPath)
 
+	fmt.Printf("Making dir %s\n", dir)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "make dir '%s'", dir)
 	}
 
+	fmt.Printf("Writing file %s\n", backupPath)
 	if err := os.WriteFile(backupPath, byes, os.ModePerm); err != nil {
 		return errors.Wrapf(err, "write file '%s'", backupPath)
 	}
@@ -128,18 +127,22 @@ func (m *Module) PutObject(ctx context.Context, backupID, key string, byes []byt
 	return nil
 }
 
-func (m *Module) Initialize(ctx context.Context, backupID string) error {
+func (m *Module) Initialize(ctx context.Context, backupID, bucketName, bucketPath string) error {
 	// TODO: does anything need to be done here?
 	return nil
 }
 
-func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath string) error {
-	sourcePath, err := m.getObjectPath(ctx, backupID, key)
-	if err != nil {
-		return err
+func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath, bucketName, bucketPath string) error {
+	var objectPath string
+	var err error
+	if bucketPath != "" {
+		objectPath = filepath.Join(bucketPath, backupID, key)
+	} else {
+		objectPath = filepath.Join(m.backupsPath, backupID, key)
 	}
 
-	bytesWritten, err := m.copyFile(sourcePath, destPath)
+	fmt.Printf("WriteToFile: Copying file from %s to %s\n", objectPath, destPath)
+	bytesWritten, err := m.copyFile(objectPath, destPath)
 	if err != nil {
 		return err
 	}
@@ -152,9 +155,16 @@ func (m *Module) WriteToFile(ctx context.Context, backupID, key, destPath string
 	return nil
 }
 
-func (m *Module) Write(ctx context.Context, backupID, key string, r io.ReadCloser) (int64, error) {
+func (m *Module) Write(ctx context.Context, backupID, key, bucketName, bucketPath string, r io.ReadCloser) (int64, error) {
 	defer r.Close()
-	backupPath := path.Join(m.makeBackupDirPath(backupID), key)
+
+	var backupPath string
+	var err error
+	if bucketPath != "" {
+		backupPath = filepath.Join(bucketPath, backupID, key)
+	} else {
+		backupPath = filepath.Join(m.backupsPath, backupID, key)
+	}
 	dir := path.Dir(backupPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return 0, fmt.Errorf("make dir %q: %w", dir, err)
@@ -177,9 +187,9 @@ func (m *Module) Write(ctx context.Context, backupID, key string, r io.ReadClose
 	return written, err
 }
 
-func (m *Module) Read(ctx context.Context, backupID, key string, w io.WriteCloser) (int64, error) {
+func (m *Module) Read(ctx context.Context, backupID, key, bucketName, bucketPath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
-	sourcePath, err := m.getObjectPath(ctx, backupID, key)
+	sourcePath, err := m.getObjectPath(ctx, m.backupsPath, backupID, key)
 	if err != nil {
 		return 0, fmt.Errorf("source path %s/%s: %w", backupID, key, err)
 	}

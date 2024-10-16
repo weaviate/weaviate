@@ -217,6 +217,21 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BackupCreateRequest"
             }
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Access-Key",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Secret-Key",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Session-Token",
+            "in": "header"
           }
         ],
         "responses": {
@@ -274,6 +289,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the S3 bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the S3 bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -335,6 +362,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -389,6 +428,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -3189,6 +3240,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -3215,6 +3270,14 @@ func init() {
             "BestCompression"
           ],
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },
@@ -3253,6 +3316,10 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -3269,7 +3336,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "destination bucket and path of backup files",
           "type": "string"
         },
         "status": {
@@ -3445,7 +3512,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backup backend",
+          "description": "destination path of backup files proper to selected backup backend, contains bucket and path",
           "type": "string"
         },
         "status": {
@@ -4883,6 +4950,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -4890,6 +4961,14 @@ func init() {
           "maximum": 80,
           "minimum": 1,
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },
@@ -5638,6 +5717,21 @@ func init() {
             "schema": {
               "$ref": "#/definitions/BackupCreateRequest"
             }
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Access-Key",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Secret-Key",
+            "in": "header"
+          },
+          {
+            "type": "string",
+            "name": "X-Aws-Session-Token",
+            "in": "header"
           }
         ],
         "responses": {
@@ -5695,6 +5789,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the S3 bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the S3 bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5756,6 +5862,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -5810,6 +5928,18 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "description": "The name of the bucket",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The path within the bucket",
+            "name": "path",
+            "in": "query"
           }
         ],
         "responses": {
@@ -8732,6 +8862,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -8758,6 +8892,14 @@ func init() {
             "BestCompression"
           ],
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },
@@ -8796,6 +8938,10 @@ func init() {
           "description": "Backup backend name e.g. filesystem, gcs, s3.",
           "type": "string"
         },
+        "bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "classes": {
           "description": "The list of classes for which the backup creation process was started",
           "type": "array",
@@ -8812,7 +8958,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "destination bucket and path of backup files",
           "type": "string"
         },
         "status": {
@@ -8991,7 +9137,7 @@ func init() {
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backup backend",
+          "description": "destination path of backup files proper to selected backup backend, contains bucket and path",
           "type": "string"
         },
         "status": {
@@ -10606,6 +10752,10 @@ func init() {
       "description": "Backup custom configuration",
       "type": "object",
       "properties": {
+        "Bucket": {
+          "description": "Name of the S3 bucket",
+          "type": "string"
+        },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
           "type": "integer",
@@ -10613,6 +10763,14 @@ func init() {
           "maximum": 80,
           "minimum": 1,
           "x-nullable": false
+        },
+        "Endpoint": {
+          "description": "S3 endpoint, e.g. s3.amazonaws.com",
+          "type": "string"
+        },
+        "Path": {
+          "description": "Path within the bucket",
+          "type": "string"
         }
       }
     },

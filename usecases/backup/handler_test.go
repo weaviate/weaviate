@@ -33,10 +33,14 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 	}
 
 	classes := req.Include
-	if err := store.Initialize(ctx); err != nil {
+	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 		return nil, backup.NewErrUnprocessable(fmt.Errorf("init uploader: %w", err))
 	}
-	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes); err != nil {
+
+	bucketName := req.Bucket
+	bucketPath := req.Path
+
+	if meta, err := m.backupper.Backup(ctx, store, req.ID, classes, bucketName, bucketPath); err != nil {
 		return nil, err
 	} else {
 		status := string(meta.Status)
@@ -44,6 +48,7 @@ func (m *Handler) Backup(ctx context.Context, pr *models.Principal, req *BackupR
 			Classes: classes,
 			ID:      req.ID,
 			Backend: req.Backend,
+			Bucket:  req.Bucket,
 			Status:  &status,
 			Path:    meta.Path,
 		}, nil
@@ -82,7 +87,7 @@ func (m *Handler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-func (m *Handler) validateRestoreRequest(ctx context.Context, store nodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
+func (m *Handler) validateRestoreRequest(ctx context.Context, store NodeStore, req *BackupRequest) (*backup.BackupDescriptor, error) {
 	meta, cs, err := m.restorer.validate(ctx, &store, &Request{ID: req.ID, Classes: req.Include})
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
@@ -144,6 +149,8 @@ func TestHandlerValidateCoordinationOperation(t *testing.T) {
 			Classes:  []string{"class1"},
 			Backend:  "s3",
 			Duration: time.Millisecond * 20,
+			S3Bucket: "bucket", // FIXME
+			S3Path:   "path",   // FIXME
 		}
 		resp := bm.OnCanCommit(ctx, &req)
 		assert.Contains(t, resp.Err, "unknown backup operation")
