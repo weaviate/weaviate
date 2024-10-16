@@ -209,11 +209,14 @@ func (s *Scheduler) schedule() {
 	}
 	s.queues.Unlock()
 
-	s.runPreScheduleHooks(ids)
-
 	for _, id := range ids {
 		q := s.getQueue(id)
 		if q == nil {
+			continue
+		}
+
+		// run the before-schedule hook if it is implemented
+		if skip := q.q.BeforeSchedule(); skip {
 			continue
 		}
 
@@ -227,18 +230,6 @@ func (s *Scheduler) schedule() {
 			s.Logger.WithError(err).WithField("id", id).Error("failed to schedule queue")
 		}
 
-	}
-}
-
-func (s *Scheduler) runPreScheduleHooks(ids []string) {
-	for _, id := range ids {
-		q := s.getQueue(id)
-		if q == nil {
-			continue
-		}
-
-		// run the before-schedule hook if it is implemented
-		q.q.BeforeSchedule()
 	}
 }
 
