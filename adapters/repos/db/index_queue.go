@@ -1067,9 +1067,16 @@ const (
 type VectorIndexQueue struct {
 	*queue.Queue
 
-	index     VectorIndex
 	scheduler *queue.Scheduler
 	metrics   *IndexQueueMetrics
+
+	// prevents replacing the index while
+	// the queue is dequeuing vectors
+	index struct {
+		sync.RWMutex
+
+		i VectorIndex
+	}
 }
 
 func NewVectorIndexQueue(
@@ -1093,9 +1100,9 @@ func NewVectorIndexQueue(
 	}
 
 	viq := VectorIndexQueue{
-		index:     index,
 		scheduler: s,
 	}
+	viq.index.i = index
 
 	q, err := queue.New(s, qID, dir, &viq)
 	if err != nil {
@@ -1114,11 +1121,13 @@ func NewVectorIndexQueue(
 }
 
 func (iq *VectorIndexQueue) Insert(vectors ...vectorDescriptor) error {
+	iq.index.RLock()
 	ids := make([]uint64, len(vectors))
 	for i, v := range vectors {
-		iq.index.PreloadCache(v.id, v.vector)
+		iq.index.i.PreloadCache(v.id, v.vector)
 		ids[i] = v.id
 	}
+	iq.index.RUnlock()
 
 	return iq.Queue.Push(vectorIndexQueueInsertOp, ids...)
 }
@@ -1128,11 +1137,14 @@ func (iq *VectorIndexQueue) Delete(ids ...uint64) error {
 }
 
 func (iq *VectorIndexQueue) Execute(ctx context.Context, op uint8, ids ...uint64) error {
+	iq.index.RLock()
+	defer iq.index.RUnlock()
+
 	switch op {
 	case vectorIndexQueueInsertOp:
-		return iq.index.AddBatchFromDisk(ctx, ids)
+		return iq.index.i.AddBatchFromDisk(ctx, ids)
 	case vectorIndexQueueDeleteOp:
-		return iq.index.Delete(ids...)
+		return iq.index.i.Delete(ids...)
 	}
 
 	// TODO: deal with errors
@@ -1140,7 +1152,10 @@ func (iq *VectorIndexQueue) Execute(ctx context.Context, op uint8, ids ...uint64
 }
 
 func (iq *VectorIndexQueue) BeforeSchedule() {
-	ci, ok := iq.index.(upgradableIndexer)
+	iq.index.RLock()
+	defer iq.index.RUnlock()
+
+	ci, ok := iq.index.i.(upgradableIndexer)
 	if !ok {
 		return
 	}
@@ -1150,7 +1165,7 @@ func (iq *VectorIndexQueue) BeforeSchedule() {
 		return
 	}
 
-	if iq.index.AlreadyIndexed() > uint64(shouldUpgradeAt) {
+	if iq.index.i.AlreadyIndexed() > uint64(shouldUpgradeAt) {
 		iq.scheduler.PauseQueue(iq.Queue.ID())
 
 		err := ci.Upgrade(func() {
@@ -1165,5 +1180,7 @@ func (iq *VectorIndexQueue) BeforeSchedule() {
 }
 
 func (iq *VectorIndexQueue) ResetWith(vidx VectorIndex) {
-	iq.index = vidx
+	iq.index.Lock()
+	iq.index.i = vidx
+	iq.index.Unlock()
 }
